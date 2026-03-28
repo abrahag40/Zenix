@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common'
 import { CleaningStatus, HousekeepingRole, JwtPayload, TaskLogEvent } from '@housekeeping/shared'
 import { PrismaService } from '../prisma/prisma.service'
+import { TenantContextService } from '../common/tenant-context.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import { PushService } from '../notifications/push.service'
 import { CreateTaskDto, AssignTaskDto, QueryTaskDto } from './dto/create-task.dto'
@@ -20,20 +21,22 @@ const TASK_INCLUDE = {
 export class TasksService {
   constructor(
     private prisma: PrismaService,
+    private tenant: TenantContextService,
     private notifications: NotificationsService,
     private push: PushService,
   ) {}
 
   async create(dto: CreateTaskDto, actor: JwtPayload) {
+    const orgId = this.tenant.getOrganizationId()
     const bed = await this.prisma.bed.findUnique({
-      where: { id: dto.bedId },
+      where: { id: dto.bedId, organizationId: orgId },
       include: { room: { include: { property: true } } },
     })
     if (!bed) throw new NotFoundException('Bed not found')
 
     if (dto.assignedToId) {
       const staff = await this.prisma.housekeepingStaff.findUnique({
-        where: { id: dto.assignedToId },
+        where: { id: dto.assignedToId, organizationId: orgId },
       })
       if (!staff || !staff.active) throw new NotFoundException('Staff not found or inactive')
       if (dto.requiredCapability && !staff.capabilities.includes(dto.requiredCapability as any)) {
@@ -44,6 +47,7 @@ export class TasksService {
     return this.prisma.$transaction(async (tx) => {
       const task = await tx.cleaningTask.create({
         data: {
+          organizationId: orgId,
           bedId: dto.bedId,
           assignedToId: dto.assignedToId,
           taskType: dto.taskType ?? 'CLEANING',
@@ -69,7 +73,8 @@ export class TasksService {
   }
 
   findAll(query: QueryTaskDto, actor: JwtPayload) {
-    const where: any = { bed: { room: { propertyId: actor.propertyId } } }
+    const orgId = this.tenant.getOrganizationId()
+    const where: any = { organizationId: orgId, bed: { room: { propertyId: actor.propertyId } } }
 
     // Housekeepers only see their own tasks
     if (actor.role === HousekeepingRole.HOUSEKEEPER) {
@@ -95,8 +100,9 @@ export class TasksService {
   }
 
   async findOne(id: string) {
+    const orgId = this.tenant.getOrganizationId()
     const task = await this.prisma.cleaningTask.findUnique({
-      where: { id },
+      where: { id, organizationId: orgId },
       include: { ...TASK_INCLUDE, logs: { orderBy: { createdAt: 'asc' } }, notes: true, issues: true },
     })
     if (!task) throw new NotFoundException('Task not found')
@@ -104,8 +110,9 @@ export class TasksService {
   }
 
   async startTask(taskId: string, actor: JwtPayload) {
+    const orgId = this.tenant.getOrganizationId()
     const task = await this.prisma.cleaningTask.findUnique({
-      where: { id: taskId },
+      where: { id: taskId, organizationId: orgId },
       include: { bed: { include: { room: { include: { property: true } } } } },
     })
     if (!task) throw new NotFoundException('Task not found')
@@ -125,7 +132,7 @@ export class TasksService {
     // Prevent starting if housekeeper already has an IN_PROGRESS task
     if (actor.role === HousekeepingRole.HOUSEKEEPER) {
       const activeTask = await this.prisma.cleaningTask.findFirst({
-        where: { assignedToId: actor.sub, status: CleaningStatus.IN_PROGRESS },
+        where: { assignedToId: actor.sub, status: CleaningStatus.IN_PROGRESS, organizationId: orgId },
       })
       if (activeTask) {
         throw new ConflictException('You already have an active task in progress')
@@ -164,8 +171,9 @@ export class TasksService {
   }
 
   async endTask(taskId: string, actor: JwtPayload) {
+    const orgId = this.tenant.getOrganizationId()
     const task = await this.prisma.cleaningTask.findUnique({
-      where: { id: taskId },
+      where: { id: taskId, organizationId: orgId },
       include: {
         bed: { include: { room: { include: { property: true } } } },
         notes: true,
@@ -213,7 +221,10 @@ export class TasksService {
   }
 
   async pauseTask(taskId: string, actor: JwtPayload) {
-    const task = await this.prisma.cleaningTask.findUnique({ where: { id: taskId } })
+    const orgId = this.tenant.getOrganizationId()
+    const task = await this.prisma.cleaningTask.findUnique({
+      where: { id: taskId, organizationId: orgId },
+    })
     if (!task) throw new NotFoundException('Task not found')
     if (task.status !== CleaningStatus.IN_PROGRESS) {
       throw new ConflictException('Can only pause an in-progress task')
@@ -234,7 +245,10 @@ export class TasksService {
   }
 
   async resumeTask(taskId: string, actor: JwtPayload) {
-    const task = await this.prisma.cleaningTask.findUnique({ where: { id: taskId } })
+    const orgId = this.tenant.getOrganizationId()
+    const task = await this.prisma.cleaningTask.findUnique({
+      where: { id: taskId, organizationId: orgId },
+    })
     if (!task) throw new NotFoundException('Task not found')
     if (task.status !== CleaningStatus.PAUSED) {
       throw new ConflictException('Can only resume a paused task')
@@ -255,8 +269,9 @@ export class TasksService {
   }
 
   async verifyTask(taskId: string, actor: JwtPayload) {
+    const orgId = this.tenant.getOrganizationId()
     const task = await this.prisma.cleaningTask.findUnique({
-      where: { id: taskId },
+      where: { id: taskId, organizationId: orgId },
       include: { bed: { include: { room: { include: { property: true } } } } },
     })
     if (!task) throw new NotFoundException('Task not found')
@@ -276,14 +291,17 @@ export class TasksService {
   }
 
   async assignTask(taskId: string, dto: AssignTaskDto, actor: JwtPayload) {
-    const task = await this.prisma.cleaningTask.findUnique({ where: { id: taskId } })
+    const orgId = this.tenant.getOrganizationId()
+    const task = await this.prisma.cleaningTask.findUnique({
+      where: { id: taskId, organizationId: orgId },
+    })
     if (!task) throw new NotFoundException('Task not found')
     if ([CleaningStatus.DONE, CleaningStatus.VERIFIED, CleaningStatus.CANCELLED].includes(task.status as CleaningStatus)) {
       throw new ConflictException('Cannot assign a completed or cancelled task')
     }
 
     const staff = await this.prisma.housekeepingStaff.findUnique({
-      where: { id: dto.assignedToId },
+      where: { id: dto.assignedToId, organizationId: orgId },
     })
     if (!staff || !staff.active) throw new NotFoundException('Staff not found or inactive')
 

@@ -9,7 +9,7 @@ import {
   MaintenanceCategory,
   PmsMode,
   Priority,
-  RoomType,
+  RoomCategory,
   TaskLogEvent,
   TaskType,
 } from './enums'
@@ -21,6 +21,7 @@ export interface JwtPayload {
   email: string
   role: HousekeepingRole
   propertyId: string
+  organizationId: string
 }
 
 export interface AuthResponse {
@@ -54,7 +55,7 @@ export interface RoomDto {
   propertyId: string
   number: string
   floor: number | null
-  type: RoomType
+  category: RoomCategory
   capacity: number
   cloudbedsRoomId: string | null
   beds?: BedDto[]
@@ -163,7 +164,7 @@ export interface DailyPlanningCell {
 export interface DailyPlanningRow {
   roomId: string
   roomNumber: string
-  roomType: RoomType
+  roomCategory: RoomCategory
   floor: number | null
   beds: DailyPlanningCell[]
 }

@@ -27,6 +27,7 @@ export class AuthService {
       email: staff.email,
       role: staff.role as any,
       propertyId: staff.propertyId,
+      organizationId: staff.organizationId ?? '',
     }
 
     return {

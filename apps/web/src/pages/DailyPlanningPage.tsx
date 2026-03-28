@@ -27,7 +27,7 @@
  *   GET /events (SSE)                 →  actualizaciones en tiempo real
  */
 
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, type ReactNode } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import { format } from 'date-fns'
@@ -230,6 +230,20 @@ export function DailyPlanningPage() {
   } | null>(null)
 
   /**
+   * Set de roomIds colapsados. Vacío por default = todas las habitaciones abiertas.
+   * Usamos "collapsed" en lugar de "expanded" para evitar pre-popular el Set al cargar.
+   */
+  const [collapsedRooms, setCollapsedRooms] = useState<Set<string>>(new Set())
+  const toggleRoom = useCallback((roomId: string) => {
+    setCollapsedRooms((prev) => {
+      const next = new Set(prev)
+      if (next.has(roomId)) next.delete(roomId)
+      else next.add(roomId)
+      return next
+    })
+  }, [])
+
+  /**
    * Tab activo almacenado en URL, no en useState.
    *
    * Por qué URL y no useState/Redux:
@@ -330,10 +344,26 @@ export function DailyPlanningPage() {
     onError: () => toast.error('Error al confirmar la planificación'),
   })
 
+  const [cancelTarget, setCancelTarget] = useState<{
+    checkoutId: string
+    bedId: string
+    bedLabel: string
+    roomNumber: string
+  } | null>(null)
+
+  const [undoTarget, setUndoTarget] = useState<{
+    checkoutId: string
+    bedId: string
+    bedLabel: string
+    roomNumber: string
+  } | null>(null)
+
   const cancelMutation = useMutation({
-    mutationFn: (checkoutId: string) => api.patch(`/checkouts/${checkoutId}/cancel`),
+    mutationFn: ({ checkoutId, bedId }: { checkoutId: string; bedId: string }) =>
+      api.patch(`/checkouts/${checkoutId}/cancel`, { bedId }),
     onSuccess: () => {
       toast.success('Checkout cancelado — la cama vuelve a Disponible')
+      setCancelTarget(null)
       qc.invalidateQueries({ queryKey: ['daily-grid', TODAY] })
     },
     onError: () => toast.error('Error al cancelar'),
@@ -360,6 +390,22 @@ export function DailyPlanningPage() {
     },
   })
 
+  /**
+   * Revierte la confirmación de salida (Caso 2 — error humano).
+   * Solo disponible mientras la tarea esté READY/UNASSIGNED (antes de que
+   * housekeeping empiece a limpiar). La tarea vuelve a PENDING_DEPARTURE.
+   */
+  const undoMutation = useMutation({
+    mutationFn: ({ checkoutId, bedId }: { checkoutId: string; bedId: string }) =>
+      api.post(`/checkouts/${checkoutId}/undo-depart`, { bedId }),
+    onSuccess: () => {
+      toast.success('Salida revertida — la cama vuelve a "Pendiente de salida"')
+      setUndoTarget(null)
+      qc.invalidateQueries({ queryKey: ['daily-grid', TODAY] })
+    },
+    onError: () => toast.error('Error al revertir la salida'),
+  })
+
   const acknowledgeMutation = useMutation({
     mutationFn: (id: string) => api.patch(`/discrepancies/${id}/acknowledge`),
     onSuccess: () => {
@@ -371,12 +417,26 @@ export function DailyPlanningPage() {
 
   // ── Helpers de planificación ──────────────────────────────────────────────
 
-  /** Retorna el estado efectivo de una celda: override local o estado del servidor. */
+  /**
+   * Retorna el estado efectivo de una celda.
+   *
+   * Regla de precedencia:
+   *   - Si el servidor ya tiene una tarea para esta cama (cell.taskId set), el
+   *     servidor es la fuente de verdad — ignorar el override local. Esto evita
+   *     que overrides de una sesión de planificación anterior (ya confirmada y
+   *     luego cancelada) bloqueen visualmente la re-planificación.
+   *   - Si no hay tarea en el servidor (cell.taskId null), el override local es
+   *     la única fuente de estado (planificación en curso, aún no confirmada).
+   */
   function getState(
     roomId: string,
     bedId: string,
     cell: DailyPlanningGrid['sharedRooms'][0]['beds'][0],
   ): PlanningCellState {
+    // Server is authoritative when an active (non-cancelled) task exists.
+    // Cancelled tasks are treated as if no task exists — the cell is editable
+    // and the override (if any) takes precedence.
+    if (cell.taskId && !cell.cancelled) return inferState(cell)
     return overrides.get(cellKey(roomId, bedId))?.state ?? inferState(cell)
   }
 
@@ -396,7 +456,8 @@ export function DailyPlanningPage() {
     bedId: string,
     cell: DailyPlanningGrid['sharedRooms'][0]['beds'][0],
   ) {
-    if (planningIsDone || cell.taskId) return
+    // Allow cycling if the existing task was cancelled (bed is re-plannable)
+    if (planningIsDone || (cell.taskId && !cell.cancelled)) return
     const key     = cellKey(roomId, bedId)
     const current = getState(roomId, bedId, cell)
     const base    = current === PlanningCellState.CHECKOUT_WITH_CHECKIN
@@ -413,7 +474,7 @@ export function DailyPlanningPage() {
     bedId: string,
     cell: DailyPlanningGrid['sharedRooms'][0]['beds'][0],
   ) {
-    if (planningIsDone || cell.taskId) return
+    if (planningIsDone || (cell.taskId && !cell.cancelled)) return
     const key     = cellKey(roomId, bedId)
     const current = getState(roomId, bedId, cell)
     if (
@@ -591,28 +652,16 @@ export function DailyPlanningPage() {
 
       {activeTab === 'planning' && (
         <>
-          {/* Banner de solo lectura — aparece cuando el usuario vuelve al tab
-              después de confirmar. Explica por qué las celdas están bloqueadas
-              y ofrece acceso rápido al tiempo real. */}
           {planningIsDone && (
-            <div className="flex items-center justify-between gap-4 p-3 bg-green-50 border border-green-200 rounded-xl">
-              <div className="flex items-center gap-2">
-                <span className="text-green-600 text-lg">✅</span>
-                <div>
-                  <p className="text-sm font-semibold text-green-800">
-                    Planificación del día confirmada
-                  </p>
-                  <p className="text-xs text-green-600">
-                    Housekeeping recibió la lista. Vista de solo lectura — usa
-                    "Cancelar" en camas individuales para ajustes.
-                  </p>
-                </div>
-              </div>
+            <div className="flex items-center justify-between gap-3 px-3 py-2 bg-green-50 border border-green-200 rounded-xl">
+              <span className="text-sm text-green-700 font-medium flex items-center gap-1.5">
+                ✅ Planificación confirmada — solo lectura
+              </span>
               <button
                 onClick={() => setActiveTab('realtime')}
                 className="shrink-0 text-xs font-medium text-green-700 bg-green-100 hover:bg-green-200 border border-green-300 rounded-lg px-3 py-1.5 transition-colors"
               >
-                Ver tiempo real →
+                Tiempo real →
               </button>
             </div>
           )}
@@ -631,33 +680,21 @@ export function DailyPlanningPage() {
             />
           )}
 
-          {/* Pastillas de resumen del día */}
+          {/* Resumen compacto del día */}
           {(stats.urgent > 0 || stats.normal > 0) && (
             <div className="flex flex-wrap gap-2">
               {stats.urgent > 0 && (
                 <span className="bg-red-50 text-red-700 border border-red-200 rounded-full px-3 py-1 text-xs font-medium">
-                  🔴 {stats.urgent} Urgente{stats.urgent > 1 ? 's' : ''} — Check-in hoy
+                  🔴 {stats.urgent} urgente{stats.urgent > 1 ? 's' : ''}
                 </span>
               )}
               {stats.normal > 0 && (
                 <span className="bg-amber-50 text-amber-700 border border-amber-200 rounded-full px-3 py-1 text-xs">
-                  🚪 {stats.normal} Salida{stats.normal > 1 ? 's' : ''} normal{stats.normal > 1 ? 'es' : ''}
+                  🚪 {stats.normal} salida{stats.normal > 1 ? 's' : ''}
                 </span>
               )}
             </div>
           )}
-
-          {/* Leyenda interactiva — replica el ciclo real para onboarding */}
-          <div className="flex flex-wrap items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs text-gray-500">
-            <span className={`px-2 py-1 rounded border ${STATE_STYLE[PlanningCellState.EMPTY]}`}>Disponible</span>
-            <span className="text-gray-400">→ clic →</span>
-            <span className={`px-2 py-1 rounded border ${STATE_STYLE[PlanningCellState.CHECKOUT]}`}>Checkout hoy</span>
-            <span className="text-gray-400">→ clic →</span>
-            <span className={`px-2 py-1 rounded border ${STATE_STYLE[PlanningCellState.EMPTY]}`}>Disponible</span>
-            <span className="text-gray-300 mx-1">|</span>
-            <span className={`px-2 py-1 rounded border ${STATE_STYLE[PlanningCellState.CHECKOUT_WITH_CHECKIN]}`}>Checkout + Check-in hoy</span>
-            <span className="text-gray-400">← botón 🔴 en camas con checkout</span>
-          </div>
 
           {/* Tabla de dormitorios compartidos */}
           {grid.sharedRooms.length > 0 && (
@@ -667,6 +704,8 @@ export function DailyPlanningPage() {
               </h2>
               <PlanningTable
                 rows={grid.sharedRooms}
+                collapsedRooms={collapsedRooms}
+                toggleRoom={toggleRoom}
                 getState={getState}
                 cycleState={cycleState}
                 toggleUrgente={toggleUrgente}
@@ -674,7 +713,6 @@ export function DailyPlanningPage() {
                 setNoteTarget={setNoteTarget}
                 overrides={overrides}
                 setNote={setNote}
-                cancelMutation={cancelMutation}
                 confirmed={planningIsDone}
               />
             </section>
@@ -688,6 +726,9 @@ export function DailyPlanningPage() {
               </h2>
               <PlanningTable
                 rows={grid.privateRooms}
+                layout="grid"
+                collapsedRooms={collapsedRooms}
+                toggleRoom={toggleRoom}
                 getState={getState}
                 cycleState={cycleState}
                 toggleUrgente={toggleUrgente}
@@ -695,7 +736,6 @@ export function DailyPlanningPage() {
                 setNoteTarget={setNoteTarget}
                 overrides={overrides}
                 setNote={setNote}
-                cancelMutation={cancelMutation}
                 confirmed={planningIsDone}
               />
             </section>
@@ -708,29 +748,63 @@ export function DailyPlanningPage() {
       {activeTab === 'realtime' && (
         <>
           {!planningIsDone ? (
-            /* Estado vacío: sin planificación confirmada no hay nada que monitorear */
-            <div className="flex flex-col items-center justify-center py-24 text-center">
-              <div className="text-5xl mb-4">📋</div>
-              <p className="text-base font-semibold text-gray-700 mb-1">
-                Sin planificación confirmada
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <p className="text-sm text-gray-500 mb-4">
+                Confirma la planificación para activar el monitoreo.
               </p>
-              <p className="text-sm text-gray-400 max-w-xs leading-relaxed">
-                Confirma la planificación del día en la pestaña anterior para activar
-                el monitoreo en tiempo real de habitaciones.
-              </p>
-              <button onClick={() => setActiveTab('planning')} className="mt-6 btn-primary">
-                Ir a Planificación del Día
+              <button onClick={() => setActiveTab('planning')} className="btn-primary text-sm">
+                Ir a Planificación
               </button>
             </div>
           ) : (
             <RealtimeSection
               grid={grid}
+              collapsedRooms={collapsedRooms}
+              toggleRoom={toggleRoom}
               onDepartClick={(checkoutId, bedId, bedLabel, roomNumber, isUrgent) =>
                 setDepartTarget({ checkoutId, bedId, bedLabel, roomNumber, isUrgent })
+              }
+              onCancelClick={(checkoutId, bedId, bedLabel, roomNumber) =>
+                setCancelTarget({ checkoutId, bedId, bedLabel, roomNumber })
+              }
+              onUndoClick={(checkoutId, bedId, bedLabel, roomNumber) =>
+                setUndoTarget({ checkoutId, bedId, bedLabel, roomNumber })
               }
             />
           )}
         </>
+      )}
+
+      {/* Modal de reversión de salida (error humano — tarea aún no iniciada) */}
+      {undoTarget && (
+        <UndoModal
+          bedLabel={undoTarget.bedLabel}
+          roomNumber={undoTarget.roomNumber}
+          isPending={undoMutation.isPending}
+          onConfirm={() =>
+            undoMutation.mutate({
+              checkoutId: undoTarget.checkoutId,
+              bedId:      undoTarget.bedId,
+            })
+          }
+          onClose={() => setUndoTarget(null)}
+        />
+      )}
+
+      {/* Modal de cancelación de checkout por cama (huésped extendió estadía) */}
+      {cancelTarget && (
+        <CancelModal
+          bedLabel={cancelTarget.bedLabel}
+          roomNumber={cancelTarget.roomNumber}
+          isPending={cancelMutation.isPending}
+          onConfirm={() =>
+            cancelMutation.mutate({
+              checkoutId: cancelTarget.checkoutId,
+              bedId:      cancelTarget.bedId,
+            })
+          }
+          onClose={() => setCancelTarget(null)}
+        />
       )}
 
       {/* Modal de confirmación de salida física (Fase 2) */}
@@ -763,36 +837,194 @@ type CellFns = {
   setNoteTarget:(k: string | null) => void
   overrides:    Map<string, CellOverride>
   setNote:      (key: string, note: string) => void
-  cancelMutation: { mutate: (id: string) => void; isPending?: boolean }
   confirmed:    boolean
+}
+
+// ─── Acordeón de habitación ────────────────────────────────────────────────────
+
+/**
+ * Wrapper colapsable para cada habitación/dormitorio.
+ * Por defecto todas las habitaciones están abiertas (collapsedRooms vacío).
+ * Cumple ARIA APG accordion: aria-expanded, aria-controls, hidden en panel.
+ */
+function RoomAccordion({
+  roomId,
+  expanded,
+  onToggle,
+  header,
+  summary,
+  children,
+}: {
+  roomId: string
+  expanded: boolean
+  onToggle: () => void
+  header: ReactNode
+  summary: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        aria-controls={`room-panel-${roomId}`}
+        className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors"
+      >
+        <div className="flex items-center gap-2 min-w-0 flex-1">{header}</div>
+        <div className="flex items-center gap-3 shrink-0">
+          {!expanded && <div className="text-xs">{summary}</div>}
+          <svg
+            className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
+      </button>
+      <div id={`room-panel-${roomId}`} hidden={!expanded}>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+// ─── Tarjeta de habitación privada (planificación) ────────────────────────────
+
+/**
+ * Tarjeta compacta para habitaciones privadas en la vista de planificación.
+ * Sin acordeón: la habitación privada siempre tiene 1 cama y se limpia completa.
+ * El borde y el header cambian de color según el estado para comunicar visualmente
+ * sin necesidad de leer el texto del botón.
+ */
+function PrivatePlanningCard({
+  row,
+  getState, cycleState, toggleUrgente,
+  noteTarget, setNoteTarget, overrides, setNote,
+  confirmed,
+}: { row: DailyPlanningRow } & CellFns) {
+  const bed = row.beds[0]
+  if (!bed) return null
+
+  const key           = cellKey(row.roomId, bed.bedId)
+  const state         = getState(row.roomId, bed.bedId, bed)
+  const isCheckout    = state === PlanningCellState.CHECKOUT || state === PlanningCellState.CHECKOUT_WITH_CHECKIN
+  const isUrgente     = state === PlanningCellState.CHECKOUT_WITH_CHECKIN
+  const isServerSaved = !!bed.taskId && !bed.cancelled
+
+  const cardBorder = isUrgente ? 'border-red-300'  : isCheckout ? 'border-amber-300'  : 'border-gray-200'
+  const headerCls  = isUrgente ? 'bg-red-50 border-b border-red-200' : isCheckout ? 'bg-amber-50 border-b border-amber-200' : 'bg-gray-50 border-b border-gray-100'
+
+  return (
+    <div className={`border rounded-xl overflow-hidden bg-white ${cardBorder}`}>
+
+      {/* Header: número de habitación + piso */}
+      <div className={`px-3 py-2 flex items-center justify-between ${headerCls}`}>
+        <span className="font-semibold text-sm text-gray-900">{row.roomNumber}</span>
+        {row.floor != null && (
+          <span className="text-xs text-gray-400">P{row.floor}</span>
+        )}
+      </div>
+
+      {/* Cuerpo: estado + acciones */}
+      <div className="p-3 flex flex-col gap-1.5">
+        <button
+          onClick={() => cycleState(row.roomId, bed.bedId, bed)}
+          disabled={isServerSaved || confirmed}
+          className={`border rounded px-2 py-2 w-full text-center text-xs transition-all select-none
+            ${STATE_STYLE[state]}
+            ${!isServerSaved && !confirmed ? 'cursor-pointer' : 'cursor-default opacity-75'}`}
+          title={
+            isServerSaved ? 'Ya confirmado — planificación enviada a housekeeping' :
+            confirmed     ? 'Planificación cerrada para hoy' :
+            isCheckout    ? 'Clic para cancelar el checkout' :
+                            'Clic para marcar con checkout hoy'
+          }
+        >
+          {STATE_LABEL[state]}
+        </button>
+
+        {isCheckout && !isServerSaved && (
+          <button
+            onClick={() => toggleUrgente(row.roomId, bed.bedId, bed)}
+            className={`text-xs rounded px-2 py-0.5 w-full text-center border transition-colors ${
+              isUrgente
+                ? 'bg-red-100 border-red-300 text-red-700 font-medium'
+                : 'bg-white border-gray-200 text-gray-400 hover:border-amber-300 hover:text-amber-600'
+            }`}
+          >
+            {isUrgente ? '🔴 Check-in hoy' : '+ Check-in hoy'}
+          </button>
+        )}
+
+        {isCheckout && noteTarget !== key && (
+          <button
+            onClick={() => setNoteTarget(key)}
+            className="text-xs text-indigo-400 hover:text-indigo-600 text-center"
+          >
+            {overrides.get(key)?.note ? '📝 Nota' : '+ Nota'}
+          </button>
+        )}
+        {noteTarget === key && (
+          <div className="flex flex-col gap-1">
+            <textarea
+              className="text-xs border border-indigo-200 rounded px-1.5 py-1 w-full resize-none focus:outline-none focus:ring-1 focus:ring-indigo-300"
+              rows={2}
+              placeholder="Nota para housekeeper..."
+              value={overrides.get(key)?.note ?? ''}
+              onChange={(e) => setNote(key, e.target.value)}
+              autoFocus
+            />
+            <button
+              onClick={() => setNoteTarget(null)}
+              className="text-xs text-indigo-600 font-medium hover:text-indigo-800 text-center"
+            >
+              Listo
+            </button>
+          </div>
+        )}
+
+      </div>
+    </div>
+  )
 }
 
 // ─── Tabla de planificación ───────────────────────────────────────────────────
 
-/** Tabla de filas de planificación para una categoría de rooms (shared o private). */
-function PlanningTable({ rows, ...fns }: { rows: DailyPlanningRow[] } & CellFns) {
+/** Lista o grid de tarjetas de planificación para una categoría de rooms. */
+function PlanningTable({
+  rows,
+  collapsedRooms,
+  toggleRoom,
+  layout = 'list',
+  ...fns
+}: { rows: DailyPlanningRow[]; collapsedRooms: Set<string>; toggleRoom: (id: string) => void; layout?: 'list' | 'grid' } & CellFns) {
   if (!rows.length) return null
+
+  if (layout === 'grid') {
+    return (
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+        {rows.map((row) => (
+          <PrivatePlanningCard key={row.roomId} row={row} {...fns} />
+        ))}
+      </div>
+    )
+  }
+
   return (
-    <div className="overflow-x-auto -mx-2 px-2">
-      <table className="text-sm border-collapse min-w-full">
-        <thead>
-          <tr>
-            <th className="text-left text-xs text-gray-400 font-medium pr-3 pb-2 pl-1 whitespace-nowrap">
-              Habitación
-            </th>
-            {rows[0].beds.map((b) => (
-              <th key={b.bedId} className="text-xs text-gray-400 font-medium px-1 pb-2 whitespace-nowrap">
-                {b.bedLabel}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <PlanningRow key={row.roomId} row={row} {...fns} />
-          ))}
-        </tbody>
-      </table>
+    <div className="space-y-2">
+      {rows.map((row) => (
+        <PlanningRow
+          key={row.roomId}
+          row={row}
+          expanded={!collapsedRooms.has(row.roomId)}
+          onToggle={() => toggleRoom(row.roomId)}
+          {...fns}
+        />
+      ))}
     </div>
   )
 }
@@ -801,103 +1033,134 @@ function PlanningTable({ rows, ...fns }: { rows: DailyPlanningRow[] } & CellFns)
 
 function PlanningRow({
   row,
+  expanded,
+  onToggle,
   getState, cycleState, toggleUrgente,
   noteTarget, setNoteTarget, overrides, setNote,
-  cancelMutation, confirmed,
-}: { row: DailyPlanningRow } & CellFns) {
+  confirmed,
+}: { row: DailyPlanningRow; expanded: boolean; onToggle: () => void } & CellFns) {
+  const checkoutCount = row.beds.filter((b) => {
+    const s = getState(row.roomId, b.bedId, b)
+    return s === PlanningCellState.CHECKOUT || s === PlanningCellState.CHECKOUT_WITH_CHECKIN
+  }).length
+  const urgentCount = row.beds.filter(
+    (b) => getState(row.roomId, b.bedId, b) === PlanningCellState.CHECKOUT_WITH_CHECKIN,
+  ).length
+
   return (
-    <tr className="border-b border-gray-100 last:border-0">
-      <td className="pr-3 py-2 pl-1 text-xs font-medium text-gray-700 whitespace-nowrap">
-        {row.roomNumber}
-        {row.floor != null && <span className="text-gray-400 ml-1">P{row.floor}</span>}
-      </td>
-      {row.beds.map((bed) => {
-        const key             = cellKey(row.roomId, bed.bedId)
-        const state           = getState(row.roomId, bed.bedId, bed)
-        const isCheckout      = state === PlanningCellState.CHECKOUT || state === PlanningCellState.CHECKOUT_WITH_CHECKIN
-        const isUrgente       = state === PlanningCellState.CHECKOUT_WITH_CHECKIN
-        const isServerSaved   = !!bed.taskId && !bed.cancelled   // tarea ya en servidor
-
-        return (
-          <td key={bed.bedId} className="px-1 py-1.5 align-top">
-            <div className="flex flex-col gap-1 min-w-[96px]">
-
-              {/* Botón principal: cicla Disponible ↔ Checkout.
-                  Deshabilitado si el servidor ya guardó la tarea (isServerSaved)
-                  o si la planificación fue confirmada (confirmed). */}
-              <button
-                onClick={() => cycleState(row.roomId, bed.bedId, bed)}
-                disabled={isServerSaved || confirmed}
-                className={`border rounded px-2 py-1.5 w-full text-center text-xs transition-all select-none
-                  ${STATE_STYLE[state]}
-                  ${!isServerSaved && !confirmed ? 'cursor-pointer' : 'cursor-default opacity-75'}`}
-                title={
-                  isServerSaved   ? 'Ya confirmado — planificación enviada a housekeeping' :
-                  confirmed       ? 'Planificación cerrada para hoy' :
-                  isCheckout      ? 'Clic para cancelar el checkout de esta cama' :
-                                    'Clic para marcar esta cama con checkout hoy'
-                }
-              >
-                {STATE_LABEL[state]}
-              </button>
-
-              {/* Botón secundario: activa/desactiva el flag de urgencia.
-                  Solo visible en celdas con checkout que aún no están en servidor. */}
-              {isCheckout && !isServerSaved && (
-                <button
-                  onClick={() => toggleUrgente(row.roomId, bed.bedId, bed)}
-                  className={`text-xs rounded px-2 py-0.5 w-full text-center border transition-colors ${
-                    isUrgente
-                      ? 'bg-red-100 border-red-300 text-red-700 font-medium'
-                      : 'bg-white border-gray-200 text-gray-400 hover:border-amber-300 hover:text-amber-600'
-                  }`}
-                >
-                  {isUrgente ? '🔴 Check-in hoy' : '+ Check-in hoy'}
-                </button>
-              )}
-
-              {/* Campo de nota: expandible al hacer clic */}
-              {isCheckout && noteTarget !== key && (
-                <button
-                  onClick={() => setNoteTarget(key)}
-                  className="text-xs text-indigo-400 hover:text-indigo-600 text-center"
-                >
-                  {overrides.get(key)?.note ? '📝 Nota' : '+ Nota'}
-                </button>
-              )}
-              {noteTarget === key && (
-                <div className="flex flex-col gap-1">
-                  <textarea
-                    className="text-xs border border-indigo-200 rounded px-1.5 py-1 w-full resize-none focus:outline-none focus:ring-1 focus:ring-indigo-300"
-                    rows={2}
-                    placeholder="Nota para housekeeper..."
-                    value={overrides.get(key)?.note ?? ''}
-                    onChange={(e) => setNote(key, e.target.value)}
-                    autoFocus
-                  />
-                  <button
-                    onClick={() => setNoteTarget(null)}
-                    className="text-xs text-indigo-600 font-medium hover:text-indigo-800 text-center"
-                  >
-                    Listo
-                  </button>
-                </div>
-              )}
-
-              {/* Cancelar checkout: solo cuando ya fue confirmado en servidor */}
-              {isServerSaved && bed.checkoutId && confirmed && (
-                <button
-                  onClick={() => cancelMutation.mutate(bed.checkoutId!)}
-                  className="text-xs text-red-400 hover:text-red-600 text-center"
-                >
-                  Cancelar
-                </button>
-              )}
-            </div>
-          </td>
+    <RoomAccordion
+      roomId={row.roomId}
+      expanded={expanded}
+      onToggle={onToggle}
+      header={
+        <>
+          <span className="font-semibold text-sm text-gray-900">{row.roomNumber}</span>
+          {row.floor != null && (
+            <span className="text-xs text-gray-400">P{row.floor}</span>
+          )}
+          <span className="text-gray-200">·</span>
+          <span className="text-xs text-gray-400">
+            {row.beds.length} cama{row.beds.length !== 1 ? 's' : ''}
+          </span>
+        </>
+      }
+      summary={
+        checkoutCount > 0 ? (
+          <span className="flex items-center gap-2">
+            <span className="text-amber-600 font-medium">
+              {checkoutCount} checkout{checkoutCount !== 1 ? 's' : ''}
+            </span>
+            {urgentCount > 0 && (
+              <span className="text-red-600 font-medium">· {urgentCount} 🔴</span>
+            )}
+          </span>
+        ) : (
+          <span className="text-gray-400">Sin salidas</span>
         )
-      })}
-    </tr>
+      }
+    >
+      <div className="px-4 pb-4 pt-1">
+        <div className="flex flex-wrap gap-3">
+          {row.beds.map((bed) => {
+            const key           = cellKey(row.roomId, bed.bedId)
+            const state         = getState(row.roomId, bed.bedId, bed)
+            const isCheckout    = state === PlanningCellState.CHECKOUT || state === PlanningCellState.CHECKOUT_WITH_CHECKIN
+            const isUrgente     = state === PlanningCellState.CHECKOUT_WITH_CHECKIN
+            const isServerSaved = !!bed.taskId && !bed.cancelled
+
+            return (
+              <div key={bed.bedId} className="flex flex-col gap-1 min-w-[100px]">
+
+                {/* Label de cama */}
+                <p className="text-xs text-gray-500 font-medium text-center">{bed.bedLabel}</p>
+
+                {/* Botón principal: cicla Disponible ↔ Checkout.
+                    Deshabilitado si el servidor ya guardó la tarea (isServerSaved)
+                    o si la planificación fue confirmada (confirmed). */}
+                <button
+                  onClick={() => cycleState(row.roomId, bed.bedId, bed)}
+                  disabled={isServerSaved || confirmed}
+                  className={`border rounded px-2 py-1.5 w-full text-center text-xs transition-all select-none
+                    ${STATE_STYLE[state]}
+                    ${!isServerSaved && !confirmed ? 'cursor-pointer' : 'cursor-default opacity-75'}`}
+                  title={
+                    isServerSaved   ? 'Ya confirmado — planificación enviada a housekeeping' :
+                    confirmed       ? 'Planificación cerrada para hoy' :
+                    isCheckout      ? 'Clic para cancelar el checkout de esta cama' :
+                                      'Clic para marcar esta cama con checkout hoy'
+                  }
+                >
+                  {STATE_LABEL[state]}
+                </button>
+
+                {/* Botón secundario: activa/desactiva el flag de urgencia */}
+                {isCheckout && !isServerSaved && (
+                  <button
+                    onClick={() => toggleUrgente(row.roomId, bed.bedId, bed)}
+                    className={`text-xs rounded px-2 py-0.5 w-full text-center border transition-colors ${
+                      isUrgente
+                        ? 'bg-red-100 border-red-300 text-red-700 font-medium'
+                        : 'bg-white border-gray-200 text-gray-400 hover:border-amber-300 hover:text-amber-600'
+                    }`}
+                  >
+                    {isUrgente ? '🔴 Check-in hoy' : '+ Check-in hoy'}
+                  </button>
+                )}
+
+                {/* Campo de nota: expandible al hacer clic */}
+                {isCheckout && noteTarget !== key && (
+                  <button
+                    onClick={() => setNoteTarget(key)}
+                    className="text-xs text-indigo-400 hover:text-indigo-600 text-center"
+                  >
+                    {overrides.get(key)?.note ? '📝 Nota' : '+ Nota'}
+                  </button>
+                )}
+                {noteTarget === key && (
+                  <div className="flex flex-col gap-1">
+                    <textarea
+                      className="text-xs border border-indigo-200 rounded px-1.5 py-1 w-full resize-none focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                      rows={2}
+                      placeholder="Nota para housekeeper..."
+                      value={overrides.get(key)?.note ?? ''}
+                      onChange={(e) => setNote(key, e.target.value)}
+                      autoFocus
+                    />
+                    <button
+                      onClick={() => setNoteTarget(null)}
+                      className="text-xs text-indigo-600 font-medium hover:text-indigo-800 text-center"
+                    >
+                      Listo
+                    </button>
+                  </div>
+                )}
+
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </RoomAccordion>
   )
 }
 
@@ -918,15 +1181,33 @@ function PlanningRow({
  */
 function RealtimeSection({
   grid,
+  collapsedRooms,
+  toggleRoom,
   onDepartClick,
+  onCancelClick,
+  onUndoClick,
 }: {
   grid: DailyPlanningGrid
+  collapsedRooms: Set<string>
+  toggleRoom: (id: string) => void
   onDepartClick: (
     checkoutId: string,
     bedId: string,
     bedLabel: string,
     roomNumber: string,
     isUrgent: boolean,
+  ) => void
+  onCancelClick: (
+    checkoutId: string,
+    bedId: string,
+    bedLabel: string,
+    roomNumber: string,
+  ) => void
+  onUndoClick: (
+    checkoutId: string,
+    bedId: string,
+    bedLabel: string,
+    roomNumber: string,
   ) => void
 }) {
   // Contadores para el resumen de progreso del día
@@ -940,6 +1221,32 @@ function RealtimeSection({
     CLEAN:             allBedStates.filter((s) => s === 'CLEAN').length,
   }
   const totalActive = Object.values(counts).reduce((a, b) => a + b, 0)
+
+  /** Resumen de estado para el header colapsado de un dorm. */
+  function roomStateSummary(beds: DailyPlanningGrid['sharedRooms'][0]['beds']): ReactNode {
+    const activeBeds = beds.filter((b) => b.taskId && !b.cancelled)
+    if (!activeBeds.length) return <span className="text-gray-400">Sin actividad</span>
+    const stateCounts = activeBeds.reduce<Partial<Record<RealtimeState, number>>>((acc, b) => {
+      const s = inferRealtimeState(b)
+      acc[s] = (acc[s] ?? 0) + 1
+      return acc
+    }, {})
+    const allClean = Object.keys(stateCounts).every((s) => s === 'CLEAN')
+    if (allClean) return <span className="text-green-600 font-medium">✅ Lista</span>
+    return (
+      <span className="flex items-center gap-2">
+        {(Object.entries(stateCounts) as [RealtimeState, number][]).map(([state, count]) => {
+          const cfg = RT_CFG[state]
+          return (
+            <span key={state} className={`flex items-center gap-1 ${cfg.text}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+              {count}
+            </span>
+          )
+        })}
+      </span>
+    )
+  }
 
   return (
     <div className="space-y-4">
@@ -963,20 +1270,14 @@ function RealtimeSection({
           })}
       </div>
 
-      {/* Hint contextual según el estado del día */}
-      {counts.PENDING_DEPARTURE > 0 && (
-        <p className="text-xs text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2">
-          💡 Toca una cama <strong>"Pendiente de salida"</strong> cuando el huésped se presente en recepción para hacer checkout.
-        </p>
-      )}
       {totalActive === 0 && (
         <p className="text-xs text-gray-400 text-center py-4">
-          Sin camas pendientes en el plan de hoy
+          Sin actividad en el plan de hoy
         </p>
       )}
       {totalActive > 0 && counts.PENDING_DEPARTURE === 0 && counts.READY_TO_CLEAN === 0 && counts.CLEANING === 0 && (
         <p className="text-xs text-green-600 text-center py-2">
-          ✅ Todas las camas del plan están limpias — operación completada
+          ✅ Operación completada
         </p>
       )}
 
@@ -986,45 +1287,58 @@ function RealtimeSection({
           <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
             Dormitorios Compartidos
           </h3>
-          <div className="space-y-3">
+          <div className="space-y-2">
             {grid.sharedRooms.map((room) => {
               const activeBeds = room.beds.filter((b) => b.taskId && !b.cancelled)
               if (!activeBeds.length) return null
-
               return (
-                <div key={room.roomId} className="bg-white border border-gray-200 rounded-xl p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="font-semibold text-gray-900 text-sm">
-                      Dorm {room.roomNumber}
-                    </span>
-                    {room.floor != null && (
-                      <span className="text-xs text-gray-400">Piso {room.floor}</span>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
+                <RoomAccordion
+                  key={room.roomId}
+                  roomId={room.roomId}
+                  expanded={!collapsedRooms.has(room.roomId)}
+                  onToggle={() => toggleRoom(room.roomId)}
+                  header={
+                    <>
+                      <span className="font-semibold text-gray-900 text-sm">
+                        Dorm {room.roomNumber}
+                      </span>
+                      {room.floor != null && (
+                        <span className="text-xs text-gray-400">Piso {room.floor}</span>
+                      )}
+                      <span className="text-gray-200">·</span>
+                      <span className="text-xs text-gray-400">
+                        {activeBeds.length} cama{activeBeds.length !== 1 ? 's' : ''}
+                      </span>
+                    </>
+                  }
+                  summary={roomStateSummary(room.beds)}
+                >
+                  <div className="px-4 pb-4 pt-1 flex flex-wrap gap-2">
                     {activeBeds.map((bed) => (
                       <RealtimeBedChip
                         key={bed.bedId}
                         bed={bed}
                         roomNumber={room.roomNumber}
                         onDepartClick={onDepartClick}
+                        onCancelClick={onCancelClick}
+                        onUndoClick={onUndoClick}
                       />
                     ))}
                   </div>
-                </div>
+                </RoomAccordion>
               )
             })}
           </div>
         </section>
       )}
 
-      {/* Habitaciones privadas */}
+      {/* Habitaciones privadas — grid compacto sin accordion (1 cama por room) */}
       {grid.privateRooms.some((r) => r.beds.some((b) => b.taskId && !b.cancelled)) && (
         <section>
           <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
             Habitaciones Privadas
           </h3>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
             {grid.privateRooms.map((room) => {
               const bed = room.beds.find((b) => b.taskId && !b.cancelled)
               if (!bed) return null
@@ -1034,6 +1348,8 @@ function RealtimeSection({
                   bed={bed}
                   roomNumber={room.roomNumber}
                   onDepartClick={onDepartClick}
+                  onCancelClick={onCancelClick}
+                  onUndoClick={onUndoClick}
                   asRoomCard
                 />
               )
@@ -1068,6 +1384,8 @@ function RealtimeBedChip({
   bed,
   roomNumber,
   onDepartClick,
+  onCancelClick,
+  onUndoClick,
   asRoomCard = false,
 }: {
   bed: DailyPlanningGrid['sharedRooms'][0]['beds'][0]
@@ -1079,29 +1397,32 @@ function RealtimeBedChip({
     roomNumber: string,
     isUrgent: boolean,
   ) => void
+  onCancelClick: (
+    checkoutId: string,
+    bedId: string,
+    bedLabel: string,
+    roomNumber: string,
+  ) => void
+  onUndoClick: (
+    checkoutId: string,
+    bedId: string,
+    bedLabel: string,
+    roomNumber: string,
+  ) => void
   asRoomCard?: boolean
 }) {
-  const rtState  = inferRealtimeState(bed)
-  const cfg      = RT_CFG[rtState]
-  const isPending = rtState === 'PENDING_DEPARTURE'
+  const rtState      = inferRealtimeState(bed)
+  const cfg          = RT_CFG[rtState]
+  const isPending    = rtState === 'PENDING_DEPARTURE'
+  const isReadyClean = rtState === 'READY_TO_CLEAN'
 
   return (
-    <button
-      onClick={() => {
-        if (isPending && bed.checkoutId) {
-          onDepartClick(bed.checkoutId, bed.bedId, bed.bedLabel, roomNumber, bed.hasSameDayCheckIn)
-        }
-      }}
-      disabled={!isPending}
+    <div
       className={`
         border rounded-xl p-3 text-left transition-all
-        ${asRoomCard ? 'w-full' : 'min-w-[110px]'}
+        ${asRoomCard ? '' : 'min-w-[110px]'}
         ${cfg.bg} ${cfg.border} ${cfg.text}
-        ${isPending
-          ? 'cursor-pointer hover:brightness-95 hover:shadow-sm ring-1 ring-indigo-200'
-          : 'cursor-default'}
       `}
-      title={isPending ? 'Toca cuando el huésped salga' : cfg.label}
     >
       {/* Título: número de habitación (card) o label de cama (chip de dorm) */}
       <div className="flex items-start justify-between gap-1">
@@ -1126,13 +1447,43 @@ function RealtimeBedChip({
         <span className="text-xs">{cfg.label}</span>
       </div>
 
-      {/* Hint de acción — solo en estado accionable, separado del estado */}
-      {isPending && (
-        <p className="text-[10px] text-indigo-500 font-medium mt-2 pt-1.5 border-t border-indigo-100">
-          Toca cuando salga →
-        </p>
+      {/* Acciones según estado */}
+      {isPending && bed.checkoutId && (
+        <div className="mt-2 pt-1.5 border-t border-indigo-100 flex flex-col gap-1">
+          <button
+            onClick={() =>
+              onDepartClick(bed.checkoutId!, bed.bedId, bed.bedLabel, roomNumber, bed.hasSameDayCheckIn)
+            }
+            className="text-[10px] text-indigo-500 font-medium hover:text-indigo-700 text-left"
+          >
+            Toca cuando salga →
+          </button>
+          <button
+            onClick={() =>
+              onCancelClick(bed.checkoutId!, bed.bedId, bed.bedLabel, roomNumber)
+            }
+            className="text-[10px] text-red-400 hover:text-red-600 text-left"
+          >
+            Cancelar checkout
+          </button>
+        </div>
       )}
-    </button>
+
+      {/* Revertir salida — solo mientras la limpieza no haya iniciado (READY/UNASSIGNED) */}
+      {isReadyClean && bed.checkoutId && (
+        <div className="mt-2 pt-1.5 border-t border-amber-100 flex flex-col gap-1">
+          <p className="text-[10px] text-amber-600">Esperando housekeeper</p>
+          <button
+            onClick={() =>
+              onUndoClick(bed.checkoutId!, bed.bedId, bed.bedLabel, roomNumber)
+            }
+            className="text-[10px] text-amber-500 hover:text-amber-700 text-left"
+          >
+            ↩ Revertir salida
+          </button>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -1211,6 +1562,147 @@ function DepartureModal({
               }`}
             >
               {isPending ? 'Confirmando...' : 'Sí, el huésped salió'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Modal de cancelación de checkout por cama ────────────────────────────────
+
+/**
+ * Modal de confirmación para cancelar el checkout de una cama específica.
+ * Aparece solo para camas en estado PENDING_DEPARTURE (Fase 1 completada, Fase 2 pendiente).
+ * Cancelar en este punto NO afecta otras camas del mismo dorm — es per-bed.
+ */
+function CancelModal({
+  bedLabel,
+  roomNumber,
+  isPending,
+  onConfirm,
+  onClose,
+}: {
+  bedLabel:   string
+  roomNumber: string
+  isPending:  boolean
+  onConfirm:  () => void
+  onClose:    () => void
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-semibold text-gray-900">{roomNumber} · {bedLabel}</p>
+              <p className="text-xs text-gray-500 mt-0.5">Cancelar checkout de esta cama</p>
+            </div>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">
+              ×
+            </button>
+          </div>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div className="text-sm text-gray-700 space-y-1">
+            <p>¿El huésped <span className="font-semibold">extendió su estadía</span>?</p>
+            <p className="text-xs text-gray-400 leading-relaxed">
+              Solo se cancela esta cama. Las demás camas del dormitorio no se ven afectadas.
+            </p>
+          </div>
+
+          <div className="flex gap-3">
+            <button onClick={onClose} disabled={isPending} className="btn-ghost flex-1">
+              Volver
+            </button>
+            <button
+              onClick={onConfirm}
+              disabled={isPending}
+              className="flex-1 bg-red-600 hover:bg-red-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              {isPending ? 'Cancelando...' : 'Sí, cancelar checkout'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Modal de reversión de salida (undo departure) ────────────────────────────
+
+/**
+ * Modal de confirmación para revertir la confirmación de salida.
+ * Solo disponible mientras la tarea está READY/UNASSIGNED (antes de que
+ * housekeeping inicie la limpieza).
+ *
+ * UX: lenguaje claro sobre el efecto — la cama vuelve a "Pendiente de salida"
+ * y housekeeping es notificada de que aún no debe limpiar.
+ */
+function UndoModal({
+  bedLabel,
+  roomNumber,
+  isPending,
+  onConfirm,
+  onClose,
+}: {
+  bedLabel:   string
+  roomNumber: string
+  isPending:  boolean
+  onConfirm:  () => void
+  onClose:    () => void
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-5 py-4 border-b border-gray-100 bg-amber-50">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-semibold text-gray-900">{roomNumber} · {bedLabel}</p>
+              <p className="text-xs text-amber-700 mt-0.5">↩ Revertir confirmación de salida</p>
+            </div>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">
+              ×
+            </button>
+          </div>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div className="text-sm text-gray-700 space-y-1">
+            <p>¿El huésped <span className="font-semibold">aún no ha salido</span>?</p>
+            <p className="text-xs text-gray-400 leading-relaxed">
+              La cama volverá a "Pendiente de salida". Si hay housekeeper asignado,
+              recibirá una notificación para que espere.
+            </p>
+            <p className="text-xs text-amber-600 leading-relaxed">
+              Solo disponible antes de que inicie la limpieza.
+            </p>
+          </div>
+
+          <div className="flex gap-3">
+            <button onClick={onClose} disabled={isPending} className="btn-ghost flex-1">
+              Volver
+            </button>
+            <button
+              onClick={onConfirm}
+              disabled={isPending}
+              className="flex-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              {isPending ? 'Revirtiendo...' : 'Sí, revertir salida'}
             </button>
           </div>
         </div>

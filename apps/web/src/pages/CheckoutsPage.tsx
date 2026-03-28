@@ -18,7 +18,7 @@ import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import { api } from '../api/client'
 import type { CheckoutDto, PropertySettingsDto, RoomDto } from '@housekeeping/shared'
-import { RoomType } from '@housekeeping/shared'
+import { RoomCategory } from '@housekeeping/shared'
 
 export function CheckoutsPage() {
   const qc = useQueryClient()
@@ -206,7 +206,7 @@ function QuickCheckoutForm({
               <option value="">Seleccionar...</option>
               {rooms.map((r) => (
                 <option key={r.id} value={r.id}>
-                  {r.number} — {r.type === RoomType.SHARED ? `Dorm (${r.capacity} camas)` : 'Privada'}
+                  {r.number} — {r.category === RoomCategory.SHARED ? `Dorm (${r.capacity} camas)` : 'Privada'}
                 </option>
               ))}
             </select>

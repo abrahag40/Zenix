@@ -41,6 +41,7 @@ import {
 import { EventEmitter2 } from '@nestjs/event-emitter'
 import { CheckoutSource, CleaningStatus, Priority, TaskLogEvent } from '@housekeeping/shared'
 import { PrismaService } from '../prisma/prisma.service'
+import { TenantContextService } from '../common/tenant-context.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import { PushService } from '../notifications/push.service'
 import { CreateCheckoutDto, BatchCheckoutDto } from './dto/create-checkout.dto'
@@ -67,6 +68,7 @@ export class CheckoutsService {
 
   constructor(
     private prisma: PrismaService,
+    private tenant: TenantContextService,
     private notifications: NotificationsService,
     private push: PushService,
     private events: EventEmitter2,
@@ -90,6 +92,8 @@ export class CheckoutsService {
    * @throws       NotFoundException si el roomId no existe en la base de datos
    */
   async processCheckout(input: CheckoutInput) {
+    const orgId = this.tenant.getOrganizationId()
+
     // Idempotency: skip if already processed (CloudBeds webhook retry)
     if (input.cloudbedsReservationId) {
       const existing = await this.prisma.checkout.findUnique({
@@ -102,7 +106,7 @@ export class CheckoutsService {
     }
 
     const room = await this.prisma.room.findUnique({
-      where: { id: input.roomId },
+      where: { id: input.roomId, organizationId: orgId },
       include: { beds: true, property: true },
     })
     if (!room) throw new NotFoundException('Room not found')
@@ -113,6 +117,7 @@ export class CheckoutsService {
       // Create checkout record
       const checkout = await tx.checkout.create({
         data: {
+          organizationId: orgId,
           roomId: input.roomId,
           guestName: input.guestName,
           actualCheckoutAt: input.actualCheckoutAt,
@@ -129,7 +134,7 @@ export class CheckoutsService {
       for (const bed of room.beds) {
         // Find pre-assigned housekeeper for this bed (task in PENDING state)
         const existingPendingTask = await tx.cleaningTask.findFirst({
-          where: { bedId: bed.id, status: CleaningStatus.PENDING },
+          where: { bedId: bed.id, status: CleaningStatus.PENDING, organizationId: orgId },
           select: { id: true, assignedToId: true },
         })
 
@@ -164,6 +169,7 @@ export class CheckoutsService {
 
           const newTask = await tx.cleaningTask.create({
             data: {
+              organizationId: orgId,
               bedId: bed.id,
               checkoutId: checkout.id,
               status: taskStatus,
@@ -218,12 +224,13 @@ export class CheckoutsService {
    *   La separación de fases evita ese error operativo.
    */
   async batchCheckout(dto: BatchCheckoutDto, enteredById: string, propertyId: string) {
+    const orgId = this.tenant.getOrganizationId()
     const checkoutDate = dto.checkoutDate ? new Date(dto.checkoutDate) : new Date()
 
     // 1. Obtener los beds con su room en una sola query (evita N+1)
     const bedIds = dto.items.map((i) => i.bedId)
     const beds = await this.prisma.bed.findMany({
-      where: { id: { in: bedIds } },
+      where: { id: { in: bedIds }, organizationId: orgId },
       include: { room: true },
     })
 
@@ -250,6 +257,7 @@ export class CheckoutsService {
         // Crear registro de checkout (fase de planificación)
         const checkout = await tx.checkout.create({
           data: {
+            organizationId: orgId,
             roomId,
             actualCheckoutAt: checkoutDate,
             source: CheckoutSource.MANUAL,
@@ -263,12 +271,15 @@ export class CheckoutsService {
         for (const bed of roomBeds) {
           // Crear tarea en estado PENDING — el huésped aún no ha salido físicamente.
           // La tarea pasará a READY/UNASSIGNED cuando el recepcionista confirme la salida física.
+          const bedHasSameDayCheckIn = itemMap.get(bed.id)?.hasSameDayCheckIn ?? false
           const task = await tx.cleaningTask.create({
             data: {
+              organizationId: orgId,
               bedId: bed.id,
               checkoutId: checkout.id,
               status: CleaningStatus.PENDING,
               priority,
+              hasSameDayCheckIn: bedHasSameDayCheckIn,
               requiredCapability: 'CLEANING',
             },
           })
@@ -325,9 +336,19 @@ export class CheckoutsService {
    * @param checkoutId - ID del checkout a cancelar
    * @param propertyId - ID de la propiedad (para buscar supervisores)
    */
-  async cancelCheckout(checkoutId: string, propertyId: string) {
+  /**
+   * cancelCheckout — Cancela el checkout (o una cama específica del mismo).
+   *
+   * Con bedId: cancela SOLO la tarea de esa cama. El checkout NO se marca como
+   * cancelado — el resto de las camas del dorm siguen activas.
+   *
+   * Sin bedId: cancela todas las tareas del checkout y marca el checkout como
+   * cancelado (comportamiento original — "huésped extendió toda la habitación").
+   */
+  async cancelCheckout(checkoutId: string, propertyId: string, bedId?: string) {
+    const orgId = this.tenant.getOrganizationId()
     const checkout = await this.prisma.checkout.findUnique({
-      where: { id: checkoutId },
+      where: { id: checkoutId, organizationId: orgId },
       include: {
         tasks: { include: { assignedTo: { include: { pushTokens: true } } } },
         room: true,
@@ -336,24 +357,23 @@ export class CheckoutsService {
     if (!checkout) throw new NotFoundException('Checkout not found')
     if (checkout.cancelled) throw new ConflictException('Checkout already cancelled')
 
-    const criticalTasks = checkout.tasks.filter(
-      (t) => t.status === CleaningStatus.IN_PROGRESS || t.status === CleaningStatus.PAUSED,
+    const isBedId = !!bedId
+
+    const cancellableTasks = checkout.tasks.filter(
+      (t) =>
+        [CleaningStatus.READY, CleaningStatus.UNASSIGNED, CleaningStatus.PENDING].includes(
+          t.status as CleaningStatus,
+        ) && (!isBedId || t.bedId === bedId),
     )
 
-    const cancellableTasks = checkout.tasks.filter((t) =>
-      [CleaningStatus.READY, CleaningStatus.UNASSIGNED, CleaningStatus.PENDING].includes(
-        t.status as CleaningStatus,
-      ),
+    const criticalTasks = checkout.tasks.filter(
+      (t) =>
+        (t.status === CleaningStatus.IN_PROGRESS || t.status === CleaningStatus.PAUSED) &&
+        (!isBedId || t.bedId === bedId),
     )
 
     await this.prisma.$transaction(async (tx) => {
-      // Mark checkout as cancelled
-      await tx.checkout.update({
-        where: { id: checkoutId },
-        data: { cancelled: true, cancelledAt: new Date() },
-      })
-
-      // Cancel tasks that haven't started
+      // Cancel tasks that haven't started (for the specified bed, or all beds)
       for (const task of cancellableTasks) {
         await tx.cleaningTask.update({
           where: { id: task.id },
@@ -362,8 +382,16 @@ export class CheckoutsService {
         await tx.taskLog.create({
           data: { taskId: task.id, staffId: null, event: TaskLogEvent.CANCELLED },
         })
-        // Restore bed to OCCUPIED
+        // Restore bed to OCCUPIED (huésped extendió, sigue durmiendo)
         await tx.bed.update({ where: { id: task.bedId }, data: { status: 'OCCUPIED' } })
+      }
+
+      // Mark full checkout as cancelled only when cancelling the entire room (no bedId)
+      if (!isBedId) {
+        await tx.checkout.update({
+          where: { id: checkoutId },
+          data: { cancelled: true, cancelledAt: new Date() },
+        })
       }
     })
 
@@ -382,7 +410,7 @@ export class CheckoutsService {
     // Alert supervisors for critical in-progress tasks
     if (criticalTasks.length > 0) {
       const supervisors = await this.prisma.housekeepingStaff.findMany({
-        where: { propertyId, role: 'SUPERVISOR', active: true },
+        where: { propertyId, role: 'SUPERVISOR', active: true, organizationId: orgId },
         select: { id: true },
       })
       for (const sup of supervisors) {
@@ -411,8 +439,9 @@ export class CheckoutsService {
    * @param propertyId  UUID de la propiedad
    */
   findByProperty(propertyId: string) {
+    const orgId = this.tenant.getOrganizationId()
     return this.prisma.checkout.findMany({
-      where: { room: { propertyId } },
+      where: { room: { propertyId }, organizationId: orgId },
       include: { room: true, enteredBy: { select: { id: true, name: true } } },
       orderBy: { createdAt: 'desc' }, // Más reciente primero para la vista de historial
     })
@@ -436,6 +465,7 @@ export class CheckoutsService {
    * reciente del día en caso de que haya varias (ej: checkout cancelado + nuevo checkout).
    */
   async getDailyGrid(propertyId: string, date: string) {
+    const orgId = this.tenant.getOrganizationId()
     // IMPORTANT: Use explicit UTC times to avoid timezone shifting.
     // new Date(date) parses '2026-03-21' as UTC midnight, but setHours() operates in
     // LOCAL time — in UTC-5 that shifts the window to the previous day.
@@ -444,15 +474,22 @@ export class CheckoutsService {
     const dayEnd   = new Date(`${date}T23:59:59.999Z`)
 
     const rooms = await this.prisma.room.findMany({
-      where: { propertyId },
+      where: { propertyId, organizationId: orgId },
       include: {
         beds: {
           orderBy: { label: 'asc' },
           include: {
             cleaningTasks: {
               where: {
-                createdAt: { gte: dayStart, lte: dayEnd },
-                status: { not: CleaningStatus.CANCELLED },
+                // Filtramos por la fecha del checkout, NO por createdAt de la tarea.
+                // Razón: createdAt usa new Date() del servidor. En timezones negativos
+                // (ej: UTC-5), después de las 7pm local, el createdAt ya cae en el día
+                // siguiente UTC → la tarea no aparece en el grid del día actual.
+                // actualCheckoutAt se guarda como la fecha que envía el frontend (ej:
+                // "2026-03-22") y es invariante al timezone del servidor.
+                checkout: {
+                  actualCheckoutAt: { gte: dayStart, lte: dayEnd },
+                },
               },
               include: { checkout: true },
               orderBy: { createdAt: 'desc' },
@@ -464,13 +501,13 @@ export class CheckoutsService {
       orderBy: [{ floor: 'asc' }, { number: 'asc' }],
     })
 
-    const sharedRooms = rooms.filter((r) => r.type === 'SHARED')
-    const privateRooms = rooms.filter((r) => r.type === 'PRIVATE')
+    const sharedRooms = rooms.filter((r) => r.category === 'SHARED')
+    const privateRooms = rooms.filter((r) => r.category === 'PRIVATE')
 
     const mapRoom = (room: (typeof rooms)[0]) => ({
       roomId: room.id,
       roomNumber: room.number,
-      roomType: room.type,
+      roomCategory: room.category,
       floor: room.floor,
       beds: room.beds.map((bed) => {
         const task = bed.cleaningTasks[0] ?? null
@@ -485,9 +522,10 @@ export class CheckoutsService {
           taskId: task?.id ?? null,
           taskStatus: task?.status ?? null,
           assignedToId: task?.assignedToId ?? null,
-          hasSameDayCheckIn: task?.checkout?.hasSameDayCheckIn ?? false,
+          hasSameDayCheckIn: task?.hasSameDayCheckIn ?? false,
           checkoutId: task?.checkoutId ?? null,
-          cancelled: task?.checkout?.cancelled ?? false,
+          // Cubre per-bed cancel (task.status) y full checkout cancel (checkout.cancelled)
+          cancelled: (task?.status === CleaningStatus.CANCELLED || task?.checkout?.cancelled) ?? false,
         }
       }),
     })
@@ -526,8 +564,9 @@ export class CheckoutsService {
    * @param bedId      - (opcional) Restringe la activación a una cama específica
    */
   async confirmDeparture(checkoutId: string, actorId: string, propertyId: string, bedId?: string) {
+    const orgId = this.tenant.getOrganizationId()
     const checkout = await this.prisma.checkout.findUnique({
-      where: { id: checkoutId },
+      where: { id: checkoutId, organizationId: orgId },
       include: {
         tasks: { include: { assignedTo: { include: { pushTokens: true } } } },
         room: true,
@@ -584,6 +623,87 @@ export class CheckoutsService {
   }
 
   /**
+   * undoDeparture — Revierte la confirmación de salida física (anti-error-humano).
+   *
+   * Disponible solo mientras la tarea está en estado READY o UNASSIGNED
+   * (limpieza aún no iniciada). Una vez que el housekeeper empieza (IN_PROGRESS),
+   * ya no es reversible desde recepción — requiere intervención del supervisor.
+   *
+   * Cuándo usarlo: el recepcionista confirmó la salida de la cama equivocada,
+   * o el huésped cambió de opinión antes de que housekeeping llegara.
+   *
+   * Efecto:
+   *   - READY/UNASSIGNED → PENDING (tarea vuelve a "esperando confirmación física")
+   *   - bed.status → OCCUPIED (cama vuelve a estar ocupada)
+   *   - Push al housekeeper asignado: "Salida revertida, el huésped aún está"
+   *   - SSE: task:planned (el dashboard refleja el estado PENDING nuevamente)
+   *
+   * @param checkoutId - ID del checkout
+   * @param actorId    - Recepcionista que revierte (para TaskLog)
+   * @param propertyId - Para SSE y validación de propiedad
+   * @param bedId      - (opcional) Si se omite, revierte TODAS las camas READY/UNASSIGNED
+   */
+  async undoDeparture(checkoutId: string, actorId: string, propertyId: string, bedId?: string) {
+    const orgId = this.tenant.getOrganizationId()
+    const checkout = await this.prisma.checkout.findUnique({
+      where: { id: checkoutId, organizationId: orgId },
+      include: {
+        tasks: { include: { assignedTo: { include: { pushTokens: true } } } },
+        room: true,
+      },
+    })
+    if (!checkout) throw new NotFoundException('Checkout not found')
+    if (checkout.cancelled) throw new ConflictException('Checkout fue cancelado')
+    if (checkout.room.propertyId !== propertyId) throw new NotFoundException('Checkout not found')
+
+    const reversibleTasks = checkout.tasks.filter(
+      (t) =>
+        [CleaningStatus.READY, CleaningStatus.UNASSIGNED].includes(t.status as CleaningStatus) &&
+        (!bedId || t.bedId === bedId),
+    )
+
+    if (!reversibleTasks.length) {
+      throw new ConflictException(
+        'No hay tareas reversibles — la limpieza ya inició o la cama ya está lista',
+      )
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const task of reversibleTasks) {
+        await tx.cleaningTask.update({
+          where: { id: task.id },
+          data: { status: CleaningStatus.PENDING },
+        })
+
+        await tx.taskLog.create({
+          data: { taskId: task.id, staffId: actorId, event: TaskLogEvent.REOPENED },
+        })
+
+        await tx.bed.update({
+          where: { id: task.bedId },
+          data: { status: 'OCCUPIED' },
+        })
+      }
+    })
+
+    // Notificar al housekeeper asignado que ya no debe limpiar aún
+    for (const task of reversibleTasks) {
+      if (task.assignedToId) {
+        await this.push.sendToStaff(
+          task.assignedToId,
+          '↩️ Salida revertida',
+          `Hab. ${checkout.room.number} — El huésped aún no ha salido. No limpiar todavía.`,
+          { type: 'task:planned', taskId: task.id },
+        )
+      }
+    }
+
+    this.notifications.emit(propertyId, 'task:planned', { checkoutId, roomId: checkout.roomId })
+
+    return { reverted: true, tasksReverted: reversibleTasks.length }
+  }
+
+  /**
    * Envía notificaciones push y SSE después de procesar un checkout.
    * Separado de la $transaction para no bloquear el commit si falla el envío.
    *
@@ -601,8 +721,9 @@ export class CheckoutsService {
     propertyId: string,
     input: CheckoutInput,
   ) {
+    const orgId = this.tenant.getOrganizationId()
     const tasks = await this.prisma.cleaningTask.findMany({
-      where: { checkoutId },
+      where: { checkoutId, organizationId: orgId },
       include: {
         assignedTo: true,
         bed: { include: { room: true } },
@@ -624,7 +745,7 @@ export class CheckoutsService {
     for (const [assignedToId, staffTasks] of byAssignee.entries()) {
       // Check if staff is currently cleaning something else
       const activeTask = await this.prisma.cleaningTask.findFirst({
-        where: { assignedToId, status: CleaningStatus.IN_PROGRESS },
+        where: { assignedToId, status: CleaningStatus.IN_PROGRESS, organizationId: orgId },
         include: { bed: { include: { room: true } } },
       })
 

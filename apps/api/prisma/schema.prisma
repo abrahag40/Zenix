@@ -34,7 +34,7 @@ enum HousekeepingRole {
   RECEPTIONIST
 }
 
-enum RoomType {
+enum RoomCategory {
   PRIVATE
   SHARED
 }
@@ -87,9 +87,9 @@ enum MaintenanceCategory {
 }
 
 enum DiscrepancyType {
-  BED_STATUS_MISMATCH   // Cama marcada diferente a lo que housekeeping ve
-  GUEST_EXTENSION       // Huésped quiere extender estadía
-  UNEXPECTED_OCCUPANCY  // Cama supuestamente vacía pero tiene huésped
+  BED_STATUS_MISMATCH
+  GUEST_EXTENSION
+  UNEXPECTED_OCCUPANCY
   OTHER
 }
 
@@ -99,59 +99,216 @@ enum DiscrepancyStatus {
   RESOLVED
 }
 
+// ── PMS Core enums ──
+
+enum RoomStatus {
+  AVAILABLE
+  OCCUPIED
+  CHECKING_OUT
+  CLEANING
+  INSPECTION
+  MAINTENANCE
+  OUT_OF_SERVICE
+}
+
+enum PaymentStatus {
+  PENDING
+  PARTIAL
+  PAID
+  CREDIT
+  OVERDUE
+}
+
+// ── New enums for multi-tenant foundation ──
+
+enum OrgPlan {
+  STARTER
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+enum SystemRole {
+  OWNER
+  MANAGER
+  RECEPTIONIST
+  HOUSEKEEPER
+  TECHNICIAN
+  AUDITOR
+}
+
+enum PropertyType {
+  HOTEL
+  HOSTAL
+  BOUTIQUE
+  GLAMPING
+  ECO_LODGE
+  VACATION_RENTAL
+}
+
+// ======================= MULTI-TENANT FOUNDATION =======================
+
+model Organization {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  plan        OrgPlan  @default(STARTER)
+  countryCode String   @default("MX") @map("country_code")
+  timezone    String   @default("America/Cancun")
+  currency    String   @default("MXN")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Reverse relations (denormalized organizationId in all business tables)
+  properties        Property[]
+  users             User[]
+  rooms             Room[]
+  beds              Bed[]
+  housekeepingStaff HousekeepingStaff[]
+  checkouts         Checkout[]
+  cleaningTasks     CleaningTask[]
+  taskLogs          TaskLog[]
+  cleaningNotes     CleaningNote[]
+  maintenanceIssues MaintenanceIssue[]
+  bedDiscrepancies  BedDiscrepancy[]
+  pushTokens        PushToken[]
+  pmsConfigs        PmsConfig[]
+  propertySettings  PropertySettings[]
+  roomTypes         RoomType[]
+  roomStatusLogs    RoomStatusLog[]
+  guestStays        GuestStay[]
+
+  @@map("organizations")
+}
+
+model User {
+  id             String    @id @default(uuid())
+  organizationId String    @map("organization_id")
+  email          String    @unique
+  passwordHash   String    @map("password_hash")
+  firstName      String    @map("first_name")
+  lastName       String    @map("last_name")
+  isActive       Boolean   @default(true) @map("is_active")
+  deletedAt      DateTime? @map("deleted_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization  Organization       @relation(fields: [organizationId], references: [id])
+  propertyRoles UserPropertyRole[]
+  staffProfiles HousekeepingStaff[]
+
+  @@index([organizationId])
+  @@map("users")
+}
+
+model UserPropertyRole {
+  id         String     @id @default(uuid())
+  userId     String     @map("user_id")
+  propertyId String     @map("property_id")
+  role       SystemRole
+  createdAt  DateTime   @default(now()) @map("created_at")
+
+  user     User     @relation(fields: [userId], references: [id])
+  property Property @relation(fields: [propertyId], references: [id])
+
+  @@unique([userId, propertyId, role])
+  @@index([userId])
+  @@index([propertyId])
+  @@map("user_property_roles")
+}
+
 // ======================= CORE MODELS =======================
 
 model Property {
-  id        String   @id @default(uuid())
-  name      String
-  createdAt DateTime @default(now())
+  id             String        @id @default(uuid())
+  organizationId String?       @map("organization_id")
+  name           String
+  type           PropertyType  @default(HOTEL)
+  taxId          String?       @map("tax_id")
+  checkinTime    String        @default("15:00") @map("checkin_time")
+  checkoutTime   String        @default("12:00") @map("checkout_time")
+  isActive       Boolean       @default(true) @map("is_active")
+  deletedAt      DateTime?     @map("deleted_at")
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt @map("updated_at")
 
-  rooms     Room[]
-  staff     HousekeepingStaff[]
-  pmsConfig PmsConfig?
-  settings  PropertySettings?
+  organization Organization? @relation(fields: [organizationId], references: [id])
+  rooms        Room[]
+  roomTypes    RoomType[]
+  staff        HousekeepingStaff[]
+  pmsConfig    PmsConfig?
+  settings     PropertySettings?
+  userRoles    UserPropertyRole[]
+
+  @@index([organizationId])
+  @@map("properties")
 }
 
 model Room {
-  id              String   @id @default(uuid())
+  id              String      @id @default(uuid())
+  organizationId  String?     @map("organization_id")
   propertyId      String
   number          String
   floor           Int?
-  type            RoomType
+  category        RoomCategory
   capacity        Int
+  status          RoomStatus  @default(AVAILABLE) @map("room_status")
+  roomTypeId      String?     @map("room_type_id")
   cloudbedsRoomId String?
+  notes           String?
+  deletedAt       DateTime?   @map("deleted_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
 
-  property  Property   @relation(fields: [propertyId], references: [id])
-  beds      Bed[]
-  checkouts Checkout[]
+  organization Organization?  @relation(fields: [organizationId], references: [id])
+  property     Property       @relation(fields: [propertyId], references: [id])
+  roomType     RoomType?       @relation(fields: [roomTypeId], references: [id])
+  beds         Bed[]
+  checkouts    Checkout[]
+  statusLogs   RoomStatusLog[]
+  guestStays   GuestStay[]
 
   @@unique([propertyId, number])
+  @@index([organizationId])
+  @@index([organizationId, propertyId])
+  @@index([status])
+  @@map("rooms")
 }
 
 model Bed {
-  id        String    @id @default(uuid())
-  label     String
-  roomId    String
-  status    BedStatus @default(AVAILABLE)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id             String    @id @default(uuid())
+  organizationId String?   @map("organization_id")
+  label          String
+  roomId         String
+  status         BedStatus @default(AVAILABLE)
+  deletedAt      DateTime? @map("deleted_at")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
+  organization  Organization?    @relation(fields: [organizationId], references: [id])
   room          Room             @relation(fields: [roomId], references: [id])
   cleaningTasks CleaningTask[]
   discrepancies BedDiscrepancy[]
+
+  @@index([organizationId])
+  @@map("beds")
 }
 
 model HousekeepingStaff {
-  id           String           @id @default(uuid())
-  propertyId   String
-  name         String
-  email        String           @unique
-  passwordHash String
-  role         HousekeepingRole
-  active       Boolean          @default(true)
-  capabilities Capability[]
-  createdAt    DateTime         @default(now())
+  id             String           @id @default(uuid())
+  organizationId String?          @map("organization_id")
+  userId         String?          @map("user_id")
+  propertyId     String
+  name           String
+  email          String           @unique
+  passwordHash   String
+  role           HousekeepingRole
+  active         Boolean          @default(true)
+  capabilities   Capability[]
+  deletedAt      DateTime?        @map("deleted_at")
+  createdAt      DateTime         @default(now())
 
+  organization  Organization?   @relation(fields: [organizationId], references: [id])
+  user          User?           @relation(fields: [userId], references: [id])
   property      Property        @relation(fields: [propertyId], references: [id])
   tasks         CleaningTask[]  @relation("AssignedTasks")
   verifiedTasks CleaningTask[]  @relation("VerifiedTasks")
@@ -162,10 +319,15 @@ model HousekeepingStaff {
   issues                MaintenanceIssue[]
   reportedDiscrepancies BedDiscrepancy[] @relation("DiscrepancyReporter")
   resolvedDiscrepancies BedDiscrepancy[] @relation("DiscrepancyResolver")
+
+  @@index([organizationId])
+  @@index([organizationId, propertyId])
+  @@map("housekeeping_staff")
 }
 
 model Checkout {
   id                     String         @id @default(uuid())
+  organizationId         String?        @map("organization_id")
   roomId                 String
   guestName              String?
   actualCheckoutAt       DateTime
@@ -177,15 +339,21 @@ model Checkout {
   enteredById            String?
   cancelled              Boolean        @default(false)
   cancelledAt            DateTime?
+  createdById            String?        @map("created_by_id")
   createdAt              DateTime       @default(now())
 
-  room      Room                @relation(fields: [roomId], references: [id])
-  enteredBy HousekeepingStaff?  @relation("ManualCheckouts", fields: [enteredById], references: [id])
-  tasks     CleaningTask[]
+  organization Organization?     @relation(fields: [organizationId], references: [id])
+  room         Room              @relation(fields: [roomId], references: [id])
+  enteredBy    HousekeepingStaff? @relation("ManualCheckouts", fields: [enteredById], references: [id])
+  tasks        CleaningTask[]
+
+  @@index([organizationId])
+  @@map("checkouts")
 }
 
 model CleaningTask {
   id                 String         @id @default(uuid())
+  organizationId     String?        @map("organization_id")
   bedId              String
   checkoutId         String?
   assignedToId       String?
@@ -193,117 +361,248 @@ model CleaningTask {
   taskType           TaskType       @default(CLEANING)
   requiredCapability Capability     @default(CLEANING)
   priority           Priority       @default(MEDIUM)
+  hasSameDayCheckIn  Boolean        @default(false)
   startedAt          DateTime?
   finishedAt         DateTime?
   verifiedAt         DateTime?
   verifiedById       String?
+  createdById        String?        @map("created_by_id")
+  updatedById        String?        @map("updated_by_id")
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
 
-  bed        Bed                 @relation(fields: [bedId], references: [id])
-  checkout   Checkout?           @relation(fields: [checkoutId], references: [id])
-  assignedTo HousekeepingStaff?  @relation("AssignedTasks", fields: [assignedToId], references: [id])
-  verifiedBy HousekeepingStaff?  @relation("VerifiedTasks", fields: [verifiedById], references: [id])
-  logs       TaskLog[]
-  notes      CleaningNote[]
-  issues     MaintenanceIssue[]
+  organization Organization?      @relation(fields: [organizationId], references: [id])
+  bed          Bed                @relation(fields: [bedId], references: [id])
+  checkout     Checkout?          @relation(fields: [checkoutId], references: [id])
+  assignedTo   HousekeepingStaff? @relation("AssignedTasks", fields: [assignedToId], references: [id])
+  verifiedBy   HousekeepingStaff? @relation("VerifiedTasks", fields: [verifiedById], references: [id])
+  logs         TaskLog[]
+  notes        CleaningNote[]
+  issues       MaintenanceIssue[]
 
+  @@index([organizationId])
   @@index([status])
   @@index([assignedToId, status])
   @@index([bedId])
   @@index([checkoutId])
+  @@map("cleaning_tasks")
 }
 
 model TaskLog {
-  id        String       @id @default(uuid())
-  taskId    String
-  staffId   String?      // Nullable: eventos del sistema no tienen staff asociado
-  event     TaskLogEvent
-  note      String?
-  createdAt DateTime     @default(now())
+  id             String       @id @default(uuid())
+  organizationId String?      @map("organization_id")
+  taskId         String
+  staffId        String?
+  event          TaskLogEvent
+  note           String?
+  createdAt      DateTime     @default(now())
 
-  task  CleaningTask       @relation(fields: [taskId], references: [id])
-  staff HousekeepingStaff? @relation(fields: [staffId], references: [id])
+  organization Organization?      @relation(fields: [organizationId], references: [id])
+  task         CleaningTask       @relation(fields: [taskId], references: [id])
+  staff        HousekeepingStaff? @relation(fields: [staffId], references: [id])
 
+  @@index([organizationId])
   @@index([taskId])
+  @@map("task_logs")
 }
 
 model CleaningNote {
-  id        String   @id @default(uuid())
-  taskId    String
-  staffId   String
-  content   String
-  createdAt DateTime @default(now())
+  id             String   @id @default(uuid())
+  organizationId String?  @map("organization_id")
+  taskId         String
+  staffId        String
+  content        String
+  createdAt      DateTime @default(now())
 
-  task  CleaningTask      @relation(fields: [taskId], references: [id])
-  staff HousekeepingStaff @relation(fields: [staffId], references: [id])
+  organization Organization?     @relation(fields: [organizationId], references: [id])
+  task         CleaningTask      @relation(fields: [taskId], references: [id])
+  staff        HousekeepingStaff @relation(fields: [staffId], references: [id])
+
+  @@index([organizationId])
+  @@map("cleaning_notes")
 }
 
 model MaintenanceIssue {
-  id           String              @id @default(uuid())
-  taskId       String
-  reportedById String
-  category     MaintenanceCategory
-  description  String
-  photoUrl     String?
-  resolved     Boolean             @default(false)
-  createdAt    DateTime            @default(now())
+  id             String              @id @default(uuid())
+  organizationId String?             @map("organization_id")
+  taskId         String
+  reportedById   String
+  category       MaintenanceCategory
+  description    String
+  photoUrl       String?
+  resolved       Boolean             @default(false)
+  createdById    String?             @map("created_by_id")
+  createdAt      DateTime            @default(now())
 
-  task       CleaningTask      @relation(fields: [taskId], references: [id])
-  reportedBy HousekeepingStaff @relation(fields: [reportedById], references: [id])
+  organization Organization?     @relation(fields: [organizationId], references: [id])
+  task         CleaningTask      @relation(fields: [taskId], references: [id])
+  reportedBy   HousekeepingStaff @relation(fields: [reportedById], references: [id])
+
+  @@index([organizationId])
+  @@map("maintenance_issues")
 }
 
 model PushToken {
-  id         String   @id @default(uuid())
-  staffId    String
-  token      String   @unique
-  platform   String
-  active     Boolean  @default(true)
-  lastSeenAt DateTime @default(now())
+  id             String   @id @default(uuid())
+  organizationId String?  @map("organization_id")
+  staffId        String
+  token          String   @unique
+  platform       String
+  active         Boolean  @default(true)
+  lastSeenAt     DateTime @default(now())
 
-  staff HousekeepingStaff @relation(fields: [staffId], references: [id])
+  organization Organization?     @relation(fields: [organizationId], references: [id])
+  staff        HousekeepingStaff @relation(fields: [staffId], references: [id])
+
+  @@index([organizationId])
+  @@map("push_tokens")
 }
 
 model PmsConfig {
-  id            String   @id @default(uuid())
-  propertyId    String   @unique
-  type          String   @default("CLOUDBEDS")
-  apiKey        String
-  webhookSecret String
-  active        Boolean  @default(true)
-  createdAt     DateTime @default(now())
+  id             String    @id @default(uuid())
+  organizationId String?   @map("organization_id")
+  propertyId     String    @unique
+  type           String    @default("CLOUDBEDS")
+  apiKey         String
+  webhookSecret  String
+  active         Boolean   @default(true)
+  deletedAt      DateTime? @map("deleted_at")
+  createdAt      DateTime  @default(now())
 
-  property Property @relation(fields: [propertyId], references: [id])
+  organization Organization? @relation(fields: [organizationId], references: [id])
+  property     Property      @relation(fields: [propertyId], references: [id])
+
+  @@index([organizationId])
+  @@index([organizationId, propertyId])
+  @@map("pms_configs")
 }
 
 model PropertySettings {
-  id                  String   @id @default(uuid())
-  propertyId          String   @unique
-  defaultCheckoutTime String   @default("11:00")  // HH:mm 24h
-  timezone            String   @default("America/Mexico_City")
-  pmsMode             String   @default("STANDALONE") // "STANDALONE" | "CONNECTED"
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                  String    @id @default(uuid())
+  organizationId      String?   @map("organization_id")
+  propertyId          String    @unique
+  defaultCheckoutTime String    @default("11:00")
+  timezone            String    @default("America/Cancun")
+  pmsMode             String    @default("STANDALONE")
+  deletedAt           DateTime? @map("deleted_at")
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
-  property Property @relation(fields: [propertyId], references: [id])
+  organization Organization? @relation(fields: [organizationId], references: [id])
+  property     Property      @relation(fields: [propertyId], references: [id])
+
+  @@index([organizationId])
+  @@index([organizationId, propertyId])
+  @@map("property_settings")
 }
 
 model BedDiscrepancy {
-  id           String            @id @default(uuid())
-  bedId        String
-  reportedById String
-  resolvedById String?
-  type         DiscrepancyType
-  status       DiscrepancyStatus @default(OPEN)
-  description  String
-  resolution   String?
-  createdAt    DateTime          @default(now())
-  resolvedAt   DateTime?
+  id             String            @id @default(uuid())
+  organizationId String?           @map("organization_id")
+  bedId          String
+  reportedById   String
+  resolvedById   String?
+  type           DiscrepancyType
+  status         DiscrepancyStatus @default(OPEN)
+  description    String
+  resolution     String?
+  createdById    String?           @map("created_by_id")
+  createdAt      DateTime          @default(now())
+  resolvedAt     DateTime?
 
-  bed        Bed                @relation(fields: [bedId], references: [id])
-  reportedBy HousekeepingStaff  @relation("DiscrepancyReporter", fields: [reportedById], references: [id])
-  resolvedBy HousekeepingStaff? @relation("DiscrepancyResolver", fields: [resolvedById], references: [id])
+  organization Organization?      @relation(fields: [organizationId], references: [id])
+  bed          Bed                @relation(fields: [bedId], references: [id])
+  reportedBy   HousekeepingStaff  @relation("DiscrepancyReporter", fields: [reportedById], references: [id])
+  resolvedBy   HousekeepingStaff? @relation("DiscrepancyResolver", fields: [resolvedById], references: [id])
 
+  @@index([organizationId])
   @@index([bedId])
   @@index([status])
+  @@map("bed_discrepancies")
+}
+
+// ======================= PMS CORE =======================
+
+model RoomType {
+  id             String    @id @default(uuid())
+  organizationId String    @map("organization_id")
+  propertyId     String    @map("property_id")
+  name           String
+  code           String
+  description    String?
+  maxOccupancy   Int       @map("max_occupancy")
+  baseRate       Decimal   @map("base_rate") @db.Decimal(10, 2)
+  currency       String    @default("USD")
+  amenities      String[]
+  isActive       Boolean   @default(true) @map("is_active")
+  deletedAt      DateTime? @map("deleted_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  property     Property     @relation(fields: [propertyId], references: [id])
+  rooms        Room[]
+
+  @@unique([propertyId, code])
+  @@index([organizationId])
+  @@index([organizationId, propertyId])
+  @@map("room_types")
+}
+
+model RoomStatusLog {
+  id             String     @id @default(uuid())
+  organizationId String     @map("organization_id")
+  propertyId     String     @map("property_id")
+  roomId         String     @map("room_id")
+  fromStatus     RoomStatus @map("from_status")
+  toStatus       RoomStatus @map("to_status")
+  changedById    String     @map("changed_by_id")
+  reason         String?
+  createdAt      DateTime   @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  room         Room         @relation(fields: [roomId], references: [id])
+
+  @@index([organizationId])
+  @@index([roomId])
+  @@index([createdAt])
+  @@map("room_status_logs")
+}
+
+model GuestStay {
+  id                String        @id @default(uuid())
+  organizationId    String        @map("organization_id")
+  propertyId        String        @map("property_id")
+  roomId            String        @map("room_id")
+  guestName         String        @map("guest_name")
+  guestEmail        String?       @map("guest_email")
+  guestPhone        String?       @map("guest_phone")
+  documentType      String?       @map("document_type")
+  documentNumber    String?       @map("document_number")
+  nationality       String?
+  paxCount          Int           @default(1) @map("pax_count")
+  checkinAt         DateTime      @map("checkin_at")
+  scheduledCheckout DateTime      @map("scheduled_checkout")
+  actualCheckout    DateTime?     @map("actual_checkout")
+  ratePerNight      Decimal       @map("rate_per_night") @db.Decimal(10, 2)
+  currency          String        @default("USD")
+  totalAmount       Decimal       @map("total_amount") @db.Decimal(10, 2)
+  amountPaid        Decimal       @default(0) @map("amount_paid") @db.Decimal(10, 2)
+  paymentStatus     PaymentStatus @default(PENDING) @map("payment_status")
+  source            String?
+  notes             String?
+  checkedInById     String        @map("checked_in_by_id")
+  checkedOutById    String?       @map("checked_out_by_id")
+  deletedAt         DateTime?     @map("deleted_at")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  room         Room         @relation(fields: [roomId], references: [id])
+
+  @@index([organizationId])
+  @@index([organizationId, propertyId])
+  @@index([roomId])
+  @@index([paymentStatus])
+  @@map("guest_stays")
 }

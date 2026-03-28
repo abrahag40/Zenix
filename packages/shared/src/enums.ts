@@ -23,7 +23,7 @@ export enum HousekeepingRole {
   RECEPTIONIST = 'RECEPTIONIST',
 }
 
-export enum RoomType {
+export enum RoomCategory {
   PRIVATE = 'PRIVATE',
   SHARED = 'SHARED',
 }

@@ -1,13 +1,13 @@
 import { IsEnum, IsInt, IsOptional, IsString, Min, MinLength } from 'class-validator'
-import { RoomType } from '@housekeeping/shared'
+import { RoomCategory } from '@housekeeping/shared'
 
 export class CreateRoomDto {
   @IsString()
   @MinLength(1)
   number: string
 
-  @IsEnum(RoomType)
-  type: RoomType
+  @IsEnum(RoomCategory)
+  category: RoomCategory
 
   @IsInt()
   @Min(1)

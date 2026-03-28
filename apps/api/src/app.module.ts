@@ -1,6 +1,8 @@
-import { Module } from '@nestjs/common'
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common'
+import { APP_GUARD } from '@nestjs/core'
 import { ConfigModule } from '@nestjs/config'
 import { EventEmitterModule } from '@nestjs/event-emitter'
+import { ClsModule, ClsMiddleware } from 'nestjs-cls'
 import configuration from './config/configuration'
 import { PrismaModule } from './prisma/prisma.module'
 import { AuthModule } from './auth/auth.module'
@@ -17,12 +19,20 @@ import { CloudbedsModule } from './integrations/cloudbeds/cloudbeds.module'
 import { SettingsModule } from './settings/settings.module'
 import { DiscrepanciesModule } from './discrepancies/discrepancies.module'
 import { ReportsModule } from './reports/reports.module'
+import { TenantContextMiddleware } from './common/tenant-context.middleware'
+import { TenantContextService } from './common/tenant-context.service'
+import { TenantGuard } from './common/guards/tenant.guard'
+import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       load: [configuration],
+    }),
+    ClsModule.forRoot({
+      global: true,
+      middleware: { mount: false },
     }),
     EventEmitterModule.forRoot(),
     PrismaModule,
@@ -41,5 +51,20 @@ import { ReportsModule } from './reports/reports.module'
     DiscrepanciesModule,
     ReportsModule,
   ],
+  providers: [
+    TenantContextService,
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: TenantGuard,
+    },
+  ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(ClsMiddleware, TenantContextMiddleware).forRoutes('*')
+  }
+}

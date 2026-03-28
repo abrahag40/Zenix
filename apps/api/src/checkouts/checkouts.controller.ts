@@ -2,8 +2,10 @@ import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common
 import { HousekeepingRole, JwtPayload } from '@housekeeping/shared'
 import { CurrentUser } from '../common/decorators/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
+import { TenantResource } from '../common/guards/tenant.guard'
 import { CheckoutsService } from './checkouts.service'
 import { CreateCheckoutDto, BatchCheckoutDto } from './dto/create-checkout.dto'
+import { CancelCheckoutDto } from './dto/cancel-checkout.dto'
 import { CheckoutSource } from '@housekeeping/shared'
 
 @Controller()
@@ -47,9 +49,10 @@ export class CheckoutsController {
 
   /** Cancel checkout (guest extended stay) */
   @Patch('checkouts/:id/cancel')
+  @TenantResource({ model: 'checkout', paramName: 'id' })
   @Roles(HousekeepingRole.SUPERVISOR, HousekeepingRole.RECEPTIONIST)
-  cancel(@Param('id') id: string, @CurrentUser() actor: JwtPayload) {
-    return this.service.cancelCheckout(id, actor.propertyId)
+  cancel(@Param('id') id: string, @Body() body: CancelCheckoutDto, @CurrentUser() actor: JwtPayload) {
+    return this.service.cancelCheckout(id, actor.propertyId, body.bedId)
   }
 
   /**
@@ -62,7 +65,24 @@ export class CheckoutsController {
    *                     TODAS las camas pendientes del checkout. Necesario en dorms
    *                     compartidos donde cada cama puede tener su propio huésped.
    */
+  /**
+   * Revierte la confirmación de salida física (error humano, huésped aún no salió).
+   * Solo disponible mientras la tarea esté en READY o UNASSIGNED (antes de que
+   * housekeeping inicie la limpieza). Una vez IN_PROGRESS, requiere supervisor.
+   */
+  @Post('checkouts/:id/undo-depart')
+  @TenantResource({ model: 'checkout', paramName: 'id' })
+  @Roles(HousekeepingRole.SUPERVISOR, HousekeepingRole.RECEPTIONIST)
+  undoDeparture(
+    @Param('id') id: string,
+    @CurrentUser() actor: JwtPayload,
+    @Body() body: { bedId?: string },
+  ) {
+    return this.service.undoDeparture(id, actor.sub, actor.propertyId, body.bedId)
+  }
+
   @Post('checkouts/:id/depart')
+  @TenantResource({ model: 'checkout', paramName: 'id' })
   @Roles(HousekeepingRole.SUPERVISOR, HousekeepingRole.RECEPTIONIST)
   confirmDeparture(
     @Param('id') id: string,

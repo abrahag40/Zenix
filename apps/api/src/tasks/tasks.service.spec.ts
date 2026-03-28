@@ -14,17 +14,19 @@ import { Test, TestingModule } from '@nestjs/testing'
 import { CleaningStatus, HousekeepingRole, TaskLogEvent } from '@housekeeping/shared'
 import { TasksService } from './tasks.service'
 import { PrismaService } from '../prisma/prisma.service'
+import { TenantContextService } from '../common/tenant-context.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import { PushService } from '../notifications/push.service'
 
 // ─── Helpers para construir datos de prueba ───────────────────────────────────
 
-function makeActor(overrides: Partial<{ sub: string; role: HousekeepingRole; propertyId: string }> = {}) {
+function makeActor(overrides: Partial<{ sub: string; role: HousekeepingRole; propertyId: string; organizationId: string }> = {}) {
   return {
     sub: 'staff-1',
     email: 'hk@test.com',
     role: HousekeepingRole.HOUSEKEEPER,
     propertyId: 'property-1',
+    organizationId: 'org-1',
     ...overrides,
   }
 }
@@ -53,7 +55,7 @@ function makeTask(overrides: Record<string, unknown> = {}) {
       room: {
         id: 'room-1',
         number: '201',
-        type: 'PRIVATE',
+        category: 'PRIVATE',
         floor: 2,
         property: { id: 'property-1', name: 'Hotel Demo' },
       },
@@ -86,6 +88,10 @@ describe('TasksService', () => {
 
   const notificationsMock = { emit: jest.fn() }
   const pushMock = { sendToStaff: jest.fn() }
+  const tenantMock = {
+    getOrganizationId: jest.fn().mockReturnValue('org-1'),
+    getPropertyId: jest.fn().mockReturnValue('property-1'),
+  }
 
   beforeEach(async () => {
     // Construir el módulo con las dependencias reemplazadas por mocks
@@ -93,6 +99,7 @@ describe('TasksService', () => {
       providers: [
         TasksService,
         { provide: PrismaService, useValue: prismaMock },
+        { provide: TenantContextService, useValue: tenantMock },
         { provide: NotificationsService, useValue: notificationsMock },
         { provide: PushService, useValue: pushMock },
       ],

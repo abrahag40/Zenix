@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common'
 import { HousekeepingRole } from '@housekeeping/shared'
 import { Roles } from '../common/decorators/roles.decorator'
+import { TenantResource } from '../common/guards/tenant.guard'
 import { BedsService } from './beds.service'
 import { CreateBedDto } from './dto/create-bed.dto'
 
@@ -9,28 +10,33 @@ export class BedsController {
   constructor(private service: BedsService) {}
 
   @Post('rooms/:roomId/beds')
+  @TenantResource({ model: 'room', paramName: 'roomId' })
   @Roles(HousekeepingRole.SUPERVISOR)
   create(@Param('roomId') roomId: string, @Body() dto: CreateBedDto) {
     return this.service.create(roomId, dto)
   }
 
   @Get('rooms/:roomId/beds')
+  @TenantResource({ model: 'room', paramName: 'roomId' })
   findByRoom(@Param('roomId') roomId: string) {
     return this.service.findByRoom(roomId)
   }
 
   @Get('beds/:id')
+  @TenantResource({ model: 'bed', paramName: 'id' })
   findOne(@Param('id') id: string) {
     return this.service.findOne(id)
   }
 
   @Patch('beds/:id')
+  @TenantResource({ model: 'bed', paramName: 'id' })
   @Roles(HousekeepingRole.SUPERVISOR)
   update(@Param('id') id: string, @Body() dto: Partial<CreateBedDto>) {
     return this.service.update(id, dto)
   }
 
   @Delete('beds/:id')
+  @TenantResource({ model: 'bed', paramName: 'id' })
   @Roles(HousekeepingRole.SUPERVISOR)
   remove(@Param('id') id: string) {
     return this.service.remove(id)

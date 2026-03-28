@@ -7,6 +7,19 @@ const prisma = new PrismaClient()
 async function main() {
   console.log('🌱 Seeding database...')
 
+  // Create organization
+  const org = await prisma.organization.upsert({
+    where: { slug: 'demo-org' },
+    update: {},
+    create: {
+      id: 'seed-org-1',
+      name: 'Demo Organization',
+      slug: 'demo-org',
+      plan: 'STARTER',
+    },
+  })
+  console.log(`✅ Organization: ${org.name}`)
+
   // Create a property
   const property = await prisma.property.upsert({
     where: { id: 'seed-property-1' },
@@ -14,6 +27,7 @@ async function main() {
     create: {
       id: 'seed-property-1',
       name: 'Hotel Demo',
+      organizationId: org.id,
     },
   })
   console.log(`✅ Property: ${property.name}`)
@@ -26,7 +40,7 @@ async function main() {
       propertyId: property.id,
       number: 'Dorm1',
       floor: 1,
-      type: 'SHARED',
+      category: 'SHARED',
       capacity: 6,
     },
   })
@@ -38,7 +52,7 @@ async function main() {
       propertyId: property.id,
       number: 'Dorm2',
       floor: 1,
-      type: 'SHARED',
+      category: 'SHARED',
       capacity: 4,
     },
   })
@@ -51,7 +65,7 @@ async function main() {
       propertyId: property.id,
       number: '101',
       floor: 1,
-      type: 'PRIVATE',
+      category: 'PRIVATE',
       capacity: 2,
     },
   })
@@ -63,7 +77,7 @@ async function main() {
       propertyId: property.id,
       number: '102',
       floor: 1,
-      type: 'PRIVATE',
+      category: 'PRIVATE',
       capacity: 2,
     },
   })
@@ -181,6 +195,99 @@ async function main() {
     },
   })
   console.log('✅ Staff created')
+
+  // Room Types
+  const roomTypes = await Promise.all([
+    prisma.roomType.upsert({
+      where: { propertyId_code: { propertyId: property.id, code: 'STD' } },
+      update: {},
+      create: {
+        organizationId: org.id,
+        propertyId: property.id,
+        name: 'Estándar',
+        code: 'STD',
+        maxOccupancy: 2,
+        baseRate: 120,
+        currency: 'USD',
+        amenities: ['WiFi', 'AC', 'TV'],
+      },
+    }),
+    prisma.roomType.upsert({
+      where: { propertyId_code: { propertyId: property.id, code: 'JRS' } },
+      update: {},
+      create: {
+        organizationId: org.id,
+        propertyId: property.id,
+        name: 'Junior Suite',
+        code: 'JRS',
+        maxOccupancy: 3,
+        baseRate: 180,
+        currency: 'USD',
+        amenities: ['WiFi', 'AC', 'TV', 'Terrace', 'Ocean View'],
+      },
+    }),
+    prisma.roomType.upsert({
+      where: { propertyId_code: { propertyId: property.id, code: 'STE' } },
+      update: {},
+      create: {
+        organizationId: org.id,
+        propertyId: property.id,
+        name: 'Suite Master',
+        code: 'STE',
+        maxOccupancy: 4,
+        baseRate: 280,
+        currency: 'USD',
+        amenities: ['WiFi', 'AC', 'TV', 'Jacuzzi', 'Terrace', 'Ocean View'],
+      },
+    }),
+  ])
+  console.log('✅ Room types created')
+
+  // Update rooms with status and roomTypeId
+  const rooms = await prisma.room.findMany({ where: { propertyId: property.id } })
+  for (let i = 0; i < rooms.length; i++) {
+    const statuses: Array<'AVAILABLE' | 'OCCUPIED' | 'CLEANING'> = ['AVAILABLE', 'OCCUPIED', 'CLEANING', 'AVAILABLE']
+    const typeIndex = i % roomTypes.length
+    await prisma.room.update({
+      where: { id: rooms[i].id },
+      data: {
+        status: statuses[i],
+        roomTypeId: roomTypes[typeIndex].id,
+      },
+    })
+  }
+  console.log('✅ Rooms updated with types and statuses')
+
+  // A GuestStay for the OCCUPIED room
+  const occupiedRoom = rooms.find((_, i) => i === 1)
+  if (occupiedRoom) {
+    await prisma.guestStay.upsert({
+      where: { id: 'demo-stay-001' },
+      update: {},
+      create: {
+        id: 'demo-stay-001',
+        organizationId: org.id,
+        propertyId: property.id,
+        roomId: occupiedRoom.id,
+        guestName: 'Sarah Johnson',
+        guestEmail: 'sarah@example.com',
+        nationality: 'US',
+        documentType: 'passport',
+        documentNumber: 'AB123456',
+        paxCount: 2,
+        checkinAt: new Date(),
+        scheduledCheckout: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+        ratePerNight: 180,
+        currency: 'USD',
+        totalAmount: 540,
+        amountPaid: 300,
+        paymentStatus: 'PARTIAL',
+        source: 'walk-in',
+        checkedInById: receptionist.id,
+      },
+    })
+    console.log('✅ Guest stay created')
+  }
 
   console.log('\n📋 Seed credentials:')
   console.log(`  Supervisor:   supervisor@demo.com  / supervisor123`)

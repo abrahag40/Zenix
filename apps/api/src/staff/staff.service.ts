@@ -2,6 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import * as bcrypt from 'bcrypt'
 import { JwtPayload } from '@housekeeping/shared'
 import { PrismaService } from '../prisma/prisma.service'
+import { TenantContextService } from '../common/tenant-context.service'
 import { CreateStaffDto, UpdateStaffDto } from './dto/create-staff.dto'
 
 const SELECT_SAFE = {
@@ -17,9 +18,13 @@ const SELECT_SAFE = {
 
 @Injectable()
 export class StaffService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private tenant: TenantContextService,
+  ) {}
 
   async create(dto: CreateStaffDto, actor: JwtPayload) {
+    const orgId = this.tenant.getOrganizationId()
     const existing = await this.prisma.housekeepingStaff.findUnique({
       where: { email: dto.email.toLowerCase() },
     })
@@ -28,6 +33,7 @@ export class StaffService {
     const passwordHash = await bcrypt.hash(dto.password, 12)
     return this.prisma.housekeepingStaff.create({
       data: {
+        organizationId: orgId,
         propertyId: actor.propertyId,
         name: dto.name,
         email: dto.email.toLowerCase(),
@@ -40,16 +46,18 @@ export class StaffService {
   }
 
   findAll(propertyId: string) {
+    const orgId = this.tenant.getOrganizationId()
     return this.prisma.housekeepingStaff.findMany({
-      where: { propertyId },
+      where: { propertyId, organizationId: orgId },
       select: SELECT_SAFE,
       orderBy: { name: 'asc' },
     })
   }
 
   async findOne(id: string) {
+    const orgId = this.tenant.getOrganizationId()
     const staff = await this.prisma.housekeepingStaff.findUnique({
-      where: { id },
+      where: { id, organizationId: orgId },
       select: SELECT_SAFE,
     })
     if (!staff) throw new NotFoundException('Staff not found')

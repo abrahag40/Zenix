@@ -1,21 +1,33 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
+import { TenantContextService } from '../common/tenant-context.service'
 import { CreatePropertyDto } from './dto/create-property.dto'
 
 @Injectable()
 export class PropertiesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private tenant: TenantContextService,
+  ) {}
 
   create(dto: CreatePropertyDto) {
-    return this.prisma.property.create({ data: dto })
+    const orgId = this.tenant.getOrganizationId()
+    return this.prisma.property.create({ data: { ...dto, organizationId: orgId } })
   }
 
   findAll() {
-    return this.prisma.property.findMany({ orderBy: { name: 'asc' } })
+    const orgId = this.tenant.getOrganizationId()
+    return this.prisma.property.findMany({
+      where: { organizationId: orgId },
+      orderBy: { name: 'asc' },
+    })
   }
 
   async findOne(id: string) {
-    const property = await this.prisma.property.findUnique({ where: { id } })
+    const orgId = this.tenant.getOrganizationId()
+    const property = await this.prisma.property.findUnique({
+      where: { id, organizationId: orgId },
+    })
     if (!property) throw new NotFoundException('Property not found')
     return property
   }

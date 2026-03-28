@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/commo
 import { HousekeepingRole, JwtPayload } from '@housekeeping/shared'
 import { CurrentUser } from '../common/decorators/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
+import { TenantResource } from '../common/guards/tenant.guard'
 import { StaffService } from './staff.service'
 import { CreateStaffDto, UpdateStaffDto } from './dto/create-staff.dto'
 
@@ -21,17 +22,20 @@ export class StaffController {
   }
 
   @Get(':id')
+  @TenantResource({ model: 'housekeepingStaff', paramName: 'id' })
   findOne(@Param('id') id: string) {
     return this.service.findOne(id)
   }
 
   @Patch(':id')
+  @TenantResource({ model: 'housekeepingStaff', paramName: 'id' })
   @Roles(HousekeepingRole.SUPERVISOR)
   update(@Param('id') id: string, @Body() dto: UpdateStaffDto) {
     return this.service.update(id, dto)
   }
 
   @Delete(':id')
+  @TenantResource({ model: 'housekeepingStaff', paramName: 'id' })
   @Roles(HousekeepingRole.SUPERVISOR)
   remove(@Param('id') id: string) {
     return this.service.remove(id)

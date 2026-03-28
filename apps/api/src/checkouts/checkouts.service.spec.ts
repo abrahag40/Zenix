@@ -28,6 +28,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter'
 import { CheckoutSource, CleaningStatus, Priority } from '@housekeeping/shared'
 import { CheckoutsService, CheckoutInput } from './checkouts.service'
 import { PrismaService } from '../prisma/prisma.service'
+import { TenantContextService } from '../common/tenant-context.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import { PushService } from '../notifications/push.service'
 
@@ -42,7 +43,7 @@ function makeRoom(overrides: Record<string, unknown> = {}) {
   return {
     id: 'room-1',
     number: '201',
-    type: 'PRIVATE',
+    category: 'PRIVATE',
     floor: 2,
     propertyId: 'property-1',
     beds: [
@@ -112,12 +113,17 @@ describe('CheckoutsService', () => {
   const notificationsMock = { emit: jest.fn() }
   const pushMock          = { sendToStaff: jest.fn().mockResolvedValue(undefined) }
   const eventsMock        = { emit: jest.fn() }
+  const tenantMock        = {
+    getOrganizationId: jest.fn().mockReturnValue('org-1'),
+    getPropertyId: jest.fn().mockReturnValue('property-1'),
+  }
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CheckoutsService,
         { provide: PrismaService,        useValue: prismaMock },
+        { provide: TenantContextService, useValue: tenantMock },
         { provide: NotificationsService, useValue: notificationsMock },
         { provide: PushService,          useValue: pushMock },
         { provide: EventEmitter2,        useValue: eventsMock },
@@ -669,6 +675,49 @@ describe('CheckoutsService', () => {
         NotFoundException,
       )
     })
+
+    it('per-bed cancel: solo cancela la tarea de la cama indicada, las demás siguen activas', async () => {
+      // Arrange — dorm con 2 camas; solo se cancela bed-1
+      const checkout = makeCheckout([
+        { id: 'task-1', bedId: 'bed-1', status: CleaningStatus.PENDING },
+        { id: 'task-2', bedId: 'bed-2', status: CleaningStatus.PENDING },
+      ])
+
+      prismaMock.checkout.findUnique.mockResolvedValue(checkout)
+      prismaMock.cleaningTask.update.mockResolvedValue({})
+      prismaMock.taskLog.create.mockResolvedValue({})
+      prismaMock.bed.update.mockResolvedValue({})
+
+      // Act
+      await service.cancelCheckout('checkout-1', 'property-1', 'bed-1')
+
+      // Assert — solo task-1 fue cancelada
+      expect(prismaMock.cleaningTask.update).toHaveBeenCalledTimes(1)
+      expect(prismaMock.cleaningTask.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'task-1' }, data: { status: CleaningStatus.CANCELLED } }),
+      )
+      // checkout.cancelled no se marca en cancel por cama individual
+      expect(prismaMock.checkout.update).not.toHaveBeenCalled()
+    })
+
+    it('per-bed cancel: no marca checkout.cancelled = true (el resto del checkout sigue vigente)', async () => {
+      // Arrange
+      const checkout = makeCheckout([
+        { id: 'task-1', bedId: 'bed-1', status: CleaningStatus.READY },
+        { id: 'task-2', bedId: 'bed-2', status: CleaningStatus.READY },
+      ])
+
+      prismaMock.checkout.findUnique.mockResolvedValue(checkout)
+      prismaMock.cleaningTask.update.mockResolvedValue({})
+      prismaMock.taskLog.create.mockResolvedValue({})
+      prismaMock.bed.update.mockResolvedValue({})
+
+      // Act
+      await service.cancelCheckout('checkout-1', 'property-1', 'bed-1')
+
+      // Assert — checkout en BD no fue marcado como cancelled
+      expect(prismaMock.checkout.update).not.toHaveBeenCalled()
+    })
   })
 
   // ─── getDailyGrid — fix de timezone ──────────────────────────────────────
@@ -708,15 +757,17 @@ describe('CheckoutsService', () => {
       // Assert — la query de Prisma recibe las fechas UTC correctas
       expect(roomFindMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { propertyId: 'prop-1' },
+          where: { propertyId: 'prop-1', organizationId: 'org-1' },
           include: expect.objectContaining({
             beds: expect.objectContaining({
               include: expect.objectContaining({
                 cleaningTasks: expect.objectContaining({
                   where: expect.objectContaining({
-                    createdAt: {
-                      gte: new Date('2026-03-21T00:00:00.000Z'),  // UTC midnight exacto
-                      lte: new Date('2026-03-21T23:59:59.999Z'),  // UTC fin de día exacto
+                    checkout: {
+                      actualCheckoutAt: {
+                        gte: new Date('2026-03-21T00:00:00.000Z'),  // UTC midnight exacto
+                        lte: new Date('2026-03-21T23:59:59.999Z'),  // UTC fin de día exacto
+                      },
                     },
                   }),
                 }),
@@ -730,11 +781,11 @@ describe('CheckoutsService', () => {
     it('retorna el grid correctamente estructurado con sharedRooms y privateRooms', async () => {
       // Arrange — una habitación SHARED y una PRIVATE, sin tareas hoy
       const sharedRoom  = {
-        id: 'r-shared', number: 'Dorm1', type: 'SHARED', floor: 1,
+        id: 'r-shared', number: 'Dorm1', category: 'SHARED', floor: 1,
         beds: [{ id: 'b-1', label: 'Cama 1', status: 'AVAILABLE', cleaningTasks: [] }],
       }
       const privateRoom = {
-        id: 'r-private', number: '101', type: 'PRIVATE', floor: 1,
+        id: 'r-private', number: '101', category: 'PRIVATE', floor: 1,
         beds: [{ id: 'b-2', label: 'Cama 1', status: 'AVAILABLE', cleaningTasks: [] }],
       }
 
@@ -765,10 +816,11 @@ describe('CheckoutsService', () => {
         status: CleaningStatus.PENDING,
         assignedToId: null,
         checkoutId: 'checkout-1',
+        hasSameDayCheckIn: true,
         checkout: { id: 'checkout-1', hasSameDayCheckIn: true, cancelled: false },
       }
       const room = {
-        id: 'r-1', number: '201', type: 'PRIVATE', floor: 1,
+        id: 'r-1', number: '201', category: 'PRIVATE', floor: 1,
         beds: [{ id: 'b-1', label: 'Cama 1', status: 'OCCUPIED', cleaningTasks: [task] }],
       }
 
@@ -792,7 +844,7 @@ describe('CheckoutsService', () => {
       // La query de Prisma ya filtra status: { not: 'CANCELLED' }
       // Simulamos que cleaningTasks devuelve [] (filtrado por Prisma)
       const room = {
-        id: 'r-1', number: '201', type: 'PRIVATE', floor: 1,
+        id: 'r-1', number: '201', category: 'PRIVATE', floor: 1,
         beds: [{ id: 'b-1', label: 'Cama 1', status: 'OCCUPIED', cleaningTasks: [] }],
       }
 

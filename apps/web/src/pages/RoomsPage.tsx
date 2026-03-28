@@ -26,7 +26,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import { useSSE } from '../hooks/useSSE'
 import type { BedDiscrepancyDto, BedDto, PropertySettingsDto, RoomDto, SseEvent } from '@housekeeping/shared'
-import { BedStatus, CleaningStatus, DiscrepancyStatus, RoomType } from '@housekeeping/shared'
+import { BedStatus, CleaningStatus, DiscrepancyStatus, RoomCategory } from '@housekeeping/shared'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -248,8 +248,8 @@ export function RoomsPage() {
   // ── Derived data ───────────────────────────────────────────────────────────
 
   // Separa las habitaciones en compartidas y privadas para renderizar secciones distintas
-  const shared = rooms.filter((r) => r.type === RoomType.SHARED)
-  const private_ = rooms.filter((r) => r.type === RoomType.PRIVATE)
+  const shared = rooms.filter((r) => r.category === RoomCategory.SHARED)
+  const private_ = rooms.filter((r) => r.category === RoomCategory.PRIVATE)
 
   // Lista plana de todas las camas para calcular los totales del encabezado
   const allBeds = rooms.flatMap((r) => r.beds)

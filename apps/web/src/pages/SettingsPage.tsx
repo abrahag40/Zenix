@@ -16,7 +16,7 @@ import toast from 'react-hot-toast'
 import { api } from '../api/client'
 import { useAuthStore } from '../store/auth'
 import type { BedDto, PropertySettingsDto, RoomDto, StaffDto } from '@housekeeping/shared'
-import { Capability, HousekeepingRole, RoomType } from '@housekeeping/shared'
+import { Capability, HousekeepingRole, RoomCategory } from '@housekeeping/shared'
 
 type Section = 'rooms' | 'staff' | 'property'
 
@@ -123,13 +123,13 @@ function RoomsSection({ isSupervisor }: { isSupervisor: boolean }) {
                 <span className="text-gray-300 text-xs">{expanded === room.id ? '▼' : '▶'}</span>
                 <div>
                   <p className="text-sm font-medium text-gray-900">
-                    {room.type === RoomType.SHARED ? 'Dorm' : 'Hab.'} {room.number}
+                    {room.category === RoomCategory.SHARED ? 'Dorm' : 'Hab.'} {room.number}
                     {room.floor != null && (
                       <span className="text-gray-400 font-normal ml-2 text-xs">Piso {room.floor}</span>
                     )}
                   </p>
                   <p className="text-xs text-gray-400">
-                    {room.type === RoomType.SHARED ? 'Compartido' : 'Privado'} ·{' '}
+                    {room.category === RoomCategory.SHARED ? 'Compartido' : 'Privado'} ·{' '}
                     {room.beds?.length ?? 0} cama{(room.beds?.length ?? 0) !== 1 ? 's' : ''}
                   </p>
                 </div>
@@ -231,7 +231,7 @@ function BedsManager({ roomId, beds, isSupervisor }: { roomId: string; beds: Bed
 
 function AddRoomForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [number, setNumber]     = useState('')
-  const [type, setType]         = useState<RoomType>(RoomType.SHARED)
+  const [category, setCategory]  = useState<RoomCategory>(RoomCategory.SHARED)
   const [floor, setFloor]       = useState('')
   const [capacity, setCapacity] = useState('6')
 
@@ -253,7 +253,7 @@ function AddRoomForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =>
           e.preventDefault()
           mutation.mutate({
             number,
-            type,
+            category,
             floor: floor ? parseInt(floor) : null,
             capacity: parseInt(capacity),
           })
@@ -273,11 +273,11 @@ function AddRoomForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =>
           <label className="form-label">Tipo *</label>
           <select
             value={type}
-            onChange={(e) => setType(e.target.value as RoomType)}
+            onChange={(e) => setCategory(e.target.value as RoomCategory)}
             className="input"
           >
-            <option value={RoomType.SHARED}>Compartido (dorm)</option>
-            <option value={RoomType.PRIVATE}>Privado</option>
+            <option value={RoomCategory.SHARED}>Compartido (dorm)</option>
+            <option value={RoomCategory.PRIVATE}>Privado</option>
           </select>
         </div>
         <div>
