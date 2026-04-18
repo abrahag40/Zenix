@@ -10,13 +10,23 @@
     "lint": "eslint src --ext .ts,.tsx --report-unused-disable-directives --max-warnings 0"
   },
   "dependencies": {
+    "@hookform/resolvers": "^5.2.2",
     "@housekeeping/shared": "*",
     "@tanstack/react-query": "^5.62.7",
+    "@tanstack/react-virtual": "^3.13.24",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
+    "lucide-react": "^1.8.0",
+    "radix-ui": "^1.4.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-hook-form": "^7.72.1",
     "react-hot-toast": "^2.4.1",
+    "react-phone-number-input": "^3.4.16",
     "react-router-dom": "^6.28.1",
+    "tailwind-merge": "^3.5.0",
+    "zod": "^4.3.6",
     "zustand": "^5.0.2"
   },
   "devDependencies": {
