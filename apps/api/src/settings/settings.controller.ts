@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Patch, UseGuards } from '@nestjs/common'
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard'
 import { CurrentUser } from '../common/decorators/current-user.decorator'
-import { JwtPayload } from '@housekeeping/shared'
+import { JwtPayload } from '@zenix/shared'
 import { SettingsService } from './settings.service'
 import { UpdateSettingsDto } from './dto/update-settings.dto'
 

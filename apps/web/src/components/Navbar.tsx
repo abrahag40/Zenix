@@ -1,6 +1,6 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/auth'
-import { HousekeepingRole } from '@housekeeping/shared'
+import { HousekeepingRole } from '@zenix/shared'
 
 const links = [
   { to: '/rooms', label: 'Habitaciones', roles: [HousekeepingRole.RECEPTIONIST, HousekeepingRole.SUPERVISOR] },

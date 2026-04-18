@@ -25,7 +25,7 @@
 import { ConflictException, NotFoundException } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 import { EventEmitter2 } from '@nestjs/event-emitter'
-import { CheckoutSource, CleaningStatus, Priority } from '@housekeeping/shared'
+import { CheckoutSource, CleaningStatus, Priority } from '@zenix/shared'
 import { CheckoutsService, CheckoutInput } from './checkouts.service'
 import { PrismaService } from '../prisma/prisma.service'
 import { TenantContextService } from '../common/tenant-context.service'

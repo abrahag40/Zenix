@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { AuthResponse } from '@housekeeping/shared'
+import type { AuthResponse } from '@zenix/shared'
 
 interface AuthState {
   token: string | null

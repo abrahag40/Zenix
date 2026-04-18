@@ -1,5 +1,5 @@
 import { IsEnum, IsOptional, IsString, MinLength } from 'class-validator'
-import { BedStatus } from '@housekeeping/shared'
+import { BedStatus } from '@zenix/shared'
 
 export class CreateBedDto {
   @IsString()

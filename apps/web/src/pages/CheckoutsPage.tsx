@@ -17,8 +17,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import { api } from '../api/client'
-import type { CheckoutDto, PropertySettingsDto, RoomDto } from '@housekeeping/shared'
-import { RoomCategory } from '@housekeeping/shared'
+import type { CheckoutDto, PropertySettingsDto, RoomDto } from '@zenix/shared'
+import { RoomCategory } from '@zenix/shared'
 
 export function CheckoutsPage() {
   const qc = useQueryClient()

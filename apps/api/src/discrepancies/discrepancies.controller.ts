@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common'
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard'
 import { CurrentUser } from '../common/decorators/current-user.decorator'
-import { JwtPayload, DiscrepancyStatus } from '@housekeeping/shared'
+import { JwtPayload, DiscrepancyStatus } from '@zenix/shared'
 import { DiscrepanciesService } from './discrepancies.service'
 import { CreateDiscrepancyDto } from './dto/create-discrepancy.dto'
 

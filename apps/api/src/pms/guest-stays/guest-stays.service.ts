@@ -11,7 +11,7 @@ import { TenantContextService } from '../../common/tenant-context.service'
 import { EmailService } from '../../common/email/email.service'
 import { CreateGuestStayDto } from './dto/create-guest-stay.dto'
 import { MoveRoomDto } from './dto/move-room.dto'
-import type { AvailabilityConflict, RoomAvailabilityResult } from '@housekeeping/shared'
+import type { AvailabilityConflict, RoomAvailabilityResult } from '@zenix/shared'
 import { Prisma } from '@prisma/client'
 
 @Injectable()

@@ -1,5 +1,5 @@
 import { IsEnum, IsInt, IsOptional, IsString, Min, MinLength } from 'class-validator'
-import { RoomCategory } from '@housekeeping/shared'
+import { RoomCategory } from '@zenix/shared'
 
 export class CreateRoomDto {
   @IsString()

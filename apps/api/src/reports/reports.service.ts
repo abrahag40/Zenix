@@ -14,7 +14,7 @@
  *    todos los registros del día sin depender de zonas horarias en el cliente.
  */
 import { Injectable } from '@nestjs/common'
-import { CleaningStatus, HousekeepingRole } from '@housekeeping/shared'
+import { CleaningStatus, HousekeepingRole } from '@zenix/shared'
 import { PrismaService } from '../prisma/prisma.service'
 
 @Injectable()

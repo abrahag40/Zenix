@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common'
-import { HousekeepingRole, JwtPayload } from '@housekeeping/shared'
+import { HousekeepingRole, JwtPayload } from '@zenix/shared'
 import { CurrentUser } from '../common/decorators/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
 import { TenantResource } from '../common/guards/tenant.guard'

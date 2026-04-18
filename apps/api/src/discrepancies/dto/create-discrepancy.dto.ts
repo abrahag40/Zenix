@@ -1,5 +1,5 @@
 import { IsEnum, IsNotEmpty, IsString, IsUUID } from 'class-validator'
-import { DiscrepancyType } from '@housekeeping/shared'
+import { DiscrepancyType } from '@zenix/shared'
 
 export class CreateDiscrepancyDto {
   @IsUUID()

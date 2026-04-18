@@ -3,8 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import { api } from '../api/client'
-import type { MaintenanceIssueDto } from '@housekeeping/shared'
-import { MaintenanceCategory } from '@housekeeping/shared'
+import type { MaintenanceIssueDto } from '@zenix/shared'
+import { MaintenanceCategory } from '@zenix/shared'
 
 const CATEGORY_LABEL: Record<MaintenanceCategory, string> = {
   [MaintenanceCategory.PLUMBING]: 'Plomería',

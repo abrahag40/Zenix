@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
 import { useAuthStore } from '../store/auth'
-import type { AuthResponse } from '@housekeeping/shared'
+import type { AuthResponse } from '@zenix/shared'
 
 export function LoginPage() {
   const [email, setEmail]       = useState('')

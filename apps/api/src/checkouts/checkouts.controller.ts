@@ -1,12 +1,12 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common'
-import { HousekeepingRole, JwtPayload } from '@housekeeping/shared'
+import { HousekeepingRole, JwtPayload } from '@zenix/shared'
 import { CurrentUser } from '../common/decorators/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
 import { TenantResource } from '../common/guards/tenant.guard'
 import { CheckoutsService } from './checkouts.service'
 import { CreateCheckoutDto, BatchCheckoutDto } from './dto/create-checkout.dto'
 import { CancelCheckoutDto } from './dto/cancel-checkout.dto'
-import { CheckoutSource } from '@housekeeping/shared'
+import { CheckoutSource } from '@zenix/shared'
 
 @Controller()
 export class CheckoutsController {

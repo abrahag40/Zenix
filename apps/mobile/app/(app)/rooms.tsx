@@ -11,8 +11,8 @@ import {
 import { useRouter } from 'expo-router'
 import { useTaskStore } from '../../src/store/tasks'
 import { useAuthStore } from '../../src/store/auth'
-import { CleaningStatus, Priority } from '@housekeeping/shared'
-import type { CleaningTaskDto } from '@housekeeping/shared'
+import { CleaningStatus, Priority } from '@zenix/shared'
+import type { CleaningTaskDto } from '@zenix/shared'
 import { Stack } from 'expo-router'
 
 const PRIORITY_ORDER = [Priority.URGENT, Priority.HIGH, Priority.MEDIUM, Priority.LOW]

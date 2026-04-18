@@ -15,8 +15,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { api } from '../api/client'
 import { useAuthStore } from '../store/auth'
-import type { BedDto, PropertySettingsDto, RoomDto, StaffDto } from '@housekeeping/shared'
-import { Capability, HousekeepingRole, RoomCategory } from '@housekeeping/shared'
+import type { BedDto, PropertySettingsDto, RoomDto, StaffDto } from '@zenix/shared'
+import { Capability, HousekeepingRole, RoomCategory } from '@zenix/shared'
 
 type Section = 'rooms' | 'staff' | 'property'
 

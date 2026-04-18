@@ -12,7 +12,7 @@ import {
 } from 'react-native'
 import { useAuthStore } from '../../src/store/auth'
 import { api } from '../../src/api/client'
-import type { AuthResponse } from '@housekeeping/shared'
+import type { AuthResponse } from '@zenix/shared'
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('')

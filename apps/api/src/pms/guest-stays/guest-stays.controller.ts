@@ -12,7 +12,7 @@ import { GuestStaysService } from './guest-stays.service'
 import { CreateGuestStayDto } from './dto/create-guest-stay.dto'
 import { MoveRoomDto } from './dto/move-room.dto'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
-import { JwtPayload } from '@housekeeping/shared'
+import { JwtPayload } from '@zenix/shared'
 
 @Controller('v1/guest-stays')
 export class GuestStaysController {

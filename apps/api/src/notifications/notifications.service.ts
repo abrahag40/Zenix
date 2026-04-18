@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { Response } from 'express'
-import { SseEvent, SseEventType } from '@housekeeping/shared'
+import { SseEvent, SseEventType } from '@zenix/shared'
 
 interface SseClient {
   propertyId: string

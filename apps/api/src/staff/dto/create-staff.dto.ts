@@ -1,5 +1,5 @@
 import { IsArray, IsBoolean, IsEmail, IsEnum, IsOptional, IsString, MinLength } from 'class-validator'
-import { Capability, HousekeepingRole } from '@housekeeping/shared'
+import { Capability, HousekeepingRole } from '@zenix/shared'
 
 export class CreateStaffDto {
   @IsString()

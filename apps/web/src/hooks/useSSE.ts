@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import type { SseEvent } from '@housekeeping/shared'
+import type { SseEvent } from '@zenix/shared'
 
 type Handler = (event: SseEvent) => void
 

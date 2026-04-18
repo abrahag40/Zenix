@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import type { SseEvent, SseEventType } from '@housekeeping/shared'
+import type { SseEvent, SseEventType } from '@zenix/shared'
 
 const ROOM_EVENT_TYPES: SseEventType[] = [
   'room:ready',

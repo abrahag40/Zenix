@@ -39,7 +39,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { EventEmitter2 } from '@nestjs/event-emitter'
-import { CheckoutSource, CleaningStatus, Priority, TaskLogEvent } from '@housekeeping/shared'
+import { CheckoutSource, CleaningStatus, Priority, TaskLogEvent } from '@zenix/shared'
 import { PrismaService } from '../prisma/prisma.service'
 import { TenantContextService } from '../common/tenant-context.service'
 import { NotificationsService } from '../notifications/notifications.service'

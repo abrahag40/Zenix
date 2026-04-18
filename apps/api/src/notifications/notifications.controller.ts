@@ -2,7 +2,7 @@ import { Body, Controller, Get, Post, Req, Res } from '@nestjs/common'
 import { IsString } from 'class-validator'
 import { Request, Response } from 'express'
 import { CurrentUser } from '../common/decorators/current-user.decorator'
-import { JwtPayload } from '@housekeeping/shared'
+import { JwtPayload } from '@zenix/shared'
 import { NotificationsService } from './notifications.service'
 import { PushService } from './push.service'
 

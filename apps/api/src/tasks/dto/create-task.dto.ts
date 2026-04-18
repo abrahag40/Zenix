@@ -1,5 +1,5 @@
 import { IsEnum, IsOptional, IsString, IsUUID } from 'class-validator'
-import { Capability, Priority, TaskType } from '@housekeeping/shared'
+import { Capability, Priority, TaskType } from '@zenix/shared'
 
 export class CreateTaskDto {
   @IsUUID()

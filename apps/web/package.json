@@ -1,5 +1,5 @@
 {
-  "name": "@housekeeping/web",
+  "name": "@zenix/web",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
-    "@housekeeping/shared": "*",
+    "@zenix/shared": "*",
     "@tanstack/react-query": "^5.62.7",
     "@tanstack/react-virtual": "^3.13.24",
     "class-variance-authority": "^0.7.1",

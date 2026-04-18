@@ -13,8 +13,8 @@ import {
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router'
 import { useTaskStore } from '../../../src/store/tasks'
 import { api } from '../../../src/api/client'
-import type { CleaningTaskDto, CleaningNoteDto } from '@housekeeping/shared'
-import { CleaningStatus } from '@housekeeping/shared'
+import type { CleaningTaskDto, CleaningNoteDto } from '@zenix/shared'
+import { CleaningStatus } from '@zenix/shared'
 
 export default function TaskDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()

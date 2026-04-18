@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import NetInfo from '@react-native-community/netinfo'
-import type { CleaningTaskDto, SyncOperation } from '@housekeeping/shared'
+import type { CleaningTaskDto, SyncOperation } from '@zenix/shared'
 import { api } from '../api/client'
 
 interface TaskStore {

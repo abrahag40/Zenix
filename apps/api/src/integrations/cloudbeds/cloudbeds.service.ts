@@ -1,7 +1,7 @@
 import { Injectable, Logger, UnauthorizedException } from '@nestjs/common'
 import { createHmac, timingSafeEqual } from 'crypto'
 import { ConfigService } from '@nestjs/config'
-import { CheckoutSource } from '@housekeeping/shared'
+import { CheckoutSource } from '@zenix/shared'
 import { PrismaService } from '../../prisma/prisma.service'
 import { CheckoutsService } from '../../checkouts/checkouts.service'
 

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { IsString, MinLength } from 'class-validator'
-import { JwtPayload, TaskLogEvent } from '@housekeeping/shared'
+import { JwtPayload, TaskLogEvent } from '@zenix/shared'
 import { PrismaService } from '../prisma/prisma.service'
 import { NotificationsService } from '../notifications/notifications.service'
 

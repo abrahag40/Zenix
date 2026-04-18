@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { api } from '../api/client'
-import type { StaffDto } from '@housekeeping/shared'
-import { HousekeepingRole, Capability } from '@housekeeping/shared'
+import type { StaffDto } from '@zenix/shared'
+import { HousekeepingRole, Capability } from '@zenix/shared'
 
 const ROLE_LABELS: Record<HousekeepingRole, string> = {
   [HousekeepingRole.HOUSEKEEPER]: 'Housekeeper',

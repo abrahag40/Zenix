@@ -41,8 +41,8 @@ import type {
   DailyPlanningRow,
   PropertySettingsDto,
   SseEvent,
-} from '@housekeeping/shared'
-import { CleaningStatus, DiscrepancyStatus, PlanningCellState } from '@housekeeping/shared'
+} from '@zenix/shared'
+import { CleaningStatus, DiscrepancyStatus, PlanningCellState } from '@zenix/shared'
 
 // ─── Constantes de módulo ─────────────────────────────────────────────────────
 

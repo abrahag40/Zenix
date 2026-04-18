@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common'
-import { HousekeepingRole } from '@housekeeping/shared'
+import { HousekeepingRole } from '@zenix/shared'
 import { Roles } from '../common/decorators/roles.decorator'
 import { TenantResource } from '../common/guards/tenant.guard'
 import { BedsService } from './beds.service'

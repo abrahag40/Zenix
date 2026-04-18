@@ -1,6 +1,6 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
-import { HousekeepingRole, JwtPayload } from '@housekeeping/shared'
+import { HousekeepingRole, JwtPayload } from '@zenix/shared'
 import { ROLES_KEY } from '../decorators/roles.decorator'
 
 @Injectable()

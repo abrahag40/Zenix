@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import { CleaningStatus, HousekeepingRole, JwtPayload, TaskLogEvent } from '@housekeeping/shared'
+import { CleaningStatus, HousekeepingRole, JwtPayload, TaskLogEvent } from '@zenix/shared'
 import { PrismaService } from '../prisma/prisma.service'
 import { TenantContextService } from '../common/tenant-context.service'
 import { NotificationsService } from '../notifications/notifications.service'

@@ -90,8 +90,8 @@ import { formatDistanceToNow, format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { api } from '../api/client'
 import { useSSE } from '../hooks/useSSE'
-import type { BedDiscrepancyDto, SseEvent } from '@housekeeping/shared'
-import { DiscrepancyStatus, DiscrepancyType } from '@housekeeping/shared'
+import type { BedDiscrepancyDto, SseEvent } from '@zenix/shared'
+import { DiscrepancyStatus, DiscrepancyType } from '@zenix/shared'
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 

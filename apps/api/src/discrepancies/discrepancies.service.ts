@@ -21,7 +21,7 @@
  *  - SSE complementa el push para que el dashboard web se actualice sin polling.
  */
 import { Injectable, NotFoundException } from '@nestjs/common'
-import { DiscrepancyStatus, HousekeepingRole } from '@housekeeping/shared'
+import { DiscrepancyStatus, HousekeepingRole } from '@zenix/shared'
 import { PrismaService } from '../prisma/prisma.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import { PushService } from '../notifications/push.service'

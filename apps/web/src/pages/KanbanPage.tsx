@@ -3,8 +3,8 @@ import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { api } from '../api/client'
 import { useSSE } from '../hooks/useSSE'
-import type { CleaningTaskDto, SseEvent } from '@housekeeping/shared'
-import { CleaningStatus, Priority } from '@housekeeping/shared'
+import type { CleaningTaskDto, SseEvent } from '@zenix/shared'
+import { CleaningStatus, Priority } from '@zenix/shared'
 
 const COLUMNS: { status: CleaningStatus; label: string; cls: string }[] = [
   { status: CleaningStatus.READY, label: 'Lista para limpiar', cls: 'border-amber-300' },

@@ -1,5 +1,5 @@
 import { api } from '@/api/client'
-import type { RoomAvailabilityResult } from '@housekeeping/shared'
+import type { RoomAvailabilityResult } from '@zenix/shared'
 
 const BASE = '/v1/guest-stays'
 

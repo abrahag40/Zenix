@@ -21,7 +21,7 @@ import { User, CreditCard, CheckCircle,
          ChevronRight, ChevronLeft,
          AlertCircle, Camera, Moon, Loader2, Ban } from 'lucide-react'
 import { guestStaysApi } from '../../api/guest-stays.api'
-import type { AvailabilityConflict } from '@housekeeping/shared'
+import type { AvailabilityConflict } from '@zenix/shared'
          
 
 // ── OTA CONFIG (colores y nombres oficiales) ──────────────────

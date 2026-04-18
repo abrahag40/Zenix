@@ -14,7 +14,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { format, subDays } from 'date-fns'
 import { api } from '../api/client'
-import type { ReportOverviewDto, StaffPerformanceDto } from '@housekeeping/shared'
+import type { ReportOverviewDto, StaffPerformanceDto } from '@zenix/shared'
 
 // Shape de un punto en el gráfico de tendencia diaria
 type TrendDay = { date: string; completed: number; checkouts: number }

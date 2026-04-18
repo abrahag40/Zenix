@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 import { TenantContextService } from '../common/tenant-context.service'
 import { CreateBedDto } from './dto/create-bed.dto'
-import { BedStatus } from '@housekeeping/shared'
+import { BedStatus } from '@zenix/shared'
 
 @Injectable()
 export class BedsService {

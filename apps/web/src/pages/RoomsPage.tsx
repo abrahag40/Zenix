@@ -25,8 +25,8 @@ import { format } from 'date-fns'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import { useSSE } from '../hooks/useSSE'
-import type { BedDiscrepancyDto, BedDto, PropertySettingsDto, RoomDto, SseEvent } from '@housekeeping/shared'
-import { BedStatus, CleaningStatus, DiscrepancyStatus, RoomCategory } from '@housekeeping/shared'
+import type { BedDiscrepancyDto, BedDto, PropertySettingsDto, RoomDto, SseEvent } from '@zenix/shared'
+import { BedStatus, CleaningStatus, DiscrepancyStatus, RoomCategory } from '@zenix/shared'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

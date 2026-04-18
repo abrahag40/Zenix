@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common'
 import { Roles } from '../common/decorators/roles.decorator'
-import { HousekeepingRole } from '@housekeeping/shared'
+import { HousekeepingRole } from '@zenix/shared'
 import { PropertiesService } from './properties.service'
 import { CreatePropertyDto } from './dto/create-property.dto'
 

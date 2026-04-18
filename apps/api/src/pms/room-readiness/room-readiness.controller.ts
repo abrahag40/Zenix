@@ -11,7 +11,7 @@ import { RoomReadinessService } from './room-readiness.service'
 import { CompleteItemDto } from './dto/complete-item.dto'
 import { CreateReadinessTaskDto } from './dto/create-task.dto'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
-import { JwtPayload } from '@housekeeping/shared'
+import { JwtPayload } from '@zenix/shared'
 import { TenantContextService } from '../../common/tenant-context.service'
 
 @Controller('v1/room-readiness')

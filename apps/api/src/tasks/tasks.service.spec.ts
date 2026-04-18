@@ -11,7 +11,7 @@
  */
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
-import { CleaningStatus, HousekeepingRole, TaskLogEvent } from '@housekeeping/shared'
+import { CleaningStatus, HousekeepingRole, TaskLogEvent } from '@zenix/shared'
 import { TasksService } from './tasks.service'
 import { PrismaService } from '../prisma/prisma.service'
 import { TenantContextService } from '../common/tenant-context.service'
