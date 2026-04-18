@@ -19,11 +19,18 @@ import { CloudbedsModule } from './integrations/cloudbeds/cloudbeds.module'
 import { SettingsModule } from './settings/settings.module'
 import { DiscrepanciesModule } from './discrepancies/discrepancies.module'
 import { ReportsModule } from './reports/reports.module'
+// Módulos deshabilitados temporalmente — requieren modelos Prisma ausentes del
+// schema actual (StayJourney, StaySegment, RoomReadinessTask, Checklist) y
+// `@nestjs/schedule` no instalado. Re-habilitar cuando se restauren los modelos
+// al schema y se instalen deps.
+// import { RoomReadinessModule } from './pms/room-readiness/room-readiness.module'
+// import { StayJourneysModule } from './pms/stay-journeys/stay-journeys.module'
+//
+// EmailModule fue stubbed (sin @nestjs-modules/mailer): sigue activo y expone
+// el mismo EmailService para no romper el grafo de inyección de GuestStays.
 import { EmailModule } from './common/email/email.module'
 import { GuestStaysModule } from './pms/guest-stays/guest-stays.module'
-import { RoomReadinessModule } from './pms/room-readiness/room-readiness.module'
 import { RoomTypesModule } from './pms/room-types/room-types.module'
-import { StayJourneysModule } from './pms/stay-journeys/stay-journeys.module'
 import { DashboardModule } from './dashboard/dashboard.module'
 import { TenantContextMiddleware } from './common/tenant-context.middleware'
 import { TenantContextService } from './common/tenant-context.service'
@@ -56,11 +63,11 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
     SettingsModule,
     DiscrepanciesModule,
     ReportsModule,
-    EmailModule,
+    EmailModule,            // stubbed — ver comentario arriba
     GuestStaysModule,
-    RoomReadinessModule,
+    // RoomReadinessModule, // deshabilitado — falta modelos Prisma + @nestjs/schedule
     RoomTypesModule,
-    StayJourneysModule,
+    // StayJourneysModule,  // deshabilitado — falta modelos Prisma (StayJourney, StaySegment)
     DashboardModule,
   ],
   providers: [
