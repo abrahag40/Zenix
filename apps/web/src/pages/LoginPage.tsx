@@ -15,8 +15,8 @@ export function LoginPage() {
 
   const reason   = searchParams.get('reason')
   // Where to send the user after a successful login.
-  // Defaults to the PMS timeline, the main working screen for receptionists.
-  const returnTo = searchParams.get('returnTo') ?? '/pms'
+  // Defaults to the Dashboard, the post-login landing for every role.
+  const returnTo = searchParams.get('returnTo') ?? '/dashboard'
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -43,7 +43,10 @@ export function LoginPage() {
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 w-full max-w-sm space-y-5">
 
         <div>
-          <h1 className="text-xl font-semibold text-gray-900 mb-1">Housekeeping</h1>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xl">⚡</span>
+            <h1 className="text-xl font-semibold text-gray-900">Zenix</h1>
+          </div>
           <p className="text-sm text-gray-500">Ingresa con tu cuenta</p>
         </div>
 

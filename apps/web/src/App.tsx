@@ -4,6 +4,7 @@ import { Toaster } from 'react-hot-toast'
 import { useAuthStore } from './store/auth'
 import { Sidebar, MobileNav } from './components/Sidebar'
 import { LoginPage } from './pages/LoginPage'
+import { DashboardPage } from './pages/DashboardPage'
 import { RoomsPage } from './pages/RoomsPage'
 import { RoomsPage as PmsPage } from './modules/rooms/pages/RoomsPage'
 import { DailyPlanningPage } from './pages/DailyPlanningPage'
@@ -52,6 +53,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/dashboard"       element={<ProtectedLayout><DashboardPage /></ProtectedLayout>} />
           <Route path="/planning"        element={<ProtectedLayout><DailyPlanningPage /></ProtectedLayout>} />
           <Route path="/rooms"           element={<ProtectedLayout><RoomsPage /></ProtectedLayout>} />
           <Route path="/pms"             element={<PmsLayout><PmsPage /></PmsLayout>} />
@@ -60,7 +62,7 @@ export default function App() {
           <Route path="/discrepancies"   element={<ProtectedLayout><DiscrepanciesPage /></ProtectedLayout>} />
           <Route path="/reports"         element={<ProtectedLayout><ReportsPage /></ProtectedLayout>} />
           <Route path="/settings/:section?" element={<ProtectedLayout><SettingsPage /></ProtectedLayout>} />
-          <Route path="*"                element={<Navigate to="/pms" replace />} />
+          <Route path="*"                element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </BrowserRouter>
       <Toaster position="top-right" toastOptions={{ className: 'text-sm' }} />

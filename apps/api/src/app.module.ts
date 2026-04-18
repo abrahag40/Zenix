@@ -24,6 +24,7 @@ import { GuestStaysModule } from './pms/guest-stays/guest-stays.module'
 import { RoomReadinessModule } from './pms/room-readiness/room-readiness.module'
 import { RoomTypesModule } from './pms/room-types/room-types.module'
 import { StayJourneysModule } from './pms/stay-journeys/stay-journeys.module'
+import { DashboardModule } from './dashboard/dashboard.module'
 import { TenantContextMiddleware } from './common/tenant-context.middleware'
 import { TenantContextService } from './common/tenant-context.service'
 import { TenantGuard } from './common/guards/tenant.guard'
@@ -60,6 +61,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
     RoomReadinessModule,
     RoomTypesModule,
     StayJourneysModule,
+    DashboardModule,
   ],
   providers: [
     TenantContextService,

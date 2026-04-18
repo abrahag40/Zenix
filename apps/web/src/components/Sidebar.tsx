@@ -35,23 +35,27 @@ import { DiscrepancyStatus } from '@housekeeping/shared'
 
 type NavItem = { to: string; icon: string; label: string }
 
+// Top-level PMS navigation.
+//   Principal     — Dashboard (landing) + Calendario (timeline de reservas /pms)
+//   Housekeeping  — hub operativo: planificación, tareas, checkouts, etc.
+//   Configuración — gestión del hostel (solo supervisores usarán estas secciones)
+//
+// 'Habitaciones' se eliminó del grupo Housekeeping: su funcionalidad (mapa en
+// tiempo real y checkout manual) fue absorbida por Planificación (pestaña
+// "Estado en Tiempo Real"). La ruta /rooms sigue existiendo pero no se expone.
 const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   {
     title: 'Principal',
     items: [
-      { to: '/pms',      icon: '📅', label: 'Timeline PMS' },
-      { to: '/planning', icon: '📋', label: 'Planificación' },
-      // 'Habitaciones' se eliminó de aquí: su funcionalidad (mapa en tiempo real
-      // y checkout manual) fue absorbida por el módulo de Planificación (pestaña
-      // "Estado en Tiempo Real"). Mantenerla como ítem separado generaba confusión
-      // y duplicación de pantallas. La ruta /rooms sigue existiendo pero no se
-      // expone en el menú.
-      { to: '/kanban',   icon: '🗂️', label: 'Tareas' },
+      { to: '/dashboard', icon: '🏠', label: 'Dashboard' },
+      { to: '/pms',       icon: '📅', label: 'Calendario' },
     ],
   },
   {
-    title: 'Operaciones',
+    title: 'Housekeeping',
     items: [
+      { to: '/planning',      icon: '📋', label: 'Planificación' },
+      { to: '/kanban',        icon: '🗂️', label: 'Tareas' },
       { to: '/checkouts',     icon: '🚪', label: 'Checkouts' },
       { to: '/discrepancies', icon: '⚠️', label: 'Discrepancias' },
       { to: '/reports',       icon: '📊', label: 'Reportes' },
@@ -111,10 +115,10 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       {/* Logo */}
       <div className="px-4 py-5 border-b border-gray-200">
         <div className="flex items-center gap-2">
-          <span className="text-xl">🏠</span>
+          <span className="text-xl">⚡</span>
           <div>
-            <p className="text-sm font-semibold text-gray-900 leading-tight">Housekeeping</p>
-            <p className="text-xs text-gray-400 leading-tight">Sistema de limpieza</p>
+            <p className="text-sm font-semibold text-gray-900 leading-tight">Zenix</p>
+            <p className="text-xs text-gray-400 leading-tight">Property Management</p>
           </div>
         </div>
       </div>
@@ -192,8 +196,8 @@ export function MobileNav() {
       {/* Top bar */}
       <div className="lg:hidden fixed top-0 left-0 right-0 z-30 flex items-center justify-between px-4 py-3 bg-white border-b border-gray-200">
         <div className="flex items-center gap-2">
-          <span className="text-lg">🏠</span>
-          <span className="text-sm font-semibold text-gray-900">Housekeeping</span>
+          <span className="text-lg">⚡</span>
+          <span className="text-sm font-semibold text-gray-900">Zenix</span>
         </div>
         <button
           onClick={() => setOpen(true)}
