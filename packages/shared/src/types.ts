@@ -290,3 +290,13 @@ export interface RoomAvailabilityResult {
   available: boolean
   conflicts: AvailabilityConflict[]
 }
+
+// Slim Property payload returned by GET /properties — just what the
+// PropertySwitcher needs. The full Prisma model has more fields but the
+// switcher only cares about id + display name.
+export interface PropertyDto {
+  id: string
+  name: string
+  organizationId?: string | null
+  type?: string
+}

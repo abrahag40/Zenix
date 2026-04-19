@@ -1,4 +1,4 @@
-import { Search, Plus, Calendar, List, Bell, ChevronDown } from 'lucide-react'
+import { Search, Plus, Calendar, Bell } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -8,7 +8,26 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { PropertySwitcher } from '@/components/PropertySwitcher'
 import { AppMenu } from '@/components/AppMenu'
+
+/**
+ * TimelineTopBar — sticky header for the PMS timeline page.
+ *
+ * Layout (left → right):
+ *   · PropertySwitcher      — active hotel name + dropdown to switch.
+ *   · Search                — global search (reservations, guests).
+ *   · [+] New reservation   — opens CheckInDialog.
+ *   · Calendar icon         — jump-to-date (not yet wired).
+ *   · Notification bell     — inbox with a radar ping when unread.
+ *   · AppMenu (hamburger)   — global nav (Calendario, Dashboard,
+ *                             Housekeeping submenu) + logout.
+ *
+ * The right-side icon order matches the spec: create → calendar → bell
+ * → menu. The hamburger intentionally anchors the top-right corner so
+ * the user has a single "account + navigation" entry point across every
+ * screen of the PMS.
+ */
 
 function NotificationBell({ count = 0 }: { count?: number }) {
   const hasNew = count > 0
@@ -21,6 +40,7 @@ function NotificationBell({ count = 0 }: { count?: number }) {
         'text-slate-500 hover:text-slate-700',
         'hover:bg-slate-100 transition-colors duration-150',
       )}
+      aria-label="Notificaciones"
     >
       <Bell className="h-5 w-5" strokeWidth={1.75} />
 
@@ -51,13 +71,8 @@ interface TimelineTopBarProps {
 export function TimelineTopBar({ onNewReservation }: TimelineTopBarProps) {
   return (
     <div className="flex items-center gap-3 px-4 h-14 border-b border-slate-200 bg-white shrink-0">
-      {/* Left: global menu + property name */}
-      <AppMenu />
-
-      <button className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 hover:text-slate-600 transition-colors">
-        Zenix
-        <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
-      </button>
+      {/* Left: property switcher */}
+      <PropertySwitcher />
 
       {/* Center: search */}
       <div className="flex-1 max-w-md mx-auto relative">
@@ -68,7 +83,7 @@ export function TimelineTopBar({ onNewReservation }: TimelineTopBarProps) {
         />
       </div>
 
-      {/* Right: actions */}
+      {/* Right: actions — order is create → calendar → bell → menu */}
       <div className="flex items-center gap-1">
         <TooltipProvider delayDuration={300}>
           <Tooltip>
@@ -77,6 +92,7 @@ export function TimelineTopBar({ onNewReservation }: TimelineTopBarProps) {
                 size="icon"
                 className="h-8 w-8 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white"
                 onClick={onNewReservation}
+                aria-label="Nueva reserva"
               >
                 <Plus className="h-4 w-4" />
               </Button>
@@ -85,14 +101,18 @@ export function TimelineTopBar({ onNewReservation }: TimelineTopBarProps) {
           </Tooltip>
         </TooltipProvider>
 
-        <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-600">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-slate-600"
+          aria-label="Ir a fecha"
+        >
           <Calendar className="h-4 w-4" />
-        </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400">
-          <List className="h-4 w-4" />
         </Button>
 
         <NotificationBell count={3} />
+
+        <AppMenu align="end" />
       </div>
     </div>
   )

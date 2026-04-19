@@ -1,6 +1,6 @@
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Menu } from 'lucide-react'
+import { LogOut, Menu } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/button'
 import { api } from '../api/client'
+import { useAuthStore } from '../store/auth'
 import type { BedDiscrepancyDto } from '@zenix/shared'
 import { DiscrepancyStatus } from '@zenix/shared'
 
@@ -41,9 +42,13 @@ type MenuItem =
       children: { to: string; icon: string; label: string; showDiscrepancyBadge?: boolean }[]
     }
 
+// Order: Calendario first (most used by reception), then Dashboard, then
+// the Housekeeping operational hub. Anchoring the calendar at the top
+// matches what a front-desk user reaches for every time they open the
+// menu.
 const MENU: MenuItem[] = [
-  { kind: 'leaf', to: '/dashboard', icon: '🏠', label: 'Dashboard' },
   { kind: 'leaf', to: '/pms',       icon: '📅', label: 'Calendario' },
+  { kind: 'leaf', to: '/dashboard', icon: '🏠', label: 'Dashboard' },
   {
     kind: 'hub',
     icon: '🧹',
@@ -65,11 +70,23 @@ export interface AppMenuProps {
    * without an obvious hover target.
    */
   variant?: 'ghost' | 'solid'
+  /**
+   * Where the dropdown panel anchors relative to the trigger. Use `end`
+   * when the trigger sits on the right edge of the bar (so the panel
+   * doesn't spill off-screen).
+   */
+  align?: 'start' | 'end'
 }
 
-export function AppMenu({ variant = 'ghost' }: AppMenuProps) {
+export function AppMenu({ variant = 'ghost', align = 'start' }: AppMenuProps) {
   const navigate = useNavigate()
   const location = useLocation()
+  const { user, logout } = useAuthStore()
+
+  function handleLogout() {
+    logout()
+    navigate('/login', { replace: true })
+  }
 
   const { data: openDiscrepancyCount = 0 } = useQuery<number>({
     queryKey: ['discrepancies-open-count'],
@@ -97,7 +114,7 @@ export function AppMenu({ variant = 'ghost' }: AppMenuProps) {
         </Button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="start" className="w-56">
+      <DropdownMenuContent align={align} className="w-56">
         {MENU.map((item, idx) => {
           if (item.kind === 'leaf') {
             return (
@@ -144,6 +161,20 @@ export function AppMenu({ variant = 'ghost' }: AppMenuProps) {
             </div>
           )
         })}
+
+        {/* Session block — sits below navigation. Future account/profile
+            actions land here too. */}
+        <DropdownMenuSeparator />
+        {user && (
+          <div className="px-2 py-1.5 text-xs text-slate-500">
+            <p className="font-medium text-slate-700 truncate">{user.name}</p>
+            <p className="truncate">{user.email}</p>
+          </div>
+        )}
+        <DropdownMenuItem onSelect={handleLogout} className="text-red-600 focus:text-red-700">
+          <LogOut className="mr-2 h-4 w-4" />
+          Cerrar sesión
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   )
