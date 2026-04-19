@@ -1,4 +1,4 @@
-import { Search, Plus, Calendar, List, Bell, ChevronDown } from 'lucide-react'
+import { Search, Plus, Calendar, Bell } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -8,7 +8,30 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import { AppMenu } from '@/components/AppMenu'
+import { AppDrawer } from '@/components/AppDrawer'
+import { PropertySwitcher } from '@/components/PropertySwitcher'
+import { UserMenu } from '@/components/UserMenu'
+
+/**
+ * TimelineTopBar — sticky header for the PMS timeline.
+ *
+ * Final layout (Cloudbeds reference + NN/G utility-nav guidance):
+ *
+ *   ┌──┬────────────────┬────────────┬────────────────────────────────┐
+ *   │☰ │ Hotel Tulum ⌄  │  🔍 search │  [+] [📅] [🔔] [👤]             │
+ *   └──┴────────────────┴────────────┴────────────────────────────────┘
+ *     │         │                          │    │    │    │
+ *     │         │                          │    │    │    └ UserMenu
+ *     │         │                          │    │    │      (profile,
+ *     │         │                          │    │    │       config,
+ *     │         │                          │    │    │       version,
+ *     │         │                          │    │    │       logout)
+ *     │         │                          │    │    └ NotificationBell
+ *     │         │                          │    └ Jump-to-date (stub)
+ *     │         │                          └ New reservation
+ *     │         └ PropertySwitcher (active hotel + dropdown)
+ *     └ AppDrawer (hamburger → module nav)
+ */
 
 function NotificationBell({ count = 0 }: { count?: number }) {
   const hasNew = count > 0
@@ -21,22 +44,20 @@ function NotificationBell({ count = 0 }: { count?: number }) {
         'text-slate-500 hover:text-slate-700',
         'hover:bg-slate-100 transition-colors duration-150',
       )}
+      aria-label="Notificaciones"
     >
       <Bell className="h-5 w-5" strokeWidth={1.75} />
 
       {hasNew && (
         <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          {/* Wave 1 */}
           <span
             className="absolute w-9 h-9 rounded-lg bg-red-400/20"
             style={{ animation: 'radar1 2.5s ease-out infinite' }}
           />
-          {/* Wave 2 — delayed */}
           <span
             className="absolute w-9 h-9 rounded-lg bg-red-400/15"
             style={{ animation: 'radar2 2.5s ease-out 0.6s infinite' }}
           />
-          {/* Solid dot — top right of icon */}
           <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500 ring-2 ring-white" />
         </span>
       )}
@@ -51,13 +72,9 @@ interface TimelineTopBarProps {
 export function TimelineTopBar({ onNewReservation }: TimelineTopBarProps) {
   return (
     <div className="flex items-center gap-3 px-4 h-14 border-b border-slate-200 bg-white shrink-0">
-      {/* Left: global menu + property name */}
-      <AppMenu />
-
-      <button className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 hover:text-slate-600 transition-colors">
-        Zenix
-        <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
-      </button>
+      {/* Left cluster: nav drawer trigger + property switcher */}
+      <AppDrawer />
+      <PropertySwitcher />
 
       {/* Center: search */}
       <div className="flex-1 max-w-md mx-auto relative">
@@ -68,7 +85,7 @@ export function TimelineTopBar({ onNewReservation }: TimelineTopBarProps) {
         />
       </div>
 
-      {/* Right: actions */}
+      {/* Right cluster: actions → user menu */}
       <div className="flex items-center gap-1">
         <TooltipProvider delayDuration={300}>
           <Tooltip>
@@ -77,6 +94,7 @@ export function TimelineTopBar({ onNewReservation }: TimelineTopBarProps) {
                 size="icon"
                 className="h-8 w-8 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white"
                 onClick={onNewReservation}
+                aria-label="Nueva reserva"
               >
                 <Plus className="h-4 w-4" />
               </Button>
@@ -85,14 +103,18 @@ export function TimelineTopBar({ onNewReservation }: TimelineTopBarProps) {
           </Tooltip>
         </TooltipProvider>
 
-        <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-600">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-slate-600"
+          aria-label="Ir a fecha"
+        >
           <Calendar className="h-4 w-4" />
-        </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400">
-          <List className="h-4 w-4" />
         </Button>
 
         <NotificationBell count={3} />
+
+        <UserMenu />
       </div>
     </div>
   )

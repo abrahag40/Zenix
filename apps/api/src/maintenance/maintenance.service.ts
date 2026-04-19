@@ -27,7 +27,7 @@ export class MaintenanceService {
   async create(taskId: string, dto: CreateIssueDto, actor: JwtPayload) {
     const task = await this.prisma.cleaningTask.findUnique({
       where: { id: taskId },
-      include: { bed: { include: { room: { include: { property: true } } } } },
+      include: { unit: { include: { room: { include: { property: true } } } } },
     })
     if (!task) throw new NotFoundException('Task not found')
 
@@ -42,10 +42,10 @@ export class MaintenanceService {
       include: { reportedBy: { select: { id: true, name: true } } },
     })
 
-    this.notifications.emit(task.bed.room.property.id, 'maintenance:reported', {
+    this.notifications.emit(task.unit.room.property.id, 'maintenance:reported', {
       issueId: issue.id,
       taskId,
-      roomNumber: task.bed.room.number,
+      roomNumber: task.unit.room.number,
       category: dto.category,
     })
 
@@ -63,11 +63,11 @@ export class MaintenanceService {
   findByProperty(propertyId: string, resolved?: boolean) {
     return this.prisma.maintenanceIssue.findMany({
       where: {
-        task: { bed: { room: { propertyId } } },
+        task: { unit: { room: { propertyId } } },
         ...(resolved !== undefined ? { resolved } : {}),
       },
       include: {
-        task: { include: { bed: { include: { room: true } } } },
+        task: { include: { unit: { include: { room: true } } } },
         reportedBy: { select: { id: true, name: true } },
       },
       orderBy: { createdAt: 'desc' },

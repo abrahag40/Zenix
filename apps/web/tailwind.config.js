@@ -1,3 +1,5 @@
+import tailwindcssAnimate from 'tailwindcss-animate'
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
@@ -47,5 +49,13 @@ export default {
       },
     },
   },
-  plugins: [],
+  plugins: [
+    // Enables data-open / data-closed animation utilities consumed by
+    // Radix-based primitives (Sheet, Dialog, DropdownMenu). Without it
+    // the utility classes resolve to no-ops and panels appear without
+    // transition — see NN/G "Executing UX Animations: Duration and
+    // Motion Characteristics" (nngroup.com/articles/animation-duration)
+    // for why 200–300 ms with ease-out is the default for panels/drawers.
+    tailwindcssAnimate,
+  ],
 }

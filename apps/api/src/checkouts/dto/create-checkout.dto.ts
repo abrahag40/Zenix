@@ -38,7 +38,7 @@ export class CreateCheckoutDto {
 export class BatchCheckoutItemDto {
   @IsString()
   @IsNotEmpty()
-  bedId: string
+  unitId: string
 
   @IsBoolean()
   hasSameDayCheckIn: boolean

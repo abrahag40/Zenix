@@ -1,5 +1,9 @@
 import {
-  BedStatus,
+  UnitStatus,
+  BlockLogEvent,
+  BlockReason,
+  BlockSemantic,
+  BlockStatus,
   Capability,
   CheckoutSource,
   CleaningStatus,
@@ -56,7 +60,7 @@ export interface StaffDto {
   createdAt: string
 }
 
-// ─── Room / Bed ───────────────────────────────────────────────────────────────
+// ─── Room / Unit ──────────────────────────────────────────────────────────────
 
 export interface RoomDto {
   id: string
@@ -66,14 +70,14 @@ export interface RoomDto {
   category: RoomCategory
   capacity: number
   cloudbedsRoomId: string | null
-  beds?: BedDto[]
+  units?: UnitDto[]
 }
 
-export interface BedDto {
+export interface UnitDto {
   id: string
   roomId: string
   label: string
-  status: BedStatus
+  status: UnitStatus
   createdAt: string
   updatedAt: string
 }
@@ -99,7 +103,7 @@ export interface CheckoutDto {
 
 export interface CleaningTaskDto {
   id: string
-  bedId: string
+  unitId: string
   checkoutId: string | null
   assignedToId: string | null
   status: CleaningStatus
@@ -112,7 +116,7 @@ export interface CleaningTaskDto {
   verifiedById: string | null
   createdAt: string
   updatedAt: string
-  bed?: BedDto & { room?: RoomDto }
+  unit?: UnitDto & { room?: RoomDto }
   assignedTo?: StaffDto | null
 }
 
@@ -148,18 +152,18 @@ export interface MaintenanceIssueDto {
 // ─── Daily Planning ───────────────────────────────────────────────────────────
 
 export interface DailyPlanningCell {
-  bedId: string
-  bedLabel: string
+  unitId: string
+  unitLabel: string
   roomId: string
   roomNumber: string
   /**
-   * Estado físico actual de la cama en la base de datos.
-   * CRÍTICO: Usado por inferState() para distinguir camas OCCUPIED (con huésped,
-   * elegibles para checkout) de camas AVAILABLE (sin huésped, no deben marcarse
-   * para checkout). Sin este campo, todas las camas sin tarea aparecen como EMPTY
+   * Estado físico actual de la unidad en la base de datos.
+   * CRÍTICO: Usado por inferState() para distinguir unidades OCCUPIED (con huésped,
+   * elegibles para checkout) de unidades AVAILABLE (sin huésped, no deben marcarse
+   * para checkout). Sin este campo, todas las unidades sin tarea aparecen como EMPTY
    * y el supervisor no puede marcarlas.
    */
-  bedStatus: BedStatus
+  unitStatus: UnitStatus
   /** Current task for today (if any) */
   taskId: string | null
   taskStatus: CleaningStatus | null
@@ -174,7 +178,7 @@ export interface DailyPlanningRow {
   roomNumber: string
   roomCategory: RoomCategory
   floor: number | null
-  beds: DailyPlanningCell[]
+  units: DailyPlanningCell[]
 }
 
 export interface DailyPlanningGrid {
@@ -199,11 +203,11 @@ export interface PropertySettingsDto {
   updatedAt: string
 }
 
-// ─── Bed Discrepancy ─────────────────────────────────────────────────────────
+// ─── Unit Discrepancy ─────────────────────────────────────────────────────────
 
-export interface BedDiscrepancyDto {
+export interface UnitDiscrepancyDto {
   id: string
-  bedId: string
+  unitId: string
   reportedById: string
   resolvedById: string | null
   type: DiscrepancyType
@@ -212,7 +216,7 @@ export interface BedDiscrepancyDto {
   resolution: string | null
   createdAt: string
   resolvedAt: string | null
-  bed?: BedDto & { room?: { number: string; floor: number | null } }
+  unit?: UnitDto & { room?: { number: string; floor: number | null } }
   reportedBy?: Pick<StaffDto, 'id' | 'name'>
 }
 
@@ -251,6 +255,14 @@ export type SseEventType =
   | 'checkout:confirmed'
   | 'checkin:completed'
   | 'room:moved'
+  // SmartBlock events
+  | 'block:created'
+  | 'block:approved'
+  | 'block:rejected'
+  | 'block:activated'
+  | 'block:expired'
+  | 'block:cancelled'
+  | 'block:extended'
 
 // ─── Offline Sync (Mobile) ────────────────────────────────────────────────────
 
@@ -262,6 +274,75 @@ export interface SyncOperation {
   taskId: string
   timestamp: string
   retryCount: number
+}
+
+// ─── SmartBlock ───────────────────────────────────────────────────────────────
+
+export interface BlockLogDto {
+  id: string
+  blockId: string
+  staffId: string | null
+  event: BlockLogEvent
+  note: string | null
+  metadata: Record<string, unknown> | null
+  createdAt: string
+  staff?: Pick<StaffDto, 'id' | 'name'> | null
+}
+
+export interface RoomBlockDto {
+  id: string
+  propertyId: string
+  roomId: string | null     // null = bloqueo solo de unidad
+  unitId: string | null     // null = bloqueo de habitación completa
+  semantic: BlockSemantic
+  reason: BlockReason
+  status: BlockStatus
+  notes: string | null
+  internalNotes: string | null
+  startDate: string         // ISO — cuándo entra en vigor
+  endDate: string | null    // ISO — cuándo expira (null = indefinido)
+  requestedById: string
+  approvedById: string | null
+  approvalNotes: string | null
+  approvedAt: string | null
+  cleaningTaskId: string | null  // tarea MAINTENANCE creada al activar
+  createdAt: string
+  updatedAt: string
+  // Populated relations (endpoints de detalle)
+  room?: RoomDto | null
+  unit?: UnitDto | null
+  requestedBy?: Pick<StaffDto, 'id' | 'name'>
+  approvedBy?: Pick<StaffDto, 'id' | 'name'> | null
+  cleaningTask?: Pick<CleaningTaskDto, 'id' | 'status' | 'assignedToId'> | null
+  logs?: BlockLogDto[]
+}
+
+// Request payloads
+export interface CreateBlockDto {
+  roomId?: string        // XOR con unitId — si ninguno → error
+  unitId?: string
+  semantic: BlockSemantic
+  reason: BlockReason
+  notes?: string
+  internalNotes?: string
+  startDate?: string     // ISO, default = now
+  endDate?: string       // ISO, null = indefinido
+}
+
+export interface ApproveBlockDto {
+  approvalNotes?: string
+}
+
+export interface RejectBlockDto {
+  approvalNotes: string  // obligatorio al rechazar
+}
+
+export interface CancelBlockDto {
+  reason: string         // obligatorio al cancelar
+}
+
+export interface ExtendBlockDto {
+  endDate: string        // nueva fecha ISO > endDate actual
 }
 
 // ─── Room Availability ────────────────────────────────────────────────────────
@@ -297,4 +378,18 @@ export interface RoomAvailabilityResult {
   /** True only when there are zero conflicts of any kind */
   available: boolean
   conflicts: AvailabilityConflict[]
+}
+
+// Slim Property payload returned by GET /properties. Feeds the
+// PropertySwitcher dropdown — needs name for the label, region for
+// grouping multiple properties in the same chain (Mews/Opera multi-
+// property pattern), and city for disambiguating same-named hotels
+// across regions (Slack / Google account-picker pattern).
+export interface PropertyDto {
+  id: string
+  name: string
+  organizationId?: string | null
+  type?: string
+  region?: string | null
+  city?: string | null
 }

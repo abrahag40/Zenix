@@ -24,7 +24,7 @@ const CATEGORY_STYLE: Record<MaintenanceCategory, string> = {
 
 interface IssueWithContext extends MaintenanceIssueDto {
   roomNumber?: string
-  bedLabel?: string
+  unitLabel?: string
   reporterName?: string
 }
 
@@ -108,8 +108,8 @@ function IssueList({
                   {issue.roomNumber && (
                     <span className="text-xs text-gray-500">Room {issue.roomNumber}</span>
                   )}
-                  {issue.bedLabel && (
-                    <span className="text-xs text-gray-400">· {issue.bedLabel}</span>
+                  {issue.unitLabel && (
+                    <span className="text-xs text-gray-400">· {issue.unitLabel}</span>
                   )}
                   <span className="text-xs text-gray-400 ml-auto">
                     {format(new Date(issue.createdAt), 'dd/MM HH:mm')}

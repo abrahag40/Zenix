@@ -13,12 +13,12 @@
  *
  * Flujo de processCheckout():
  *  1. Idempotency check (cloudbedsReservationId) — evita duplicados por retries del webhook.
- *  2. Obtener room + beds + property en una sola query (evita N+1).
+ *  2. Obtener room + units + property en una sola query (evita N+1).
  *  3. Determinar prioridad: URGENT si hay check-in el mismo día, MEDIUM en caso contrario.
  *  4. $transaction atómica:
  *     a. Crear registro Checkout.
- *     b. Por cada bed: activar tarea PENDING→READY si había pre-asignación, o crear UNASSIGNED.
- *     c. Actualizar bed.status → DIRTY para reflejar el estado físico real.
+ *     b. Por cada unit: activar tarea PENDING→READY si había pre-asignación, o crear UNASSIGNED.
+ *     c. Actualizar unit.status → DIRTY para reflejar el estado físico real.
  *  5. Post-transaction: push a camareras + SSE al dashboard web.
  *     (Fuera de la transacción para que un fallo de push no revierta el checkout persistido.)
  *
@@ -28,8 +28,8 @@
  *  READY / UNASSIGNED / PENDING → CANCELLED (cancelCheckout cuando huésped extiende estadía)
  *
  * Regla de modelo: UN checkout corresponde a UNA habitación, pero genera MÚLTIPLES
- * CleaningTasks (una por cama). Esto es esencial en dormitorios compartidos donde cada
- * cama puede estar asignada a una camarera diferente y limpiarse de forma independiente.
+ * CleaningTasks (una por unidad). Esto es esencial en dormitorios compartidos donde cada
+ * unidad puede estar asignada a una camarera diferente y limpiarse de forma independiente.
  */
 import {
   BadRequestException,
@@ -81,10 +81,10 @@ export class CheckoutsService {
    * implementación garantiza que las reglas de negocio sean idénticas sin importar
    * quién dispara el checkout.
    *
-   * Nota sobre el loop por bed dentro de la transacción:
-   *  Se ejecuta una query findFirst por cama para detectar la tarea PENDING pre-asignada.
-   *  Esto introduce O(beds) queries dentro de la transacción, pero las habitaciones
-   *  tienen típicamente 1-12 camas, por lo que el costo es aceptable y predecible.
+   * Nota sobre el loop por unit dentro de la transacción:
+   *  Se ejecuta una query findFirst por unidad para detectar la tarea PENDING pre-asignada.
+   *  Esto introduce O(units) queries dentro de la transacción, pero las habitaciones
+   *  tienen típicamente 1-12 unidades, por lo que el costo es aceptable y predecible.
    *  Mover esto fuera de la transacción introduciría race conditions con asignaciones concurrentes.
    *
    * @param input  Parámetros normalizados del checkout (ver CheckoutInput)
@@ -107,7 +107,7 @@ export class CheckoutsService {
 
     const room = await this.prisma.room.findUnique({
       where: { id: input.roomId, organizationId: orgId },
-      include: { beds: true, property: true },
+      include: { units: true, property: true },
     })
     if (!room) throw new NotFoundException('Room not found')
 
@@ -130,11 +130,11 @@ export class CheckoutsService {
         },
       })
 
-      // Create one CleaningTask per bed in the room
-      for (const bed of room.beds) {
-        // Find pre-assigned housekeeper for this bed (task in PENDING state)
+      // Create one CleaningTask per unit in the room
+      for (const unit of room.units) {
+        // Find pre-assigned housekeeper for this unit (task in PENDING state)
         const existingPendingTask = await tx.cleaningTask.findFirst({
-          where: { bedId: bed.id, status: CleaningStatus.PENDING, organizationId: orgId },
+          where: { unitId: unit.id, status: CleaningStatus.PENDING, organizationId: orgId },
           select: { id: true, assignedToId: true },
         })
 
@@ -170,7 +170,7 @@ export class CheckoutsService {
           const newTask = await tx.cleaningTask.create({
             data: {
               organizationId: orgId,
-              bedId: bed.id,
+              unitId: unit.id,
               checkoutId: checkout.id,
               status: taskStatus,
               priority,
@@ -187,8 +187,8 @@ export class CheckoutsService {
           })
         }
 
-        // Update bed status to DIRTY
-        await tx.bed.update({ where: { id: bed.id }, data: { status: 'DIRTY' } })
+        // Update unit status to DIRTY
+        await tx.unit.update({ where: { id: unit.id }, data: { status: 'DIRTY' } })
       }
 
       return checkout
@@ -206,51 +206,51 @@ export class CheckoutsService {
    * Esta es la primera de dos fases del ciclo de checkout:
    *
    *   FASE 1 — Planificación (este método):
-   *     El recepcionista marca qué camas tienen salida hoy.
-   *     Se crean: Checkout record + CleaningTask(PENDING) por cada cama.
-   *     La cama físicamente SIGUE OCUPADA (bed.status NO cambia a DIRTY todavía).
+   *     El recepcionista marca qué unidades tienen salida hoy.
+   *     Se crean: Checkout record + CleaningTask(PENDING) por cada unidad.
+   *     La unidad físicamente SIGUE OCUPADA (unit.status NO cambia a DIRTY todavía).
    *     Housekeeping recibe la lista de salidas esperadas para prepararse, pero
-   *     NO se les notifica que limpien todavía — el huésped aún está en la cama.
+   *     NO se les notifica que limpien todavía — el huésped aún está en la unidad.
    *
    *   FASE 2 — Salida física (confirmDeparture):
    *     Cuando el huésped se va físicamente, el recepcionista confirma la salida.
    *     Las tareas pasan de PENDING → READY/UNASSIGNED.
-   *     bed.status → DIRTY. Housekeeping recibe la notificación: "ya pueden limpiar".
+   *     unit.status → DIRTY. Housekeeping recibe la notificación: "ya pueden limpiar".
    *
    * ¿Por qué separar las dos fases?
    *   En hotelería, la planificación matutina se hace a las 7:00 am, pero los
    *   huéspedes no salen hasta las 11:00 am o 12:00 pm. Si notificamos a
-   *   housekeeping en el momento de la planificación, llegan a una cama ocupada.
+   *   housekeeping en el momento de la planificación, llegan a una unidad ocupada.
    *   La separación de fases evita ese error operativo.
    */
   async batchCheckout(dto: BatchCheckoutDto, enteredById: string, propertyId: string) {
     const orgId = this.tenant.getOrganizationId()
     const checkoutDate = dto.checkoutDate ? new Date(dto.checkoutDate) : new Date()
 
-    // 1. Obtener los beds con su room en una sola query (evita N+1)
-    const bedIds = dto.items.map((i) => i.bedId)
-    const beds = await this.prisma.bed.findMany({
-      where: { id: { in: bedIds }, organizationId: orgId },
+    // 1. Obtener los units con su room en una sola query (evita N+1)
+    const unitIds = dto.items.map((i) => i.unitId)
+    const units = await this.prisma.unit.findMany({
+      where: { id: { in: unitIds }, organizationId: orgId },
       include: { room: true },
     })
 
-    // 2. Mapa de configuración por bedId para acceso O(1) al procesar cada bed
-    const itemMap = new Map(dto.items.map((i) => [i.bedId, i]))
+    // 2. Mapa de configuración por unitId para acceso O(1) al procesar cada unit
+    const itemMap = new Map(dto.items.map((i) => [i.unitId, i]))
 
-    // 3. Agrupar beds por roomId para crear un Checkout por habitación
-    const byRoom = new Map<string, typeof beds>()
-    for (const bed of beds) {
-      const arr = byRoom.get(bed.roomId) ?? []
-      arr.push(bed)
-      byRoom.set(bed.roomId, arr)
+    // 3. Agrupar units por roomId para crear un Checkout por habitación
+    const byRoom = new Map<string, typeof units>()
+    for (const unit of units) {
+      const arr = byRoom.get(unit.roomId) ?? []
+      arr.push(unit)
+      byRoom.set(unit.roomId, arr)
     }
 
     const results: { checkoutId: string; roomId: string; tasksCreated: number }[] = []
 
     // 4. Crear un Checkout + tareas PENDING por room (sin activar limpieza aún)
-    for (const [roomId, roomBeds] of byRoom.entries()) {
-      const hasSameDayCheckIn = roomBeds.some((b) => itemMap.get(b.id)?.hasSameDayCheckIn)
-      const notes = roomBeds.map((b) => itemMap.get(b.id)?.notes).filter(Boolean).join('; ')
+    for (const [roomId, roomUnits] of byRoom.entries()) {
+      const hasSameDayCheckIn = roomUnits.some((u) => itemMap.get(u.id)?.hasSameDayCheckIn)
+      const notes = roomUnits.map((u) => itemMap.get(u.id)?.notes).filter(Boolean).join('; ')
       const priority: Priority = hasSameDayCheckIn ? Priority.URGENT : Priority.MEDIUM
 
       const result = await this.prisma.$transaction(async (tx) => {
@@ -268,18 +268,18 @@ export class CheckoutsService {
         })
 
         let tasksCreated = 0
-        for (const bed of roomBeds) {
+        for (const unit of roomUnits) {
           // Crear tarea en estado PENDING — el huésped aún no ha salido físicamente.
           // La tarea pasará a READY/UNASSIGNED cuando el recepcionista confirme la salida física.
-          const bedHasSameDayCheckIn = itemMap.get(bed.id)?.hasSameDayCheckIn ?? false
+          const unitHasSameDayCheckIn = itemMap.get(unit.id)?.hasSameDayCheckIn ?? false
           const task = await tx.cleaningTask.create({
             data: {
               organizationId: orgId,
-              bedId: bed.id,
+              unitId: unit.id,
               checkoutId: checkout.id,
               status: CleaningStatus.PENDING,
               priority,
-              hasSameDayCheckIn: bedHasSameDayCheckIn,
+              hasSameDayCheckIn: unitHasSameDayCheckIn,
               requiredCapability: 'CLEANING',
             },
           })
@@ -293,7 +293,7 @@ export class CheckoutsService {
           })
           tasksCreated++
         }
-        // IMPORTANTE: bed.status NO se cambia aquí. El huésped sigue en la cama.
+        // IMPORTANTE: unit.status NO se cambia aquí. El huésped sigue en la unidad.
         // Solo cambia a DIRTY en confirmDeparture() cuando sale físicamente.
 
         return { checkoutId: checkout.id, roomId, tasksCreated }
@@ -337,15 +337,15 @@ export class CheckoutsService {
    * @param propertyId - ID de la propiedad (para buscar supervisores)
    */
   /**
-   * cancelCheckout — Cancela el checkout (o una cama específica del mismo).
+   * cancelCheckout — Cancela el checkout (o una unidad específica del mismo).
    *
-   * Con bedId: cancela SOLO la tarea de esa cama. El checkout NO se marca como
-   * cancelado — el resto de las camas del dorm siguen activas.
+   * Con unitId: cancela SOLO la tarea de esa unidad. El checkout NO se marca como
+   * cancelado — el resto de las unidades del dorm siguen activas.
    *
-   * Sin bedId: cancela todas las tareas del checkout y marca el checkout como
+   * Sin unitId: cancela todas las tareas del checkout y marca el checkout como
    * cancelado (comportamiento original — "huésped extendió toda la habitación").
    */
-  async cancelCheckout(checkoutId: string, propertyId: string, bedId?: string) {
+  async cancelCheckout(checkoutId: string, propertyId: string, unitId?: string) {
     const orgId = this.tenant.getOrganizationId()
     const checkout = await this.prisma.checkout.findUnique({
       where: { id: checkoutId, organizationId: orgId },
@@ -357,23 +357,23 @@ export class CheckoutsService {
     if (!checkout) throw new NotFoundException('Checkout not found')
     if (checkout.cancelled) throw new ConflictException('Checkout already cancelled')
 
-    const isBedId = !!bedId
+    const isUnitId = !!unitId
 
     const cancellableTasks = checkout.tasks.filter(
       (t) =>
         [CleaningStatus.READY, CleaningStatus.UNASSIGNED, CleaningStatus.PENDING].includes(
           t.status as CleaningStatus,
-        ) && (!isBedId || t.bedId === bedId),
+        ) && (!isUnitId || t.unitId === unitId),
     )
 
     const criticalTasks = checkout.tasks.filter(
       (t) =>
         (t.status === CleaningStatus.IN_PROGRESS || t.status === CleaningStatus.PAUSED) &&
-        (!isBedId || t.bedId === bedId),
+        (!isUnitId || t.unitId === unitId),
     )
 
     await this.prisma.$transaction(async (tx) => {
-      // Cancel tasks that haven't started (for the specified bed, or all beds)
+      // Cancel tasks that haven't started (for the specified unit, or all units)
       for (const task of cancellableTasks) {
         await tx.cleaningTask.update({
           where: { id: task.id },
@@ -382,12 +382,12 @@ export class CheckoutsService {
         await tx.taskLog.create({
           data: { taskId: task.id, staffId: null, event: TaskLogEvent.CANCELLED },
         })
-        // Restore bed to OCCUPIED (huésped extendió, sigue durmiendo)
-        await tx.bed.update({ where: { id: task.bedId }, data: { status: 'OCCUPIED' } })
+        // Restore unit to OCCUPIED (huésped extendió, sigue durmiendo)
+        await tx.unit.update({ where: { id: task.unitId }, data: { status: 'OCCUPIED' } })
       }
 
-      // Mark full checkout as cancelled only when cancelling the entire room (no bedId)
-      if (!isBedId) {
+      // Mark full checkout as cancelled only when cancelling the entire room (no unitId)
+      if (!isUnitId) {
         await tx.checkout.update({
           where: { id: checkoutId },
           data: { cancelled: true, cancelledAt: new Date() },
@@ -452,9 +452,9 @@ export class CheckoutsService {
    *
    * Retorna TODOS los rooms de la propiedad (no solo los que tienen checkout),
    * separados en sharedRooms y privateRooms. El frontend usa este grid completo
-   * para mostrar todas las camas y dejar que el supervisor marque cada una.
+   * para mostrar todas las unidades y dejar que el supervisor marque cada una.
    *
-   * Por cada bed incluye:
+   * Por cada unit incluye:
    *   - taskId/taskStatus: null si no hay tarea ese día, o el estado actual si existe.
    *   - assignedToId: para colorear celdas pre-asignadas vs. sin asignar.
    *   - hasSameDayCheckIn: flag urgente del checkout asociado.
@@ -476,7 +476,7 @@ export class CheckoutsService {
     const rooms = await this.prisma.room.findMany({
       where: { propertyId, organizationId: orgId },
       include: {
-        beds: {
+        units: {
           orderBy: { label: 'asc' },
           include: {
             cleaningTasks: {
@@ -509,22 +509,22 @@ export class CheckoutsService {
       roomNumber: room.number,
       roomCategory: room.category,
       floor: room.floor,
-      beds: room.beds.map((bed) => {
-        const task = bed.cleaningTasks[0] ?? null
+      units: room.units.map((unit) => {
+        const task = unit.cleaningTasks[0] ?? null
         return {
-          bedId: bed.id,
-          bedLabel: bed.label,
+          unitId: unit.id,
+          unitLabel: unit.label,
           roomId: room.id,
           roomNumber: room.number,
-          // bedStatus permite al frontend distinguir OCCUPIED (con huésped, elegible
+          // unitStatus permite al frontend distinguir OCCUPIED (con huésped, elegible
           // para checkout) de AVAILABLE (sin huésped, NO debe marcarse para checkout).
-          bedStatus: bed.status,
+          unitStatus: unit.status,
           taskId: task?.id ?? null,
           taskStatus: task?.status ?? null,
           assignedToId: task?.assignedToId ?? null,
           hasSameDayCheckIn: task?.hasSameDayCheckIn ?? false,
           checkoutId: task?.checkoutId ?? null,
-          // Cubre per-bed cancel (task.status) y full checkout cancel (checkout.cancelled)
+          // Cubre per-unit cancel (task.status) y full checkout cancel (checkout.cancelled)
           cancelled: (task?.status === CleaningStatus.CANCELLED || task?.checkout?.cancelled) ?? false,
         }
       }),
@@ -541,19 +541,19 @@ export class CheckoutsService {
    * confirmDeparture — FASE 2 del ciclo de checkout.
    *
    * Activa la limpieza cuando el huésped sale físicamente:
-   *   1. La tarea de esa cama pasa PENDING → READY (asignada) o UNASSIGNED (sin asignar).
-   *   2. La cama pasa a DIRTY — estado físico: el huésped se fue, cama sucia.
-   *   3. Housekeeping recibe la notificación push para esa cama específica.
+   *   1. La tarea de esa unidad pasa PENDING → READY (asignada) o UNASSIGNED (sin asignar).
+   *   2. La unidad pasa a DIRTY — estado físico: el huésped se fue, unidad sucia.
+   *   3. Housekeeping recibe la notificación push para esa unidad específica.
    *   4. SSE notifica al dashboard web.
    *
-   * GRANULARIDAD POR CAMA (parámetro bedId):
-   *   En dormitorios compartidos un solo Checkout puede agrupar varias camas
+   * GRANULARIDAD POR UNIDAD (parámetro unitId):
+   *   En dormitorios compartidos un solo Checkout puede agrupar varias unidades
    *   (e.g. Cama 1 y Cama 3 de Dorm1). Cada huésped sale en momentos distintos.
-   *   `bedId` restringe la activación a una sola cama, evitando que confirmar
+   *   `unitId` restringe la activación a una sola unidad, evitando que confirmar
    *   la salida de Cama 1 active automáticamente Cama 3.
    *
-   *   Si `bedId` es omitido se activan todas las camas PENDING del checkout
-   *   (comportamiento útil para habitaciones privadas con una sola cama).
+   *   Si `unitId` es omitido se activan todas las unidades PENDING del checkout
+   *   (comportamiento útil para habitaciones privadas con una sola unidad).
    *
    * Idempotencia: si la tarea ya está en READY/UNASSIGNED o más avanzada,
    * se retorna `{ alreadyDeparted: true }` sin modificar nada.
@@ -561,9 +561,9 @@ export class CheckoutsService {
    * @param checkoutId - ID del checkout planificado en la Fase 1
    * @param actorId    - Staff que confirma la salida (para TaskLog)
    * @param propertyId - Para SSE y búsqueda de supervisores
-   * @param bedId      - (opcional) Restringe la activación a una cama específica
+   * @param unitId     - (opcional) Restringe la activación a una unidad específica
    */
-  async confirmDeparture(checkoutId: string, actorId: string, propertyId: string, bedId?: string) {
+  async confirmDeparture(checkoutId: string, actorId: string, propertyId: string, unitId?: string) {
     const orgId = this.tenant.getOrganizationId()
     const checkout = await this.prisma.checkout.findUnique({
       where: { id: checkoutId, organizationId: orgId },
@@ -575,16 +575,16 @@ export class CheckoutsService {
     if (!checkout) throw new NotFoundException('Checkout not found')
     if (checkout.cancelled) throw new ConflictException('Checkout was cancelled')
 
-    // Filtrar solo las tareas PENDING y, si se especificó bedId, solo esa cama.
-    // Esto evita el bug donde confirmar Cama 1 activaría también Cama 3 del mismo dorm.
+    // Filtrar solo las tareas PENDING y, si se especificó unitId, solo esa unidad.
+    // Esto evita el bug donde confirmar una unidad activaría también otra del mismo dorm.
     const pendingTasks = checkout.tasks.filter(
-      (t) => t.status === CleaningStatus.PENDING && (!bedId || t.bedId === bedId),
+      (t) => t.status === CleaningStatus.PENDING && (!unitId || t.unitId === unitId),
     )
     if (pendingTasks.length === 0) {
       return { alreadyDeparted: true, message: 'La salida ya fue confirmada anteriormente' }
     }
 
-    // Activar las tareas PENDING → READY/UNASSIGNED + marcar camas como DIRTY
+    // Activar las tareas PENDING → READY/UNASSIGNED + marcar unidades como DIRTY
     await this.prisma.$transaction(async (tx) => {
       for (const task of pendingTasks) {
         const newStatus = task.assignedToId ? CleaningStatus.READY : CleaningStatus.UNASSIGNED
@@ -602,9 +602,9 @@ export class CheckoutsService {
           },
         })
 
-        // Ahora sí: la cama pasa a DIRTY. El huésped salió, la cama necesita limpieza.
-        await tx.bed.update({
-          where: { id: task.bedId },
+        // Ahora sí: la unidad pasa a DIRTY. El huésped salió, la unidad necesita limpieza.
+        await tx.unit.update({
+          where: { id: task.unitId },
           data: { status: 'DIRTY' },
         })
       }
@@ -629,21 +629,21 @@ export class CheckoutsService {
    * (limpieza aún no iniciada). Una vez que el housekeeper empieza (IN_PROGRESS),
    * ya no es reversible desde recepción — requiere intervención del supervisor.
    *
-   * Cuándo usarlo: el recepcionista confirmó la salida de la cama equivocada,
+   * Cuándo usarlo: el recepcionista confirmó la salida de la unidad equivocada,
    * o el huésped cambió de opinión antes de que housekeeping llegara.
    *
    * Efecto:
    *   - READY/UNASSIGNED → PENDING (tarea vuelve a "esperando confirmación física")
-   *   - bed.status → OCCUPIED (cama vuelve a estar ocupada)
+   *   - unit.status → OCCUPIED (unidad vuelve a estar ocupada)
    *   - Push al housekeeper asignado: "Salida revertida, el huésped aún está"
    *   - SSE: task:planned (el dashboard refleja el estado PENDING nuevamente)
    *
    * @param checkoutId - ID del checkout
    * @param actorId    - Recepcionista que revierte (para TaskLog)
    * @param propertyId - Para SSE y validación de propiedad
-   * @param bedId      - (opcional) Si se omite, revierte TODAS las camas READY/UNASSIGNED
+   * @param unitId     - (opcional) Si se omite, revierte TODAS las unidades READY/UNASSIGNED
    */
-  async undoDeparture(checkoutId: string, actorId: string, propertyId: string, bedId?: string) {
+  async undoDeparture(checkoutId: string, actorId: string, propertyId: string, unitId?: string) {
     const orgId = this.tenant.getOrganizationId()
     const checkout = await this.prisma.checkout.findUnique({
       where: { id: checkoutId, organizationId: orgId },
@@ -659,12 +659,12 @@ export class CheckoutsService {
     const reversibleTasks = checkout.tasks.filter(
       (t) =>
         [CleaningStatus.READY, CleaningStatus.UNASSIGNED].includes(t.status as CleaningStatus) &&
-        (!bedId || t.bedId === bedId),
+        (!unitId || t.unitId === unitId),
     )
 
     if (!reversibleTasks.length) {
       throw new ConflictException(
-        'No hay tareas reversibles — la limpieza ya inició o la cama ya está lista',
+        'No hay tareas reversibles — la limpieza ya inició o la unidad ya está lista',
       )
     }
 
@@ -679,8 +679,8 @@ export class CheckoutsService {
           data: { taskId: task.id, staffId: actorId, event: TaskLogEvent.REOPENED },
         })
 
-        await tx.bed.update({
-          where: { id: task.bedId },
+        await tx.unit.update({
+          where: { id: task.unitId },
           data: { status: 'OCCUPIED' },
         })
       }
@@ -709,7 +709,7 @@ export class CheckoutsService {
    *
    * Lógica de agrupación (anti-spam):
    *   - Agrupa las tareas READY por housekeeper asignado.
-   *   - Si un housekeeper tiene N camas, recibe UNA notificación con la lista completa.
+   *   - Si un housekeeper tiene N unidades, recibe UNA notificación con la lista completa.
    *   - Si el housekeeper está en medio de otra limpieza, la notificación lo menciona
    *     explícitamente: "Comienza al terminar Hab. X".
    *
@@ -726,14 +726,14 @@ export class CheckoutsService {
       where: { checkoutId, organizationId: orgId },
       include: {
         assignedTo: true,
-        bed: { include: { room: true } },
+        unit: { include: { room: true } },
       },
     })
 
     const readyTasks = tasks.filter((t) => t.status === CleaningStatus.READY)
     const unassignedTasks = tasks.filter((t) => t.status === CleaningStatus.UNASSIGNED)
 
-    // Group by assignee to avoid spam when multiple beds check out at once
+    // Group by assignee to avoid spam when multiple units check out at once
     const byAssignee = new Map<string, typeof readyTasks>()
     for (const task of readyTasks) {
       if (!task.assignedToId) continue
@@ -746,16 +746,16 @@ export class CheckoutsService {
       // Check if staff is currently cleaning something else
       const activeTask = await this.prisma.cleaningTask.findFirst({
         where: { assignedToId, status: CleaningStatus.IN_PROGRESS, organizationId: orgId },
-        include: { bed: { include: { room: true } } },
+        include: { unit: { include: { room: true } } },
       })
 
       const roomList = staffTasks
-        .map((t) => `Hab. ${t.bed.room.number}${t.priority === Priority.URGENT ? ' 🔴' : ''}`)
+        .map((t) => `Hab. ${t.unit.room.number}${t.priority === Priority.URGENT ? ' 🔴' : ''}`)
         .join(', ')
 
       const title = input.hasSameDayCheckIn ? '🔴 Limpieza urgente' : '🛏️ Lista para limpiar'
       const body = activeTask
-        ? `${roomList} — Comienza al terminar Hab. ${activeTask.bed.room.number}`
+        ? `${roomList} — Comienza al terminar Hab. ${activeTask.unit.room.number}`
         : `${roomList} — Lista para limpiar`
 
       await this.push.sendToStaff(assignedToId, title, body, {
@@ -768,9 +768,9 @@ export class CheckoutsService {
     for (const task of readyTasks) {
       this.notifications.emit(propertyId, 'task:ready', {
         taskId: task.id,
-        bedId: task.bedId,
-        roomId: task.bed.roomId,
-        roomNumber: task.bed.room.number,
+        unitId: task.unitId,
+        roomId: task.unit.roomId,
+        roomNumber: task.unit.room.number,
         priority: task.priority,
         assignedToId: task.assignedToId,
       })
@@ -779,8 +779,8 @@ export class CheckoutsService {
     for (const task of unassignedTasks) {
       this.notifications.emit(propertyId, 'task:unassigned', {
         taskId: task.id,
-        bedId: task.bedId,
-        roomNumber: task.bed.room.number,
+        unitId: task.unitId,
+        roomNumber: task.unit.room.number,
       })
     }
   }

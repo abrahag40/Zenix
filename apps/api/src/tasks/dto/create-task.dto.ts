@@ -3,7 +3,7 @@ import { Capability, Priority, TaskType } from '@zenix/shared'
 
 export class CreateTaskDto {
   @IsUUID()
-  bedId: string
+  unitId: string
 
   @IsOptional()
   @IsUUID()
@@ -38,7 +38,7 @@ export class QueryTaskDto {
 
   @IsOptional()
   @IsUUID()
-  bedId?: string
+  unitId?: string
 
   @IsOptional()
   @IsUUID()

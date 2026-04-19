@@ -9,7 +9,7 @@ import { PrismaModule } from './prisma/prisma.module'
 import { AuthModule } from './auth/auth.module'
 import { PropertiesModule } from './properties/properties.module'
 import { RoomsModule } from './rooms/rooms.module'
-import { BedsModule } from './beds/beds.module'
+import { UnitsModule } from './units/units.module'
 import { StaffModule } from './staff/staff.module'
 import { TasksModule } from './tasks/tasks.module'
 import { CheckoutsModule } from './checkouts/checkouts.module'
@@ -28,6 +28,7 @@ import { RoomReadinessModule } from './pms/room-readiness/room-readiness.module'
 import { RoomTypesModule } from './pms/room-types/room-types.module'
 import { StayJourneysModule } from './pms/stay-journeys/stay-journeys.module'
 import { DashboardModule } from './dashboard/dashboard.module'
+import { BlocksModule } from './blocks/blocks.module'
 import { TenantContextMiddleware } from './common/tenant-context.middleware'
 import { TenantContextService } from './common/tenant-context.service'
 import { TenantGuard } from './common/guards/tenant.guard'
@@ -49,7 +50,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
     AuthModule,
     PropertiesModule,
     RoomsModule,
-    BedsModule,
+    UnitsModule,
     StaffModule,
     TasksModule,
     CheckoutsModule,
@@ -66,6 +67,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
     RoomTypesModule,
     StayJourneysModule,
     DashboardModule,
+    BlocksModule,
   ],
   providers: [
     TenantContextService,

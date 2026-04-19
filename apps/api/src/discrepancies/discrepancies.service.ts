@@ -57,24 +57,24 @@ export class DiscrepanciesService {
    * @throws              NotFoundException si el bedId no existe
    */
   async create(dto: CreateDiscrepancyDto, reportedById: string, propertyId: string) {
-    // Validar que la cama existe y cargar el room para mostrar el número en la notificación
-    const bed = await this.prisma.bed.findUnique({
-      where: { id: dto.bedId },
+    // Validar que la unidad existe y cargar el room para mostrar el número en la notificación
+    const unit = await this.prisma.unit.findUnique({
+      where: { id: dto.unitId },
       include: { room: { include: { property: true } } },
     })
-    if (!bed) throw new NotFoundException('Bed not found')
+    if (!unit) throw new NotFoundException('Unit not found')
 
     // Crear la discrepancia con status inicial REPORTED (default del schema)
-    const discrepancy = await this.prisma.bedDiscrepancy.create({
+    const discrepancy = await this.prisma.unitDiscrepancy.create({
       data: {
-        bedId: dto.bedId,
+        unitId: dto.unitId,
         reportedById,
         type: dto.type,
         description: dto.description,
       },
       // Cargar relaciones en la misma query para evitar una query extra post-creación
       include: {
-        bed: { include: { room: true } },
+        unit: { include: { room: true } },
         reportedBy: { select: { id: true, name: true } },
       },
     })
@@ -91,7 +91,7 @@ export class DiscrepanciesService {
       select: { id: true }, // Solo el ID es necesario para sendToStaff
     })
 
-    const roomNum = bed.room.number
+    const roomNum = unit.room.number
     // Promise.all envía todas las notificaciones en paralelo (no secuencial)
     // para minimizar el tiempo total de envío cuando hay múltiples destinatarios
     await Promise.all(
@@ -99,7 +99,7 @@ export class DiscrepanciesService {
         this.push.sendToStaff(
           r.id,
           '⚠️ Discrepancia reportada',
-          `Hab. ${roomNum} — Cama ${bed.label}: ${dto.description}`,
+          `Hab. ${roomNum} — Unidad ${unit.label}: ${dto.description}`,
           { type: 'discrepancy:reported', discrepancyId: discrepancy.id },
         ),
       ),
@@ -109,7 +109,7 @@ export class DiscrepanciesService {
     // sin necesidad de recargar la página ni polling
     this.notifications.emit(propertyId, 'discrepancy:reported', {
       discrepancyId: discrepancy.id,
-      bedId: dto.bedId,
+      unitId: dto.unitId,
       type: dto.type,
       roomNumber: roomNum,
     })
@@ -133,14 +133,14 @@ export class DiscrepanciesService {
    * @returns           Array de discrepancias ordenadas por fecha de creación (más reciente primero)
    */
   findByProperty(propertyId: string, status?: DiscrepancyStatus) {
-    return this.prisma.bedDiscrepancy.findMany({
+    return this.prisma.unitDiscrepancy.findMany({
       where: {
-        bed: { room: { propertyId } },
+        unit: { room: { propertyId } },
         // Spread condicional: si status es undefined, no se aplica el filtro
         ...(status ? { status } : {}),
       },
       include: {
-        bed: { include: { room: { select: { number: true, floor: true } } } },
+        unit: { include: { room: { select: { number: true, floor: true } } } },
         reportedBy: { select: { id: true, name: true } },
         resolvedBy: { select: { id: true, name: true } }, // null si aún no fue resuelta
       },
@@ -167,10 +167,10 @@ export class DiscrepanciesService {
    */
   async resolve(id: string, resolvedById: string, resolution: string) {
     // Verificar existencia antes de actualizar para dar un error claro al cliente
-    const discrepancy = await this.prisma.bedDiscrepancy.findUnique({ where: { id } })
+    const discrepancy = await this.prisma.unitDiscrepancy.findUnique({ where: { id } })
     if (!discrepancy) throw new NotFoundException('Discrepancy not found')
 
-    return this.prisma.bedDiscrepancy.update({
+    return this.prisma.unitDiscrepancy.update({
       where: { id },
       data: {
         status: DiscrepancyStatus.RESOLVED,
@@ -196,10 +196,10 @@ export class DiscrepanciesService {
    * @throws    NotFoundException si el id no existe
    */
   async acknowledge(id: string) {
-    const discrepancy = await this.prisma.bedDiscrepancy.findUnique({ where: { id } })
+    const discrepancy = await this.prisma.unitDiscrepancy.findUnique({ where: { id } })
     if (!discrepancy) throw new NotFoundException('Discrepancy not found')
 
-    return this.prisma.bedDiscrepancy.update({
+    return this.prisma.unitDiscrepancy.update({
       where: { id },
       data: { status: DiscrepancyStatus.ACKNOWLEDGED },
     })

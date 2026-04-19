@@ -27,16 +27,19 @@ import type {
 } from '../../types/timeline.types'
 import { useRoomGroups } from '../../hooks/useRoomGroups'
 import { useAuthStore } from '@/store/auth'
+import { usePropertyStore } from '@/store/property'
 
 // ─── Component ──────────────────────────────────────────────
 
 export function TimelineScheduler() {
   const { dayWidth, sheetOpen, sheetStayId, openSheet, closeSheet } = useTimelineStore()
 
-  // Propiedad activa del usuario autenticado. Antes estaba hardcodeada
-  // ('prop-hotel-tulum-001') y causaba que el timeline quedara vacío en
-  // cualquier instalación que no fuera la del dev original.
-  const PROPERTY_ID = useAuthStore((s) => s.user?.propertyId) ?? ''
+  // Active property comes from the property switcher; falls back to the
+  // JWT's home property on first load, before the persisted store or the
+  // /properties fetch have had a chance to populate.
+  const activeId = usePropertyStore((s) => s.activePropertyId)
+  const jwtPropertyId = useAuthStore((s) => s.user?.propertyId) ?? ''
+  const PROPERTY_ID = activeId ?? jwtPropertyId
 
   const { data: apiGroups = [], isLoading: groupsLoading } = useRoomGroups(PROPERTY_ID)
 

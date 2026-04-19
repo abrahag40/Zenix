@@ -1,89 +1,61 @@
 /**
- * Sidebar.tsx — navegación global de la aplicación.
+ * Sidebar.tsx — global top bar for routes outside the PMS timeline.
  *
- * La navegación lateral fija fue reemplazada por un top bar único con el
- * componente <AppMenu /> (hamburguesa + dropdown). Este archivo conserva
- * sus exports (Sidebar, MobileNav) para no romper imports existentes,
- * pero ambos ahora renderizan la misma barra superior.
+ * Layout (mirrors TimelineTopBar minus the PMS-only action icons):
  *
- * La barra incluye:
- *   - <AppMenu />  → hamburguesa que abre Dashboard / Calendario / Housekeeping
- *   - logo + nombre "Zenix" clickeable (vuelve al Dashboard)
- *   - usuario activo + botón "Salir"
+ *   [☰ AppDrawer] [PropertySwitcher?]                    [👤 UserMenu]
  *
- * Esa misma UX está también embebida en <TimelineTopBar /> (la barra del
- * endpoint /pms), para que el hamburguesa sea un punto único en todo el PMS.
+ * Property switcher is shown contextually — routes whose data does not
+ * depend on the active property hide it so the user isn't misled into
+ * thinking they can "switch" a non-scoped page. The active scope for
+ * those pages is communicated *inside* the page itself (see
+ * SettingsPage's ScopeBanner). This pattern follows NN/G's guidance on
+ * mode indication: "make the scope of an action unambiguous at the
+ * point of action" (Modes in User Interfaces, nngroup.com/articles/modes).
+ *
+ * Routes that HIDE the switcher in the top bar:
+ *   · /settings/*   — configuration is either global (org-scoped) or
+ *                     per-property but with its own scope selector
+ *                     embedded at the top of the page.
+ *
+ * Routes that SHOW the switcher:
+ *   · /dashboard, /planning, /kanban, /checkouts, /discrepancies,
+ *     /reports  — each renders property-scoped data, so the top-bar
+ *     switcher IS the way to change context.
  */
-import { useNavigate } from 'react-router-dom'
-import { useAuthStore } from '../store/auth'
-import { AppMenu } from './AppMenu'
+import { useLocation } from 'react-router-dom'
+import { AppDrawer } from './AppDrawer'
+import { PropertySwitcher } from './PropertySwitcher'
+import { UserMenu } from './UserMenu'
 
-/** Mapea los roles del backend a etiquetas legibles para el usuario */
-const ROLE_LABEL: Record<string, string> = {
-  SUPERVISOR: 'Supervisor',
-  RECEPTIONIST: 'Recepción',
-  HOUSEKEEPER: 'Housekeeping',
+// Route prefixes that DO NOT render the top-bar property switcher.
+// Expand this list conservatively — every entry added here is a scope
+// the user must be able to reach via some in-page control instead.
+const ROUTES_WITHOUT_SWITCHER = ['/settings']
+
+function shouldShowSwitcher(pathname: string): boolean {
+  return !ROUTES_WITHOUT_SWITCHER.some((p) => pathname === p || pathname.startsWith(p + '/'))
 }
 
 function GlobalTopBar() {
-  const { user, logout } = useAuthStore()
-  const navigate = useNavigate()
-
-  function handleLogout() {
-    logout()
-    navigate('/login', { replace: true })
-  }
+  const { pathname } = useLocation()
+  const showSwitcher = shouldShowSwitcher(pathname)
 
   return (
     <div className="fixed top-0 left-0 right-0 z-30 flex items-center gap-3 px-4 h-14 bg-white border-b border-slate-200">
-      <AppMenu />
-
-      <button
-        onClick={() => navigate('/dashboard')}
-        className="flex items-center gap-2 text-slate-800 hover:text-slate-600 transition-colors"
-        aria-label="Ir al dashboard"
-      >
-        <span className="text-lg leading-none">⚡</span>
-        <span className="text-sm font-semibold">Zenix</span>
-      </button>
-
+      <AppDrawer />
+      {showSwitcher && <PropertySwitcher />}
       <div className="flex-1" />
-
-      {user && (
-        <div className="flex items-center gap-3">
-          <div className="text-right min-w-0">
-            <p className="text-sm font-medium text-slate-800 truncate max-w-[140px]">
-              {user.name}
-            </p>
-            <p className="text-xs text-slate-400 leading-tight">
-              {ROLE_LABEL[user.role ?? ''] ?? user.role}
-            </p>
-          </div>
-          <button
-            onClick={handleLogout}
-            className="text-xs text-slate-400 hover:text-red-500 transition-colors px-2 py-1 rounded"
-            title="Cerrar sesión"
-          >
-            Salir
-          </button>
-        </div>
-      )}
+      <UserMenu />
     </div>
   )
 }
 
-/**
- * Kept for backwards-compatibility with `ProtectedLayout` which imports
- * both symbols. Both render the same single top bar now.
- */
 export function Sidebar() {
   return <GlobalTopBar />
 }
 
 export function MobileNav() {
-  // MobileNav existed to render the hamburger on mobile while Sidebar ran
-  // the desktop fixed column. With the new global top bar everything is
-  // unified, so this is now an empty peer — kept only so existing imports
-  // don't break.
+  // Compatibility shim — unified under GlobalTopBar + AppDrawer.
   return null
 }
