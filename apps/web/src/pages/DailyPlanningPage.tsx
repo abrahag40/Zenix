@@ -37,7 +37,7 @@ import toast from 'react-hot-toast'
 import { api } from '../api/client'
 import { useSSE } from '../hooks/useSSE'
 import type {
-  BedDiscrepancyDto,
+  UnitDiscrepancyDto,
   DailyPlanningGrid,
   DailyPlanningRow,
   PropertySettingsDto,
@@ -74,7 +74,7 @@ const TODAY_LABEL = _rawLabel.charAt(0).toUpperCase() + _rawLabel.slice(1)
  */
 type CellOverride = { state: PlanningCellState; note: string }
 
-/** Clave compuesta "roomId:bedId" que identifica una celda en la tabla. */
+/** Clave compuesta "roomId:unitId" que identifica una celda en la tabla. */
 type CellKey = string
 
 // ─── Planning: máquina de estados y estilos ───────────────────────────────────
@@ -148,8 +148,8 @@ const RT_CFG: Record<
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Construye la clave de mapa para una celda de planificación. */
-function cellKey(roomId: string, bedId: string): CellKey {
-  return `${roomId}:${bedId}`
+function cellKey(roomId: string, unitId: string): CellKey {
+  return `${roomId}:${unitId}`
 }
 
 /**
@@ -161,7 +161,7 @@ function cellKey(roomId: string, bedId: string): CellKey {
  * checkout no cancelado) se recupera el estado guardado — esto garantiza
  * idempotencia al recargar la página después de confirmar la planificación.
  */
-function inferState(cell: DailyPlanningGrid['sharedRooms'][0]['beds'][0]): PlanningCellState {
+function inferState(cell: DailyPlanningGrid['sharedRooms'][0]['units'][0]): PlanningCellState {
   if (cell.taskId && !cell.cancelled) {
     if (cell.taskStatus === CleaningStatus.CANCELLED) return PlanningCellState.EMPTY
     if (cell.hasSameDayCheckIn) return PlanningCellState.CHECKOUT_WITH_CHECKIN
@@ -174,7 +174,7 @@ function inferState(cell: DailyPlanningGrid['sharedRooms'][0]['beds'][0]): Plann
  * Mapea el estado de la tarea de limpieza al estado de tiempo real de la cama.
  * No usa bed.status directamente — la tarea es la fuente de verdad del ciclo.
  */
-function inferRealtimeState(bed: DailyPlanningGrid['sharedRooms'][0]['beds'][0]): RealtimeState {
+function inferRealtimeState(bed: DailyPlanningGrid['sharedRooms'][0]['units'][0]): RealtimeState {
   if (!bed.taskId || bed.cancelled) return 'AVAILABLE'
   switch (bed.taskStatus) {
     case CleaningStatus.PENDING:
@@ -219,13 +219,13 @@ export function DailyPlanningPage() {
   const [noteTarget, setNoteTarget]   = useState<CellKey | null>(null)
 
   /**
-   * Cama pendiente de confirmación de salida (modal de Fase 2).
-   * Incluye bedId para activar solo esa cama, no todas las del dorm.
+   * Unidad pendiente de confirmación de salida (modal de Fase 2).
+   * Incluye unitId para activar solo esa unidad, no todas las del dorm.
    */
   const [departTarget, setDepartTarget] = useState<{
     checkoutId: string
-    bedId: string           // Cama específica a activar (evita activar todo el dorm)
-    bedLabel: string
+    unitId: string           // Unidad específica a activar (evita activar todo el dorm)
+    unitLabel: string
     roomNumber: string
     isUrgent: boolean
   } | null>(null)
@@ -286,10 +286,10 @@ export function DailyPlanningPage() {
   // `settings` expuesto para uso futuro (timezone, defaultCheckoutTime)
   void settings
 
-  const { data: openDiscrepancies = [] } = useQuery<BedDiscrepancyDto[]>({
+  const { data: openDiscrepancies = [] } = useQuery<UnitDiscrepancyDto[]>({
     queryKey: ['discrepancies-open'],
     queryFn: async () => {
-      const all = await api.get<BedDiscrepancyDto[]>('/discrepancies')
+      const all = await api.get<UnitDiscrepancyDto[]>('/discrepancies')
       return all.filter((d) => d.status === DiscrepancyStatus.OPEN)
     },
     refetchInterval: 60_000,
@@ -335,7 +335,7 @@ export function DailyPlanningPage() {
    *   antes de que se muestre la pestaña de tiempo real.
    */
   const batchMutation = useMutation({
-    mutationFn: (items: { bedId: string; hasSameDayCheckIn: boolean; notes?: string }[]) =>
+    mutationFn: (items: { unitId: string; hasSameDayCheckIn: boolean; notes?: string }[]) =>
       api.post('/checkouts/batch', { checkoutDate: TODAY, items }),
     onSuccess: async () => {
       await qc.refetchQueries({ queryKey: ['daily-grid', TODAY] })
@@ -347,23 +347,23 @@ export function DailyPlanningPage() {
 
   const [cancelTarget, setCancelTarget] = useState<{
     checkoutId: string
-    bedId: string
-    bedLabel: string
+    unitId: string
+    unitLabel: string
     roomNumber: string
   } | null>(null)
 
   const [undoTarget, setUndoTarget] = useState<{
     checkoutId: string
-    bedId: string
-    bedLabel: string
+    unitId: string
+    unitLabel: string
     roomNumber: string
   } | null>(null)
 
   const cancelMutation = useMutation({
-    mutationFn: ({ checkoutId, bedId }: { checkoutId: string; bedId: string }) =>
-      api.patch(`/checkouts/${checkoutId}/cancel`, { bedId }),
+    mutationFn: ({ checkoutId, unitId }: { checkoutId: string; unitId: string }) =>
+      api.patch(`/checkouts/${checkoutId}/cancel`, { unitId }),
     onSuccess: () => {
-      toast.success('Checkout cancelado — la cama vuelve a Disponible')
+      toast.success('Checkout cancelado — la unidad vuelve a Disponible')
       setCancelTarget(null)
       qc.invalidateQueries({ queryKey: ['daily-grid', TODAY] })
     },
@@ -373,13 +373,13 @@ export function DailyPlanningPage() {
   /**
    * Fase 2 — Confirma la salida física del huésped (activa limpieza).
    *
-   * Se envía bedId para activar SOLO la cama que el recepcionista confirmó.
-   * Sin bedId, el backend activaría TODAS las camas del checkout — en un
+   * Se envía unitId para activar SOLO la unidad que el recepcionista confirmó.
+   * Sin unitId, el backend activaría TODAS las unidades del checkout — en un
    * dorm de 6 camas eso activaría las 6 aunque solo salió un huésped.
    */
   const departMutation = useMutation({
-    mutationFn: ({ checkoutId, bedId }: { checkoutId: string; bedId: string }) =>
-      api.post(`/checkouts/${checkoutId}/depart`, { bedId }),
+    mutationFn: ({ checkoutId, unitId }: { checkoutId: string; unitId: string }) =>
+      api.post(`/checkouts/${checkoutId}/depart`, { unitId }),
     onSuccess: () => {
       toast.success('Salida confirmada — Housekeeping notificada para limpiar')
       setDepartTarget(null)
@@ -397,10 +397,10 @@ export function DailyPlanningPage() {
    * housekeeping empiece a limpiar). La tarea vuelve a PENDING_DEPARTURE.
    */
   const undoMutation = useMutation({
-    mutationFn: ({ checkoutId, bedId }: { checkoutId: string; bedId: string }) =>
-      api.post(`/checkouts/${checkoutId}/undo-depart`, { bedId }),
+    mutationFn: ({ checkoutId, unitId }: { checkoutId: string; unitId: string }) =>
+      api.post(`/checkouts/${checkoutId}/undo-depart`, { unitId }),
     onSuccess: () => {
-      toast.success('Salida revertida — la cama vuelve a "Pendiente de salida"')
+      toast.success('Salida revertida — la unidad vuelve a "Pendiente de salida"')
       setUndoTarget(null)
       qc.invalidateQueries({ queryKey: ['daily-grid', TODAY] })
     },
@@ -425,8 +425,8 @@ export function DailyPlanningPage() {
    * Se asigna al singleton `_openBlockModal` para que los sub-componentes
    * (BlockTrigger) puedan abrir el modal sin prop drilling.
    */
-  const [blockTarget, setBlockTarget] = useState<{ roomId: string; bedId: string } | null>(null)
-  _openBlockModal = (roomId, bedId) => setBlockTarget({ roomId, bedId })
+  const [blockTarget, setBlockTarget] = useState<{ roomId: string; unitId: string } | null>(null)
+  _openBlockModal = (roomId, unitId) => setBlockTarget({ roomId, unitId })
 
   // ── Helpers de planificación ──────────────────────────────────────────────
 
@@ -443,14 +443,14 @@ export function DailyPlanningPage() {
    */
   function getState(
     roomId: string,
-    bedId: string,
-    cell: DailyPlanningGrid['sharedRooms'][0]['beds'][0],
+    unitId: string,
+    cell: DailyPlanningGrid['sharedRooms'][0]['units'][0],
   ): PlanningCellState {
     // Server is authoritative when an active (non-cancelled) task exists.
     // Cancelled tasks are treated as if no task exists — the cell is editable
     // and the override (if any) takes precedence.
     if (cell.taskId && !cell.cancelled) return inferState(cell)
-    return overrides.get(cellKey(roomId, bedId))?.state ?? inferState(cell)
+    return overrides.get(cellKey(roomId, unitId))?.state ?? inferState(cell)
   }
 
   /**
@@ -466,13 +466,13 @@ export function DailyPlanningPage() {
    */
   function cycleState(
     roomId: string,
-    bedId: string,
-    cell: DailyPlanningGrid['sharedRooms'][0]['beds'][0],
+    unitId: string,
+    cell: DailyPlanningGrid['sharedRooms'][0]['units'][0],
   ) {
-    // Allow cycling if the existing task was cancelled (bed is re-plannable)
+    // Allow cycling if the existing task was cancelled (unit is re-plannable)
     if (planningIsDone || (cell.taskId && !cell.cancelled)) return
-    const key     = cellKey(roomId, bedId)
-    const current = getState(roomId, bedId, cell)
+    const key     = cellKey(roomId, unitId)
+    const current = getState(roomId, unitId, cell)
     const base    = current === PlanningCellState.CHECKOUT_WITH_CHECKIN
       ? PlanningCellState.CHECKOUT
       : current
@@ -481,15 +481,15 @@ export function DailyPlanningPage() {
     setOverrides((m) => new Map(m).set(key, { state: next, note: m.get(key)?.note ?? '' }))
   }
 
-  /** Alterna el flag "check-in hoy" de una cama marcada para checkout. */
+  /** Alterna el flag "check-in hoy" de una unidad marcada para checkout. */
   function toggleUrgente(
     roomId: string,
-    bedId: string,
-    cell: DailyPlanningGrid['sharedRooms'][0]['beds'][0],
+    unitId: string,
+    cell: DailyPlanningGrid['sharedRooms'][0]['units'][0],
   ) {
     if (planningIsDone || (cell.taskId && !cell.cancelled)) return
-    const key     = cellKey(roomId, bedId)
-    const current = getState(roomId, bedId, cell)
+    const key     = cellKey(roomId, unitId)
+    const current = getState(roomId, unitId, cell)
     if (
       current !== PlanningCellState.CHECKOUT &&
       current !== PlanningCellState.CHECKOUT_WITH_CHECKIN
@@ -511,12 +511,12 @@ export function DailyPlanningPage() {
 
   // ── Datos derivados ───────────────────────────────────────────────────────
 
-  /** Lista plana de todas las camas de la propiedad (shared + private). */
+  /** Lista plana de todas las unidades de la propiedad (shared + private). */
   const allBeds = useMemo(
     () =>
       grid
         ? [...grid.sharedRooms, ...grid.privateRooms].flatMap((r) =>
-            r.beds.map((b) => ({ ...b, roomId: r.roomId })),
+            r.units.map((b) => ({ ...b, roomId: r.roomId })),
           )
         : [],
     [grid],
@@ -536,12 +536,12 @@ export function DailyPlanningPage() {
     allBeds.some((b) => !!b.taskId && !b.cancelled) ||
     localStorage.getItem('planning-no-checkout-confirmed') === TODAY
 
-  // Resumen de camas marcadas para el header de planificación
+  // Resumen de unidades marcadas para el header de planificación
   const stats = useMemo(
     () =>
       allBeds.reduce(
         (acc, b) => {
-          const s = getState(b.roomId, b.bedId, b)
+          const s = getState(b.roomId, b.unitId, b)
           if (s === PlanningCellState.CHECKOUT_WITH_CHECKIN) acc.urgent++
           else if (s === PlanningCellState.CHECKOUT)         acc.normal++
           return acc
@@ -562,7 +562,7 @@ export function DailyPlanningPage() {
 
   function handleConfirm() {
     const checkouts = allBeds.filter((b) => {
-      const s = getState(b.roomId, b.bedId, b)
+      const s = getState(b.roomId, b.unitId, b)
       return s === PlanningCellState.CHECKOUT || s === PlanningCellState.CHECKOUT_WITH_CHECKIN
     })
 
@@ -578,9 +578,9 @@ export function DailyPlanningPage() {
 
     batchMutation.mutate(
       checkouts.map((b) => ({
-        bedId:             b.bedId,
-        hasSameDayCheckIn: getState(b.roomId, b.bedId, b) === PlanningCellState.CHECKOUT_WITH_CHECKIN,
-        notes:             overrides.get(cellKey(b.roomId, b.bedId))?.note || undefined,
+        unitId:            b.unitId,
+        hasSameDayCheckIn: getState(b.roomId, b.unitId, b) === PlanningCellState.CHECKOUT_WITH_CHECKIN,
+        notes:             overrides.get(cellKey(b.roomId, b.unitId))?.note || undefined,
       })),
     )
   }
@@ -774,14 +774,14 @@ export function DailyPlanningPage() {
               grid={grid}
               collapsedRooms={collapsedRooms}
               toggleRoom={toggleRoom}
-              onDepartClick={(checkoutId, bedId, bedLabel, roomNumber, isUrgent) =>
-                setDepartTarget({ checkoutId, bedId, bedLabel, roomNumber, isUrgent })
+              onDepartClick={(checkoutId, unitId, unitLabel, roomNumber, isUrgent) =>
+                setDepartTarget({ checkoutId, unitId, unitLabel, roomNumber, isUrgent })
               }
-              onCancelClick={(checkoutId, bedId, bedLabel, roomNumber) =>
-                setCancelTarget({ checkoutId, bedId, bedLabel, roomNumber })
+              onCancelClick={(checkoutId, unitId, unitLabel, roomNumber) =>
+                setCancelTarget({ checkoutId, unitId, unitLabel, roomNumber })
               }
-              onUndoClick={(checkoutId, bedId, bedLabel, roomNumber) =>
-                setUndoTarget({ checkoutId, bedId, bedLabel, roomNumber })
+              onUndoClick={(checkoutId, unitId, unitLabel, roomNumber) =>
+                setUndoTarget({ checkoutId, unitId, unitLabel, roomNumber })
               }
             />
           )}
@@ -791,29 +791,29 @@ export function DailyPlanningPage() {
       {/* Modal de reversión de salida (error humano — tarea aún no iniciada) */}
       {undoTarget && (
         <UndoModal
-          bedLabel={undoTarget.bedLabel}
+          unitLabel={undoTarget.unitLabel}
           roomNumber={undoTarget.roomNumber}
           isPending={undoMutation.isPending}
           onConfirm={() =>
             undoMutation.mutate({
               checkoutId: undoTarget.checkoutId,
-              bedId:      undoTarget.bedId,
+              unitId:     undoTarget.unitId,
             })
           }
           onClose={() => setUndoTarget(null)}
         />
       )}
 
-      {/* Modal de cancelación de checkout por cama (huésped extendió estadía) */}
+      {/* Modal de cancelación de checkout por unidad (huésped extendió estadía) */}
       {cancelTarget && (
         <CancelModal
-          bedLabel={cancelTarget.bedLabel}
+          unitLabel={cancelTarget.unitLabel}
           roomNumber={cancelTarget.roomNumber}
           isPending={cancelMutation.isPending}
           onConfirm={() =>
             cancelMutation.mutate({
               checkoutId: cancelTarget.checkoutId,
-              bedId:      cancelTarget.bedId,
+              unitId:     cancelTarget.unitId,
             })
           }
           onClose={() => setCancelTarget(null)}
@@ -823,14 +823,14 @@ export function DailyPlanningPage() {
       {/* Modal de confirmación de salida física (Fase 2) */}
       {departTarget && (
         <DepartureModal
-          bedLabel={departTarget.bedLabel}
+          unitLabel={departTarget.unitLabel}
           roomNumber={departTarget.roomNumber}
           isUrgent={departTarget.isUrgent}
           isPending={departMutation.isPending}
           onConfirm={() =>
             departMutation.mutate({
               checkoutId: departTarget.checkoutId,
-              bedId:      departTarget.bedId,
+              unitId:     departTarget.unitId,
             })
           }
           onClose={() => setDepartTarget(null)}
@@ -848,7 +848,7 @@ export function DailyPlanningPage() {
           toast.success('Solicitud de bloqueo creada')
         }}
         prefillRoomId={blockTarget?.roomId}
-        prefillBedId={blockTarget?.bedId}
+        prefillUnitId={blockTarget?.unitId}
       />
     </div>
   )
@@ -861,21 +861,21 @@ export function DailyPlanningPage() {
  * Usamos un patrón de "singleton de modal" en vez de Context para mantener
  * el DailyPlanningPage auto-contenido y evitar prop drilling innecesario.
  */
-let _openBlockModal: ((roomId: string, bedId: string) => void) | null = null
+let _openBlockModal: ((roomId: string, unitId: string) => void) | null = null
 
 /**
  * BlockTrigger — botón 🔒 que abre el modal de bloqueo con prefill.
  * Se usa dentro de las tarjetas de planificación sin necesidad de props
  * adicionales gracias al patrón de singleton de handler.
  */
-function BlockTrigger({ roomId, bedId, label = '🔒' }: { roomId: string; bedId?: string; label?: string }) {
+function BlockTrigger({ roomId, unitId, label = '🔒' }: { roomId: string; unitId?: string; label?: string }) {
   return (
     <button
       onClick={(e) => {
         e.stopPropagation()
-        _openBlockModal?.(roomId, bedId ?? '')
+        _openBlockModal?.(roomId, unitId ?? '')
       }}
-      title="Bloquear cama/habitación"
+      title="Bloquear unidad/habitación"
       className="text-xs text-gray-400 hover:text-indigo-600 px-1 py-0.5 rounded hover:bg-indigo-50 transition-colors"
     >
       {label}
@@ -886,9 +886,9 @@ function BlockTrigger({ roomId, bedId, label = '🔒' }: { roomId: string; bedId
 // ─── Tipos compartidos entre sub-componentes de planificación ─────────────────
 
 type CellFns = {
-  getState:     (roomId: string, bedId: string, cell: DailyPlanningRow['beds'][0]) => PlanningCellState
-  cycleState:   (roomId: string, bedId: string, cell: DailyPlanningRow['beds'][0]) => void
-  toggleUrgente:(roomId: string, bedId: string, cell: DailyPlanningRow['beds'][0]) => void
+  getState:     (roomId: string, unitId: string, cell: DailyPlanningRow['units'][0]) => PlanningCellState
+  cycleState:   (roomId: string, unitId: string, cell: DailyPlanningRow['units'][0]) => void
+  toggleUrgente:(roomId: string, unitId: string, cell: DailyPlanningRow['units'][0]) => void
   noteTarget:   string | null
   setNoteTarget:(k: string | null) => void
   overrides:    Map<string, CellOverride>
@@ -962,14 +962,14 @@ function PrivatePlanningCard({
   noteTarget, setNoteTarget, overrides, setNote,
   confirmed,
 }: { row: DailyPlanningRow } & CellFns) {
-  const bed = row.beds[0]
-  if (!bed) return null
+  const unit = row.units[0]
+  if (!unit) return null
 
-  const key           = cellKey(row.roomId, bed.bedId)
-  const state         = getState(row.roomId, bed.bedId, bed)
+  const key           = cellKey(row.roomId, unit.unitId)
+  const state         = getState(row.roomId, unit.unitId, unit)
   const isCheckout    = state === PlanningCellState.CHECKOUT || state === PlanningCellState.CHECKOUT_WITH_CHECKIN
   const isUrgente     = state === PlanningCellState.CHECKOUT_WITH_CHECKIN
-  const isServerSaved = !!bed.taskId && !bed.cancelled
+  const isServerSaved = !!unit.taskId && !unit.cancelled
 
   const cardBorder = isUrgente ? 'border-red-300'  : isCheckout ? 'border-amber-300'  : 'border-gray-200'
   const headerCls  = isUrgente ? 'bg-red-50 border-b border-red-200' : isCheckout ? 'bg-amber-50 border-b border-amber-200' : 'bg-gray-50 border-b border-gray-100'
@@ -984,14 +984,14 @@ function PrivatePlanningCard({
           {row.floor != null && (
             <span className="text-xs text-gray-400">P{row.floor}</span>
           )}
-          <BlockTrigger roomId={row.roomId} bedId={bed.bedId} label="🔒" />
+          <BlockTrigger roomId={row.roomId} unitId={unit.unitId} label="🔒" />
         </div>
       </div>
 
       {/* Cuerpo: estado + acciones */}
       <div className="p-3 flex flex-col gap-1.5">
         <button
-          onClick={() => cycleState(row.roomId, bed.bedId, bed)}
+          onClick={() => cycleState(row.roomId, unit.unitId, unit)}
           disabled={isServerSaved || confirmed}
           className={`border rounded px-2 py-2 w-full text-center text-xs transition-all select-none
             ${STATE_STYLE[state]}
@@ -1008,7 +1008,7 @@ function PrivatePlanningCard({
 
         {isCheckout && !isServerSaved && (
           <button
-            onClick={() => toggleUrgente(row.roomId, bed.bedId, bed)}
+            onClick={() => toggleUrgente(row.roomId, unit.unitId, unit)}
             className={`text-xs rounded px-2 py-0.5 w-full text-center border transition-colors ${
               isUrgente
                 ? 'bg-red-100 border-red-300 text-red-700 font-medium'
@@ -1098,12 +1098,12 @@ function PlanningRow({
   noteTarget, setNoteTarget, overrides, setNote,
   confirmed,
 }: { row: DailyPlanningRow; expanded: boolean; onToggle: () => void } & CellFns) {
-  const checkoutCount = row.beds.filter((b) => {
-    const s = getState(row.roomId, b.bedId, b)
+  const checkoutCount = row.units.filter((b) => {
+    const s = getState(row.roomId, b.unitId, b)
     return s === PlanningCellState.CHECKOUT || s === PlanningCellState.CHECKOUT_WITH_CHECKIN
   }).length
-  const urgentCount = row.beds.filter(
-    (b) => getState(row.roomId, b.bedId, b) === PlanningCellState.CHECKOUT_WITH_CHECKIN,
+  const urgentCount = row.units.filter(
+    (b) => getState(row.roomId, b.unitId, b) === PlanningCellState.CHECKOUT_WITH_CHECKIN,
   ).length
 
   return (
@@ -1119,7 +1119,7 @@ function PlanningRow({
           )}
           <span className="text-gray-200">·</span>
           <span className="text-xs text-gray-400">
-            {row.beds.length} cama{row.beds.length !== 1 ? 's' : ''}
+            {row.units.length} cama{row.units.length !== 1 ? 's' : ''}
           </span>
         </>
       }
@@ -1140,27 +1140,27 @@ function PlanningRow({
     >
       <div className="px-4 pb-4 pt-1">
         <div className="flex flex-wrap gap-3">
-          {row.beds.map((bed) => {
-            const key           = cellKey(row.roomId, bed.bedId)
-            const state         = getState(row.roomId, bed.bedId, bed)
+          {row.units.map((unit) => {
+            const key           = cellKey(row.roomId, unit.unitId)
+            const state         = getState(row.roomId, unit.unitId, unit)
             const isCheckout    = state === PlanningCellState.CHECKOUT || state === PlanningCellState.CHECKOUT_WITH_CHECKIN
             const isUrgente     = state === PlanningCellState.CHECKOUT_WITH_CHECKIN
-            const isServerSaved = !!bed.taskId && !bed.cancelled
+            const isServerSaved = !!unit.taskId && !unit.cancelled
 
             return (
-              <div key={bed.bedId} className="flex flex-col gap-1 min-w-[100px]">
+              <div key={unit.unitId} className="flex flex-col gap-1 min-w-[100px]">
 
-                {/* Label de cama + trigger de bloqueo */}
+                {/* Label de unidad + trigger de bloqueo */}
                 <div className="flex items-center justify-between">
-                  <p className="text-xs text-gray-500 font-medium">{bed.bedLabel}</p>
-                  <BlockTrigger roomId={row.roomId} bedId={bed.bedId} />
+                  <p className="text-xs text-gray-500 font-medium">{unit.unitLabel}</p>
+                  <BlockTrigger roomId={row.roomId} unitId={unit.unitId} />
                 </div>
 
                 {/* Botón principal: cicla Disponible ↔ Checkout.
                     Deshabilitado si el servidor ya guardó la tarea (isServerSaved)
                     o si la planificación fue confirmada (confirmed). */}
                 <button
-                  onClick={() => cycleState(row.roomId, bed.bedId, bed)}
+                  onClick={() => cycleState(row.roomId, unit.unitId, unit)}
                   disabled={isServerSaved || confirmed}
                   className={`border rounded px-2 py-1.5 w-full text-center text-xs transition-all select-none
                     ${STATE_STYLE[state]}
@@ -1168,8 +1168,8 @@ function PlanningRow({
                   title={
                     isServerSaved   ? 'Ya confirmado — planificación enviada a housekeeping' :
                     confirmed       ? 'Planificación cerrada para hoy' :
-                    isCheckout      ? 'Clic para cancelar el checkout de esta cama' :
-                                      'Clic para marcar esta cama con checkout hoy'
+                    isCheckout      ? 'Clic para cancelar el checkout de esta unidad' :
+                                      'Clic para marcar esta unidad con checkout hoy'
                   }
                 >
                   {STATE_LABEL[state]}
@@ -1178,7 +1178,7 @@ function PlanningRow({
                 {/* Botón secundario: activa/desactiva el flag de urgencia */}
                 {isCheckout && !isServerSaved && (
                   <button
-                    onClick={() => toggleUrgente(row.roomId, bed.bedId, bed)}
+                    onClick={() => toggleUrgente(row.roomId, unit.unitId, unit)}
                     className={`text-xs rounded px-2 py-0.5 w-full text-center border transition-colors ${
                       isUrgente
                         ? 'bg-red-100 border-red-300 text-red-700 font-medium'
@@ -1254,27 +1254,27 @@ function RealtimeSection({
   toggleRoom: (id: string) => void
   onDepartClick: (
     checkoutId: string,
-    bedId: string,
-    bedLabel: string,
+    unitId: string,
+    unitLabel: string,
     roomNumber: string,
     isUrgent: boolean,
   ) => void
   onCancelClick: (
     checkoutId: string,
-    bedId: string,
-    bedLabel: string,
+    unitId: string,
+    unitLabel: string,
     roomNumber: string,
   ) => void
   onUndoClick: (
     checkoutId: string,
-    bedId: string,
-    bedLabel: string,
+    unitId: string,
+    unitLabel: string,
     roomNumber: string,
   ) => void
 }) {
   // Contadores para el resumen de progreso del día
   const allBedStates = [...grid.sharedRooms, ...grid.privateRooms]
-    .flatMap((r) => r.beds.map(inferRealtimeState))
+    .flatMap((r) => r.units.map(inferRealtimeState))
 
   const counts = {
     PENDING_DEPARTURE: allBedStates.filter((s) => s === 'PENDING_DEPARTURE').length,
@@ -1285,8 +1285,8 @@ function RealtimeSection({
   const totalActive = Object.values(counts).reduce((a, b) => a + b, 0)
 
   /** Resumen de estado para el header colapsado de un dorm. */
-  function roomStateSummary(beds: DailyPlanningGrid['sharedRooms'][0]['beds']): ReactNode {
-    const activeBeds = beds.filter((b) => b.taskId && !b.cancelled)
+  function roomStateSummary(units: DailyPlanningGrid['sharedRooms'][0]['units']): ReactNode {
+    const activeBeds = units.filter((b) => b.taskId && !b.cancelled)
     if (!activeBeds.length) return <span className="text-gray-400">Sin actividad</span>
     const stateCounts = activeBeds.reduce<Partial<Record<RealtimeState, number>>>((acc, b) => {
       const s = inferRealtimeState(b)
@@ -1344,14 +1344,14 @@ function RealtimeSection({
       )}
 
       {/* Dormitorios compartidos */}
-      {grid.sharedRooms.some((r) => r.beds.some((b) => b.taskId && !b.cancelled)) && (
+      {grid.sharedRooms.some((r) => r.units.some((b) => b.taskId && !b.cancelled)) && (
         <section>
           <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
             Dormitorios Compartidos
           </h3>
           <div className="space-y-2">
             {grid.sharedRooms.map((room) => {
-              const activeBeds = room.beds.filter((b) => b.taskId && !b.cancelled)
+              const activeBeds = room.units.filter((b) => b.taskId && !b.cancelled)
               if (!activeBeds.length) return null
               return (
                 <RoomAccordion
@@ -1373,13 +1373,13 @@ function RealtimeSection({
                       </span>
                     </>
                   }
-                  summary={roomStateSummary(room.beds)}
+                  summary={roomStateSummary(room.units)}
                 >
                   <div className="px-4 pb-4 pt-1 flex flex-wrap gap-2">
-                    {activeBeds.map((bed) => (
+                    {activeBeds.map((unit) => (
                       <RealtimeBedChip
-                        key={bed.bedId}
-                        bed={bed}
+                        key={unit.unitId}
+                        bed={unit}
                         roomNumber={room.roomNumber}
                         onDepartClick={onDepartClick}
                         onCancelClick={onCancelClick}
@@ -1394,20 +1394,20 @@ function RealtimeSection({
         </section>
       )}
 
-      {/* Habitaciones privadas — grid compacto sin accordion (1 cama por room) */}
-      {grid.privateRooms.some((r) => r.beds.some((b) => b.taskId && !b.cancelled)) && (
+      {/* Habitaciones privadas — grid compacto sin accordion (1 unidad por room) */}
+      {grid.privateRooms.some((r) => r.units.some((b) => b.taskId && !b.cancelled)) && (
         <section>
           <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
             Habitaciones Privadas
           </h3>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
             {grid.privateRooms.map((room) => {
-              const bed = room.beds.find((b) => b.taskId && !b.cancelled)
-              if (!bed) return null
+              const unit = room.units.find((b) => b.taskId && !b.cancelled)
+              if (!unit) return null
               return (
                 <RealtimeBedChip
                   key={room.roomId}
-                  bed={bed}
+                  bed={unit}
                   roomNumber={room.roomNumber}
                   onDepartClick={onDepartClick}
                   onCancelClick={onCancelClick}
@@ -1450,25 +1450,25 @@ function RealtimeBedChip({
   onUndoClick,
   asRoomCard = false,
 }: {
-  bed: DailyPlanningGrid['sharedRooms'][0]['beds'][0]
+  bed: DailyPlanningGrid['sharedRooms'][0]['units'][0]
   roomNumber: string
   onDepartClick: (
     checkoutId: string,
-    bedId: string,
-    bedLabel: string,
+    unitId: string,
+    unitLabel: string,
     roomNumber: string,
     isUrgent: boolean,
   ) => void
   onCancelClick: (
     checkoutId: string,
-    bedId: string,
-    bedLabel: string,
+    unitId: string,
+    unitLabel: string,
     roomNumber: string,
   ) => void
   onUndoClick: (
     checkoutId: string,
-    bedId: string,
-    bedLabel: string,
+    unitId: string,
+    unitLabel: string,
     roomNumber: string,
   ) => void
   asRoomCard?: boolean
@@ -1486,10 +1486,10 @@ function RealtimeBedChip({
         ${cfg.bg} ${cfg.border} ${cfg.text}
       `}
     >
-      {/* Título: número de habitación (card) o label de cama (chip de dorm) */}
+      {/* Título: número de habitación (card) o label de unidad (chip de dorm) */}
       <div className="flex items-start justify-between gap-1">
         <p className="text-xs font-bold text-gray-900 leading-tight">
-          {asRoomCard ? roomNumber : bed.bedLabel}
+          {asRoomCard ? roomNumber : bed.unitLabel}
         </p>
         {/* Badge urgente — compacto, solo cuando hay check-in el mismo día */}
         {bed.hasSameDayCheckIn && rtState !== 'CLEAN' && (
@@ -1514,7 +1514,7 @@ function RealtimeBedChip({
         <div className="mt-2 pt-1.5 border-t border-indigo-100 flex flex-col gap-1">
           <button
             onClick={() =>
-              onDepartClick(bed.checkoutId!, bed.bedId, bed.bedLabel, roomNumber, bed.hasSameDayCheckIn)
+              onDepartClick(bed.checkoutId!, bed.unitId, bed.unitLabel, roomNumber, bed.hasSameDayCheckIn)
             }
             className="text-[10px] text-indigo-500 font-medium hover:text-indigo-700 text-left"
           >
@@ -1522,7 +1522,7 @@ function RealtimeBedChip({
           </button>
           <button
             onClick={() =>
-              onCancelClick(bed.checkoutId!, bed.bedId, bed.bedLabel, roomNumber)
+              onCancelClick(bed.checkoutId!, bed.unitId, bed.unitLabel, roomNumber)
             }
             className="text-[10px] text-red-400 hover:text-red-600 text-left"
           >
@@ -1537,7 +1537,7 @@ function RealtimeBedChip({
           <p className="text-[10px] text-amber-600">Esperando housekeeper</p>
           <button
             onClick={() =>
-              onUndoClick(bed.checkoutId!, bed.bedId, bed.bedLabel, roomNumber)
+              onUndoClick(bed.checkoutId!, bed.unitId, bed.unitLabel, roomNumber)
             }
             className="text-[10px] text-amber-500 hover:text-amber-700 text-left"
           >
@@ -1562,14 +1562,14 @@ function RealtimeBedChip({
  * recepcionista pueda completar la acción con un solo gesto.
  */
 function DepartureModal({
-  bedLabel,
+  unitLabel,
   roomNumber,
   isUrgent,
   isPending,
   onConfirm,
   onClose,
 }: {
-  bedLabel:   string
+  unitLabel:  string
   roomNumber: string
   isUrgent:   boolean
   isPending:  boolean
@@ -1588,7 +1588,7 @@ function DepartureModal({
         <div className={`px-5 py-4 border-b border-gray-100 ${isUrgent ? 'bg-red-50' : 'bg-indigo-50'}`}>
           <div className="flex items-center justify-between">
             <div>
-              <p className="font-semibold text-gray-900">{roomNumber} · {bedLabel}</p>
+              <p className="font-semibold text-gray-900">{roomNumber} · {unitLabel}</p>
               <p className={`text-xs mt-0.5 ${isUrgent ? 'text-red-700 font-medium' : 'text-indigo-700'}`}>
                 {isUrgent ? '🔴 Checkout urgente — Check-in hoy' : '🚪 Checkout programado para hoy'}
               </p>
@@ -1640,13 +1640,13 @@ function DepartureModal({
  * Cancelar en este punto NO afecta otras camas del mismo dorm — es per-bed.
  */
 function CancelModal({
-  bedLabel,
+  unitLabel,
   roomNumber,
   isPending,
   onConfirm,
   onClose,
 }: {
-  bedLabel:   string
+  unitLabel:  string
   roomNumber: string
   isPending:  boolean
   onConfirm:  () => void
@@ -1664,8 +1664,8 @@ function CancelModal({
         <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
           <div className="flex items-center justify-between">
             <div>
-              <p className="font-semibold text-gray-900">{roomNumber} · {bedLabel}</p>
-              <p className="text-xs text-gray-500 mt-0.5">Cancelar checkout de esta cama</p>
+              <p className="font-semibold text-gray-900">{roomNumber} · {unitLabel}</p>
+              <p className="text-xs text-gray-500 mt-0.5">Cancelar checkout de esta unidad</p>
             </div>
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">
               ×
@@ -1710,13 +1710,13 @@ function CancelModal({
  * y housekeeping es notificada de que aún no debe limpiar.
  */
 function UndoModal({
-  bedLabel,
+  unitLabel,
   roomNumber,
   isPending,
   onConfirm,
   onClose,
 }: {
-  bedLabel:   string
+  unitLabel:  string
   roomNumber: string
   isPending:  boolean
   onConfirm:  () => void
@@ -1734,7 +1734,7 @@ function UndoModal({
         <div className="px-5 py-4 border-b border-gray-100 bg-amber-50">
           <div className="flex items-center justify-between">
             <div>
-              <p className="font-semibold text-gray-900">{roomNumber} · {bedLabel}</p>
+              <p className="font-semibold text-gray-900">{roomNumber} · {unitLabel}</p>
               <p className="text-xs text-amber-700 mt-0.5">↩ Revertir confirmación de salida</p>
             </div>
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">
@@ -1786,7 +1786,7 @@ function DiscrepancyBanner({
   isAcknowledging,
   acknowledgingId,
 }: {
-  discrepancies:   BedDiscrepancyDto[]
+  discrepancies:   UnitDiscrepancyDto[]
   onAcknowledge:   (id: string) => void
   isAcknowledging: boolean
   acknowledgingId: string | null
@@ -1826,8 +1826,8 @@ function DiscrepancyBanner({
       {expanded && (
         <div className="border-t border-amber-200 divide-y divide-amber-100">
           {discrepancies.map((d) => {
-            const bedLabel   = d.bed?.label        ?? d.bedId
-            const roomNumber = d.bed?.room?.number ?? '—'
+            const unitLabel  = d.unit?.label       ?? d.unitId
+            const roomNumber = d.unit?.room?.number ?? '—'
             const typeLabel  = DISCREPANCY_LABEL[d.type] ?? d.type
             const isThisOne  = isAcknowledging && acknowledgingId === d.id
 
@@ -1836,7 +1836,7 @@ function DiscrepancyBanner({
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-medium text-gray-800">
-                      Hab. {roomNumber} · {bedLabel}
+                      Hab. {roomNumber} · {unitLabel}
                     </span>
                     <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
                       {typeLabel}

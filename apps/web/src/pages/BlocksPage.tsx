@@ -108,8 +108,8 @@ function BlockRow({
   onRelease: (id: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
-  const location = block.bedId
-    ? `Cama ${(block as any).bed?.label ?? block.bedId.slice(0, 6)}`
+  const location = block.unitId
+    ? `Cama ${(block as any).unit?.label ?? block.unitId.slice(0, 6)}`
     : `Hab. ${(block as any).room?.number ?? block.roomId?.slice(0, 6)}`
 
   return (

@@ -2,41 +2,41 @@ import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/commo
 import { HousekeepingRole } from '@zenix/shared'
 import { Roles } from '../common/decorators/roles.decorator'
 import { TenantResource } from '../common/guards/tenant.guard'
-import { BedsService } from './beds.service'
-import { CreateBedDto } from './dto/create-bed.dto'
+import { UnitsService } from './units.service'
+import { CreateUnitDto } from './dto/create-unit.dto'
 
 @Controller()
-export class BedsController {
-  constructor(private service: BedsService) {}
+export class UnitsController {
+  constructor(private service: UnitsService) {}
 
-  @Post('rooms/:roomId/beds')
+  @Post('rooms/:roomId/units')
   @TenantResource({ model: 'room', paramName: 'roomId' })
   @Roles(HousekeepingRole.SUPERVISOR)
-  create(@Param('roomId') roomId: string, @Body() dto: CreateBedDto) {
+  create(@Param('roomId') roomId: string, @Body() dto: CreateUnitDto) {
     return this.service.create(roomId, dto)
   }
 
-  @Get('rooms/:roomId/beds')
+  @Get('rooms/:roomId/units')
   @TenantResource({ model: 'room', paramName: 'roomId' })
   findByRoom(@Param('roomId') roomId: string) {
     return this.service.findByRoom(roomId)
   }
 
-  @Get('beds/:id')
-  @TenantResource({ model: 'bed', paramName: 'id' })
+  @Get('units/:id')
+  @TenantResource({ model: 'unit', paramName: 'id' })
   findOne(@Param('id') id: string) {
     return this.service.findOne(id)
   }
 
-  @Patch('beds/:id')
-  @TenantResource({ model: 'bed', paramName: 'id' })
+  @Patch('units/:id')
+  @TenantResource({ model: 'unit', paramName: 'id' })
   @Roles(HousekeepingRole.SUPERVISOR)
-  update(@Param('id') id: string, @Body() dto: Partial<CreateBedDto>) {
+  update(@Param('id') id: string, @Body() dto: Partial<CreateUnitDto>) {
     return this.service.update(id, dto)
   }
 
-  @Delete('beds/:id')
-  @TenantResource({ model: 'bed', paramName: 'id' })
+  @Delete('units/:id')
+  @TenantResource({ model: 'unit', paramName: 'id' })
   @Roles(HousekeepingRole.SUPERVISOR)
   remove(@Param('id') id: string) {
     return this.service.remove(id)

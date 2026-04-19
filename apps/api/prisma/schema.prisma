@@ -9,7 +9,7 @@ datasource db {
 
 // ======================= ENUMS =======================
 
-enum BedStatus {
+enum UnitStatus {
   AVAILABLE
   OCCUPIED
   DIRTY
@@ -163,14 +163,14 @@ model Organization {
   properties        Property[]
   users             User[]
   rooms             Room[]
-  beds              Bed[]
+  units             Unit[]
   housekeepingStaff HousekeepingStaff[]
   checkouts         Checkout[]
   cleaningTasks     CleaningTask[]
   taskLogs          TaskLog[]
   cleaningNotes     CleaningNote[]
   maintenanceIssues MaintenanceIssue[]
-  bedDiscrepancies  BedDiscrepancy[]
+  unitDiscrepancies UnitDiscrepancy[]
   pushTokens        PushToken[]
   pmsConfigs        PmsConfig[]
   propertySettings  PropertySettings[]
@@ -274,7 +274,7 @@ model Room {
   organization Organization?  @relation(fields: [organizationId], references: [id])
   property     Property       @relation(fields: [propertyId], references: [id])
   roomType     RoomType?       @relation(fields: [roomTypeId], references: [id])
-  beds         Bed[]
+  units        Unit[]
   checkouts    Checkout[]
   statusLogs   RoomStatusLog[]
   guestStays   GuestStay[]
@@ -289,24 +289,24 @@ model Room {
   @@map("rooms")
 }
 
-model Bed {
-  id             String    @id @default(uuid())
-  organizationId String?   @map("organization_id")
+model Unit {
+  id             String     @id @default(uuid())
+  organizationId String?    @map("organization_id")
   label          String
   roomId         String
-  status         BedStatus @default(AVAILABLE)
-  deletedAt      DateTime? @map("deleted_at")
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  status         UnitStatus @default(AVAILABLE)
+  deletedAt      DateTime?  @map("deleted_at")
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt @map("updated_at")
 
-  organization  Organization?    @relation(fields: [organizationId], references: [id])
-  room          Room             @relation(fields: [roomId], references: [id])
+  organization  Organization?     @relation(fields: [organizationId], references: [id])
+  room          Room              @relation(fields: [roomId], references: [id])
   cleaningTasks CleaningTask[]
-  discrepancies BedDiscrepancy[]
+  discrepancies UnitDiscrepancy[]
   blocks        RoomBlock[]
 
   @@index([organizationId])
-  @@map("beds")
+  @@map("units")
 }
 
 model HousekeepingStaff {
@@ -329,12 +329,12 @@ model HousekeepingStaff {
   tasks         CleaningTask[]  @relation("AssignedTasks")
   verifiedTasks CleaningTask[]  @relation("VerifiedTasks")
   taskLogs      TaskLog[]
-  cleaningNotes         CleaningNote[]
-  pushTokens            PushToken[]
-  checkouts             Checkout[]       @relation("ManualCheckouts")
-  issues                MaintenanceIssue[]
-  reportedDiscrepancies BedDiscrepancy[] @relation("DiscrepancyReporter")
-  resolvedDiscrepancies BedDiscrepancy[] @relation("DiscrepancyResolver")
+  cleaningNotes          CleaningNote[]
+  pushTokens             PushToken[]
+  checkouts              Checkout[]        @relation("ManualCheckouts")
+  issues                 MaintenanceIssue[]
+  reportedDiscrepancies  UnitDiscrepancy[] @relation("DiscrepancyReporter")
+  resolvedDiscrepancies  UnitDiscrepancy[] @relation("DiscrepancyResolver")
   requestedBlocks       RoomBlock[]      @relation("BlocksRequested")
   approvedBlocks        RoomBlock[]      @relation("BlocksApproved")
   blockLogs             BlockLog[]       @relation("BlockLogs")
@@ -370,20 +370,20 @@ model Checkout {
   @@map("checkouts")
 }
 
-// TODO(hotel-room-granularity): CleaningTask fue diseñado hostel-first — bedId es NOT NULL
-// y la tarea siempre se vincula a una cama, nunca directamente a una habitación.
-// Para hoteles con habitaciones dobles/twin (2 camas, 1 unidad vendible), un bloqueo
-// de habitación genera hoy N tareas MAINTENANCE (una por cama) cuando debería ser 1.
+// TODO(hotel-room-granularity): CleaningTask fue diseñado hostel-first — unitId es NOT NULL
+// y la tarea siempre se vincula a una unidad, nunca directamente a una habitación.
+// Para hoteles con habitaciones dobles/twin (2 unidades, 1 unidad vendible), un bloqueo
+// de habitación genera hoy N tareas MAINTENANCE (una por unidad) cuando debería ser 1.
 // Refactor requerido:
-//   1. Hacer bedId opcional: `bedId String?`
-//   2. Añadir `roomId String?` (XOR con bedId — exactamente uno debe estar presente)
+//   1. Hacer unitId opcional: `unitId String?`
+//   2. Añadir `roomId String?` (XOR con unitId — exactamente uno debe estar presente)
 //   3. Actualizar TasksService, CleaningTaskDto, KanbanPage y mobile task/[id].tsx
-//      para renderizar roomId cuando bedId sea null (tareas de bloqueo room-level)
+//      para renderizar roomId cuando unitId sea null (tareas de bloqueo room-level)
 //   4. Migración Prisma: no hay datos existentes de tipo MAINTENANCE, safe to migrate
 model CleaningTask {
   id                 String         @id @default(uuid())
   organizationId     String?        @map("organization_id")
-  bedId              String
+  unitId             String
   checkoutId         String?
   assignedToId       String?
   status             CleaningStatus @default(PENDING)
@@ -401,7 +401,7 @@ model CleaningTask {
   updatedAt          DateTime       @updatedAt
 
   organization Organization?      @relation(fields: [organizationId], references: [id])
-  bed          Bed                @relation(fields: [bedId], references: [id])
+  unit         Unit               @relation(fields: [unitId], references: [id])
   checkout     Checkout?          @relation(fields: [checkoutId], references: [id])
   assignedTo   HousekeepingStaff? @relation("AssignedTasks", fields: [assignedToId], references: [id])
   verifiedBy   HousekeepingStaff? @relation("VerifiedTasks", fields: [verifiedById], references: [id])
@@ -413,7 +413,7 @@ model CleaningTask {
   @@index([organizationId])
   @@index([status])
   @@index([assignedToId, status])
-  @@index([bedId])
+  @@index([unitId])
   @@index([checkoutId])
   @@map("cleaning_tasks")
 }
@@ -526,10 +526,10 @@ model PropertySettings {
   @@map("property_settings")
 }
 
-model BedDiscrepancy {
+model UnitDiscrepancy {
   id             String            @id @default(uuid())
   organizationId String?           @map("organization_id")
-  bedId          String
+  unitId         String
   reportedById   String
   resolvedById   String?
   type           DiscrepancyType
@@ -541,14 +541,14 @@ model BedDiscrepancy {
   resolvedAt     DateTime?
 
   organization Organization?      @relation(fields: [organizationId], references: [id])
-  bed          Bed                @relation(fields: [bedId], references: [id])
+  unit         Unit               @relation(fields: [unitId], references: [id])
   reportedBy   HousekeepingStaff  @relation("DiscrepancyReporter", fields: [reportedById], references: [id])
   resolvedBy   HousekeepingStaff? @relation("DiscrepancyResolver", fields: [resolvedById], references: [id])
 
   @@index([organizationId])
-  @@index([bedId])
+  @@index([unitId])
   @@index([status])
-  @@map("bed_discrepancies")
+  @@map("unit_discrepancies")
 }
 
 // ======================= PMS CORE =======================
@@ -922,11 +922,11 @@ enum BlockLogEvent {
 }
 
 /**
- * RoomBlock — bloqueo de cama o habitación con workflow de aprobación.
+ * RoomBlock — bloqueo de unidad o habitación con workflow de aprobación.
  *
  * Granularidad:
- *   bedId != null → bloqueo de cama individual (dormitorios compartidos)
- *   bedId == null → bloqueo de habitación completa
+ *   unitId != null → bloqueo de unidad individual (dormitorios compartidos)
+ *   unitId == null → bloqueo de habitación completa
  *
  * Semánticas:
  *   OUT_OF_SERVICE   → problema menor, no impacta RevPAR
@@ -936,7 +936,7 @@ enum BlockLogEvent {
  *
  * Al activarse (APPROVED → ACTIVE):
  *   1. Se crea CleaningTask(MAINTENANCE, UNASSIGNED)
- *   2. bed.status = BLOCKED
+ *   2. unit.status = BLOCKED
  *   3. SSE: block:activated
  *
  * Auto-aprobación:
@@ -948,8 +948,8 @@ model RoomBlock {
   id             String        @id @default(uuid())
   organizationId String        @map("organization_id")
   propertyId     String        @map("property_id")
-  roomId         String?       @map("room_id")   // null = solo cama
-  bedId          String?       @map("bed_id")    // null = habitación completa
+  roomId         String?       @map("room_id")   // null = solo unidad
+  unitId         String?       @map("unit_id")   // null = habitación completa
 
   semantic       BlockSemantic
   reason         BlockReason
@@ -974,14 +974,14 @@ model RoomBlock {
 
   organization   Organization      @relation(fields: [organizationId], references: [id])
   room           Room?             @relation(fields: [roomId], references: [id])
-  bed            Bed?              @relation(fields: [bedId], references: [id])
+  unit           Unit?             @relation(fields: [unitId], references: [id])
   requestedBy    HousekeepingStaff @relation("BlocksRequested", fields: [requestedById], references: [id])
   approvedBy     HousekeepingStaff? @relation("BlocksApproved", fields: [approvedById], references: [id])
   cleaningTask   CleaningTask?     @relation("BlockTask", fields: [cleaningTaskId], references: [id])
   logs           BlockLog[]
 
   @@index([organizationId, propertyId, status])
-  @@index([bedId, status])
+  @@index([unitId, status])
   @@index([roomId, status])
   @@index([startDate, endDate])
   @@map("room_blocks")

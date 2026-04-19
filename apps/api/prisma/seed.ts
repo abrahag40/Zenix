@@ -53,8 +53,8 @@ async function main() {
   // and staff have been re-homed.
   const legacyPropertyId = 'seed-property-1'
   await prisma.guestStay.deleteMany({ where: { propertyId: legacyPropertyId } })
-  await prisma.cleaningTask.deleteMany({ where: { bed: { room: { propertyId: legacyPropertyId } } } })
-  await prisma.bed.deleteMany({ where: { room: { propertyId: legacyPropertyId } } })
+  await prisma.cleaningTask.deleteMany({ where: { unit: { room: { propertyId: legacyPropertyId } } } })
+  await prisma.unit.deleteMany({ where: { room: { propertyId: legacyPropertyId } } })
   await prisma.room.deleteMany({ where: { propertyId: legacyPropertyId } })
   await prisma.roomType.deleteMany({ where: { propertyId: legacyPropertyId } })
   await prisma.propertySettings.deleteMany({ where: { propertyId: legacyPropertyId } })

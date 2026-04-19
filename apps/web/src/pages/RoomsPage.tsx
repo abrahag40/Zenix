@@ -25,8 +25,8 @@ import { format } from 'date-fns'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import { useSSE } from '../hooks/useSSE'
-import type { BedDiscrepancyDto, BedDto, PropertySettingsDto, RoomDto, SseEvent } from '@zenix/shared'
-import { BedStatus, CleaningStatus, DiscrepancyStatus, RoomCategory } from '@zenix/shared'
+import type { UnitDiscrepancyDto, UnitDto, PropertySettingsDto, RoomDto, SseEvent } from '@zenix/shared'
+import { UnitStatus, CleaningStatus, DiscrepancyStatus, RoomCategory } from '@zenix/shared'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -35,7 +35,7 @@ import { BedStatus, CleaningStatus, DiscrepancyStatus, RoomCategory } from '@zen
  * Extiende BedDto (datos de configuración de la cama) con campos derivados de la
  * última tarea activa. Estos campos son opcionales porque no toda cama tiene una tarea.
  */
-interface BedWithStatus extends BedDto {
+interface UnitWithStatus extends UnitDto {
   taskStatus?: CleaningStatus | null
   taskId?: string | null
   assignedToName?: string | null
@@ -43,12 +43,12 @@ interface BedWithStatus extends BedDto {
 }
 
 /**
- * Habitación enriquecida cuyas camas son del tipo BedWithStatus.
+ * Habitación enriquecida cuyas camas son del tipo UnitWithStatus.
  * El servidor devuelve RoomDto con BedDto; la queryFn transforma las camas
  * antes de almacenar en caché.
  */
-interface RoomWithBeds extends RoomDto {
-  beds: BedWithStatus[]
+interface RoomWithUnits extends RoomDto {
+  units: UnitWithStatus[]
 }
 
 // ─── Visual config ────────────────────────────────────────────────────────────
@@ -97,7 +97,7 @@ const TASK_STATUS_MAP: Partial<Record<CleaningStatus, string>> = {
  * housekeeper, que es más reciente que el estado estático almacenado en la cama.
  * Si no hay tarea activa (o su estado no está en el mapa), se usa `bed.status`.
  */
-function visualStatus(bed: BedWithStatus): string {
+function visualStatus(bed: UnitWithStatus): string {
   if (bed.taskStatus && TASK_STATUS_MAP[bed.taskStatus]) return TASK_STATUS_MAP[bed.taskStatus]!
   return bed.status
 }
@@ -112,7 +112,7 @@ export function RoomsPage() {
    * null cuando el modal está cerrado; { bed, room } cuando está abierto.
    * Guardar la habitación junto con la cama evita buscarla en el array al renderizar el modal.
    */
-  const [checkoutTarget, setCheckoutTarget] = useState<{ bed: BedWithStatus; room: RoomWithBeds } | null>(null)
+  const [checkoutTarget, setCheckoutTarget] = useState<{ bed: UnitWithStatus; room: RoomWithUnits } | null>(null)
 
   // ── Data fetching ──────────────────────────────────────────────────────────
 
@@ -131,28 +131,28 @@ export function RoomsPage() {
    *   DONE se incluye para mostrar la cama como AVAILABLE hasta que el estado de la
    *   cama se actualice en el servidor.
    */
-  const { data: rooms = [], isLoading } = useQuery<RoomWithBeds[]>({
+  const { data: rooms = [], isLoading } = useQuery<RoomWithUnits[]>({
     queryKey: ['rooms-bed-level'],
     queryFn: async () => {
       const [roomsData, tasksData, staffData] = await Promise.all([
-        api.get<(RoomDto & { beds: BedDto[] })[]>('/rooms'),
-        api.get<{ id: string; bedId: string; status: CleaningStatus; assignedToId: string | null }[]>(
+        api.get<(RoomDto & { units: UnitDto[] })[]>('/rooms'),
+        api.get<{ id: string; unitId: string; status: CleaningStatus; assignedToId: string | null }[]>(
           '/tasks?status=READY,UNASSIGNED,IN_PROGRESS,PAUSED,DONE',
         ),
         api.get<{ id: string; name: string }[]>('/staff'),
       ])
-      // Indexa tareas por bedId para join O(1)
-      const tasksByBed = new Map(tasksData.map((t) => [t.bedId, t]))
+      // Indexa tareas por unitId para join O(1)
+      const tasksByUnit = new Map(tasksData.map((t) => [t.unitId, t]))
       // Indexa personal por id para resolver el nombre del housekeeper asignado
       const staffById = new Map(staffData.map((s) => [s.id, s.name]))
 
-      // Combina habitación + tarea + personal en el tipo RoomWithBeds
+      // Combina habitación + tarea + personal en el tipo RoomWithUnits
       return roomsData.map((room) => ({
         ...room,
-        beds: (room.beds ?? []).map((bed) => {
-          const task = tasksByBed.get(bed.id)
+        units: (room.units ?? []).map((unit) => {
+          const task = tasksByUnit.get(unit.id)
           return {
-            ...bed,
+            ...unit,
             taskStatus: task?.status ?? null,
             taskId: task?.id ?? null,
             // Resuelve el nombre del housekeeper; null si la tarea no está asignada
@@ -223,10 +223,10 @@ export function RoomsPage() {
    * evento SSE discrepancy:reported se pierde por reconexión del canal SSE.
    * No se usa como fuente primaria de actualización (SSE lo hace en tiempo real).
    */
-  const { data: openDiscrepancies = [] } = useQuery<BedDiscrepancyDto[]>({
+  const { data: openDiscrepancies = [] } = useQuery<UnitDiscrepancyDto[]>({
     queryKey: ['discrepancies-open'],
     queryFn: async () => {
-      const all = await api.get<BedDiscrepancyDto[]>('/discrepancies')
+      const all = await api.get<UnitDiscrepancyDto[]>('/discrepancies')
       return all.filter((d) => d.status === DiscrepancyStatus.OPEN)
     },
     refetchInterval: 60_000,
@@ -252,7 +252,7 @@ export function RoomsPage() {
   const private_ = rooms.filter((r) => r.category === RoomCategory.PRIVATE)
 
   // Lista plana de todas las camas para calcular los totales del encabezado
-  const allBeds = rooms.flatMap((r) => r.beds)
+  const allBeds = rooms.flatMap((r) => r.units)
   const available = allBeds.filter((b) => visualStatus(b) === 'AVAILABLE').length
   // "Sucias/limpiando" agrupa DIRTY y CLEANING porque ambas requieren atención del housekeeper
   const dirty = allBeds.filter((b) => ['DIRTY', 'CLEANING'].includes(visualStatus(b))).length
@@ -399,7 +399,7 @@ function DiscrepancyBanner({
   isAcknowledging,
   acknowledgingId,
 }: {
-  discrepancies: BedDiscrepancyDto[]
+  discrepancies: UnitDiscrepancyDto[]
   onAcknowledge: (id: string) => void
   isAcknowledging: boolean
   acknowledgingId: string | null
@@ -444,8 +444,8 @@ function DiscrepancyBanner({
         <div className="border-t border-amber-200 divide-y divide-amber-100">
           {discrepancies.map((d) => {
             // Fallback a los IDs brutos si los datos relacionales no están disponibles
-            const bedLabel   = d.bed?.label        ?? d.bedId
-            const roomNumber = d.bed?.room?.number ?? '—'
+            const bedLabel   = d.unit?.label        ?? d.unitId
+            const roomNumber = d.unit?.room?.number ?? '—'
             const typeLabel  = DISCREPANCY_TYPE_LABEL[d.type] ?? d.type
             // Identifica la discrepancia específica que está siendo reconocida ahora mismo
             const isThisOne  = isAcknowledging && acknowledgingId === d.id
@@ -503,9 +503,9 @@ function DiscrepancyBanner({
  * Los contadores del encabezado permiten al supervisor ver el estado de un dormitorio
  * de un vistazo sin tener que leer el color de cada chip individualmente.
  */
-function DormCard({ room, onBedClick }: { room: RoomWithBeds; onBedClick: (b: BedWithStatus) => void }) {
-  const dirty = room.beds.filter((b) => ['DIRTY', 'CLEANING'].includes(visualStatus(b))).length
-  const available = room.beds.filter((b) => visualStatus(b) === 'AVAILABLE').length
+function DormCard({ room, onBedClick }: { room: RoomWithUnits; onBedClick: (b: UnitWithStatus) => void }) {
+  const dirty = room.units.filter((b) => ['DIRTY', 'CLEANING'].includes(visualStatus(b))).length
+  const available = room.units.filter((b) => visualStatus(b) === 'AVAILABLE').length
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-4">
@@ -513,7 +513,7 @@ function DormCard({ room, onBedClick }: { room: RoomWithBeds; onBedClick: (b: Be
         <div className="flex items-center gap-2">
           <span className="font-semibold text-gray-900 text-sm">Dorm {room.number}</span>
           {room.floor != null && <span className="text-xs text-gray-400">Piso {room.floor}</span>}
-          <span className="text-xs text-gray-400">{room.beds.length} camas</span>
+          <span className="text-xs text-gray-400">{room.units.length} camas</span>
         </div>
         <div className="flex gap-2 text-xs">
           {dirty > 0 && <span className="text-amber-600 font-medium">{dirty} sucia{dirty > 1 ? 's' : ''}</span>}
@@ -521,7 +521,7 @@ function DormCard({ room, onBedClick }: { room: RoomWithBeds; onBedClick: (b: Be
         </div>
       </div>
       <div className="flex flex-wrap gap-2">
-        {room.beds.map((bed) => <BedChip key={bed.id} bed={bed} onClick={() => onBedClick(bed)} />)}
+        {room.units.map((unit) => <BedChip key={unit.id} bed={unit} onClick={() => onBedClick(unit)} />)}
       </div>
     </div>
   )
@@ -540,9 +540,9 @@ function DormCard({ room, onBedClick }: { room: RoomWithBeds; onBedClick: (b: Be
  * El dot de "CLEANING" usa `animate-pulse` para dar feedback visual de actividad
  * en curso, diferenciando DIRTY (estático) de CLEANING (pulsante).
  */
-function PrivateCard({ room, onBedClick }: { room: RoomWithBeds; onBedClick: (b: BedWithStatus) => void }) {
-  // La habitación privada siempre tiene una sola cama; usamos room.beds[0]
-  const bed = room.beds[0]
+function PrivateCard({ room, onBedClick }: { room: RoomWithUnits; onBedClick: (b: UnitWithStatus) => void }) {
+  // La habitación privada siempre tiene una sola cama; usamos room.units[0]
+  const bed = room.units[0]
   const vs = bed ? visualStatus(bed) : 'AVAILABLE'
   // Fallback a AVAILABLE si el estado visual no está en BED_CFG (estado desconocido)
   const cfg = BED_CFG[vs] ?? BED_CFG.AVAILABLE
@@ -579,7 +579,7 @@ function PrivateCard({ room, onBedClick }: { room: RoomWithBeds; onBedClick: (b:
  * El tooltip (title) resume toda la información relevante para usuarios con ratón.
  * El icono de nota indica que hay información adicional sin mostrarla completa en el chip.
  */
-function BedChip({ bed, onClick }: { bed: BedWithStatus; onClick: () => void }) {
+function BedChip({ bed, onClick }: { bed: UnitWithStatus; onClick: () => void }) {
   const vs = visualStatus(bed)
   const cfg = BED_CFG[vs] ?? BED_CFG.AVAILABLE
 
@@ -630,8 +630,8 @@ function QuickCheckoutModal({
   onClose,
   onDone,
 }: {
-  bed: BedWithStatus
-  room: RoomWithBeds
+  bed: UnitWithStatus
+  room: RoomWithUnits
   defaultCheckoutTime: string
   onClose: () => void
   onDone: () => void
@@ -652,7 +652,7 @@ function QuickCheckoutModal({
     mutationFn: () =>
       api.post('/checkouts/batch', {
         checkoutDate: today,
-        items: [{ bedId: bed.id, hasSameDayCheckIn: urgente, notes: note || undefined }],
+        items: [{ unitId: bed.id, hasSameDayCheckIn: urgente, notes: note || undefined }],
       }),
     onSuccess: () => {
       toast.success(`✅ Checkout registrado — ${room.number} · ${bed.label}`)

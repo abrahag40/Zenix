@@ -90,7 +90,7 @@ import { formatDistanceToNow, format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { api } from '../api/client'
 import { useSSE } from '../hooks/useSSE'
-import type { BedDiscrepancyDto, SseEvent } from '@zenix/shared'
+import type { UnitDiscrepancyDto, SseEvent } from '@zenix/shared'
 import { DiscrepancyStatus, DiscrepancyType } from '@zenix/shared'
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -135,9 +135,9 @@ type FilterStatus = 'ALL' | DiscrepancyStatus
 export function DiscrepanciesPage() {
   const qc = useQueryClient()
   const [filter, setFilter] = useState<FilterStatus>('ALL')
-  const [resolveTarget, setResolveTarget] = useState<BedDiscrepancyDto | null>(null)
+  const [resolveTarget, setResolveTarget] = useState<UnitDiscrepancyDto | null>(null)
 
-  const { data: discrepancies = [], isLoading } = useQuery<BedDiscrepancyDto[]>({
+  const { data: discrepancies = [], isLoading } = useQuery<UnitDiscrepancyDto[]>({
     queryKey: ['discrepancies'],
     queryFn: () => api.get('/discrepancies'),
   })
@@ -278,7 +278,7 @@ function DiscrepancyCard({
   onResolve,
   isAcknowledging,
 }: {
-  discrepancy: BedDiscrepancyDto
+  discrepancy: UnitDiscrepancyDto
   onAcknowledge: () => void
   onResolve: () => void
   isAcknowledging: boolean
@@ -289,8 +289,8 @@ function DiscrepancyCard({
   const isAck     = d.status === DiscrepancyStatus.ACKNOWLEDGED
   const isResolved = d.status === DiscrepancyStatus.RESOLVED
 
-  const bedLabel   = d.bed?.label   ?? d.bedId
-  const roomNumber = d.bed?.room?.number ?? '—'
+  const bedLabel   = d.unit?.label   ?? d.unitId
+  const roomNumber = d.unit?.room?.number ?? '—'
 
   return (
     <div className={`bg-white border rounded-xl overflow-hidden ${isOpen ? 'border-red-300 shadow-sm' : 'border-gray-200'}`}>
@@ -375,7 +375,7 @@ function ResolveModal({
   onClose,
   onResolved,
 }: {
-  discrepancy: BedDiscrepancyDto
+  discrepancy: UnitDiscrepancyDto
   onClose: () => void
   onResolved: () => void
 }) {
@@ -391,8 +391,8 @@ function ResolveModal({
     onError: () => toast.error('Error al resolver'),
   })
 
-  const bedLabel   = discrepancy.bed?.label   ?? discrepancy.bedId
-  const roomNumber = discrepancy.bed?.room?.number ?? '—'
+  const bedLabel   = discrepancy.unit?.label   ?? discrepancy.unitId
+  const roomNumber = discrepancy.unit?.room?.number ?? '—'
   const typeCfg    = TYPE_CFG[discrepancy.type]
 
   return (

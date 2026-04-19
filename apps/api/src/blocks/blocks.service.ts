@@ -48,7 +48,7 @@ const ALWAYS_REQUIRES_APPROVAL = new Set<BlockSemantic>([
 
 const BLOCK_INCLUDE = {
   room: { select: { id: true, number: true, floor: true } },
-  bed: { select: { id: true, label: true, status: true } },
+  unit: { select: { id: true, label: true, status: true } },
   requestedBy: { select: { id: true, name: true } },
   approvedBy: { select: { id: true, name: true } },
   cleaningTask: { select: { id: true, status: true, assignedToId: true } },
@@ -76,11 +76,11 @@ export class BlocksService {
   async createBlock(dto: CreateBlockDto, actor: JwtPayload) {
     const orgId = this.tenant.getOrganizationId()
 
-    // Validación: roomId XOR bedId — exactamente uno debe existir
-    if (!dto.roomId && !dto.bedId)
-      throw new BadRequestException('Debes especificar roomId o bedId')
-    if (dto.roomId && dto.bedId)
-      throw new BadRequestException('No puedes especificar roomId y bedId a la vez')
+    // Validación: roomId XOR unitId — exactamente uno debe existir
+    if (!dto.roomId && !dto.unitId)
+      throw new BadRequestException('Debes especificar roomId o unitId')
+    if (dto.roomId && dto.unitId)
+      throw new BadRequestException('No puedes especificar roomId y unitId a la vez')
 
     // Forzar semántica por motivo crítico
     let semantic = dto.semantic
@@ -95,15 +95,15 @@ export class BlocksService {
       throw new ForbiddenException('Solo los supervisores pueden crear bloqueos OUT_OF_INVENTORY')
     }
 
-    // Validar que la cama / habitación pertenezca a la organización
+    // Validar que la unidad / habitación pertenezca a la organización
     let propertyId = actor.propertyId
-    if (dto.bedId) {
-      const bed = await this.prisma.bed.findUnique({
-        where: { id: dto.bedId, organizationId: orgId },
+    if (dto.unitId) {
+      const unit = await this.prisma.unit.findUnique({
+        where: { id: dto.unitId, organizationId: orgId },
         include: { room: { select: { propertyId: true } } },
       })
-      if (!bed) throw new NotFoundException('Cama no encontrada')
-      propertyId = bed.room.propertyId
+      if (!unit) throw new NotFoundException('Unidad no encontrada')
+      propertyId = unit.room.propertyId
     } else {
       const room = await this.prisma.room.findUnique({
         where: { id: dto.roomId!, organizationId: orgId },
@@ -137,7 +137,7 @@ export class BlocksService {
           organizationId: orgId,
           propertyId,
           roomId: dto.roomId ?? null,
-          bedId: dto.bedId ?? null,
+          unitId: dto.unitId ?? null,
           semantic,
           reason: dto.reason,
           status: initialStatus,
@@ -201,7 +201,7 @@ export class BlocksService {
         orgId,
         propertyId,
         `🔒 Solicitud de bloqueo pendiente de aprobación`,
-        `${actor.role === HousekeepingRole.RECEPTIONIST ? 'Recepción' : 'Staff'} solicitó bloquear ${dto.bedId ? 'cama' : 'habitación'}. Motivo: ${dto.reason}`,
+        `${actor.role === HousekeepingRole.RECEPTIONIST ? 'Recepción' : 'Staff'} solicitó bloquear ${dto.unitId ? 'unidad' : 'habitación'}. Motivo: ${dto.reason}`,
         block.id,
       )
     }
@@ -316,7 +316,7 @@ export class BlocksService {
   async activateBlock(blockId: string, actorId: string | null) {
     const block = await this.prisma.roomBlock.findUnique({
       where: { id: blockId },
-      include: { bed: true, room: { include: { beds: true } } },
+      include: { unit: true, room: { include: { units: true } } },
     })
     if (!block) throw new NotFoundException('Bloqueo no encontrado')
     if (block.status === BlockStatus.ACTIVE) return // idempotente
@@ -344,22 +344,20 @@ export class BlocksService {
       //        cuando la tarea sea room-level
       //   Impacto: migración Prisma + cambios en CleaningTask serialización + TasksService
       //
-      const bedIds = block.bedId
-        ? [block.bedId]
-        : (block.room?.beds.map((b) => b.id) ?? [])
+      const unitIds = block.unitId
+        ? [block.unitId]
+        : (block.room?.units.map((u) => u.id) ?? [])
 
       let cleaningTaskId: string | null = null
 
-      if (bedIds.length > 0) {
-        // Para bloqueo de cama individual → 1 tarea, guardamos el id
+      if (unitIds.length > 0) {
+        // Para bloqueo de unidad individual → 1 tarea, guardamos el id
         // Para habitación completa → múltiples tareas (solo guardamos el primero en cleaningTaskId)
-        // NOTA: ver TODO(hotel-room-granularity) arriba — en hotel privado esto genera
-        // N tareas para 1 unidad vendible. Funciona pero semánticamente incorrecto.
-        for (const bId of bedIds) {
+        for (const uId of unitIds) {
           const task = await tx.cleaningTask.create({
             data: {
               organizationId: block.organizationId,
-              bedId: bId,
+              unitId: uId,
               taskType: TaskType.MAINTENANCE,
               requiredCapability: Capability.MAINTENANCE,
               status: CleaningStatus.UNASSIGNED,
@@ -368,12 +366,9 @@ export class BlocksService {
           })
           if (!cleaningTaskId) cleaningTaskId = task.id
 
-          // Marcar cama como BLOCKED
-          // NOTA: bed.status = BLOCKED funciona como proxy de "habitación bloqueada"
-          // para el caso de hotel privado (1 cama = 1 habitación). Si se implementa
-          // el TODO(hotel-room-granularity), debería cambiarse a room.status = BLOCKED.
-          await tx.bed.update({
-            where: { id: bId },
+          // Marcar unidad como BLOCKED
+          await tx.unit.update({
+            where: { id: uId },
             data: { status: 'BLOCKED' },
           })
         }
@@ -395,7 +390,7 @@ export class BlocksService {
           staffId: actorId,
           event: BlockLogEvent.ACTIVATED,
           note: 'Bloqueo activado. Tarea de mantenimiento creada.',
-          metadata: { cleaningTaskId, bedIds },
+          metadata: { cleaningTaskId, unitIds },
         },
       })
     })
@@ -438,7 +433,7 @@ export class BlocksService {
       }
 
       // Liberar las camas
-      await this.releaseBeds(tx, block)
+      await this.releaseUnits(tx, block)
 
       await tx.roomBlock.update({
         where: { id: blockId },
@@ -523,7 +518,7 @@ export class BlocksService {
         }
       }
 
-      await this.releaseBeds(tx, block)
+      await this.releaseUnits(tx, block)
 
       await tx.roomBlock.update({
         where: { id: blockId },
@@ -551,7 +546,7 @@ export class BlocksService {
   async expireBlock(blockId: string) {
     const block = await this.prisma.roomBlock.findUnique({
       where: { id: blockId },
-      include: { bed: true, room: { include: { beds: true } } },
+      include: { unit: true, room: { include: { units: true } } },
     })
     if (!block || block.status !== BlockStatus.ACTIVE) return
 
@@ -566,7 +561,7 @@ export class BlocksService {
         }
       }
 
-      await this.releaseBeds(tx, block)
+      await this.releaseUnits(tx, block)
 
       await tx.roomBlock.update({
         where: { id: blockId },
@@ -594,7 +589,7 @@ export class BlocksService {
   async findAll(actor: JwtPayload, filters: {
     status?: BlockStatus
     semantic?: BlockSemantic
-    bedId?: string
+    unitId?: string
     roomId?: string
   } = {}) {
     const orgId = this.tenant.getOrganizationId()
@@ -604,7 +599,7 @@ export class BlocksService {
         propertyId: actor.propertyId,
         ...(filters.status && { status: filters.status }),
         ...(filters.semantic && { semantic: filters.semantic }),
-        ...(filters.bedId && { bedId: filters.bedId }),
+        ...(filters.unitId && { unitId: filters.unitId }),
         ...(filters.roomId && { roomId: filters.roomId }),
       },
       include: BLOCK_INCLUDE,
@@ -631,20 +626,20 @@ export class BlocksService {
   private async findOrThrow(blockId: string, orgId: string) {
     const block = await this.prisma.roomBlock.findUnique({
       where: { id: blockId, organizationId: orgId },
-      include: { bed: true, room: { include: { beds: true } } },
+      include: { unit: true, room: { include: { units: true } } },
     })
     if (!block) throw new NotFoundException('Bloqueo no encontrado')
     return block
   }
 
-  private async releaseBeds(tx: any, block: any) {
-    const bedIds = block.bedId
-      ? [block.bedId]
-      : (block.room?.beds.map((b: any) => b.id) ?? [])
+  private async releaseUnits(tx: any, block: any) {
+    const unitIds = block.unitId
+      ? [block.unitId]
+      : (block.room?.units.map((u: any) => u.id) ?? [])
 
-    for (const bId of bedIds) {
-      await tx.bed.update({
-        where: { id: bId },
+    for (const uId of unitIds) {
+      await tx.unit.update({
+        where: { id: uId },
         data: { status: 'AVAILABLE' },
       })
     }

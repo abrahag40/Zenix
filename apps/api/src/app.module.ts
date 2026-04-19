@@ -9,7 +9,7 @@ import { PrismaModule } from './prisma/prisma.module'
 import { AuthModule } from './auth/auth.module'
 import { PropertiesModule } from './properties/properties.module'
 import { RoomsModule } from './rooms/rooms.module'
-import { BedsModule } from './beds/beds.module'
+import { UnitsModule } from './units/units.module'
 import { StaffModule } from './staff/staff.module'
 import { TasksModule } from './tasks/tasks.module'
 import { CheckoutsModule } from './checkouts/checkouts.module'
@@ -50,7 +50,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
     AuthModule,
     PropertiesModule,
     RoomsModule,
-    BedsModule,
+    UnitsModule,
     StaffModule,
     TasksModule,
     CheckoutsModule,

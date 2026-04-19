@@ -1,26 +1,26 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 import { TenantContextService } from '../common/tenant-context.service'
-import { CreateBedDto } from './dto/create-bed.dto'
-import { BedStatus } from '@zenix/shared'
+import { CreateUnitDto } from './dto/create-unit.dto'
+import { UnitStatus } from '@zenix/shared'
 
 @Injectable()
-export class BedsService {
+export class UnitsService {
   constructor(
     private prisma: PrismaService,
     private tenant: TenantContextService,
   ) {}
 
-  create(roomId: string, dto: CreateBedDto) {
+  create(roomId: string, dto: CreateUnitDto) {
     const orgId = this.tenant.getOrganizationId()
-    return this.prisma.bed.create({
-      data: { ...dto, roomId, organizationId: orgId, status: dto.status ?? BedStatus.AVAILABLE },
+    return this.prisma.unit.create({
+      data: { ...dto, roomId, organizationId: orgId, status: dto.status ?? UnitStatus.AVAILABLE },
     })
   }
 
   findByRoom(roomId: string) {
     const orgId = this.tenant.getOrganizationId()
-    return this.prisma.bed.findMany({
+    return this.prisma.unit.findMany({
       where: { roomId, organizationId: orgId },
       orderBy: { label: 'asc' },
     })
@@ -28,21 +28,21 @@ export class BedsService {
 
   async findOne(id: string) {
     const orgId = this.tenant.getOrganizationId()
-    const bed = await this.prisma.bed.findUnique({
+    const unit = await this.prisma.unit.findUnique({
       where: { id, organizationId: orgId },
       include: { room: { include: { property: true } } },
     })
-    if (!bed) throw new NotFoundException('Bed not found')
-    return bed
+    if (!unit) throw new NotFoundException('Unit not found')
+    return unit
   }
 
-  async update(id: string, dto: Partial<CreateBedDto> & { status?: BedStatus }) {
+  async update(id: string, dto: Partial<CreateUnitDto> & { status?: UnitStatus }) {
     await this.findOne(id)
-    return this.prisma.bed.update({ where: { id }, data: dto })
+    return this.prisma.unit.update({ where: { id }, data: dto })
   }
 
   async remove(id: string) {
     await this.findOne(id)
-    return this.prisma.bed.delete({ where: { id } })
+    return this.prisma.unit.delete({ where: { id } })
   }
 }

@@ -20,7 +20,7 @@ export class NotesService {
   async create(taskId: string, dto: CreateNoteDto, actor: JwtPayload) {
     const task = await this.prisma.cleaningTask.findUnique({
       where: { id: taskId },
-      include: { bed: { include: { room: { include: { property: true } } } } },
+      include: { unit: { include: { room: { include: { property: true } } } } },
     })
     if (!task) throw new NotFoundException('Task not found')
 
@@ -35,10 +35,10 @@ export class NotesService {
     ])
 
     // SSE: notify reception/supervisor that a note was added
-    this.notifications.emit(task.bed.room.property.id, 'task:done', {
+    this.notifications.emit(task.unit.room.property.id, 'task:done', {
       taskId,
       noteAdded: true,
-      roomNumber: task.bed.room.number,
+      roomNumber: task.unit.room.number,
     })
 
     return note

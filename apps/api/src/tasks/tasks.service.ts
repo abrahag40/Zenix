@@ -12,7 +12,7 @@ import { PushService } from '../notifications/push.service'
 import { CreateTaskDto, AssignTaskDto, QueryTaskDto } from './dto/create-task.dto'
 
 const TASK_INCLUDE = {
-  bed: { include: { room: true } },
+  unit: { include: { room: true } },
   assignedTo: { select: { id: true, name: true, email: true, role: true } },
   verifiedBy: { select: { id: true, name: true } },
 }
@@ -28,11 +28,11 @@ export class TasksService {
 
   async create(dto: CreateTaskDto, actor: JwtPayload) {
     const orgId = this.tenant.getOrganizationId()
-    const bed = await this.prisma.bed.findUnique({
-      where: { id: dto.bedId, organizationId: orgId },
+    const unit = await this.prisma.unit.findUnique({
+      where: { id: dto.unitId, organizationId: orgId },
       include: { room: { include: { property: true } } },
     })
-    if (!bed) throw new NotFoundException('Bed not found')
+    if (!unit) throw new NotFoundException('Unit not found')
 
     if (dto.assignedToId) {
       const staff = await this.prisma.housekeepingStaff.findUnique({
@@ -48,7 +48,7 @@ export class TasksService {
       const task = await tx.cleaningTask.create({
         data: {
           organizationId: orgId,
-          bedId: dto.bedId,
+          unitId: dto.unitId,
           assignedToId: dto.assignedToId,
           taskType: dto.taskType ?? 'CLEANING',
           requiredCapability: dto.requiredCapability ?? 'CLEANING',
@@ -74,7 +74,7 @@ export class TasksService {
 
   findAll(query: QueryTaskDto, actor: JwtPayload) {
     const orgId = this.tenant.getOrganizationId()
-    const where: any = { organizationId: orgId, bed: { room: { propertyId: actor.propertyId } } }
+    const where: any = { organizationId: orgId, unit: { room: { propertyId: actor.propertyId } } }
 
     // Housekeepers only see their own tasks
     if (actor.role === HousekeepingRole.HOUSEKEEPER) {
@@ -88,9 +88,9 @@ export class TasksService {
       where.status = statuses.length > 1 ? { in: statuses } : statuses[0]
     }
 
-    if (query.bedId) where.bedId = query.bedId
+    if (query.unitId) where.unitId = query.unitId
 
-    if (query.roomId) where.bed = { ...where.bed, roomId: query.roomId }
+    if (query.roomId) where.unit = { ...where.unit, roomId: query.roomId }
 
     return this.prisma.cleaningTask.findMany({
       where,
@@ -113,7 +113,7 @@ export class TasksService {
     const orgId = this.tenant.getOrganizationId()
     const task = await this.prisma.cleaningTask.findUnique({
       where: { id: taskId, organizationId: orgId },
-      include: { bed: { include: { room: { include: { property: true } } } } },
+      include: { unit: { include: { room: { include: { property: true } } } } },
     })
     if (!task) throw new NotFoundException('Task not found')
 
@@ -154,16 +154,16 @@ export class TasksService {
         data: { taskId, staffId: actor.sub, event: TaskLogEvent.STARTED },
       })
 
-      // Update bed status to CLEANING
-      await tx.bed.update({ where: { id: task.bedId }, data: { status: 'CLEANING' } })
+      // Update unit status to CLEANING
+      await tx.unit.update({ where: { id: task.unitId }, data: { status: 'CLEANING' } })
 
       return updated
     })
 
-    this.notifications.emit(task.bed.room.property.id, 'task:started', {
+    this.notifications.emit(task.unit.room.property.id, 'task:started', {
       taskId,
-      bedId: task.bedId,
-      roomNumber: task.bed.room.number,
+      unitId: task.unitId,
+      roomNumber: task.unit.room.number,
       assignedToId: actor.sub,
     })
 
@@ -175,7 +175,7 @@ export class TasksService {
     const task = await this.prisma.cleaningTask.findUnique({
       where: { id: taskId, organizationId: orgId },
       include: {
-        bed: { include: { room: { include: { property: true } } } },
+        unit: { include: { room: { include: { property: true } } } },
         notes: true,
       },
     })
@@ -200,19 +200,19 @@ export class TasksService {
         data: { taskId, staffId: actor.sub, event: TaskLogEvent.COMPLETED },
       })
 
-      // Bed is now AVAILABLE (clean)
-      await tx.bed.update({ where: { id: task.bedId }, data: { status: 'AVAILABLE' } })
+      // Unit is now AVAILABLE (clean)
+      await tx.unit.update({ where: { id: task.unitId }, data: { status: 'AVAILABLE' } })
 
       return updated
     })
 
-    const propertyId = task.bed.room.property.id
+    const propertyId = task.unit.room.property.id
 
     this.notifications.emit(propertyId, 'task:done', {
       taskId,
-      bedId: task.bedId,
-      roomId: task.bed.roomId,
-      roomNumber: task.bed.room.number,
+      unitId: task.unitId,
+      roomId: task.unit.roomId,
+      roomNumber: task.unit.room.number,
       assignedToId: actor.sub,
       hasNotes: task.notes.length > 0,
     })
@@ -272,7 +272,7 @@ export class TasksService {
     const orgId = this.tenant.getOrganizationId()
     const task = await this.prisma.cleaningTask.findUnique({
       where: { id: taskId, organizationId: orgId },
-      include: { bed: { include: { room: { include: { property: true } } } } },
+      include: { unit: { include: { room: { include: { property: true } } } } },
     })
     if (!task) throw new NotFoundException('Task not found')
     if (task.status !== CleaningStatus.DONE) {
@@ -322,7 +322,7 @@ export class TasksService {
         await this.push.sendToStaff(
           dto.assignedToId,
           '🛏️ Nueva tarea asignada',
-          `Hab. ${(updated.bed as any).room.number} — Lista para limpiar`,
+          `Hab. ${(updated.unit as any).room.number} — Lista para limpiar`,
           { type: 'task:ready', taskId },
         )
       }

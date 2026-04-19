@@ -52,7 +52,7 @@ export class CheckoutsController {
   @TenantResource({ model: 'checkout', paramName: 'id' })
   @Roles(HousekeepingRole.SUPERVISOR, HousekeepingRole.RECEPTIONIST)
   cancel(@Param('id') id: string, @Body() body: CancelCheckoutDto, @CurrentUser() actor: JwtPayload) {
-    return this.service.cancelCheckout(id, actor.propertyId, body.bedId)
+    return this.service.cancelCheckout(id, actor.propertyId, body.unitId)
   }
 
   /**
@@ -76,9 +76,9 @@ export class CheckoutsController {
   undoDeparture(
     @Param('id') id: string,
     @CurrentUser() actor: JwtPayload,
-    @Body() body: { bedId?: string },
+    @Body() body: { unitId?: string },
   ) {
-    return this.service.undoDeparture(id, actor.sub, actor.propertyId, body.bedId)
+    return this.service.undoDeparture(id, actor.sub, actor.propertyId, body.unitId)
   }
 
   @Post('checkouts/:id/depart')
@@ -87,8 +87,8 @@ export class CheckoutsController {
   confirmDeparture(
     @Param('id') id: string,
     @CurrentUser() actor: JwtPayload,
-    @Body() body: { bedId?: string },
+    @Body() body: { unitId?: string },
   ) {
-    return this.service.confirmDeparture(id, actor.sub, actor.propertyId, body.bedId)
+    return this.service.confirmDeparture(id, actor.sub, actor.propertyId, body.unitId)
   }
 }

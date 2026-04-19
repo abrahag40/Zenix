@@ -16,7 +16,7 @@ import toast from 'react-hot-toast'
 import { api } from '../api/client'
 import { useAuthStore } from '../store/auth'
 import { SettingsScopeBanner } from '../components/SettingsScopeBanner'
-import type { BedDto, PropertySettingsDto, RoomDto, StaffDto } from '@zenix/shared'
+import type { UnitDto, PropertySettingsDto, RoomDto, StaffDto } from '@zenix/shared'
 import { Capability, HousekeepingRole, RoomCategory } from '@zenix/shared'
 
 type Section = 'rooms' | 'staff' | 'property'
@@ -81,7 +81,7 @@ function RoomsSection({ isSupervisor }: { isSupervisor: boolean }) {
   const [showAdd, setShowAdd] = useState(false)
   const [expanded, setExpanded] = useState<string | null>(null)
 
-  const { data: rooms = [], isLoading } = useQuery<(RoomDto & { beds: BedDto[] })[]>({
+  const { data: rooms = [], isLoading } = useQuery<(RoomDto & { units: UnitDto[] })[]>({
     queryKey: ['rooms-settings'],
     queryFn: () => api.get('/rooms'),
   })
@@ -136,7 +136,7 @@ function RoomsSection({ isSupervisor }: { isSupervisor: boolean }) {
                   </p>
                   <p className="text-xs text-gray-400">
                     {room.category === RoomCategory.SHARED ? 'Compartido' : 'Privado'} ·{' '}
-                    {room.beds?.length ?? 0} cama{(room.beds?.length ?? 0) !== 1 ? 's' : ''}
+                    {room.units?.length ?? 0} cama{(room.units?.length ?? 0) !== 1 ? 's' : ''}
                   </p>
                 </div>
               </button>
@@ -153,7 +153,7 @@ function RoomsSection({ isSupervisor }: { isSupervisor: boolean }) {
             </div>
             {expanded === room.id && (
               <div className="border-t border-gray-100 px-4 py-3 bg-gray-50/60">
-                <BedsManager roomId={room.id} beds={room.beds ?? []} isSupervisor={isSupervisor} />
+                <BedsManager roomId={room.id} beds={room.units ?? []} isSupervisor={isSupervisor} />
               </div>
             )}
           </div>
@@ -164,12 +164,12 @@ function RoomsSection({ isSupervisor }: { isSupervisor: boolean }) {
   )
 }
 
-function BedsManager({ roomId, beds, isSupervisor }: { roomId: string; beds: BedDto[]; isSupervisor: boolean }) {
+function BedsManager({ roomId, beds, isSupervisor }: { roomId: string; beds: UnitDto[]; isSupervisor: boolean }) {
   const qc = useQueryClient()
   const [label, setLabel] = useState('')
 
   const addMutation = useMutation({
-    mutationFn: (l: string) => api.post(`/rooms/${roomId}/beds`, { label: l }),
+    mutationFn: (l: string) => api.post(`/rooms/${roomId}/units`, { label: l }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['rooms-settings'] })
       setLabel('')
@@ -179,7 +179,7 @@ function BedsManager({ roomId, beds, isSupervisor }: { roomId: string; beds: Bed
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.delete(`/beds/${id}`),
+    mutationFn: (id: string) => api.delete(`/units/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['rooms-settings'] })
       toast.success('Cama eliminada')

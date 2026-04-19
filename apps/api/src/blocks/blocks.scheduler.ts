@@ -88,15 +88,15 @@ export class BlocksScheduler {
         },
       },
       include: {
-        bed: { select: { label: true } },
+        unit: { select: { label: true } },
         room: { select: { number: true } },
         requestedBy: { select: { name: true } },
       },
     })
 
     for (const block of expiringSoon) {
-      const location = block.bedId
-        ? `Cama ${block.bed?.label}`
+      const location = block.unitId
+        ? `Cama ${block.unit?.label}`
         : `Habitación ${block.room?.number}`
 
       const supervisors = await this.prisma.housekeepingStaff.findMany({

@@ -8,7 +8,7 @@ export class CreateBlockDto {
 
   @IsOptional()
   @IsUUID()
-  bedId?: string
+  unitId?: string
 
   @IsEnum(BlockSemantic)
   semantic: BlockSemantic

@@ -1,12 +1,12 @@
 import { IsEnum, IsOptional, IsString, MinLength } from 'class-validator'
-import { BedStatus } from '@zenix/shared'
+import { UnitStatus } from '@zenix/shared'
 
-export class CreateBedDto {
+export class CreateUnitDto {
   @IsString()
   @MinLength(1)
   label: string
 
   @IsOptional()
-  @IsEnum(BedStatus)
-  status?: BedStatus
+  @IsEnum(UnitStatus)
+  status?: UnitStatus
 }

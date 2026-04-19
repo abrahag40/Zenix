@@ -42,7 +42,7 @@ export default function TaskDetailScreen() {
     )
   }
 
-  const room = task.bed?.room
+  const room = task.unit?.room
   const isReady = task.status === CleaningStatus.READY || task.status === CleaningStatus.PENDING
   const isInProgress = task.status === CleaningStatus.IN_PROGRESS || task.status === CleaningStatus.PAUSED
   const isDone = task.status === CleaningStatus.DONE || task.status === CleaningStatus.VERIFIED
@@ -126,8 +126,8 @@ export default function TaskDetailScreen() {
             {room?.type === 'PRIVATE' ? 'Habitación privada' : 'Dormitorio compartido'}
             {room?.floor != null ? ` · Piso ${room.floor}` : ''}
           </Text>
-          {task.bed && (
-            <Text style={styles.bedLabel}>Cama: {task.bed.label}</Text>
+          {task.unit && (
+            <Text style={styles.bedLabel}>Cama: {task.unit.label}</Text>
           )}
         </View>
 
@@ -143,7 +143,7 @@ export default function TaskDetailScreen() {
         )}
 
         {/* Reception notes */}
-        {task.bed && (
+        {task.unit && (
           <CheckoutNotes taskId={id!} />
         )}
 

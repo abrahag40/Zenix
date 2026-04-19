@@ -46,7 +46,7 @@ function makeRoom(overrides: Record<string, unknown> = {}) {
     category: 'PRIVATE',
     floor: 2,
     propertyId: 'property-1',
-    beds: [
+    units: [
       { id: 'bed-1', label: 'Cama 1', roomId: 'room-1', status: 'AVAILABLE' },
     ],
     property: { id: 'property-1', name: 'Hotel Demo' },
@@ -70,7 +70,7 @@ function makeCheckoutInput(overrides: Partial<CheckoutInput> = {}): CheckoutInpu
  * Usado en tests de confirmDeparture y cancelCheckout.
  */
 function makeCheckout(
-  tasks: { id: string; bedId: string; status: CleaningStatus; assignedToId?: string | null }[],
+  tasks: { id: string; unitId: string; status: CleaningStatus; assignedToId?: string | null }[],
   overrides: Record<string, unknown> = {},
 ) {
   return {
@@ -103,7 +103,7 @@ describe('CheckoutsService', () => {
   const prismaMock = {
     checkout:        { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn(), update: jest.fn() },
     room:            { findUnique: jest.fn() },
-    bed:             { findMany: jest.fn(), update: jest.fn() },
+    unit:            { findMany: jest.fn(), update: jest.fn() },
     cleaningTask:    { findFirst: jest.fn(), findMany: jest.fn(), create: jest.fn(), update: jest.fn() },
     taskLog:         { create: jest.fn() },
     housekeepingStaff: { findMany: jest.fn() },
@@ -148,9 +148,9 @@ describe('CheckoutsService', () => {
       prismaMock.cleaningTask.findFirst.mockResolvedValue(null) // sin tarea previa
       prismaMock.cleaningTask.create.mockResolvedValue(newTask)
       prismaMock.taskLog.create.mockResolvedValue({})
-      prismaMock.bed.update.mockResolvedValue({})
+      prismaMock.unit.update.mockResolvedValue({})
       prismaMock.cleaningTask.findMany.mockResolvedValue([
-        { ...newTask, assignedToId: null, bed: { room } },
+        { ...newTask, assignedToId: null, unit: { room } },
       ])
 
       // Act
@@ -172,7 +172,7 @@ describe('CheckoutsService', () => {
       prismaMock.cleaningTask.findFirst.mockResolvedValue(null)
       prismaMock.cleaningTask.create.mockResolvedValue({ id: 'task-1', status: CleaningStatus.UNASSIGNED })
       prismaMock.taskLog.create.mockResolvedValue({})
-      prismaMock.bed.update.mockResolvedValue({})
+      prismaMock.unit.update.mockResolvedValue({})
       prismaMock.cleaningTask.findMany.mockResolvedValue([])
 
       // Act
@@ -225,7 +225,7 @@ describe('CheckoutsService', () => {
       prismaMock.cleaningTask.findFirst.mockResolvedValue(pendingTask)
       prismaMock.cleaningTask.update.mockResolvedValue({ ...pendingTask, status: CleaningStatus.READY })
       prismaMock.taskLog.create.mockResolvedValue({})
-      prismaMock.bed.update.mockResolvedValue({})
+      prismaMock.unit.update.mockResolvedValue({})
       prismaMock.cleaningTask.findMany.mockResolvedValue([])
 
       // Act
@@ -251,14 +251,14 @@ describe('CheckoutsService', () => {
       prismaMock.cleaningTask.findFirst.mockResolvedValue(null)
       prismaMock.cleaningTask.create.mockResolvedValue({ id: 'task-1' })
       prismaMock.taskLog.create.mockResolvedValue({})
-      prismaMock.bed.update.mockResolvedValue({})
+      prismaMock.unit.update.mockResolvedValue({})
       prismaMock.cleaningTask.findMany.mockResolvedValue([])
 
       // Act
       await service.processCheckout(makeCheckoutInput())
 
       // Assert — processCheckout activa la limpieza inmediatamente (Fase única para checkouts ad-hoc)
-      expect(prismaMock.bed.update).toHaveBeenCalledWith(
+      expect(prismaMock.unit.update).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: 'bed-1' },
           data: { status: 'DIRTY' },
@@ -288,12 +288,12 @@ describe('CheckoutsService', () => {
       const bed  = { id: 'bed-1', roomId: 'room-1', room: { id: 'room-1', propertyId: 'prop-1' } }
       const task = { id: 'task-1', status: CleaningStatus.PENDING }
 
-      prismaMock.bed.findMany.mockResolvedValue([bed])
+      prismaMock.unit.findMany.mockResolvedValue([bed])
       prismaMock.checkout.create.mockResolvedValue({ id: 'checkout-1', roomId: 'room-1', hasSameDayCheckIn: false })
       prismaMock.cleaningTask.create.mockResolvedValue(task)
       prismaMock.taskLog.create.mockResolvedValue({})
 
-      const dto = { items: [{ bedId: 'bed-1', hasSameDayCheckIn: false }], checkoutDate: '2026-03-21' }
+      const dto = { items: [{ unitId: 'bed-1', hasSameDayCheckIn: false }], checkoutDate: '2026-03-21' }
 
       // Act
       await service.batchCheckout(dto, 'staff-1', 'prop-1')
@@ -310,18 +310,18 @@ describe('CheckoutsService', () => {
       // Arrange — escenario crítico: confirmar que no se toca bed.status
       const bed = { id: 'bed-1', roomId: 'room-1', room: { id: 'room-1', propertyId: 'prop-1' } }
 
-      prismaMock.bed.findMany.mockResolvedValue([bed])
+      prismaMock.unit.findMany.mockResolvedValue([bed])
       prismaMock.checkout.create.mockResolvedValue({ id: 'checkout-1', roomId: 'room-1', hasSameDayCheckIn: false })
       prismaMock.cleaningTask.create.mockResolvedValue({ id: 'task-1', status: CleaningStatus.PENDING })
       prismaMock.taskLog.create.mockResolvedValue({})
 
-      const dto = { items: [{ bedId: 'bed-1', hasSameDayCheckIn: false }], checkoutDate: '2026-03-21' }
+      const dto = { items: [{ unitId: 'bed-1', hasSameDayCheckIn: false }], checkoutDate: '2026-03-21' }
 
       // Act
       await service.batchCheckout(dto, 'staff-1', 'prop-1')
 
       // Assert — bed.update NO fue llamado (cama sigue OCCUPIED físicamente)
-      expect(prismaMock.bed.update).not.toHaveBeenCalled()
+      expect(prismaMock.unit.update).not.toHaveBeenCalled()
     })
 
     it('asigna prioridad URGENT si alguna cama del room tiene hasSameDayCheckIn', async () => {
@@ -331,15 +331,15 @@ describe('CheckoutsService', () => {
         { id: 'bed-2', roomId: 'room-1', room: { id: 'room-1', propertyId: 'prop-1' } },
       ]
 
-      prismaMock.bed.findMany.mockResolvedValue(beds)
+      prismaMock.unit.findMany.mockResolvedValue(beds)
       prismaMock.checkout.create.mockResolvedValue({ id: 'checkout-1', roomId: 'room-1', hasSameDayCheckIn: true })
       prismaMock.cleaningTask.create.mockResolvedValue({ id: 'task-1', status: CleaningStatus.PENDING })
       prismaMock.taskLog.create.mockResolvedValue({})
 
       const dto = {
         items: [
-          { bedId: 'bed-1', hasSameDayCheckIn: false },   // normal
-          { bedId: 'bed-2', hasSameDayCheckIn: true },    // ← urgente: sube a todo el room
+          { unitId: 'bed-1', hasSameDayCheckIn: false },   // normal
+          { unitId: 'bed-2', hasSameDayCheckIn: true },    // ← urgente: sube a todo el room
         ],
         checkoutDate: '2026-03-21',
       }
@@ -359,12 +359,12 @@ describe('CheckoutsService', () => {
       // Arrange
       const bed = { id: 'bed-1', roomId: 'room-1', room: { id: 'room-1', propertyId: 'prop-1' } }
 
-      prismaMock.bed.findMany.mockResolvedValue([bed])
+      prismaMock.unit.findMany.mockResolvedValue([bed])
       prismaMock.checkout.create.mockResolvedValue({ id: 'checkout-1', roomId: 'room-1', hasSameDayCheckIn: false })
       prismaMock.cleaningTask.create.mockResolvedValue({ id: 'task-1', status: CleaningStatus.PENDING })
       prismaMock.taskLog.create.mockResolvedValue({})
 
-      const dto = { items: [{ bedId: 'bed-1', hasSameDayCheckIn: false }], checkoutDate: '2026-03-21' }
+      const dto = { items: [{ unitId: 'bed-1', hasSameDayCheckIn: false }], checkoutDate: '2026-03-21' }
 
       // Act
       await service.batchCheckout(dto, 'staff-1', 'prop-1')
@@ -390,15 +390,15 @@ describe('CheckoutsService', () => {
     it('activa SOLO la cama especificada en bedId — no toca las otras camas del mismo checkout', async () => {
       // Arrange — dorm con 3 camas en el mismo checkout, todas PENDING
       const checkout = makeCheckout([
-        { id: 'task-cama1', bedId: 'bed-1', status: CleaningStatus.PENDING },
-        { id: 'task-cama2', bedId: 'bed-2', status: CleaningStatus.PENDING },
-        { id: 'task-cama3', bedId: 'bed-3', status: CleaningStatus.PENDING },
+        { id: 'task-cama1', unitId: 'bed-1', status: CleaningStatus.PENDING },
+        { id: 'task-cama2', unitId: 'bed-2', status: CleaningStatus.PENDING },
+        { id: 'task-cama3', unitId: 'bed-3', status: CleaningStatus.PENDING },
       ])
 
       prismaMock.checkout.findUnique.mockResolvedValue(checkout)
       prismaMock.cleaningTask.update.mockResolvedValue({})
       prismaMock.taskLog.create.mockResolvedValue({})
-      prismaMock.bed.update.mockResolvedValue({})
+      prismaMock.unit.update.mockResolvedValue({})
       prismaMock.cleaningTask.findMany.mockResolvedValue([])  // dispatchNotifications
 
       // Act — confirmar salida de SOLO Cama 1
@@ -414,8 +414,8 @@ describe('CheckoutsService', () => {
       )
 
       // Solo bed-1 fue marcado DIRTY — bed-2 y bed-3 intactos
-      expect(prismaMock.bed.update).toHaveBeenCalledTimes(1)
-      expect(prismaMock.bed.update).toHaveBeenCalledWith(
+      expect(prismaMock.unit.update).toHaveBeenCalledTimes(1)
+      expect(prismaMock.unit.update).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: 'bed-1' },
           data: { status: 'DIRTY' },
@@ -426,13 +426,13 @@ describe('CheckoutsService', () => {
     it('activa TODAS las camas PENDING cuando no se especifica bedId (habitación privada)', async () => {
       // Arrange — habitación privada con 1 sola cama (sin bedId es el caso normal)
       const checkout = makeCheckout([
-        { id: 'task-1', bedId: 'bed-1', status: CleaningStatus.PENDING },
+        { id: 'task-1', unitId: 'bed-1', status: CleaningStatus.PENDING },
       ])
 
       prismaMock.checkout.findUnique.mockResolvedValue(checkout)
       prismaMock.cleaningTask.update.mockResolvedValue({})
       prismaMock.taskLog.create.mockResolvedValue({})
-      prismaMock.bed.update.mockResolvedValue({})
+      prismaMock.unit.update.mockResolvedValue({})
       prismaMock.cleaningTask.findMany.mockResolvedValue([])
 
       // Act — sin bedId: activa todo el checkout
@@ -446,14 +446,14 @@ describe('CheckoutsService', () => {
     it('asigna estado READY si la tarea tiene assignedToId, UNASSIGNED si no tiene', async () => {
       // Arrange — 2 camas en el mismo checkout: una asignada, una sin asignar
       const checkout = makeCheckout([
-        { id: 'task-asignada',  bedId: 'bed-1', status: CleaningStatus.PENDING, assignedToId: 'hk-1' },
-        { id: 'task-sin-asignar', bedId: 'bed-2', status: CleaningStatus.PENDING, assignedToId: null  },
+        { id: 'task-asignada',  unitId: 'bed-1', status: CleaningStatus.PENDING, assignedToId: 'hk-1' },
+        { id: 'task-sin-asignar', unitId: 'bed-2', status: CleaningStatus.PENDING, assignedToId: null  },
       ])
 
       prismaMock.checkout.findUnique.mockResolvedValue(checkout)
       prismaMock.cleaningTask.update.mockResolvedValue({})
       prismaMock.taskLog.create.mockResolvedValue({})
-      prismaMock.bed.update.mockResolvedValue({})
+      prismaMock.unit.update.mockResolvedValue({})
       prismaMock.cleaningTask.findMany.mockResolvedValue([])
 
       // Act — sin bedId: activa las 2
@@ -472,7 +472,7 @@ describe('CheckoutsService', () => {
     it('es idempotente — si la cama ya fue activada retorna alreadyDeparted sin modificar nada', async () => {
       // Arrange — la tarea ya está en UNASSIGNED (ya fue activada antes)
       const checkout = makeCheckout([
-        { id: 'task-1', bedId: 'bed-1', status: CleaningStatus.UNASSIGNED }, // ya no es PENDING
+        { id: 'task-1', unitId: 'bed-1', status: CleaningStatus.UNASSIGNED }, // ya no es PENDING
       ])
 
       prismaMock.checkout.findUnique.mockResolvedValue(checkout)
@@ -483,7 +483,7 @@ describe('CheckoutsService', () => {
       // Assert — respuesta idempotente, sin tocar BD
       expect(result).toMatchObject({ alreadyDeparted: true })
       expect(prismaMock.cleaningTask.update).not.toHaveBeenCalled()
-      expect(prismaMock.bed.update).not.toHaveBeenCalled()
+      expect(prismaMock.unit.update).not.toHaveBeenCalled()
     })
 
     it('lanza NotFoundException si el checkout no existe', async () => {
@@ -510,20 +510,20 @@ describe('CheckoutsService', () => {
     it('marca la cama como DIRTY al confirmar la salida física', async () => {
       // Arrange — antes de la Fase 2, la cama debería estar OCCUPIED
       const checkout = makeCheckout([
-        { id: 'task-1', bedId: 'bed-1', status: CleaningStatus.PENDING },
+        { id: 'task-1', unitId: 'bed-1', status: CleaningStatus.PENDING },
       ])
 
       prismaMock.checkout.findUnique.mockResolvedValue(checkout)
       prismaMock.cleaningTask.update.mockResolvedValue({})
       prismaMock.taskLog.create.mockResolvedValue({})
-      prismaMock.bed.update.mockResolvedValue({})
+      prismaMock.unit.update.mockResolvedValue({})
       prismaMock.cleaningTask.findMany.mockResolvedValue([])
 
       // Act
       await service.confirmDeparture('checkout-1', 'staff-1', 'prop-1', 'bed-1')
 
       // Assert — bed.status → DIRTY (el huésped se fue, cama lista para limpieza)
-      expect(prismaMock.bed.update).toHaveBeenCalledWith(
+      expect(prismaMock.unit.update).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: 'bed-1' },
           data: { status: 'DIRTY' },
@@ -534,13 +534,13 @@ describe('CheckoutsService', () => {
     it('registra un TaskLog con el actorId de quien confirmó la salida', async () => {
       // Arrange
       const checkout = makeCheckout([
-        { id: 'task-1', bedId: 'bed-1', status: CleaningStatus.PENDING },
+        { id: 'task-1', unitId: 'bed-1', status: CleaningStatus.PENDING },
       ])
 
       prismaMock.checkout.findUnique.mockResolvedValue(checkout)
       prismaMock.cleaningTask.update.mockResolvedValue({})
       prismaMock.taskLog.create.mockResolvedValue({})
-      prismaMock.bed.update.mockResolvedValue({})
+      prismaMock.unit.update.mockResolvedValue({})
       prismaMock.cleaningTask.findMany.mockResolvedValue([])
 
       // Act
@@ -561,14 +561,14 @@ describe('CheckoutsService', () => {
     it('cancela las tareas READY/UNASSIGNED y restaura las camas a OCCUPIED', async () => {
       // Arrange
       const checkout = makeCheckout([
-        { id: 'task-ready', bedId: 'bed-1', status: CleaningStatus.READY, assignedToId: 'hk-1' },
+        { id: 'task-ready', unitId: 'bed-1', status: CleaningStatus.READY, assignedToId: 'hk-1' },
       ])
 
       prismaMock.checkout.findUnique.mockResolvedValue(checkout)
       prismaMock.checkout.update.mockResolvedValue({ ...checkout, cancelled: true })
       prismaMock.cleaningTask.update.mockResolvedValue({})
       prismaMock.taskLog.create.mockResolvedValue({})
-      prismaMock.bed.update.mockResolvedValue({})
+      prismaMock.unit.update.mockResolvedValue({})
 
       // Act
       const result = await service.cancelCheckout('checkout-1', 'property-1')
@@ -578,7 +578,7 @@ describe('CheckoutsService', () => {
       expect(prismaMock.cleaningTask.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: { status: CleaningStatus.CANCELLED } }),
       )
-      expect(prismaMock.bed.update).toHaveBeenCalledWith(
+      expect(prismaMock.unit.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: { status: 'OCCUPIED' } }),
       )
     })
@@ -586,14 +586,14 @@ describe('CheckoutsService', () => {
     it('también cancela tareas en estado PENDING (planificadas, no activadas aún)', async () => {
       // Arrange — escenario: huésped extendió ANTES de la Fase 2
       const checkout = makeCheckout([
-        { id: 'task-pending', bedId: 'bed-1', status: CleaningStatus.PENDING },
+        { id: 'task-pending', unitId: 'bed-1', status: CleaningStatus.PENDING },
       ])
 
       prismaMock.checkout.findUnique.mockResolvedValue(checkout)
       prismaMock.checkout.update.mockResolvedValue({ ...checkout, cancelled: true })
       prismaMock.cleaningTask.update.mockResolvedValue({})
       prismaMock.taskLog.create.mockResolvedValue({})
-      prismaMock.bed.update.mockResolvedValue({})
+      prismaMock.unit.update.mockResolvedValue({})
 
       // Act
       const result = await service.cancelCheckout('checkout-1', 'property-1')
@@ -608,14 +608,14 @@ describe('CheckoutsService', () => {
     it('envía push al housekeeper asignado cuando se cancela su tarea', async () => {
       // Arrange
       const checkout = makeCheckout([
-        { id: 'task-ready', bedId: 'bed-1', status: CleaningStatus.READY, assignedToId: 'hk-1' },
+        { id: 'task-ready', unitId: 'bed-1', status: CleaningStatus.READY, assignedToId: 'hk-1' },
       ])
 
       prismaMock.checkout.findUnique.mockResolvedValue(checkout)
       prismaMock.checkout.update.mockResolvedValue({ ...checkout, cancelled: true })
       prismaMock.cleaningTask.update.mockResolvedValue({})
       prismaMock.taskLog.create.mockResolvedValue({})
-      prismaMock.bed.update.mockResolvedValue({})
+      prismaMock.unit.update.mockResolvedValue({})
 
       // Act
       await service.cancelCheckout('checkout-1', 'property-1')
@@ -632,7 +632,7 @@ describe('CheckoutsService', () => {
     it('alerta al supervisor si hay tareas IN_PROGRESS y no cancela automáticamente', async () => {
       // Arrange — el housekeeper está limpiando cuando el huésped extiende
       const checkout = makeCheckout([
-        { id: 'task-ip', bedId: 'bed-1', status: CleaningStatus.IN_PROGRESS, assignedToId: 'hk-1' },
+        { id: 'task-ip', unitId: 'bed-1', status: CleaningStatus.IN_PROGRESS, assignedToId: 'hk-1' },
       ])
       const supervisor = { id: 'sup-1' }
 
@@ -640,7 +640,7 @@ describe('CheckoutsService', () => {
       prismaMock.checkout.update.mockResolvedValue({ ...checkout, cancelled: true })
       prismaMock.cleaningTask.update.mockResolvedValue({})
       prismaMock.taskLog.create.mockResolvedValue({})
-      prismaMock.bed.update.mockResolvedValue({})
+      prismaMock.unit.update.mockResolvedValue({})
       prismaMock.housekeepingStaff.findMany.mockResolvedValue([supervisor])
 
       // Act
@@ -679,14 +679,14 @@ describe('CheckoutsService', () => {
     it('per-bed cancel: solo cancela la tarea de la cama indicada, las demás siguen activas', async () => {
       // Arrange — dorm con 2 camas; solo se cancela bed-1
       const checkout = makeCheckout([
-        { id: 'task-1', bedId: 'bed-1', status: CleaningStatus.PENDING },
-        { id: 'task-2', bedId: 'bed-2', status: CleaningStatus.PENDING },
+        { id: 'task-1', unitId: 'bed-1', status: CleaningStatus.PENDING },
+        { id: 'task-2', unitId: 'bed-2', status: CleaningStatus.PENDING },
       ])
 
       prismaMock.checkout.findUnique.mockResolvedValue(checkout)
       prismaMock.cleaningTask.update.mockResolvedValue({})
       prismaMock.taskLog.create.mockResolvedValue({})
-      prismaMock.bed.update.mockResolvedValue({})
+      prismaMock.unit.update.mockResolvedValue({})
 
       // Act
       await service.cancelCheckout('checkout-1', 'property-1', 'bed-1')
@@ -703,14 +703,14 @@ describe('CheckoutsService', () => {
     it('per-bed cancel: no marca checkout.cancelled = true (el resto del checkout sigue vigente)', async () => {
       // Arrange
       const checkout = makeCheckout([
-        { id: 'task-1', bedId: 'bed-1', status: CleaningStatus.READY },
-        { id: 'task-2', bedId: 'bed-2', status: CleaningStatus.READY },
+        { id: 'task-1', unitId: 'bed-1', status: CleaningStatus.READY },
+        { id: 'task-2', unitId: 'bed-2', status: CleaningStatus.READY },
       ])
 
       prismaMock.checkout.findUnique.mockResolvedValue(checkout)
       prismaMock.cleaningTask.update.mockResolvedValue({})
       prismaMock.taskLog.create.mockResolvedValue({})
-      prismaMock.bed.update.mockResolvedValue({})
+      prismaMock.unit.update.mockResolvedValue({})
 
       // Act
       await service.cancelCheckout('checkout-1', 'property-1', 'bed-1')
@@ -745,7 +745,7 @@ describe('CheckoutsService', () => {
     it('construye dayStart como UTC midnight del día dado', async () => {
       // Arrange
       const rooms: never[] = []
-      prismaMock.bed = prismaMock.bed || { findMany: jest.fn() }
+      prismaMock.unit = prismaMock.unit || { findMany: jest.fn() }
 
       // Usamos el mock de room.findMany para capturar la query
       const roomFindMany = jest.fn().mockResolvedValue(rooms)
@@ -759,7 +759,7 @@ describe('CheckoutsService', () => {
         expect.objectContaining({
           where: { propertyId: 'prop-1', organizationId: 'org-1' },
           include: expect.objectContaining({
-            beds: expect.objectContaining({
+            units: expect.objectContaining({
               include: expect.objectContaining({
                 cleaningTasks: expect.objectContaining({
                   where: expect.objectContaining({
@@ -782,11 +782,11 @@ describe('CheckoutsService', () => {
       // Arrange — una habitación SHARED y una PRIVATE, sin tareas hoy
       const sharedRoom  = {
         id: 'r-shared', number: 'Dorm1', category: 'SHARED', floor: 1,
-        beds: [{ id: 'b-1', label: 'Cama 1', status: 'AVAILABLE', cleaningTasks: [] }],
+        units: [{ id: 'b-1', label: 'Cama 1', status: 'AVAILABLE', cleaningTasks: [] }],
       }
       const privateRoom = {
         id: 'r-private', number: '101', category: 'PRIVATE', floor: 1,
-        beds: [{ id: 'b-2', label: 'Cama 1', status: 'AVAILABLE', cleaningTasks: [] }],
+        units: [{ id: 'b-2', label: 'Cama 1', status: 'AVAILABLE', cleaningTasks: [] }],
       }
 
       prismaMock.room = { ...prismaMock.room, findMany: jest.fn().mockResolvedValue([sharedRoom, privateRoom]) }
@@ -800,8 +800,8 @@ describe('CheckoutsService', () => {
       expect(grid.privateRooms).toHaveLength(1)
 
       // Cama sin tarea hoy → taskId: null
-      expect(grid.sharedRooms[0].beds[0]).toMatchObject({
-        bedId: 'b-1',
+      expect(grid.sharedRooms[0].units[0]).toMatchObject({
+        unitId: 'b-1',
         taskId: null,
         taskStatus: null,
         hasSameDayCheckIn: false,
@@ -821,7 +821,7 @@ describe('CheckoutsService', () => {
       }
       const room = {
         id: 'r-1', number: '201', category: 'PRIVATE', floor: 1,
-        beds: [{ id: 'b-1', label: 'Cama 1', status: 'OCCUPIED', cleaningTasks: [task] }],
+        units: [{ id: 'b-1', label: 'Cama 1', status: 'OCCUPIED', cleaningTasks: [task] }],
       }
 
       prismaMock.room = { ...prismaMock.room, findMany: jest.fn().mockResolvedValue([room]) }
@@ -830,7 +830,7 @@ describe('CheckoutsService', () => {
       const grid = await service.getDailyGrid('prop-1', '2026-03-21')
 
       // Assert — los campos del checkout se reflejan en la celda del grid
-      expect(grid.privateRooms[0].beds[0]).toMatchObject({
+      expect(grid.privateRooms[0].units[0]).toMatchObject({
         taskId:           'task-1',
         taskStatus:       CleaningStatus.PENDING,
         hasSameDayCheckIn: true,
@@ -845,7 +845,7 @@ describe('CheckoutsService', () => {
       // Simulamos que cleaningTasks devuelve [] (filtrado por Prisma)
       const room = {
         id: 'r-1', number: '201', category: 'PRIVATE', floor: 1,
-        beds: [{ id: 'b-1', label: 'Cama 1', status: 'OCCUPIED', cleaningTasks: [] }],
+        units: [{ id: 'b-1', label: 'Cama 1', status: 'OCCUPIED', cleaningTasks: [] }],
       }
 
       prismaMock.room = { ...prismaMock.room, findMany: jest.fn().mockResolvedValue([room]) }
@@ -854,8 +854,8 @@ describe('CheckoutsService', () => {
       const grid = await service.getDailyGrid('prop-1', '2026-03-21')
 
       // Assert — cama aparece como disponible (sin tarea) aunque tenga checkout cancelado
-      expect(grid.privateRooms[0].beds[0].taskId).toBeNull()
-      expect(grid.privateRooms[0].beds[0].cancelled).toBe(false)
+      expect(grid.privateRooms[0].units[0].taskId).toBeNull()
+      expect(grid.privateRooms[0].units[0].cancelled).toBe(false)
     })
   })
 })

@@ -55,7 +55,7 @@ export class ReportsService {
       }),
       this.prisma.cleaningTask.findMany({
         where: {
-          bed: { room: { propertyId } },
+          unit: { room: { propertyId } },
           createdAt: { gte: fromDate, lte: toDate },
         },
         // Solo se seleccionan los campos estrictamente necesarios (evita traer payloads grandes)
@@ -196,7 +196,7 @@ export class ReportsService {
     const [taskRows, checkoutRows] = await Promise.all([
       this.prisma.cleaningTask.findMany({
         where: {
-          bed: { room: { propertyId } },
+          unit: { room: { propertyId } },
           // Filtrar por finishedAt para agrupar por día de finalización real
           finishedAt: { gte: fromDate, lte: toDate },
           status: { in: [CleaningStatus.DONE, CleaningStatus.VERIFIED] },

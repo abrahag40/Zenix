@@ -14,7 +14,7 @@ export class RoomsService {
     const orgId = this.tenant.getOrganizationId()
     return this.prisma.room.create({
       data: { ...dto, propertyId, organizationId: orgId },
-      include: { beds: true },
+      include: { units: true },
     })
   }
 
@@ -22,7 +22,7 @@ export class RoomsService {
     const orgId = this.tenant.getOrganizationId()
     return this.prisma.room.findMany({
       where: { propertyId, organizationId: orgId },
-      include: { beds: { orderBy: { label: 'asc' } } },
+      include: { units: { orderBy: { label: 'asc' } } },
       orderBy: [{ floor: 'asc' }, { number: 'asc' }],
     })
   }
@@ -31,7 +31,7 @@ export class RoomsService {
     const orgId = this.tenant.getOrganizationId()
     const room = await this.prisma.room.findUnique({
       where: { id, organizationId: orgId },
-      include: { beds: { orderBy: { label: 'asc' } }, property: true },
+      include: { units: { orderBy: { label: 'asc' } }, property: true },
     })
     if (!room) throw new NotFoundException('Room not found')
     return room
@@ -47,7 +47,7 @@ export class RoomsService {
     return this.prisma.room.update({
       where: { id },
       data: dto,
-      include: { beds: true },
+      include: { units: true },
     })
   }
 

@@ -74,7 +74,7 @@ describe('Tenant Isolation (e2e)', () => {
     })
     roomIdOrgA = roomA.id
 
-    const bedA = await prisma.bed.create({
+    const bedA = await prisma.unit.create({
       data: {
         organizationId: orgA.id,
         roomId: roomA.id,
@@ -86,7 +86,7 @@ describe('Tenant Isolation (e2e)', () => {
     const task = await prisma.cleaningTask.create({
       data: {
         organizationId: orgA.id,
-        bedId: bedA.id,
+        unitId: bedA.id,
         status: 'READY',
         taskType: 'CLEANING',
         priority: 'HIGH',
@@ -152,7 +152,7 @@ describe('Tenant Isolation (e2e)', () => {
     await prisma.cleaningTask.deleteMany({
       where: { organizationId: { in: testOrgIds } },
     })
-    await prisma.bed.deleteMany({
+    await prisma.unit.deleteMany({
       where: { organizationId: { in: testOrgIds } },
     })
     await prisma.room.deleteMany({
@@ -189,7 +189,7 @@ describe('Tenant Isolation (e2e)', () => {
       expect(res.status).toBe(404)
       // CRÍTICO: la respuesta no debe revelar nada sobre el recurso
       expect(res.body).not.toHaveProperty('organizationId')
-      expect(res.body).not.toHaveProperty('bedId')
+      expect(res.body).not.toHaveProperty('unitId')
     })
   })
 

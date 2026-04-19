@@ -1,4 +1,4 @@
-export enum BedStatus {
+export enum UnitStatus {
   AVAILABLE = 'AVAILABLE',
   OCCUPIED = 'OCCUPIED',
   DIRTY = 'DIRTY',

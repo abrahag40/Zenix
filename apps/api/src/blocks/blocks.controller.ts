@@ -47,10 +47,10 @@ export class BlocksController {
     @CurrentUser() actor: JwtPayload,
     @Query('status') status?: BlockStatus,
     @Query('semantic') semantic?: BlockSemantic,
-    @Query('bedId') bedId?: string,
+    @Query('unitId') unitId?: string,
     @Query('roomId') roomId?: string,
   ) {
-    return this.service.findAll(actor, { status, semantic, bedId, roomId })
+    return this.service.findAll(actor, { status, semantic, unitId, roomId })
   }
 
   /**

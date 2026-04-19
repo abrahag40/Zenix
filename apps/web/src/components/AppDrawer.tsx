@@ -10,7 +10,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { api } from '../api/client'
-import type { BedDiscrepancyDto } from '@zenix/shared'
+import type { UnitDiscrepancyDto } from '@zenix/shared'
 import { DiscrepancyStatus } from '@zenix/shared'
 
 /**
@@ -158,7 +158,7 @@ export function AppDrawer() {
   const { data: discrepancyCount = 0 } = useQuery<number>({
     queryKey: ['discrepancies-open-count'],
     queryFn: async () => {
-      const all = await api.get<BedDiscrepancyDto[]>('/discrepancies')
+      const all = await api.get<UnitDiscrepancyDto[]>('/discrepancies')
       return all.filter((d) => d.status === DiscrepancyStatus.OPEN).length
     },
     refetchInterval: 60_000,

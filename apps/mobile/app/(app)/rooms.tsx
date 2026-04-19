@@ -111,7 +111,7 @@ export default function RoomsScreen() {
 }
 
 function TaskCard({ task, onPress }: { task: CleaningTaskDto; onPress: () => void }) {
-  const room = task.bed?.room
+  const room = task.unit?.room
   const isInProgress = task.status === CleaningStatus.IN_PROGRESS || task.status === CleaningStatus.PAUSED
   const isReady = task.status === CleaningStatus.READY
   const isDone = task.status === CleaningStatus.DONE || task.status === CleaningStatus.VERIFIED
@@ -136,7 +136,7 @@ function TaskCard({ task, onPress }: { task: CleaningTaskDto; onPress: () => voi
             {isMaintenance && <Text style={styles.maintenanceBadge}>🔧 </Text>}
             {isUrgent && !isMaintenance && <Text style={styles.urgentBadge}>🔴 </Text>}
             <Text style={styles.roomNumber}>{room?.number ?? '—'}</Text>
-            {task.bed && <Text style={styles.bedLabel}> · {task.bed.label}</Text>}
+            {task.unit && <Text style={styles.bedLabel}> · {task.unit.label}</Text>}
           </View>
           <Text style={styles.roomSub}>
             {isMaintenance ? 'Mantenimiento' : room?.type === 'PRIVATE' ? 'Privada' : 'Compartida'}

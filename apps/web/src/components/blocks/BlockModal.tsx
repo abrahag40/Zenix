@@ -2,7 +2,7 @@
  * BlockModal — Formulario para crear solicitudes de bloqueo.
  *
  * Decisiones de UX (principios NNGroup + Apple HIG):
- * 1. XOR visual: "Habitación completa" vs "Cama específica" con radio buttons
+ * 1. XOR visual: "Habitación completa" vs "Unidad específica" con radio buttons
  *    → previene la confusión de tener ambas a la vez.
  * 2. Semántica con descripción inline: el recepcionista no sabe qué es OOO/OOS,
  *    pero sí entiende "problema menor" vs "inhabilitada".
@@ -19,7 +19,7 @@ import {
   HousekeepingRole,
   type CreateBlockDto,
   type RoomDto,
-  type BedDto,
+  type UnitDto,
 } from '@zenix/shared'
 import { api } from '../../api/client'
 import { useAuthStore } from '../../store/auth'
@@ -71,7 +71,7 @@ interface BlockModalProps {
   onClose: () => void
   onSubmit: (dto: CreateBlockDto) => Promise<void>
   prefillRoomId?: string
-  prefillBedId?: string
+  prefillUnitId?: string
 }
 
 export function BlockModal({
@@ -79,14 +79,14 @@ export function BlockModal({
   onClose,
   onSubmit,
   prefillRoomId,
-  prefillBedId,
+  prefillUnitId,
 }: BlockModalProps) {
   const user = useAuthStore((s) => s.user)
   const isSupervisor = user?.role === HousekeepingRole.SUPERVISOR
 
-  const [scope, setScope] = useState<'room' | 'bed'>('bed')
+  const [scope, setScope] = useState<'room' | 'unit'>('unit')
   const [roomId, setRoomId] = useState(prefillRoomId ?? '')
-  const [bedId, setBedId] = useState(prefillBedId ?? '')
+  const [unitId, setUnitId] = useState(prefillUnitId ?? '')
   const [semantic, setSemantic] = useState<BlockSemantic>(BlockSemantic.OUT_OF_SERVICE)
   const [reason, setReason] = useState<BlockReason>(BlockReason.MAINTENANCE)
   const [notes, setNotes] = useState('')
@@ -104,9 +104,9 @@ export function BlockModal({
     staleTime: 60_000,
   })
 
-  // Camas del room seleccionado
+  // Unidades del room seleccionado
   const selectedRoom = rooms.find((r) => r.id === roomId)
-  const bedsForRoom: BedDto[] = (selectedRoom as any)?.beds ?? []
+  const unitsForRoom: UnitDto[] = (selectedRoom as any)?.units ?? []
 
   // Si cambia el motivo, ajustar semántica automáticamente
   useEffect(() => {
@@ -123,9 +123,9 @@ export function BlockModal({
   // Reset al abrir
   useEffect(() => {
     if (isOpen) {
-      setScope(prefillBedId ? 'bed' : 'room')
+      setScope(prefillUnitId ? 'unit' : 'room')
       setRoomId(prefillRoomId ?? '')
-      setBedId(prefillBedId ?? '')
+      setUnitId(prefillUnitId ?? '')
       setSemantic(BlockSemantic.OUT_OF_SERVICE)
       setReason(BlockReason.MAINTENANCE)
       setNotes('')
@@ -134,14 +134,14 @@ export function BlockModal({
       setEndDate('')
       setError('')
     }
-  }, [isOpen, prefillRoomId, prefillBedId])
+  }, [isOpen, prefillRoomId, prefillUnitId])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
 
     if (scope === 'room' && !roomId) { setError('Selecciona una habitación'); return }
-    if (scope === 'bed' && !bedId) { setError('Selecciona una cama'); return }
+    if (scope === 'unit' && !unitId) { setError('Selecciona una unidad'); return }
     if (reason === BlockReason.OTHER && !notes.trim()) {
       setError('Agrega una nota cuando el motivo es "Otro"')
       return
@@ -152,7 +152,7 @@ export function BlockModal({
     }
 
     const dto: CreateBlockDto = {
-      ...(scope === 'room' ? { roomId } : { bedId }),
+      ...(scope === 'room' ? { roomId } : { unitId }),
       semantic,
       reason,
       notes: notes.trim() || undefined,
@@ -179,7 +179,7 @@ export function BlockModal({
   // Descripciones de semántica para usuarios no técnicos
   const SEMANTIC_DESCRIPTIONS: Record<BlockSemantic, string> = {
     [BlockSemantic.OUT_OF_SERVICE]:   'Problema menor. No afecta métricas de revenue. Se puede vender en emergencia.',
-    [BlockSemantic.OUT_OF_ORDER]:     'Cama inhabilitada. Se remueve del inventario. Requiere aprobación del supervisor.',
+    [BlockSemantic.OUT_OF_ORDER]:     'Unidad inhabilitada. Se remueve del inventario. Requiere aprobación del supervisor.',
     [BlockSemantic.OUT_OF_INVENTORY]: 'Largo plazo (renovación). Excluida del inventario operativo.',
     [BlockSemantic.HOUSE_USE]:        'Uso interno: fotografía, capacitación, personal.',
   }
@@ -217,12 +217,12 @@ export function BlockModal({
                   <input
                     type="radio"
                     name="scope"
-                    value="bed"
-                    checked={scope === 'bed'}
-                    onChange={() => { setScope('bed'); setBedId('') }}
+                    value="unit"
+                    checked={scope === 'unit'}
+                    onChange={() => { setScope('unit'); setUnitId('') }}
                     className="text-indigo-600"
                   />
-                  <span className="text-sm text-gray-700">Cama específica</span>
+                  <span className="text-sm text-gray-700">Unidad específica</span>
                 </label>
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -230,7 +230,7 @@ export function BlockModal({
                     name="scope"
                     value="room"
                     checked={scope === 'room'}
-                    onChange={() => { setScope('room'); setBedId(''); setRoomId('') }}
+                    onChange={() => { setScope('room'); setUnitId(''); setRoomId('') }}
                     className="text-indigo-600"
                   />
                   <span className="text-sm text-gray-700">Habitación completa</span>
@@ -238,16 +238,16 @@ export function BlockModal({
               </div>
             </div>
 
-            {/* Room selector (siempre visible para scope bed también) */}
+            {/* Room selector (siempre visible para scope unit también) */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Habitación
               </label>
               <select
                 value={roomId}
-                onChange={(e) => { setRoomId(e.target.value); setBedId('') }}
+                onChange={(e) => { setRoomId(e.target.value); setUnitId('') }}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                required={scope === 'room' || scope === 'bed'}
+                required={scope === 'room' || scope === 'unit'}
               >
                 <option value="">— Selecciona habitación —</option>
                 {rooms.map((r) => (
@@ -258,27 +258,27 @@ export function BlockModal({
               </select>
             </div>
 
-            {/* Bed selector (solo si scope = bed y hay room seleccionada) */}
-            {scope === 'bed' && roomId && (
+            {/* Unit selector (solo si scope = unit y hay room seleccionada) */}
+            {scope === 'unit' && roomId && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Cama
+                  Unidad
                 </label>
-                {bedsForRoom.length === 0 ? (
+                {unitsForRoom.length === 0 ? (
                   <p className="text-sm text-gray-400 italic">
-                    Esta habitación no tiene camas registradas
+                    Esta habitación no tiene unidades registradas
                   </p>
                 ) : (
                   <select
-                    value={bedId}
-                    onChange={(e) => setBedId(e.target.value)}
+                    value={unitId}
+                    onChange={(e) => setUnitId(e.target.value)}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     required
                   >
-                    <option value="">— Selecciona cama —</option>
-                    {bedsForRoom.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.label} · {b.status}
+                    <option value="">— Selecciona unidad —</option>
+                    {unitsForRoom.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.label} · {u.status}
                       </option>
                     ))}
                   </select>

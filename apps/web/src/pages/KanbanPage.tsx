@@ -83,7 +83,7 @@ export function KanbanPage() {
 }
 
 function TaskCard({ task, onVerify }: { task: CleaningTaskDto; onVerify?: () => void }) {
-  const room = task.bed?.room
+  const room = task.unit?.room
   const timeSince = task.createdAt
     ? Math.round((Date.now() - new Date(task.createdAt).getTime()) / 60_000)
     : null
@@ -93,7 +93,7 @@ function TaskCard({ task, onVerify }: { task: CleaningTaskDto; onVerify?: () => 
       <div className="flex items-center justify-between">
         <span className="font-semibold text-gray-900">
           {room?.number ?? '—'}
-          {task.bed && <span className="text-gray-400 font-normal ml-1">· {task.bed.label}</span>}
+          {task.unit && <span className="text-gray-400 font-normal ml-1">· {task.unit.label}</span>}
         </span>
         {task.priority && (
           <span className={`px-1.5 py-0.5 rounded text-xs ${PRIORITY_BADGE[task.priority]}`}>

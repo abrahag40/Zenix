@@ -1,5 +1,5 @@
 import {
-  BedStatus,
+  UnitStatus,
   BlockLogEvent,
   BlockReason,
   BlockSemantic,
@@ -52,7 +52,7 @@ export interface StaffDto {
   createdAt: string
 }
 
-// ─── Room / Bed ───────────────────────────────────────────────────────────────
+// ─── Room / Unit ──────────────────────────────────────────────────────────────
 
 export interface RoomDto {
   id: string
@@ -62,14 +62,14 @@ export interface RoomDto {
   category: RoomCategory
   capacity: number
   cloudbedsRoomId: string | null
-  beds?: BedDto[]
+  units?: UnitDto[]
 }
 
-export interface BedDto {
+export interface UnitDto {
   id: string
   roomId: string
   label: string
-  status: BedStatus
+  status: UnitStatus
   createdAt: string
   updatedAt: string
 }
@@ -95,7 +95,7 @@ export interface CheckoutDto {
 
 export interface CleaningTaskDto {
   id: string
-  bedId: string
+  unitId: string
   checkoutId: string | null
   assignedToId: string | null
   status: CleaningStatus
@@ -108,7 +108,7 @@ export interface CleaningTaskDto {
   verifiedById: string | null
   createdAt: string
   updatedAt: string
-  bed?: BedDto & { room?: RoomDto }
+  unit?: UnitDto & { room?: RoomDto }
   assignedTo?: StaffDto | null
 }
 
@@ -144,18 +144,18 @@ export interface MaintenanceIssueDto {
 // ─── Daily Planning ───────────────────────────────────────────────────────────
 
 export interface DailyPlanningCell {
-  bedId: string
-  bedLabel: string
+  unitId: string
+  unitLabel: string
   roomId: string
   roomNumber: string
   /**
-   * Estado físico actual de la cama en la base de datos.
-   * CRÍTICO: Usado por inferState() para distinguir camas OCCUPIED (con huésped,
-   * elegibles para checkout) de camas AVAILABLE (sin huésped, no deben marcarse
-   * para checkout). Sin este campo, todas las camas sin tarea aparecen como EMPTY
+   * Estado físico actual de la unidad en la base de datos.
+   * CRÍTICO: Usado por inferState() para distinguir unidades OCCUPIED (con huésped,
+   * elegibles para checkout) de unidades AVAILABLE (sin huésped, no deben marcarse
+   * para checkout). Sin este campo, todas las unidades sin tarea aparecen como EMPTY
    * y el supervisor no puede marcarlas.
    */
-  bedStatus: BedStatus
+  unitStatus: UnitStatus
   /** Current task for today (if any) */
   taskId: string | null
   taskStatus: CleaningStatus | null
@@ -170,7 +170,7 @@ export interface DailyPlanningRow {
   roomNumber: string
   roomCategory: RoomCategory
   floor: number | null
-  beds: DailyPlanningCell[]
+  units: DailyPlanningCell[]
 }
 
 export interface DailyPlanningGrid {
@@ -195,11 +195,11 @@ export interface PropertySettingsDto {
   updatedAt: string
 }
 
-// ─── Bed Discrepancy ─────────────────────────────────────────────────────────
+// ─── Unit Discrepancy ─────────────────────────────────────────────────────────
 
-export interface BedDiscrepancyDto {
+export interface UnitDiscrepancyDto {
   id: string
-  bedId: string
+  unitId: string
   reportedById: string
   resolvedById: string | null
   type: DiscrepancyType
@@ -208,7 +208,7 @@ export interface BedDiscrepancyDto {
   resolution: string | null
   createdAt: string
   resolvedAt: string | null
-  bed?: BedDto & { room?: { number: string; floor: number | null } }
+  unit?: UnitDto & { room?: { number: string; floor: number | null } }
   reportedBy?: Pick<StaffDto, 'id' | 'name'>
 }
 
@@ -284,8 +284,8 @@ export interface BlockLogDto {
 export interface RoomBlockDto {
   id: string
   propertyId: string
-  roomId: string | null     // null = bloqueo solo de cama
-  bedId: string | null      // null = bloqueo de habitación completa
+  roomId: string | null     // null = bloqueo solo de unidad
+  unitId: string | null     // null = bloqueo de habitación completa
   semantic: BlockSemantic
   reason: BlockReason
   status: BlockStatus
@@ -302,7 +302,7 @@ export interface RoomBlockDto {
   updatedAt: string
   // Populated relations (endpoints de detalle)
   room?: RoomDto | null
-  bed?: BedDto | null
+  unit?: UnitDto | null
   requestedBy?: Pick<StaffDto, 'id' | 'name'>
   approvedBy?: Pick<StaffDto, 'id' | 'name'> | null
   cleaningTask?: Pick<CleaningTaskDto, 'id' | 'status' | 'assignedToId'> | null
@@ -311,8 +311,8 @@ export interface RoomBlockDto {
 
 // Request payloads
 export interface CreateBlockDto {
-  roomId?: string        // XOR con bedId — si ninguno → error
-  bedId?: string
+  roomId?: string        // XOR con unitId — si ninguno → error
+  unitId?: string
   semantic: BlockSemantic
   reason: BlockReason
   notes?: string

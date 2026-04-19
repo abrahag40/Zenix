@@ -34,7 +34,7 @@ function makeActor(overrides: Partial<{ sub: string; role: HousekeepingRole; pro
 function makeTask(overrides: Record<string, unknown> = {}) {
   return {
     id: 'task-1',
-    bedId: 'bed-1',
+    unitId: 'bed-1',
     checkoutId: null,
     assignedToId: 'staff-1',
     status: CleaningStatus.READY,
@@ -47,7 +47,7 @@ function makeTask(overrides: Record<string, unknown> = {}) {
     verifiedById: null,
     createdAt: new Date(),
     updatedAt: new Date(),
-    bed: {
+    unit: {
       id: 'bed-1',
       roomId: 'room-1',
       label: 'Cama 1',
@@ -79,7 +79,7 @@ describe('TasksService', () => {
       create: jest.fn(),
       update: jest.fn(),
     },
-    bed: { update: jest.fn() },
+    unit: { update: jest.fn() },
     housekeepingStaff: { findUnique: jest.fn() },
     taskLog: { create: jest.fn() },
     // $transaction ejecuta la función callback inmediatamente (sin transacción real)
@@ -123,7 +123,7 @@ describe('TasksService', () => {
       prismaMock.cleaningTask.findFirst.mockResolvedValue(null) // sin tarea activa
       prismaMock.cleaningTask.update.mockResolvedValue(updatedTask)
       prismaMock.taskLog.create.mockResolvedValue({})
-      prismaMock.bed.update.mockResolvedValue({})
+      prismaMock.unit.update.mockResolvedValue({})
 
       // Act
       const result = await service.startTask('task-1', makeActor())
@@ -186,7 +186,7 @@ describe('TasksService', () => {
       prismaMock.cleaningTask.findUnique.mockResolvedValue(task)
       prismaMock.cleaningTask.update.mockResolvedValue(updatedTask)
       prismaMock.taskLog.create.mockResolvedValue({})
-      prismaMock.bed.update.mockResolvedValue({})
+      prismaMock.unit.update.mockResolvedValue({})
 
       // Act
       const result = await service.startTask('task-1', makeActor({ role: HousekeepingRole.SUPERVISOR }))
@@ -202,7 +202,7 @@ describe('TasksService', () => {
       prismaMock.cleaningTask.findFirst.mockResolvedValue(null)
       prismaMock.cleaningTask.update.mockResolvedValue({ ...task, status: CleaningStatus.IN_PROGRESS })
       prismaMock.taskLog.create.mockResolvedValue({})
-      prismaMock.bed.update.mockResolvedValue({})
+      prismaMock.unit.update.mockResolvedValue({})
 
       // Act
       await service.startTask('task-1', makeActor())
@@ -227,14 +227,14 @@ describe('TasksService', () => {
       prismaMock.cleaningTask.findUnique.mockResolvedValue(task)
       prismaMock.cleaningTask.update.mockResolvedValue(updatedTask)
       prismaMock.taskLog.create.mockResolvedValue({})
-      prismaMock.bed.update.mockResolvedValue({})
+      prismaMock.unit.update.mockResolvedValue({})
 
       // Act
       const result = await service.endTask('task-1', makeActor())
 
       // Assert
       expect(result.status).toBe(CleaningStatus.DONE)
-      expect(prismaMock.bed.update).toHaveBeenCalledWith(
+      expect(prismaMock.unit.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: { status: 'AVAILABLE' },
         }),
@@ -249,7 +249,7 @@ describe('TasksService', () => {
       prismaMock.cleaningTask.findUnique.mockResolvedValue(task)
       prismaMock.cleaningTask.update.mockResolvedValue(updatedTask)
       prismaMock.taskLog.create.mockResolvedValue({})
-      prismaMock.bed.update.mockResolvedValue({})
+      prismaMock.unit.update.mockResolvedValue({})
 
       // Act
       const result = await service.endTask('task-1', makeActor())
@@ -275,7 +275,7 @@ describe('TasksService', () => {
       prismaMock.cleaningTask.findUnique.mockResolvedValue(task)
       prismaMock.cleaningTask.update.mockResolvedValue(updatedTask)
       prismaMock.taskLog.create.mockResolvedValue({})
-      prismaMock.bed.update.mockResolvedValue({})
+      prismaMock.unit.update.mockResolvedValue({})
 
       // Act
       await service.endTask('task-1', makeActor())
