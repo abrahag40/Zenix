@@ -1,28 +1,29 @@
 /**
- * Sidebar.tsx — navegación global (top bar) para rutas fuera del PMS.
+ * Sidebar.tsx — global top bar for routes outside the PMS timeline.
  *
- * Las rutas del calendario (/pms) usan <TimelineTopBar /> embebido; el
- * resto de las páginas (dashboard, planning, kanban, etc.) usan este
- * componente, rendereado por <ProtectedLayout />. Ambos comparten la
- * misma UX:
+ * The PMS page (/pms) renders <TimelineTopBar /> which embeds the same
+ * AppDrawer + PropertySwitcher + UserMenu trio shown here. Every other
+ * route is wrapped by <ProtectedLayout /> which pins this bar to the top
+ * of the viewport so the navigation UX stays identical across the app.
  *
- *   · Izquierda: <PropertySwitcher /> — nombre de la sucursal activa
- *                 con dropdown para cambiar.
- *   · Derecha:   <AppMenu align="end" /> — hamburguesa con las 3
- *                 secciones globales y la sesión activa.
+ * Layout (mirrors TimelineTopBar minus the PMS-specific action icons):
  *
- * Ambos exports se conservan para compatibilidad con imports antiguos;
- * renderizan el mismo top bar.
+ *   [☰ AppDrawer] [PropertySwitcher]                         [👤 UserMenu]
+ *
+ * Kept as two exports (Sidebar + MobileNav) for backwards-compat with
+ * imports in App.tsx and any mobile-only call sites.
  */
+import { AppDrawer } from './AppDrawer'
 import { PropertySwitcher } from './PropertySwitcher'
-import { AppMenu } from './AppMenu'
+import { UserMenu } from './UserMenu'
 
 function GlobalTopBar() {
   return (
     <div className="fixed top-0 left-0 right-0 z-30 flex items-center gap-3 px-4 h-14 bg-white border-b border-slate-200">
+      <AppDrawer />
       <PropertySwitcher />
       <div className="flex-1" />
-      <AppMenu align="end" />
+      <UserMenu />
     </div>
   )
 }
@@ -32,6 +33,6 @@ export function Sidebar() {
 }
 
 export function MobileNav() {
-  // Compatibility shim — the nav is unified under GlobalTopBar + AppMenu.
+  // Compatibility shim — unified under GlobalTopBar + AppDrawer.
   return null
 }

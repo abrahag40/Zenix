@@ -8,25 +8,29 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { AppDrawer } from '@/components/AppDrawer'
 import { PropertySwitcher } from '@/components/PropertySwitcher'
-import { AppMenu } from '@/components/AppMenu'
+import { UserMenu } from '@/components/UserMenu'
 
 /**
- * TimelineTopBar — sticky header for the PMS timeline page.
+ * TimelineTopBar — sticky header for the PMS timeline.
  *
- * Layout (left → right):
- *   · PropertySwitcher      — active hotel name + dropdown to switch.
- *   · Search                — global search (reservations, guests).
- *   · [+] New reservation   — opens CheckInDialog.
- *   · Calendar icon         — jump-to-date (not yet wired).
- *   · Notification bell     — inbox with a radar ping when unread.
- *   · AppMenu (hamburger)   — global nav (Calendario, Dashboard,
- *                             Housekeeping submenu) + logout.
+ * Final layout (Cloudbeds reference + NN/G utility-nav guidance):
  *
- * The right-side icon order matches the spec: create → calendar → bell
- * → menu. The hamburger intentionally anchors the top-right corner so
- * the user has a single "account + navigation" entry point across every
- * screen of the PMS.
+ *   ┌──┬────────────────┬────────────┬────────────────────────────────┐
+ *   │☰ │ Hotel Tulum ⌄  │  🔍 search │  [+] [📅] [🔔] [👤]             │
+ *   └──┴────────────────┴────────────┴────────────────────────────────┘
+ *     │         │                          │    │    │    │
+ *     │         │                          │    │    │    └ UserMenu
+ *     │         │                          │    │    │      (profile,
+ *     │         │                          │    │    │       config,
+ *     │         │                          │    │    │       version,
+ *     │         │                          │    │    │       logout)
+ *     │         │                          │    │    └ NotificationBell
+ *     │         │                          │    └ Jump-to-date (stub)
+ *     │         │                          └ New reservation
+ *     │         └ PropertySwitcher (active hotel + dropdown)
+ *     └ AppDrawer (hamburger → module nav)
  */
 
 function NotificationBell({ count = 0 }: { count?: number }) {
@@ -46,17 +50,14 @@ function NotificationBell({ count = 0 }: { count?: number }) {
 
       {hasNew && (
         <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          {/* Wave 1 */}
           <span
             className="absolute w-9 h-9 rounded-lg bg-red-400/20"
             style={{ animation: 'radar1 2.5s ease-out infinite' }}
           />
-          {/* Wave 2 — delayed */}
           <span
             className="absolute w-9 h-9 rounded-lg bg-red-400/15"
             style={{ animation: 'radar2 2.5s ease-out 0.6s infinite' }}
           />
-          {/* Solid dot — top right of icon */}
           <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500 ring-2 ring-white" />
         </span>
       )}
@@ -71,7 +72,8 @@ interface TimelineTopBarProps {
 export function TimelineTopBar({ onNewReservation }: TimelineTopBarProps) {
   return (
     <div className="flex items-center gap-3 px-4 h-14 border-b border-slate-200 bg-white shrink-0">
-      {/* Left: property switcher */}
+      {/* Left cluster: nav drawer trigger + property switcher */}
+      <AppDrawer />
       <PropertySwitcher />
 
       {/* Center: search */}
@@ -83,7 +85,7 @@ export function TimelineTopBar({ onNewReservation }: TimelineTopBarProps) {
         />
       </div>
 
-      {/* Right: actions — order is create → calendar → bell → menu */}
+      {/* Right cluster: actions → user menu */}
       <div className="flex items-center gap-1">
         <TooltipProvider delayDuration={300}>
           <Tooltip>
@@ -112,7 +114,7 @@ export function TimelineTopBar({ onNewReservation }: TimelineTopBarProps) {
 
         <NotificationBell count={3} />
 
-        <AppMenu align="end" />
+        <UserMenu />
       </div>
     </div>
   )
