@@ -80,24 +80,28 @@ async function main() {
   // 2. PROPERTIES ───────────────────────────────────────────────────────────
   const tulum = await prisma.property.upsert({
     where: { id: 'prop-hotel-tulum-001' },
-    update: { name: 'Hotel Tulum' },
+    update: { name: 'Hotel Tulum', region: 'Riviera Maya', city: 'Tulum' },
     create: {
       id: 'prop-hotel-tulum-001',
       organizationId: org.id,
       name: 'Hotel Tulum',
       type: 'HOTEL',
+      region: 'Riviera Maya',
+      city: 'Tulum',
       checkinTime: '15:00',
       checkoutTime: '12:00',
     },
   })
   const cancun = await prisma.property.upsert({
     where: { id: 'prop-hotel-cancun-001' },
-    update: { name: 'Hotel Cancún' },
+    update: { name: 'Hotel Cancún', region: 'Zona Hotelera Cancún', city: 'Cancún' },
     create: {
       id: 'prop-hotel-cancun-001',
       organizationId: org.id,
       name: 'Hotel Cancún',
       type: 'HOTEL',
+      region: 'Zona Hotelera Cancún',
+      city: 'Cancún',
       checkinTime: '15:00',
       checkoutTime: '12:00',
     },
@@ -300,8 +304,18 @@ async function main() {
   // in-house today, arriving today, arriving next week, extension, and a
   // room move across two rooms.
 
-  await prisma.guestStay.deleteMany({ where: { propertyId: cancun.id } })
+  // Clean Cancún fixture data in FK-safe order before re-creating it.
+  await prisma.segmentNight.deleteMany({
+    where: { segment: { journey: { propertyId: cancun.id } } },
+  })
+  await prisma.staySegment.deleteMany({
+    where: { journey: { propertyId: cancun.id } },
+  })
+  await prisma.stayJourneyEvent.deleteMany({
+    where: { journey: { propertyId: cancun.id } },
+  })
   await prisma.stayJourney.deleteMany({ where: { propertyId: cancun.id } })
+  await prisma.guestStay.deleteMany({ where: { propertyId: cancun.id } })
 
   type CancunStay = {
     id: string

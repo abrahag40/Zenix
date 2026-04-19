@@ -1,27 +1,42 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown } from 'lucide-react'
+import { Check, ChevronDown } from 'lucide-react'
 import { api } from '../api/client'
 import { useAuthStore } from '../store/auth'
 import { usePropertyStore } from '../store/property'
 import type { PropertyDto } from '@zenix/shared'
 
 /**
- * PropertySwitcher — left-side control on every app top bar.
+ * PropertySwitcher — left-header control for choosing which property
+ * the rest of the UI is scoped to.
  *
- * Shows the name of the property currently being viewed. Clicking opens
- * a dropdown with every property under the same organization; selecting
- * one updates the propertyStore and flushes the React Query cache so the
- * timeline, dashboard, and every scoped page refetch against the new
- * property.
+ * Design grounded in:
+ *   · Shopify Polaris Combobox — "Move selected items to the top of
+ *     the list"  (polaris-react.shopify.com/components/selection-and-input/combobox)
+ *   · Mews Multi-Property product docs — properties are grouped "by
+ *     brand, region and other attributes" for chains
+ *     (mews.com/en/products/multi-property-management)
+ *   · Oracle OPERA Cloud — chain/property hierarchy
+ *     (oracle.com/hospitality/opera-property-services)
+ *   · NN/G "Dropdowns: Design Guidelines" — long flat dropdowns hurt
+ *     scanability; use grouping (nngroup.com/articles/drop-down-menus)
  *
- * The switcher only appears as interactive when the user has access to
- * more than one property (supervisor role / multi-property orgs). With a
- * single property it renders as a plain label.
+ * Behavior
+ *   1. The currently active property is pinned at the top of the list
+ *      under a "Actual" header, with a checkmark (Polaris pattern).
+ *   2. The rest of the properties are grouped by their `region` field
+ *      whenever ≥2 regions are present. With a single region, headers
+ *      are hidden (avoids visual noise when there's nothing to group).
+ *   3. Every row shows the property name as primary text and
+ *      "city · region" as secondary muted text (inline disambiguation
+ *      — Slack/Google account-picker convention). Same-name properties
+ *      in different regions read differently without scanning.
  *
- * Backend note: the PMS endpoints accept `propertyId` as a query param,
- * and TenantGuard gates access by organizationId only, so switching
- * within the same org doesn't require a new JWT.
+ * Notes
+ *   · Selecting a property writes it to the persisted propertyStore
+ *     and calls `queryClient.clear()` so every scoped page refetches.
+ *   · When the user only has one property (typical for small hotels),
+ *     the switcher renders as an uninteractive label.
  */
 export function PropertySwitcher() {
   const [open, setOpen] = useState(false)
@@ -39,22 +54,25 @@ export function PropertySwitcher() {
     enabled: !!user,
   })
 
-  // Sync the store with whichever property the user actually has access to.
-  // If `activePropertyId` still points at a property that no longer exists
-  // (e.g. retired seed), fall back to the first one returned by the API.
+  const active = properties.find((p) => p.id === activePropertyId) ?? properties[0]
+
+  // Keep the persisted name aligned with the server — if someone
+  // renames the property or the persisted id points at a retired
+  // property, fall back to the user's home property or the first one
+  // returned by the API.
   useEffect(() => {
     if (!properties.length) return
     const valid = properties.find((p) => p.id === activePropertyId)
     if (!valid) {
-      const fallback = properties.find((p) => p.id === user?.propertyId) ?? properties[0]
+      const fallback =
+        properties.find((p) => p.id === user?.propertyId) ?? properties[0]
       setActiveProperty(fallback.id, fallback.name)
     } else if (valid.name !== activePropertyName) {
-      // Names can drift after an admin rename — keep the label fresh.
       setActiveProperty(valid.id, valid.name)
     }
   }, [properties, activePropertyId, activePropertyName, user?.propertyId, setActiveProperty])
 
-  // Close dropdown on outside click.
+  // Close on outside click.
   useEffect(() => {
     if (!open) return
     function handle(e: MouseEvent) {
@@ -64,7 +82,30 @@ export function PropertySwitcher() {
     return () => document.removeEventListener('mousedown', handle)
   }, [open])
 
-  const active = properties.find((p) => p.id === activePropertyId) ?? properties[0]
+  // Build the grouped list: the active property sits under "Actual",
+  // every other property is bucketed by its region (or "Sin región"
+  // when no region is set). Region buckets only render a header when
+  // ≥2 regions exist in the rest of the list.
+  const groups = useMemo(() => {
+    const rest = properties.filter((p) => p.id !== active?.id)
+    const byRegion = new Map<string, PropertyDto[]>()
+    for (const p of rest) {
+      const key = p.region?.trim() || 'Sin región'
+      const bucket = byRegion.get(key) ?? []
+      bucket.push(p)
+      byRegion.set(key, bucket)
+    }
+    // Sort region names alphabetically; within each, sort properties by name.
+    const sortedRegions = Array.from(byRegion.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([region, items]) => ({
+        region,
+        items: items.sort((a, b) => a.name.localeCompare(b.name)),
+      }))
+    return { active, rest, groups: sortedRegions }
+  }, [properties, active])
+
+  const showRegionHeaders = groups.groups.length >= 2
   const multiProperty = properties.length > 1
 
   function handleSelect(p: PropertyDto) {
@@ -73,17 +114,10 @@ export function PropertySwitcher() {
       return
     }
     setActiveProperty(p.id, p.name)
-    // Flush everything — different property means a different room list,
-    // different guest stays, different checkouts, etc.
     qc.clear()
     setOpen(false)
   }
 
-  // Label priority:
-  //   1. The currently active property's `name` from /properties (source of truth).
-  //   2. A previously persisted name (from localStorage on reload).
-  //   3. "Cargando sucursal…" while we wait — better than flashing the raw
-  //      property UUID from the JWT.
   const label = active?.name || activePropertyName || 'Cargando sucursal…'
 
   return (
@@ -108,28 +142,78 @@ export function PropertySwitcher() {
       </button>
 
       {open && multiProperty && (
-        <div className="absolute top-full left-0 mt-1 min-w-[220px] bg-white border border-slate-200 rounded-lg shadow-lg z-50 overflow-hidden">
-          {properties.map((p) => {
-            const isActive = p.id === activePropertyId
-            return (
-              <button
-                key={p.id}
-                onClick={() => handleSelect(p)}
-                className={`flex items-center gap-2 w-full px-3 py-2.5 text-sm text-left transition-colors ${
-                  isActive
-                    ? 'bg-indigo-50 text-indigo-700 font-medium'
-                    : 'text-slate-700 hover:bg-slate-50'
-                }`}
-              >
-                <span className={`w-4 text-center text-indigo-600 ${isActive ? '' : 'invisible'}`}>
-                  ✓
-                </span>
-                <span className="truncate">{p.name}</span>
-              </button>
-            )
-          })}
+        <div
+          className="absolute top-full left-0 mt-1 min-w-[280px] max-w-[360px] bg-white border border-slate-200 rounded-lg shadow-lg z-50 overflow-hidden"
+          role="listbox"
+        >
+          {/* Pinned: the active property */}
+          {active && (
+            <>
+              <SectionHeader label="Actual" />
+              <PropertyRow property={active} active onSelect={handleSelect} />
+            </>
+          )}
+
+          {/* Grouped rest */}
+          {groups.groups.map((g) => (
+            <div key={g.region}>
+              {showRegionHeaders && <SectionHeader label={g.region} />}
+              {g.items.map((p) => (
+                <PropertyRow
+                  key={p.id}
+                  property={p}
+                  active={false}
+                  onSelect={handleSelect}
+                />
+              ))}
+            </div>
+          ))}
         </div>
       )}
     </div>
+  )
+}
+
+// ── Subcomponents ────────────────────────────────────────────────────────
+
+function SectionHeader({ label }: { label: string }) {
+  return (
+    <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-slate-400 font-semibold bg-slate-50 border-b border-slate-100">
+      {label}
+    </div>
+  )
+}
+
+function PropertyRow({
+  property,
+  active,
+  onSelect,
+}: {
+  property: PropertyDto
+  active: boolean
+  onSelect: (p: PropertyDto) => void
+}) {
+  const secondary = [property.city, property.region].filter(Boolean).join(' · ')
+  return (
+    <button
+      onClick={() => onSelect(property)}
+      className={`flex items-start gap-2 w-full px-3 py-2.5 text-sm text-left transition-colors ${
+        active
+          ? 'bg-indigo-50 text-indigo-700'
+          : 'text-slate-700 hover:bg-slate-50'
+      }`}
+      role="option"
+      aria-selected={active}
+    >
+      <span className={`w-4 mt-0.5 text-center text-indigo-600 ${active ? '' : 'invisible'}`}>
+        <Check className="h-3.5 w-3.5 inline" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className={`block truncate ${active ? 'font-medium' : ''}`}>{property.name}</span>
+        {secondary && (
+          <span className="block text-xs text-slate-400 truncate">{secondary}</span>
+        )}
+      </span>
+    </button>
   )
 }

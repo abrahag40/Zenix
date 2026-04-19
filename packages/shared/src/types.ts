@@ -291,12 +291,16 @@ export interface RoomAvailabilityResult {
   conflicts: AvailabilityConflict[]
 }
 
-// Slim Property payload returned by GET /properties — just what the
-// PropertySwitcher needs. The full Prisma model has more fields but the
-// switcher only cares about id + display name.
+// Slim Property payload returned by GET /properties. Feeds the
+// PropertySwitcher dropdown — needs name for the label, region for
+// grouping multiple properties in the same chain (Mews/Opera multi-
+// property pattern), and city for disambiguating same-named hotels
+// across regions (Slack / Google account-picker pattern).
 export interface PropertyDto {
   id: string
   name: string
   organizationId?: string | null
   type?: string
+  region?: string | null
+  city?: string | null
 }

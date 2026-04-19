@@ -228,6 +228,13 @@ model Property {
   name           String
   type           PropertyType  @default(HOTEL)
   taxId          String?       @map("tax_id")
+  // Optional geographic grouping for the property switcher.
+  // `region` is the coarse grouping key (chains split by "Caribe",
+  // "Pacífico", "Brasil", etc. — see Mews/Opera multi-property docs);
+  // `city` disambiguates properties with the same name inside the
+  // same region (Slack/Google-picker pattern).
+  region         String?
+  city           String?
   checkinTime    String        @default("15:00") @map("checkin_time")
   checkoutTime   String        @default("12:00") @map("checkout_time")
   isActive       Boolean       @default(true) @map("is_active")

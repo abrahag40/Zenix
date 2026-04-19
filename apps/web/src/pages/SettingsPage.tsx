@@ -15,6 +15,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { api } from '../api/client'
 import { useAuthStore } from '../store/auth'
+import { SettingsScopeBanner } from '../components/SettingsScopeBanner'
 import type { BedDto, PropertySettingsDto, RoomDto, StaffDto } from '@zenix/shared'
 import { Capability, HousekeepingRole, RoomCategory } from '@zenix/shared'
 
@@ -41,6 +42,11 @@ export function SettingsPage() {
             : 'Vista de solo lectura — solicita cambios al supervisor.'}
         </p>
       </div>
+
+      {/* Scope banner — every tab below is property-scoped. Render the
+          banner outside the tab switch so the user never loses scope
+          awareness while navigating between sub-sections. */}
+      <SettingsScopeBanner />
 
       {/* Tabs */}
       <div className="flex border-b border-gray-200 gap-0">
