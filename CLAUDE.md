@@ -1179,6 +1179,19 @@ Doble clic → dos juegos de tareas PENDING. Frontend previene con `isPending`, 
 **Mobile sin tests**
 No hay ningún test en `apps/mobile`.
 
+**`CleaningTask.bedId` NOT NULL — deuda técnica para hoteles con múltiples camas por cuarto**
+El modelo fue diseñado hostel-first: `CleaningTask` siempre se vincula a una cama (`bedId`), nunca directamente a una habitación. Para un hostal esto es correcto (cada cama = unidad vendible independiente). Para un hotel con habitación doble/twin (2 camas, 1 unidad vendible), el bloqueo de habitación via `SmartBlock` genera hoy **2 tareas MAINTENANCE separadas** cuando debería generar 1 tarea a nivel de habitación.
+
+El comportamiento actual es **funcionalmente correcto para el caso más común** (hotel con 1 cama por habitación privada), pero semánticamente incorrecto para dobles/twin.
+
+Refactor requerido cuando se amplíe a hoteles con habitaciones multi-cama:
+1. `prisma/schema.prisma` — hacer `CleaningTask.bedId` opcional (`String?`) y añadir `roomId String?` (XOR: exactamente uno presente)
+2. `blocks.service.ts` `activateBlock()` — si `room.type === PRIVATE` → crear 1 tarea con `roomId`; si `room.type === SHARED` → N tareas con `bedId` (comportamiento actual)
+3. `TasksService`, `CleaningTaskDto`, `KanbanPage`, `mobile/task/[id].tsx` — renderizar `roomId` cuando `bedId` sea null
+4. Migración Prisma segura: no hay datos de producción con `taskType = MAINTENANCE` aún
+
+Evidencia en código: `TODO(hotel-room-granularity)` en `blocks.service.ts` y `schema.prisma`.
+
 ---
 
 ## Commands

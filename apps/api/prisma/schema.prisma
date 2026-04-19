@@ -370,6 +370,16 @@ model Checkout {
   @@map("checkouts")
 }
 
+// TODO(hotel-room-granularity): CleaningTask fue diseñado hostel-first — bedId es NOT NULL
+// y la tarea siempre se vincula a una cama, nunca directamente a una habitación.
+// Para hoteles con habitaciones dobles/twin (2 camas, 1 unidad vendible), un bloqueo
+// de habitación genera hoy N tareas MAINTENANCE (una por cama) cuando debería ser 1.
+// Refactor requerido:
+//   1. Hacer bedId opcional: `bedId String?`
+//   2. Añadir `roomId String?` (XOR con bedId — exactamente uno debe estar presente)
+//   3. Actualizar TasksService, CleaningTaskDto, KanbanPage y mobile task/[id].tsx
+//      para renderizar roomId cuando bedId sea null (tareas de bloqueo room-level)
+//   4. Migración Prisma: no hay datos existentes de tipo MAINTENANCE, safe to migrate
 model CleaningTask {
   id                 String         @id @default(uuid())
   organizationId     String?        @map("organization_id")

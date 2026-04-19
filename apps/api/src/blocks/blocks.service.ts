@@ -323,7 +323,27 @@ export class BlocksService {
 
     await this.prisma.$transaction(async (tx) => {
       // 1. Crear CleaningTask(MAINTENANCE) automáticamente
-      //    Si es bloqueo de habitación completa → una tarea por cama
+      //
+      // DISEÑO ACTUAL — hostel-first (deuda técnica para hoteles):
+      //   CleaningTask.bedId es NOT NULL — la tarea siempre se vincula a una cama,
+      //   nunca directamente a una habitación. Esto es correcto para hostales donde
+      //   cada cama es la unidad vendible independiente.
+      //
+      //   Para bloqueo de cama individual → 1 tarea para esa cama.
+      //   Para bloqueo de habitación completa → 1 tarea POR CADA cama en el cuarto.
+      //
+      // TODO(hotel-room-granularity): En hoteles, una habitación doble/twin tiene
+      //   2 camas pero es UNA unidad vendible. El bloqueo de habitación debería
+      //   generar 1 sola CleaningTask vinculada a la habitación (no al par de camas).
+      //   Para implementarlo se necesita:
+      //     a) Añadir `roomId String?` opcional a CleaningTask (nullable, XOR con bedId)
+      //     b) Añadir campo `roomType` o `isPrivate` en Room para distinguir hostel vs hotel
+      //     c) En activateBlock: si room.type === PRIVATE (hotel) → 1 tarea con roomId,
+      //        si room.type === SHARED (hostal dorm) → N tareas con bedId (comportamiento actual)
+      //     d) Mobile task detail y KanbanPage deben renderizar roomId en lugar de bedId
+      //        cuando la tarea sea room-level
+      //   Impacto: migración Prisma + cambios en CleaningTask serialización + TasksService
+      //
       const bedIds = block.bedId
         ? [block.bedId]
         : (block.room?.beds.map((b) => b.id) ?? [])
@@ -333,6 +353,8 @@ export class BlocksService {
       if (bedIds.length > 0) {
         // Para bloqueo de cama individual → 1 tarea, guardamos el id
         // Para habitación completa → múltiples tareas (solo guardamos el primero en cleaningTaskId)
+        // NOTA: ver TODO(hotel-room-granularity) arriba — en hotel privado esto genera
+        // N tareas para 1 unidad vendible. Funciona pero semánticamente incorrecto.
         for (const bId of bedIds) {
           const task = await tx.cleaningTask.create({
             data: {
@@ -347,6 +369,9 @@ export class BlocksService {
           if (!cleaningTaskId) cleaningTaskId = task.id
 
           // Marcar cama como BLOCKED
+          // NOTA: bed.status = BLOCKED funciona como proxy de "habitación bloqueada"
+          // para el caso de hotel privado (1 cama = 1 habitación). Si se implementa
+          // el TODO(hotel-room-granularity), debería cambiarse a room.status = BLOCKED.
           await tx.bed.update({
             where: { id: bId },
             data: { status: 'BLOCKED' },
