@@ -175,7 +175,6 @@ model Organization {
   pmsConfigs        PmsConfig[]
   propertySettings  PropertySettings[]
   roomTypes         RoomType[]
-  roomStatusLogs    RoomStatusLog[]
   guestStays        GuestStay[]
   roomTypeChecklists RoomTypeChecklist[]
   roomReadinessTasks RoomReadinessTask[]
@@ -236,8 +235,6 @@ model Property {
   // same region (Slack/Google-picker pattern).
   region         String?
   city           String?
-  checkinTime    String        @default("15:00") @map("checkin_time")
-  checkoutTime   String        @default("12:00") @map("checkout_time")
   isActive       Boolean       @default(true) @map("is_active")
   deletedAt      DateTime?     @map("deleted_at")
   createdAt      DateTime      @default(now())
@@ -276,7 +273,6 @@ model Room {
   roomType     RoomType?       @relation(fields: [roomTypeId], references: [id])
   units        Unit[]
   checkouts    Checkout[]
-  statusLogs   RoomStatusLog[]
   guestStays   GuestStay[]
   readinessTasks RoomReadinessTask[]
   staySegments StaySegment[]
@@ -358,7 +354,6 @@ model Checkout {
   enteredById            String?
   cancelled              Boolean        @default(false)
   cancelledAt            DateTime?
-  createdById            String?        @map("created_by_id")
   createdAt              DateTime       @default(now())
 
   organization Organization?     @relation(fields: [organizationId], references: [id])
@@ -395,8 +390,6 @@ model CleaningTask {
   finishedAt         DateTime?
   verifiedAt         DateTime?
   verifiedById       String?
-  createdById        String?        @map("created_by_id")
-  updatedById        String?        @map("updated_by_id")
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
 
@@ -461,7 +454,6 @@ model MaintenanceIssue {
   description    String
   photoUrl       String?
   resolved       Boolean             @default(false)
-  createdById    String?             @map("created_by_id")
   createdAt      DateTime            @default(now())
 
   organization Organization?     @relation(fields: [organizationId], references: [id])
@@ -543,7 +535,6 @@ model UnitDiscrepancy {
   status         DiscrepancyStatus @default(OPEN)
   description    String
   resolution     String?
-  createdById    String?           @map("created_by_id")
   createdAt      DateTime          @default(now())
   resolvedAt     DateTime?
 
@@ -584,26 +575,6 @@ model RoomType {
   @@index([organizationId])
   @@index([organizationId, propertyId])
   @@map("room_types")
-}
-
-model RoomStatusLog {
-  id             String     @id @default(uuid())
-  organizationId String     @map("organization_id")
-  propertyId     String     @map("property_id")
-  roomId         String     @map("room_id")
-  fromStatus     RoomStatus @map("from_status")
-  toStatus       RoomStatus @map("to_status")
-  changedById    String     @map("changed_by_id")
-  reason         String?
-  createdAt      DateTime   @default(now()) @map("created_at")
-
-  organization Organization @relation(fields: [organizationId], references: [id])
-  room         Room         @relation(fields: [roomId], references: [id])
-
-  @@index([organizationId])
-  @@index([roomId])
-  @@index([createdAt])
-  @@map("room_status_logs")
 }
 
 model GuestStay {
