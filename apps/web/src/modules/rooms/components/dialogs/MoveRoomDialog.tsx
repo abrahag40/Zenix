@@ -129,8 +129,12 @@ export function MoveRoomDialog({
           </div>
         )}
 
-        {/* Room list */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-1">
+        {/* Room list — overscroll-behavior and will-change promote to GPU layer,
+            eliminating jank on mid-length lists during scroll */}
+        <div
+          className="flex-1 overflow-y-auto p-4 space-y-1"
+          style={{ overscrollBehavior: 'contain', willChange: 'scroll-position' }}
+        >
           {roomsFlat.map((room) => {
             const isCurrent  = room.id === stay.roomId
             const conflictGuest = isRoomOccupied(room.id)
@@ -146,6 +150,7 @@ export function MoveRoomDialog({
                 key={room.id}
                 disabled={isDisabled}
                 onClick={() => setSelectedRoomId(room.id)}
+                style={{ contain: 'layout style paint' }}
                 className={cn(
                   'w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-left transition-all',
                   'border',

@@ -456,6 +456,7 @@ export function TimelineScheduler() {
               flatRows={flatRows}
               dragTargetRoomId={dragState?.currentRoomId}
               dragIsValid={dragState?.isValid ?? true}
+              isDragging={!!dragState || !!extendState}
               onCellClick={(roomId, date) => {
                 const allBlocks = [...stays, ...journeyBlocks]
                 const occupied = allBlocks.some(

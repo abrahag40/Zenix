@@ -148,17 +148,17 @@ export function ExtendConfirmDialog({
             </p>
           </div>
 
-          {/* OTA advisory */}
+          {/* OTA advisory — temporary until Sprint 8 (Channex.io channel manager) */}
           {isOta && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex gap-2.5">
               <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
               <div>
                 <p className="text-xs font-semibold text-amber-800">
-                  Reserva via {otaName ?? source}
+                  Reserva vía {otaName ?? source}
                 </p>
                 <p className="text-[11px] text-amber-700 mt-0.5 leading-snug">
-                  Las noches adicionales no se reflejan automáticamente en la OTA.
-                  Actualiza la reserva en la extranet de {otaName ?? source} o vía channel manager.
+                  Próximamente el PMS sincronizará automáticamente con todas las OTAs vía
+                  Channel Manager. Por ahora, refleja el cambio en la extranet de {otaName ?? source}.
                 </p>
               </div>
             </div>
