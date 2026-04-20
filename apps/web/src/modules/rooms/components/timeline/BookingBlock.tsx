@@ -90,10 +90,15 @@ export function BookingBlock({
 
   const stayStatus = getStayStatus(stay.checkIn, stay.checkOut, stay.actualCheckout)
   const isDeparting = stayStatus === 'DEPARTING'
-  // IN_HOUSE without noShowAt = guest was expected but hasn't been marked no-show yet
+  // Confirmed no-show: noShowAt is set
+  const isConfirmedNoShow = !!stay.noShowAt
+  // Potential no-show: IN_HOUSE status but no confirmed no-show yet
   const isPotentialNoShow = stayStatus === 'IN_HOUSE' && !stay.noShowAt
   const colors = STAY_STATUS_COLORS[stayStatus as StayStatusKey]
   const otaAccent = OTA_ACCENT_COLORS[stay.source] ?? OTA_ACCENT_COLORS.other
+  // Journey continuation blocks (ROOM_MOVE, EXTENSION_*) are not drag-movable
+  // via the drag gesture — they must be moved via the MoveRoomDialog.
+  const isJourneyBlock = !!stay.segmentReason
   const isCompact = dayWidth <= 20
   const showText = rect.width > TIMELINE.MIN_BLOCK_WIDTH
   const showEdgeLabels = !isCompact && rect.width > 80
@@ -146,13 +151,14 @@ export function BookingBlock({
     e.preventDefault()
     e.stopPropagation()
 
-    // Past stays are read-only: allow click to open details, no drag
-    if (isPast) {
-      function handleMouseUpPast() {
-        window.removeEventListener('mouseup', handleMouseUpPast)
+    // Past stays, confirmed no-shows, and journey continuation blocks:
+    // click-only (no drag). Journey blocks are moved via MoveRoomDialog.
+    if (isPast || isConfirmedNoShow || isJourneyBlock) {
+      function handleMouseUpReadOnly() {
+        window.removeEventListener('mouseup', handleMouseUpReadOnly)
         onClick()
       }
-      window.addEventListener('mouseup', handleMouseUpPast)
+      window.addEventListener('mouseup', handleMouseUpReadOnly)
       return
     }
 
@@ -210,8 +216,8 @@ export function BookingBlock({
           top: rect.y + groupHeaderOffsetY + 3,
           width: rect.width - 3,
           height: rect.height - 4,
-          backgroundColor: colors.bg,
-          color: colors.text,
+          backgroundColor: isConfirmedNoShow ? 'rgba(239,68,68,0.09)' : colors.bg,
+          color: isConfirmedNoShow ? '#7F1D1D' : colors.text,
           boxShadow: BLOCK_SHADOW,
           borderRadius: 6,
           pointerEvents: isDragging ? 'none' : 'auto',
@@ -219,20 +225,20 @@ export function BookingBlock({
             ? 0.15
             : isDragging
             ? 0.3
-            : isSegmentLocked || stayStatus === 'DEPARTED'
+            : isSegmentLocked || stayStatus === 'DEPARTED' || isConfirmedNoShow
             ? 0.72
             : 1,
-          cursor: isPast || isLocked || isSegmentLocked ? 'default' : isDragging ? 'grabbing' : 'grab',
+          cursor: isPast || isLocked || isSegmentLocked || isConfirmedNoShow || isJourneyBlock ? 'default' : isDragging ? 'grabbing' : 'grab',
           borderRight: lastSegmentBorder,
           animationFillMode: 'forwards',
           animationDelay: `${staggerIndex * 20}ms`,
           zIndex: dimmed ? 3 : visible ? 20 : 6,
         }}
       >
-        {/* OTA accent bar — left border stripe */}
+        {/* OTA accent bar — left border stripe. Red for confirmed no-shows. */}
         <div
           className="absolute left-0 top-0 bottom-0 w-[3px] rounded-l-md"
-          style={{ backgroundColor: otaAccent }}
+          style={{ backgroundColor: isConfirmedNoShow ? '#DC2626' : otaAccent }}
         />
 
         {isCompact ? (
@@ -263,13 +269,16 @@ export function BookingBlock({
                     </div>
                   )
                 )}
-                <span className="text-[11px] font-medium truncate leading-none">
+                <span
+                  className="text-[11px] font-medium truncate leading-none"
+                  style={isConfirmedNoShow ? { textDecoration: 'line-through', opacity: 0.8 } : undefined}
+                >
                   {displayName}
                 </span>
               </div>
             )}
             {/* OUT button — always anchored to right edge of the block */}
-            {isDeparting && onCheckout && !isDragging && !isSegmentLocked && (
+            {!isConfirmedNoShow && isDeparting && onCheckout && !isDragging && !isSegmentLocked && (
               <button
                 className="absolute inset-y-0 right-1.5 my-auto flex items-center gap-0.5 bg-amber-600 hover:bg-amber-700
                            text-white rounded px-1.5 py-0.5 text-[9px] font-bold h-fit
@@ -315,13 +324,32 @@ export function BookingBlock({
               )
             )}
             {(showDot || showText) && (
-              <span className="text-[11px] font-medium truncate leading-none">
+              <span
+                className="text-[11px] font-medium truncate leading-none"
+                style={isConfirmedNoShow && rect.width > 60 ? { textDecoration: 'line-through', opacity: 0.8 } : undefined}
+              >
                 {displayName}
               </span>
             )}
 
+            {/* CONFIRMED NO-SHOW badge — stable pill (no pulse), replaces potential NS */}
+            {isConfirmedNoShow && rect.width > 60 && !isDragging && (
+              <div
+                className="absolute inset-y-0 right-1.5 my-auto flex items-center shrink-0 h-fit"
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <span
+                  className="inline-flex items-center gap-0.5 font-bold"
+                  style={{ backgroundColor: '#FEE2E2', color: '#991B1B', fontSize: 9, padding: '1px 5px', borderRadius: 3, lineHeight: 1.5 }}
+                >
+                  <UserX style={{ width: 8, height: 8 }} />
+                  NS
+                </span>
+              </div>
+            )}
+
             {/* DEPARTING — absolute right, same as clipped layout */}
-            {isDeparting && rect.width > 80 && onCheckout && !isDragging && !isSegmentLocked && (
+            {!isConfirmedNoShow && isDeparting && rect.width > 80 && onCheckout && !isDragging && !isSegmentLocked && (
               <button
                 className="absolute inset-y-0 right-1.5 my-auto flex items-center gap-0.5 bg-amber-600 hover:bg-amber-700
                            text-white rounded px-1.5 py-0.5 text-[9px] font-bold h-fit
@@ -337,8 +365,8 @@ export function BookingBlock({
                 OUT
               </button>
             )}
-            {/* POTENTIAL NO-SHOW — badge NS con pulsing dot */}
-            {isPotentialNoShow && rect.width > 70 && !isDragging && !isSegmentLocked && (
+            {/* POTENTIAL NO-SHOW — badge NS con pulsing dot (only when not yet confirmed) */}
+            {isPotentialNoShow && !isConfirmedNoShow && rect.width > 70 && !isDragging && !isSegmentLocked && (
               <div
                 className="absolute inset-y-0 right-1.5 my-auto flex items-center shrink-0 h-fit"
                 onMouseDown={(e) => e.stopPropagation()}
@@ -353,8 +381,8 @@ export function BookingBlock({
                 <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />
               </div>
             )}
-            {/* Lock toggle — hidden for past stays */}
-            {!isPast && !isDragging && !isSegmentLocked && !isDeparting && !isPotentialNoShow && (
+            {/* Lock toggle — hidden for past stays, no-shows, and journey blocks */}
+            {!isPast && !isConfirmedNoShow && !isJourneyBlock && !isDragging && !isSegmentLocked && !isDeparting && !isPotentialNoShow && (
               <div
                 className={cn(
                   'absolute inset-y-0 right-1 my-auto p-0.5 rounded hover:bg-black/10 transition-opacity duration-150 h-fit',
@@ -376,7 +404,7 @@ export function BookingBlock({
         )}
 
         {/* Right-edge extend handle — invisible 8px strip, cursor changes to signal drag-to-extend */}
-        {!isPast && !isLocked && !isSegmentLocked && !isDragging && onExtendStart && (
+        {!isPast && !isConfirmedNoShow && !isLocked && !isSegmentLocked && !isDragging && onExtendStart && (
           <div
             className="absolute right-0 top-0 bottom-0 w-2 z-10"
             style={{ cursor: 'ew-resize' }}

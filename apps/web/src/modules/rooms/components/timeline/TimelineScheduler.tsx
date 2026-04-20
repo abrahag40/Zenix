@@ -261,6 +261,13 @@ export function TimelineScheduler() {
   // ─── Drag & Drop ────────────────────────────────────────────
   const [ghostPosition, setGhostPosition] = useState({ x: -9999, y: -9999 })
 
+  // Merge journeyBlocks into conflict detection so dragging a stay
+  // can't overwrite a pre-planned ROOM_MOVE/EXTENSION segment.
+  const allBlocksForDragCheck = useMemo(
+    () => [...stays, ...journeyBlocks],
+    [stays, journeyBlocks],
+  )
+
   const {
     dragState,
     handleDragStart: rawDragStart,
@@ -269,7 +276,7 @@ export function TimelineScheduler() {
     handleDragCancel,
   } = useDragDrop({
     flatRows,
-    stays,
+    stays: allBlocksForDragCheck,
     onDropSuccess: handleDropSuccess,
   })
 
@@ -344,7 +351,7 @@ export function TimelineScheduler() {
       setExtendState(prev => {
         if (!prev) return null
         const deltaDays = Math.round((e.clientX - prev.startClientX) / dayWidth)
-        const newCO = startOfDay(addDays(prev.originalCheckOut, Math.max(1, deltaDays)))
+        const newCO = startOfDay(addDays(prev.originalCheckOut, deltaDays))
         return { ...prev, previewCheckOut: newCO }
       })
     }

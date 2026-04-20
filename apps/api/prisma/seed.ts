@@ -309,7 +309,7 @@ async function main() {
   //  4  Chen Wei         401   ARRIVING +6d    journey  ROOM_MOVE pre-planned (→ 402 on day 9)
   //  5  Julia Novak      302   IN_HOUSE ext    journey  Extension same room (+3n already approved)
   //  6  Marie Dubois     203   ARRIVING +2d    none     OTA (Expedia) · amber badge
-  //  7  Marco Rossi      203→204 IN_HOUSE      journey  Mid-stay room move (ROOM_MOVE segment
+  //  7  Marco Rossi      201→204 IN_HOUSE      journey  Mid-stay room move (ROOM_MOVE segment
   //                                                      → tests useSplitMidStay / journey endpoint)
   //
   //  How to test #7 (IN_HOUSE routing):
@@ -437,13 +437,15 @@ async function main() {
       source: 'expedia',
       notes: 'Reserva confirmada por OTA, pago al checkout.',
     },
-    // Marco Rossi: mid-stay room move 203→204 (moved yesterday).
-    // GuestStay points to original room 203. The StayJourney below adds a
+    // Marco Rossi: mid-stay room move 201→204 (moved yesterday).
+    // GuestStay points to original room 201. The StayJourney below adds a
     // ROOM_MOVE segment in room 204 that appears in journeyBlocks with journeyId.
     // This is the canonical test case for the useSplitMidStay (IN_HOUSE + journeyId) path.
+    // Note: room 201 is safe — Roberto Sánchez checked out at noon on day -5, Marco
+    // checks in at 15:00 on day -5 (same day same-day checkout/checkin, no conflict).
     {
       id: 'stay-cun-move-203',
-      roomNumber: '203',  // original room — GuestStay stays on original room post-move
+      roomNumber: '201',  // original room — GuestStay stays on original room post-move
       guestName: 'Marco Rossi',
       guestEmail: 'marco.r@design.io',
       checkIn: daysFromNow(-5, 15),
@@ -452,7 +454,7 @@ async function main() {
       paid: 900,
       paymentStatus: 'PARTIAL',
       source: 'direct',
-      notes: 'Movido de hab. 203 → 204 ayer por solicitud (ruido). Ver StayJourney.',
+      notes: 'Movido de hab. 201 → 204 ayer por solicitud (ruido). Ver StayJourney.',
     },
   ]
 
@@ -591,8 +593,8 @@ async function main() {
     },
   })
 
-  // Mid-stay room move journey for Marco Rossi: 203 → 204 (moved yesterday).
-  // ORIGINAL segment (locked, completed): room 203, checkIn -5d → checkOut -1d
+  // Mid-stay room move journey for Marco Rossi: 201 → 204 (moved yesterday).
+  // ORIGINAL segment (locked, completed): room 201, checkIn -5d → checkOut -1d
   // ROOM_MOVE segment (active, unlocked):  room 204, checkIn -1d → checkOut +4d
   // The ROOM_MOVE segment is NOT filtered by useStayJourneys (only ORIGINAL is filtered),
   // so it appears in journeyBlocks with journeyId set — triggers splitMidStayMut.
@@ -610,8 +612,8 @@ async function main() {
       segments: {
         create: [
           {
-            // Original segment — completed and locked (guest left 203 yesterday)
-            roomId: roomByNumber.get('203')!.id,
+            // Original segment — completed and locked (guest left 201 yesterday)
+            roomId: roomByNumber.get('201')!.id,
             guestStayId: 'stay-cun-move-203',
             checkIn: daysFromNow(-5, 15),
             checkOut: daysFromNow(-1, 12),

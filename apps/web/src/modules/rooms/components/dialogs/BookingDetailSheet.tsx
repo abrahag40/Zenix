@@ -124,6 +124,11 @@ export function BookingDetailSheet({
                   >
                     {status === 'IN_HOUSE'
                       ? 'Alojado'
+                      : status === 'ARRIVING' && (
+                          stay.segmentReason === 'EXTENSION_SAME_ROOM' ||
+                          stay.segmentReason === 'EXTENSION_NEW_ROOM'
+                        )
+                      ? 'Extensión programada'
                       : status === 'ARRIVING'
                       ? 'Por llegar'
                       : status === 'DEPARTING'
