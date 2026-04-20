@@ -164,16 +164,16 @@ export function TimelineGrid({
 
       {/* Ghost block — Apple Calendar / Google Calendar empty-cell hover pattern.
           Suppressed during drag/resize (isDragging guard).
-          Design language: left-border stripe (same as Mews/Cloudbeds blocks) +
-          emerald tint. No dashed border — conveys "action ready" not "placeholder".
+          Design language: left-border stripe (Mews/Cloudbeds blocks) + emerald tint.
+          Rate is ALWAYS the primary value-add — rendered unconditionally.
+          "Nueva reserva" label shown only when column is wide enough (≥90px).
           Emerald = availability signal (Mehrabian-Russell 1974). */}
       {!isDragging && hoveredCell && getRoomRate && !isCompact && (() => {
         const rateInfo = getRoomRate(hoveredCell.roomId)
         if (!rateInfo) return null
-        const colW = hoveredCell.colWidth
+        const colW   = hoveredCell.colWidth
         const blockW = Math.max(colW - 2, dayWidth / 2)
         const showLabel = blockW >= 90
-        const showRate  = blockW >= 55
 
         return (
           <div
@@ -190,14 +190,14 @@ export function TimelineGrid({
               alignItems: 'center',
               justifyContent: 'space-between',
               paddingLeft: 6,
-              paddingRight: 6,
+              paddingRight: 5,
               pointerEvents: 'none',
               zIndex: 5,
               overflow: 'hidden',
               gap: 3,
             }}
           >
-            {/* Left: + indicator + label */}
+            {/* Left: + indicator, optionally "Nueva reserva" when space allows */}
             <span
               style={{
                 display: 'flex',
@@ -209,39 +209,39 @@ export function TimelineGrid({
                 letterSpacing: '-0.015em',
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
-                textOverflow: 'ellipsis',
                 lineHeight: 1,
                 fontFamily: 'inherit',
+                flexShrink: 1,
+                minWidth: 0,
               }}
             >
-              <span style={{ fontSize: 14, lineHeight: 1, fontWeight: 600 }}>+</span>
+              <span style={{ fontSize: 13, lineHeight: 1, fontWeight: 600, flexShrink: 0 }}>+</span>
               {showLabel && (
-                <span style={{ fontSize: 10.5, fontWeight: 600, opacity: 0.9 }}>
+                <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.85, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   Nueva reserva
                 </span>
               )}
             </span>
 
-            {/* Right: rate badge */}
-            {showRate && (
-              <span
-                style={{
-                  fontSize: 10,
-                  fontWeight: 700,
-                  color: 'rgba(4,120,87,0.65)',
-                  fontVariantNumeric: 'tabular-nums',
-                  fontFamily: 'inherit',
-                  whiteSpace: 'nowrap',
-                  letterSpacing: '-0.01em',
-                  lineHeight: 1,
-                  background: 'rgba(16,185,129,0.12)',
-                  borderRadius: 4,
-                  padding: '2px 4px',
-                }}
-              >
-                {rateInfo.currency} {rateInfo.rate.toLocaleString()}
-              </span>
-            )}
+            {/* Right: rate — always rendered, primary value-add of the ghost block */}
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                color: 'rgba(4,120,87,0.72)',
+                fontVariantNumeric: 'tabular-nums',
+                fontFamily: 'inherit',
+                whiteSpace: 'nowrap',
+                letterSpacing: '-0.01em',
+                lineHeight: 1,
+                background: 'rgba(16,185,129,0.14)',
+                borderRadius: 4,
+                padding: '2px 4px',
+                flexShrink: 0,
+              }}
+            >
+              {rateInfo.currency} {rateInfo.rate.toLocaleString()}
+            </span>
           </div>
         )
       })()}

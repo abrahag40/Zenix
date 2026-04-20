@@ -299,10 +299,27 @@ async function main() {
   }
 
   // 8. CANCÚN CURATED GUESTS ───────────────────────────────────────────────
-  // A compact scenario set so the Cancún timeline is visually meaningful
-  // without duplicating the 41-stay catalog. Covers: past/completed,
-  // in-house today, arriving today, arriving next week, extension, and a
-  // room move across two rooms.
+  // Scenario set curated to cover every PMS calendar flow for UI testing:
+  //
+  //  #  Guest            Room  Status         Journey?  Tests
+  //  ─────────────────────────────────────────────────────────────────────────
+  //  1  Roberto Sánchez  201   DEPARTED        none     Past stay · "Ver folio →"
+  //  2  Isabel Fernández 301   IN_HOUSE        none     Move room (no journeyId → moveRoomMut)
+  //  3  Thomas Weber     202   ARRIVING TODAY  none     Walk-in check-in · OTA badge absent
+  //  4  Chen Wei         401   ARRIVING +6d    journey  ROOM_MOVE pre-planned (→ 402 on day 9)
+  //  5  Julia Novak      302   IN_HOUSE ext    journey  Extension same room (+3n already approved)
+  //  6  Marie Dubois     203   ARRIVING +2d    none     OTA (Expedia) · amber badge
+  //  7  Marco Rossi      203→204 IN_HOUSE      journey  Mid-stay room move (ROOM_MOVE segment
+  //                                                      → tests useSplitMidStay / journey endpoint)
+  //
+  //  How to test #7 (IN_HOUSE routing):
+  //    Click Marco's block in room 204 (the ROOM_MOVE segment).
+  //    "Mover habitación" → dialog shows effective-date picker.
+  //    Confirm → backend receives POST /v1/stay-journeys/journey-cun-marco/room-move.
+  //
+  //  How to test #2 (simple IN_HOUSE, no journey):
+  //    Click Isabel's block in room 301. "Mover habitación" → NO date picker.
+  //    Confirm → backend receives PATCH /v1/guest-stays/:id/move-room.
 
   // Clean Cancún fixture data in FK-safe order before re-creating it.
   await prisma.segmentNight.deleteMany({
@@ -406,7 +423,7 @@ async function main() {
       source: 'direct',
       notes: 'Nómada digital. Extensión aprobada (ver StayJourney).',
     },
-    // arriving in two days, canceled later (useful for future work)
+    // arriving in two days via OTA (Expedia) — tests OTA badge in BookingDetailSheet
     {
       id: 'stay-cun-arr-203',
       roomNumber: '203',
@@ -419,6 +436,23 @@ async function main() {
       paymentStatus: 'PENDING',
       source: 'expedia',
       notes: 'Reserva confirmada por OTA, pago al checkout.',
+    },
+    // Marco Rossi: mid-stay room move 203→204 (moved yesterday).
+    // GuestStay points to original room 203. The StayJourney below adds a
+    // ROOM_MOVE segment in room 204 that appears in journeyBlocks with journeyId.
+    // This is the canonical test case for the useSplitMidStay (IN_HOUSE + journeyId) path.
+    {
+      id: 'stay-cun-move-203',
+      roomNumber: '203',  // original room — GuestStay stays on original room post-move
+      guestName: 'Marco Rossi',
+      guestEmail: 'marco.r@design.io',
+      checkIn: daysFromNow(-5, 15),
+      checkOut: daysFromNow(4, 12),
+      rate: 100,
+      paid: 900,
+      paymentStatus: 'PARTIAL',
+      source: 'direct',
+      notes: 'Movido de hab. 203 → 204 ayer por solicitud (ruido). Ver StayJourney.',
     },
   ]
 
@@ -557,7 +591,73 @@ async function main() {
     },
   })
 
-  console.log(`✅ Cancún: ${cancunStays.length} stays · 2 journeys (extension, room-move)`)
+  // Mid-stay room move journey for Marco Rossi: 203 → 204 (moved yesterday).
+  // ORIGINAL segment (locked, completed): room 203, checkIn -5d → checkOut -1d
+  // ROOM_MOVE segment (active, unlocked):  room 204, checkIn -1d → checkOut +4d
+  // The ROOM_MOVE segment is NOT filtered by useStayJourneys (only ORIGINAL is filtered),
+  // so it appears in journeyBlocks with journeyId set — triggers splitMidStayMut.
+  await prisma.stayJourney.create({
+    data: {
+      id: 'journey-cun-marco',
+      organizationId: org.id,
+      propertyId: cancun.id,
+      guestStayId: 'stay-cun-move-203',
+      guestName: 'Marco Rossi',
+      guestEmail: 'marco.r@design.io',
+      status: 'ACTIVE',
+      journeyCheckIn: daysFromNow(-5, 15),
+      journeyCheckOut: daysFromNow(4, 12),
+      segments: {
+        create: [
+          {
+            // Original segment — completed and locked (guest left 203 yesterday)
+            roomId: roomByNumber.get('203')!.id,
+            guestStayId: 'stay-cun-move-203',
+            checkIn: daysFromNow(-5, 15),
+            checkOut: daysFromNow(-1, 12),
+            status: 'COMPLETED',
+            locked: true,
+            reason: 'ORIGINAL',
+            rateSnapshot: 100,
+            notes: 'Segmento original — completado al mover a 204',
+          },
+          {
+            // Active ROOM_MOVE segment — appears in journeyBlocks in room 204
+            // journeyId will be journey-cun-marco, so splitMidStayMut is triggered
+            roomId: roomByNumber.get('204')!.id,
+            checkIn: daysFromNow(-1, 12),
+            checkOut: daysFromNow(4, 12),
+            status: 'ACTIVE',
+            locked: false,
+            reason: 'ROOM_MOVE',
+            rateSnapshot: 100,
+            notes: 'Movido a 204 por solicitud (ruido en pasillo)',
+          },
+        ],
+      },
+      events: {
+        create: [
+          {
+            eventType: 'JOURNEY_CREATED',
+            actorId: receptionC.id,
+            payload: { channel: 'direct', roomId: roomByNumber.get('203')!.id },
+          },
+          {
+            eventType: 'ROOM_MOVE_EXECUTED',
+            actorId: receptionC.id,
+            payload: {
+              fromRoom: '203',
+              toRoom: '204',
+              effectiveDate: daysFromNow(-1, 12).toISOString(),
+              reason: 'Guest request — noise complaint',
+            },
+          },
+        ],
+      },
+    },
+  })
+
+  console.log(`✅ Cancún: ${cancunStays.length} stays · 3 journeys (extension, room-move ×2)`)
 
   // ── Final summary ─────────────────────────────────────────────────────────
   console.log('\n📋 Credenciales:')
