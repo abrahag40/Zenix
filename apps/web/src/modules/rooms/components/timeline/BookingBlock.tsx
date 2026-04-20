@@ -202,7 +202,6 @@ export function BookingBlock({
           !isDragging && 'hover:z-10',
           !isDragging && 'active:scale-[0.995] active:shadow-none',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500',
-          'opacity-0 animate-fade-in',
         )}
         style={{
           left: rect.x + 1,
@@ -241,10 +240,14 @@ export function BookingBlock({
              Absolutely position name + OUT side-by-side at the visible left edge,
              so the receptionist always knows whose checkout they're confirming. */
           <>
-            {isDeparting && onCheckout && !isDragging && !isSegmentLocked && visibleWidth > 40 && (
+            {/* Name — anchored to visible left edge */}
+            {visibleWidth > 20 && (
               <div
                 className="absolute inset-y-0 flex items-center gap-1.5 overflow-hidden"
-                style={{ left: textOffset + 6, right: 6 }}
+                style={{
+                  left: textOffset + 6,
+                  right: isDeparting && onCheckout && !isDragging && !isSegmentLocked ? 58 : 6,
+                }}
               >
                 {showDot ? (
                   <div style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: dotColor, flexShrink: 0 }} />
@@ -261,49 +264,41 @@ export function BookingBlock({
                 <span className="text-[11px] font-medium truncate leading-none">
                   {displayName}
                 </span>
-                <button
-                  className="flex items-center gap-0.5 bg-amber-600 hover:bg-amber-700
-                             text-white rounded px-1.5 py-0.5 text-[9px] font-bold
-                             transition-colors shadow-sm shrink-0"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onCheckout(stay.id)
-                  }}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  title="Confirmar checkout"
-                >
-                  <LogOut className="h-2.5 w-2.5" />
-                  OUT
-                </button>
               </div>
             )}
-            {(!isDeparting || !onCheckout) && visibleWidth > 20 && (
-              <div
-                className="absolute inset-y-0 flex items-center gap-1.5 overflow-hidden"
-                style={{ left: textOffset + 6, right: 6 }}
+            {/* OUT button — always anchored to right edge of the block */}
+            {isDeparting && onCheckout && !isDragging && !isSegmentLocked && (
+              <button
+                className="absolute inset-y-0 right-1.5 my-auto flex items-center gap-0.5 bg-amber-600 hover:bg-amber-700
+                           text-white rounded px-1.5 py-0.5 text-[9px] font-bold h-fit
+                           transition-colors shadow-sm shrink-0"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onCheckout(stay.id)
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+                title="Confirmar checkout"
               >
-                {showDot ? (
-                  <div style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: dotColor, flexShrink: 0 }} />
-                ) : (
-                  showSegmentBadge && (
-                    <div
-                      className="shrink-0"
-                      style={{ ...segmentBadgeStyle, fontSize: 9, fontWeight: 700, padding: '1px 4px', borderRadius: 3, lineHeight: 1.4, pointerEvents: 'none' }}
-                    >
-                      {segmentBadgeLabel}
-                    </div>
-                  )
-                )}
-                <span className="text-[11px] font-medium truncate leading-none">
-                  {displayName}
-                </span>
-              </div>
+                <LogOut className="h-2.5 w-2.5" />
+                OUT
+              </button>
             )}
           </>
         ) : (
           <div
-            className="h-full flex items-center gap-1.5 overflow-hidden"
-            style={{ paddingLeft: 8, paddingRight: 8 }}
+            className="h-full flex items-center gap-1.5 overflow-hidden relative"
+            style={{
+              paddingLeft: 8,
+              // Reserve right space: OUT (~52px) | NS badge (~28px) | lock (~20px)
+              paddingRight:
+                isDeparting && rect.width > 80 && onCheckout && !isDragging && !isSegmentLocked
+                  ? 58
+                  : isPotentialNoShow && rect.width > 70 && !isDragging && !isSegmentLocked
+                  ? 36
+                  : !isPast && !isDragging && !isSegmentLocked
+                  ? 22
+                  : 8,
+            }}
           >
             {showDot ? (
               <div style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: dotColor, flexShrink: 0 }} />
@@ -322,60 +317,59 @@ export function BookingBlock({
                 {displayName}
               </span>
             )}
-            <div className="ml-auto flex items-center gap-1 shrink-0">
-              {/* DEPARTING — botón inline para confirmar checkout */}
-              {isDeparting && rect.width > 80 && onCheckout && !isDragging && !isSegmentLocked && (
-                <button
-                  className="flex items-center gap-0.5 bg-amber-600 hover:bg-amber-700
-                             text-white rounded px-1.5 py-0.5 text-[9px] font-bold
-                             transition-colors shadow-sm"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onCheckout(stay.id)
-                  }}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  title="Confirmar checkout"
+
+            {/* DEPARTING — absolute right, same as clipped layout */}
+            {isDeparting && rect.width > 80 && onCheckout && !isDragging && !isSegmentLocked && (
+              <button
+                className="absolute inset-y-0 right-1.5 my-auto flex items-center gap-0.5 bg-amber-600 hover:bg-amber-700
+                           text-white rounded px-1.5 py-0.5 text-[9px] font-bold h-fit
+                           transition-colors shadow-sm shrink-0"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onCheckout(stay.id)
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+                title="Confirmar checkout"
+              >
+                <LogOut className="h-2.5 w-2.5" />
+                OUT
+              </button>
+            )}
+            {/* POTENTIAL NO-SHOW — badge NS con pulsing dot */}
+            {isPotentialNoShow && rect.width > 70 && !isDragging && !isSegmentLocked && (
+              <div
+                className="absolute inset-y-0 right-1.5 my-auto flex items-center shrink-0 h-fit"
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <span
+                  className="inline-flex items-center gap-0.5 font-bold"
+                  style={{ backgroundColor: '#FED7AA', color: '#9A3412', fontSize: 9, padding: '1px 5px', borderRadius: 3, lineHeight: 1.5 }}
                 >
-                  <LogOut className="h-2.5 w-2.5" />
-                  OUT
-                </button>
-              )}
-              {/* POTENTIAL NO-SHOW — badge NS con pulsing dot */}
-              {isPotentialNoShow && rect.width > 70 && !isDragging && !isSegmentLocked && (
-                <div
-                  className="relative flex items-center shrink-0"
-                  onMouseDown={(e) => e.stopPropagation()}
-                >
-                  <span
-                    className="inline-flex items-center gap-0.5 font-bold"
-                    style={{ backgroundColor: '#FED7AA', color: '#9A3412', fontSize: 9, padding: '1px 5px', borderRadius: 3, lineHeight: 1.5 }}
-                  >
-                    <UserX style={{ width: 8, height: 8 }} />
-                    NS
-                  </span>
-                  <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />
-                </div>
-              )}
-              {/* Lock toggle — hidden for past stays */}
-              {!isPast && !isDragging && !isSegmentLocked && (
-                <div
-                  className={cn(
-                    'p-0.5 rounded hover:bg-black/10 transition-opacity duration-150',
-                    isLocked ? 'opacity-70' : 'opacity-0 group-hover:opacity-60',
-                  )}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onToggleLock?.(stay.id)
-                  }}
-                  onMouseDown={(e) => e.stopPropagation()}
-                >
-                  {isLocked
-                    ? <Lock className="h-3 w-3" style={{ color: colors.text }} />
-                    : <Unlock className="h-3 w-3" style={{ color: colors.text }} />
-                  }
-                </div>
-              )}
-            </div>
+                  <UserX style={{ width: 8, height: 8 }} />
+                  NS
+                </span>
+                <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />
+              </div>
+            )}
+            {/* Lock toggle — hidden for past stays */}
+            {!isPast && !isDragging && !isSegmentLocked && !isDeparting && !isPotentialNoShow && (
+              <div
+                className={cn(
+                  'absolute inset-y-0 right-1 my-auto p-0.5 rounded hover:bg-black/10 transition-opacity duration-150 h-fit',
+                  isLocked ? 'opacity-70' : 'opacity-0 group-hover:opacity-60',
+                )}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onToggleLock?.(stay.id)
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                {isLocked
+                  ? <Lock className="h-3 w-3" style={{ color: colors.text }} />
+                  : <Unlock className="h-3 w-3" style={{ color: colors.text }} />
+                }
+              </div>
+            )}
           </div>
         )}
 

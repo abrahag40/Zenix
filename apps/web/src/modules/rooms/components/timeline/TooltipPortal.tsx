@@ -45,10 +45,11 @@ export function TooltipPortal({ stay, position, visible, registerTooltipRef, onN
     position.placement === 'top' ? 'tooltip-top' : 'tooltip-bottom'
 
   const tooltip = (
-    <div ref={registerTooltipRef} style={style} className={animationClass}>
+    <div ref={registerTooltipRef} style={style}>
       <div
         className={cn(
           'w-64 rounded-xl',
+          animationClass,
           'bg-white border border-slate-100',
           'shadow-[0_8px_16px_-4px_rgba(0,0,0,0.12),0_20px_25px_-5px_rgba(0,0,0,0.1)]',
         )}

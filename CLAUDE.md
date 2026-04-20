@@ -263,6 +263,23 @@ const dayEnd   = new Date(`${date}T23:59:59.999Z`)
 ### 13. UX — texto mínimo, optimizar para uso diario
 **Decisión (basada en NNGroup, Tufte, Krug, Apple HIG):** La interfaz se optimiza para la 100ª sesión, no la 1ª. Sin leyendas permanentes, sin hints persistentes, sin banners instructivos. Los chips de cama son auto-explicativos por color y acción inline. El banner post-confirmación es de 1 línea.
 
+### 13b. Animaciones — fluidez nivel SwiftUI/iOS en todo el sistema
+**Decisión:** Todas las animaciones del sistema (sheets, drawers, modales, toasts, transiciones de página) deben sentirse al nivel de SwiftUI/iOS: fluidas, naturales, sin rebote visible.
+
+**Curvas canónicas** (definidas como CSS vars en `apps/web/src/index.css`):
+```css
+--ease-spring:    cubic-bezier(0.22, 1, 0.36, 1);   /* expo-out: entrada rápida, desacelera suave */
+--ease-sharp-out: cubic-bezier(0.55, 0, 1, 0.45);   /* expo-in:  salida limpia y rápida */
+```
+
+**Reglas de aplicación:**
+- **Entrada de paneles/sheets/modales**: 360–400ms con `--ease-spring`. Arranca con velocidad inicial alta y desacelera suavemente — el usuario percibe respuesta inmediata.
+- **Salida**: 200–220ms con `--ease-sharp-out`. Más corta (~40%) que la entrada; se "va" sin distraer.
+- **Sin overshoot/rebote**: `y1 > 1.0` en `cubic-bezier` causa overshoot visible en panels — NUNCA usar curvas como `cubic-bezier(0.34, 1.56, 0.64, 1)` para elementos que se deslizan desde un borde.
+- **`motion-reduce:duration-0`** en todos los elementos animados — accesibilidad para usuarios con epilepsia/vértigo.
+- **La animación no debe llamar la atención**: si el usuario "nota" la animación, es demasiado lenta, lenta, o exagerada. El objetivo es que se sienta natural, no que impresione.
+- **Radix UI**: usar `data-[state=open]:` y `data-[state=closed]:` — Radix setea `data-state`, NO `data-open`. El shorthand `data-open:` de Tailwind apunta a un atributo distinto y nunca dispara.
+
 ### 14. Night audit multi-timezone — `Intl.DateTimeFormat` por propiedad
 **Problema:** Un PMS distribuido puede tener propiedades en múltiples países/regiones. Hardcodear `America/Mexico_City` en el cron job rompe el corte nocturno para propiedades en España, Colombia, Perú, etc.
 **Decisión:** El scheduler `NightAuditScheduler` corre cada 30 minutos (`@Cron('0,30 * * * *')`). Por cada propiedad, evalúa la hora local usando su timezone configurado en `PropertySettings.timezone`. Usa exclusivamente `Intl.DateTimeFormat` (Node.js nativo, sin deps externas):

@@ -199,7 +199,7 @@ export function BookingDetailSheet({
           <div className="flex-1 overflow-y-auto">
 
             {/* TAB ESTADÍA */}
-            <TabsContent value="stay" className="mt-0">
+            <TabsContent value="stay" className="mt-0 ">
               <div className="p-4 space-y-3">
                 {/* Fechas */}
                 <div className="bg-slate-50 rounded-xl p-4">
@@ -335,7 +335,7 @@ export function BookingDetailSheet({
             </TabsContent>
 
             {/* TAB PAYMENT */}
-            <TabsContent value="payment" className="mt-0">
+            <TabsContent value="payment" className="mt-0 ">
               <div className="bg-slate-50 rounded-lg p-4 space-y-3">
                 <div className="flex justify-between items-center">
                   <span className="text-xs text-slate-500">
@@ -408,7 +408,7 @@ export function BookingDetailSheet({
             </TabsContent>
 
             {/* TAB GUEST */}
-            <TabsContent value="guest" className="mt-0">
+            <TabsContent value="guest" className="mt-0 ">
               <div className="p-4 space-y-2">
                 {[
                   { icon: User, label: 'Nombre', value: stay.guestName },
@@ -454,7 +454,7 @@ export function BookingDetailSheet({
         <div className="flex-shrink-0 border-t border-slate-200 p-3 bg-white space-y-2">
           {/* No-show confirm panel (inline — no separate Dialog) */}
           {showNoShowConfirm && (
-            <div className="bg-red-50 border border-red-200 rounded-xl p-3 space-y-2.5">
+            <div className="bg-red-50 border border-red-200 rounded-xl p-3 space-y-2.5 ">
               <p className="text-xs font-semibold text-red-800">
                 Marcar como no-show — cargo estimado: {stay.currency} {Number(stay.ratePerNight).toFixed(2)}
               </p>
