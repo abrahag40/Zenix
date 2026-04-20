@@ -216,9 +216,13 @@ export function BookingBlock({
           top: rect.y + groupHeaderOffsetY + 3,
           width: rect.width - 3,
           height: rect.height - 4,
-          backgroundColor: isConfirmedNoShow ? 'rgba(239,68,68,0.09)' : colors.bg,
+          background: isConfirmedNoShow
+            ? `repeating-linear-gradient(-45deg, rgba(239,68,68,0.13) 0px, rgba(239,68,68,0.13) 2px, transparent 2px, transparent 8px), ${colors.bg}`
+            : colors.bg,
           color: isConfirmedNoShow ? '#7F1D1D' : colors.text,
-          boxShadow: BLOCK_SHADOW,
+          boxShadow: isConfirmedNoShow
+            ? `inset 0 0 0 1.5px rgba(239,68,68,0.50), ${BLOCK_SHADOW}`
+            : BLOCK_SHADOW,
           borderRadius: 6,
           pointerEvents: isDragging ? 'none' : 'auto',
           opacity: dimmed
@@ -228,17 +232,26 @@ export function BookingBlock({
             : isSegmentLocked || stayStatus === 'DEPARTED' || isConfirmedNoShow
             ? 0.72
             : 1,
-          cursor: isPast || isLocked || isSegmentLocked || isConfirmedNoShow || isJourneyBlock ? 'default' : isDragging ? 'grabbing' : 'grab',
+          cursor: isPast || isLocked || isSegmentLocked
+            ? 'default'
+            : isConfirmedNoShow || isJourneyBlock
+            ? 'pointer'
+            : isDragging
+            ? 'grabbing'
+            : 'grab',
           borderRight: lastSegmentBorder,
           animationFillMode: 'forwards',
           animationDelay: `${staggerIndex * 20}ms`,
           zIndex: dimmed ? 3 : visible ? 20 : 6,
         }}
       >
-        {/* OTA accent bar — left border stripe. Red for confirmed no-shows. */}
+        {/* OTA accent bar — left border stripe. Wider + brighter red for confirmed no-shows. */}
         <div
-          className="absolute left-0 top-0 bottom-0 w-[3px] rounded-l-md"
-          style={{ backgroundColor: isConfirmedNoShow ? '#DC2626' : otaAccent }}
+          className="absolute left-0 top-0 bottom-0 rounded-l-md"
+          style={{
+            width: isConfirmedNoShow ? 4 : 3,
+            backgroundColor: isConfirmedNoShow ? '#DC2626' : otaAccent,
+          }}
         />
 
         {isCompact ? (
@@ -271,7 +284,6 @@ export function BookingBlock({
                 )}
                 <span
                   className="text-[11px] font-medium truncate leading-none"
-                  style={isConfirmedNoShow ? { textDecoration: 'line-through', opacity: 0.8 } : undefined}
                 >
                   {displayName}
                 </span>
@@ -326,14 +338,13 @@ export function BookingBlock({
             {(showDot || showText) && (
               <span
                 className="text-[11px] font-medium truncate leading-none"
-                style={isConfirmedNoShow && rect.width > 60 ? { textDecoration: 'line-through', opacity: 0.8 } : undefined}
               >
                 {displayName}
               </span>
             )}
 
             {/* CONFIRMED NO-SHOW badge — stable pill (no pulse), replaces potential NS */}
-            {isConfirmedNoShow && rect.width > 60 && !isDragging && (
+            {isConfirmedNoShow && rect.width > 30 && !isDragging && (
               <div
                 className="absolute inset-y-0 right-1.5 my-auto flex items-center shrink-0 h-fit"
                 onMouseDown={(e) => e.stopPropagation()}

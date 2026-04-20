@@ -350,7 +350,10 @@ export function TimelineScheduler() {
     function onMouseMove(e: MouseEvent) {
       setExtendState(prev => {
         if (!prev) return null
-        const deltaDays = Math.round((e.clientX - prev.startClientX) / dayWidth)
+        // Math.floor: trigger at the MID of each next column (where the block
+        // endpoint visually lives — stayToRect places checkOut at dayWidth/2).
+        // Math.round triggered at the column boundary, half a cell too early.
+        const deltaDays = Math.max(0, Math.floor((e.clientX - prev.startClientX) / dayWidth))
         const newCO = startOfDay(addDays(prev.originalCheckOut, deltaDays))
         return { ...prev, previewCheckOut: newCO }
       })
@@ -491,32 +494,51 @@ export function TimelineScheduler() {
               flatRows={flatRows}
               poolStart={POOL_START}
             />
-            {/* Extend drag preview overlay */}
+            {/* Extend drag preview overlay
+                originLeft aligns with the block's right edge: stayToRect places
+                checkOut at (checkOutDays * dayWidth + dayWidth/2), so we offset
+                by dayWidth/2 to avoid overlapping the original block. */}
             {extendState && (() => {
               const daysAdded = differenceInCalendarDays(extendState.previewCheckOut, extendState.originalCheckOut)
               if (daysAdded <= 0) return null
               const topY = extendState.rowIndex * TIMELINE.ROW_HEIGHT + extendState.groupHeaderOffsetY
-              const originLeft = differenceInDays(extendState.originalCheckOut, POOL_START) * dayWidth
+              const originLeft = differenceInDays(extendState.originalCheckOut, POOL_START) * dayWidth + dayWidth / 2
               const previewWidth = daysAdded * dayWidth
+              const showLabel = previewWidth > 28
               return (
                 <div
                   className="absolute pointer-events-none"
                   style={{
                     left: originLeft,
                     top: topY + 3,
-                    width: previewWidth - 3,
-                    height: TIMELINE.ROW_HEIGHT - 4,
-                    background: 'rgba(16,185,129,0.18)',
-                    border: '2px dashed rgba(16,185,129,0.5)',
-                    borderRadius: 6,
+                    width: previewWidth - 2,
+                    height: TIMELINE.ROW_HEIGHT - 6,
+                    background: 'rgba(16,185,129,0.10)',
+                    borderLeft: '3px solid rgba(16,185,129,0.70)',
+                    borderTop: '1px solid rgba(16,185,129,0.25)',
+                    borderBottom: '1px solid rgba(16,185,129,0.25)',
+                    borderRight: '1px solid rgba(16,185,129,0.25)',
+                    borderRadius: '0 5px 5px 0',
+                    boxShadow: '0 2px 8px rgba(16,185,129,0.12), inset 0 1px 0 rgba(255,255,255,0.4)',
                     zIndex: 15,
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'center',
+                    paddingLeft: 8,
+                    overflow: 'hidden',
                   }}
                 >
-                  {daysAdded >= 2 && (
-                    <span className="text-[10px] font-bold text-emerald-700 select-none">
+                  {showLabel && (
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: 'rgba(4,120,87,0.88)',
+                        letterSpacing: '-0.02em',
+                        lineHeight: 1,
+                        whiteSpace: 'nowrap',
+                        fontFamily: 'inherit',
+                      }}
+                    >
                       +{daysAdded}n
                     </span>
                   )}
