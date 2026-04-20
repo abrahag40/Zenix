@@ -99,6 +99,16 @@ export interface DropResult {
   newCheckOut: Date
 }
 
+export interface ExtendState {
+  stayId: string
+  roomId: string
+  rowIndex: number
+  groupHeaderOffsetY: number
+  originalCheckOut: Date
+  previewCheckOut: Date
+  startClientX: number
+}
+
 export interface VirtualColumn {
   key: string
   index: number

@@ -48,4 +48,7 @@ export const guestStaysApi = {
 
   moveRoom: (stayId: string, newRoomId: string, pricingDecision: string) =>
     api.patch(`${BASE}/${stayId}/move-room`, { newRoomId, pricingDecision }),
+
+  extendStay: (stayId: string, newCheckOut: Date) =>
+    api.patch(`${BASE}/${stayId}/extend`, { newCheckOut: newCheckOut.toISOString() }),
 }

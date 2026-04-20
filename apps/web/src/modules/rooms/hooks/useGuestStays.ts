@@ -236,6 +236,60 @@ export function useRevertNoShow(propertyId: string) {
   })
 }
 
+export function useExtendStay(propertyId: string) {
+  const qc = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ stayId, newCheckOut }: { stayId: string; newCheckOut: Date }) =>
+      guestStaysApi.extendStay(stayId, newCheckOut),
+    onSuccess: () => {
+      qc.invalidateQueries({
+        queryKey: ['guest-stays', propertyId],
+        exact: false,
+        refetchType: 'active',
+      })
+      toast.success('Estadía extendida')
+    },
+    onError: (err: Error) => {
+      toast.error(err.message ?? 'No se pudo extender la estadía')
+    },
+  })
+}
+
+/** Mid-stay room move for IN_HOUSE guests. Routes to stay-journeys endpoint which
+ *  creates a ROOM_MOVE segment preserving the StayJourney audit trail. */
+export function useSplitMidStay(propertyId: string) {
+  const qc = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({
+      journeyId,
+      newRoomId,
+      effectiveDate,
+      actorId,
+    }: {
+      journeyId: string
+      newRoomId: string
+      effectiveDate: Date
+      actorId: string
+    }) =>
+      api.post(`/v1/stay-journeys/${journeyId}/room-move`, {
+        journeyId,
+        newRoomId,
+        effectiveDate: effectiveDate.toISOString(),
+        actorId,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['guest-stays', propertyId], exact: false, refetchType: 'active' })
+      qc.invalidateQueries({ queryKey: ['rooms', propertyId], exact: false })
+      toast.success('Habitación cambiada')
+    },
+    onError: (err: Error) => {
+      toast.error(err.message ?? 'No se pudo cambiar la habitación')
+    },
+  })
+}
+
 export function useRoomReadinessTasks(propertyId: string) {
   return useQuery({
     queryKey: ['room-readiness', propertyId],

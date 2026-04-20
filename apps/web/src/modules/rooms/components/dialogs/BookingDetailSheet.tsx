@@ -501,7 +501,22 @@ export function BookingDetailSheet({
           )}
 
           <div className="flex gap-2 flex-wrap">
-            {!isNoShow && (
+            {/* DEPARTED — progressive disclosure: full folio/audit trail in ReservationDetailPage */}
+            {status === 'DEPARTED' && (
+              <Button
+                size="sm"
+                className="flex-1 text-xs bg-slate-700 hover:bg-slate-800 text-white"
+                onClick={() => {
+                  onClose()
+                  navigate(`/reservations/${stay.id}`)
+                }}
+              >
+                <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
+                Ver folio completo →
+              </Button>
+            )}
+
+            {!isNoShow && status !== 'DEPARTED' && (
               <Button
                 variant="outline"
                 size="sm"

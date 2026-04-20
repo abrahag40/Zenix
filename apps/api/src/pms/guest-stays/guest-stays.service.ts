@@ -413,6 +413,74 @@ export class GuestStaysService {
   }
 
   /**
+   * extendStay — Extiende la fecha de checkout de una estadía activa.
+   *
+   * Validaciones:
+   *  - newCheckOut debe ser posterior al scheduledCheckout actual
+   *  - La habitación no debe tener otra reserva en el período de extensión
+   *  - La estadía no debe haber sido marcada como no-show ni como checkout
+   *
+   * Recalcula totalAmount en base al nuevo número de noches × ratePerNight.
+   */
+  async extendStay(stayId: string, newCheckOut: Date, _actorId: string) {
+    const orgId = this.tenant.getOrganizationId()
+    const stay = await this.prisma.guestStay.findUnique({
+      where: { id: stayId, organizationId: orgId },
+    })
+    if (!stay) throw new NotFoundException('Estadía no encontrada')
+
+    if (stay.actualCheckout !== null) {
+      throw new BadRequestException('No se puede extender una estadía que ya realizó checkout')
+    }
+    if (stay.noShowAt !== null) {
+      throw new BadRequestException('No se puede extender una estadía marcada como no-show')
+    }
+    if (newCheckOut <= stay.scheduledCheckout) {
+      throw new BadRequestException('La nueva fecha de checkout debe ser posterior a la actual')
+    }
+
+    // Check that the extension period is free of other stays in the same room
+    const availability = await this.checkAvailability(
+      stay.roomId,
+      stay.scheduledCheckout,
+      newCheckOut,
+      stayId,
+    )
+    if (!availability.available) {
+      const conflict = availability.conflicts.find(c => c.severity === 'HARD')
+      throw new ConflictException(
+        conflict?.guestName
+          ? `Habitación ocupada en ese período (${conflict.guestName})`
+          : 'Habitación no disponible para las fechas de extensión',
+      )
+    }
+
+    const nights = Math.max(
+      1,
+      Math.round((newCheckOut.getTime() - stay.checkinAt.getTime()) / 86400000),
+    )
+    const newTotal = Number(stay.ratePerNight) * nights
+
+    const updated = await this.prisma.guestStay.update({
+      where: { id: stayId },
+      data: {
+        scheduledCheckout: newCheckOut,
+        totalAmount: newTotal,
+      },
+    })
+
+    this.events.emit('stay.extended', {
+      stayId,
+      roomId: stay.roomId,
+      propertyId: stay.propertyId,
+      orgId,
+      newCheckOut,
+    })
+
+    return updated
+  }
+
+  /**
    * markAsNoShow — Marca una estadía como no-show.
    *
    * Precondiciones:

@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { isBefore, startOfDay, isToday } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { TIMELINE } from '../../utils/timeline.constants'
@@ -13,6 +13,8 @@ interface TimelineGridProps {
   dragIsValid?: boolean
   onCellClick?: (roomId: string, date: Date) => void
   isOccupied?: (roomId: string, date: Date) => boolean
+  /** Returns base rate + currency for a room — used to render ghost block price */
+  getRoomRate?: (roomId: string) => { rate: number; currency: string } | undefined
 }
 
 export function TimelineGrid({
@@ -24,8 +26,14 @@ export function TimelineGrid({
   dragIsValid = true,
   onCellClick,
   isOccupied,
+  getRoomRate,
 }: TimelineGridProps) {
   const isCompact = dayWidth <= 20
+
+  // Ghost block for empty cells — Apple Calendar / Google Calendar pattern
+  // Shows on PM-half hover only (the check-in zone). Never for past days or occupied cells.
+  // Color psychology: emerald = availability ("go" signal, Mehrabian-Russell 1974).
+  const [hoveredCell, setHoveredCell] = useState<{ roomId: string; date: Date; colStart: number; rowY: number } | null>(null)
 
   // Precompute cumulative Y offsets and total height
   const { rowYOffsets, totalHeight } = useMemo(() => {
@@ -99,18 +107,23 @@ export function TimelineGrid({
                   >
                     {/* AM half (left) — checkout zone, no interaction */}
                     <div className="absolute inset-y-0 left-0 w-1/2" />
-                    {/* PM half (right) — checkin zone hover hint */}
+                    {/* PM half (right) — checkin zone: shows ghost block on hover */}
                     {(() => {
                       const cellOccupied = isOccupied?.(row.id, vc.date) ?? false
                       const blocked = isPastDay || cellOccupied
+                      const isHovered = hoveredCell?.roomId === row.id &&
+                        hoveredCell?.date.getTime() === vc.date.getTime()
                       return (
                         <div
                           className={cn(
                             'absolute inset-y-0 right-0 w-1/2',
-                            'transition-opacity duration-100',
-                            !blocked && 'opacity-0 hover:opacity-100 bg-emerald-50/40 cursor-pointer',
-                            blocked && 'cursor-not-allowed',
+                            blocked ? 'cursor-not-allowed' : 'cursor-pointer',
                           )}
+                          onMouseEnter={!blocked ? () => setHoveredCell({
+                            roomId: row.id, date: vc.date,
+                            colStart: vc.start, rowY: y,
+                          }) : undefined}
+                          onMouseLeave={() => setHoveredCell(null)}
                           onClick={!blocked ? () => {
                             onCellClick?.(row.id, vc.date)
                           } : undefined}
@@ -137,6 +150,39 @@ export function TimelineGrid({
           }}
         />
       )}
+
+      {/* Ghost block — Apple Calendar / Google Calendar empty-cell hover pattern.
+          In-grid (not portal): consistent visual language with real booking blocks.
+          Emerald = availability signal (Mehrabian-Russell 1974, "go" color semantics).
+          Only shown on PM-half (check-in zone) of unoccupied, non-past cells. */}
+      {hoveredCell && getRoomRate && !isCompact && (() => {
+        const rateInfo = getRoomRate(hoveredCell.roomId)
+        if (!rateInfo) return null
+        const ghostWidth = (virtualColumns.find(vc => vc.date.getTime() === hoveredCell.date.getTime())?.size ?? dayWidth) - 3
+        return (
+          <div
+            style={{
+              position: 'absolute',
+              top: hoveredCell.rowY + 2,
+              left: hoveredCell.colStart,
+              width: Math.max(ghostWidth, dayWidth / 2),
+              height: TIMELINE.ROW_HEIGHT - 4,
+              backgroundColor: 'rgba(16,185,129,0.10)',
+              border: '1.5px dashed rgba(16,185,129,0.5)',
+              borderRadius: 6,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              pointerEvents: 'none',
+              zIndex: 5,
+            }}
+          >
+            <span style={{ fontSize: 10, fontWeight: 700, color: 'rgba(4,120,87,0.8)', fontFamily: 'inherit', fontVariantNumeric: 'tabular-nums' }}>
+              {rateInfo.currency} {rateInfo.rate.toLocaleString()}/n
+            </span>
+          </div>
+        )
+      })()}
     </div>
   )
 }

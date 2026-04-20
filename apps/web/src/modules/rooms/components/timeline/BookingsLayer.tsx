@@ -13,6 +13,7 @@ interface BookingsLayerProps {
   totalWidth: number
   dragState?: DragState | null
   onDragStart: (stayId: string, clientX: number, clientY: number) => void
+  onExtendStart?: (stayId: string, roomId: string, rowIndex: number, groupHeaderOffsetY: number, originalCheckOut: Date, clientX: number) => void
   onStayClick: (stayId: string) => void
   onCheckout: (stayId: string) => void
   onNoShow?: (stayId: string) => void
@@ -103,6 +104,7 @@ export function BookingsLayer({
   totalWidth,
   dragState,
   onDragStart,
+  onExtendStart,
   onStayClick,
   onCheckout,
   onNoShow,
@@ -337,6 +339,10 @@ export function BookingsLayer({
             staggerIndex={i}
             isDragging={dragState?.stayId === stay.id}
             onDragStart={onDragStart}
+            onExtendStart={onExtendStart
+              ? (stayId, roomId, rowIndex, originalCheckOut, clientX) =>
+                  onExtendStart(stayId, roomId, rowIndex, mapping.groupHeaderOffsetY, originalCheckOut, clientX)
+              : undefined}
             onClick={() => handleBlockClick(stay)}
             onCheckout={onCheckout}
             onNoShow={onNoShow}
@@ -361,6 +367,10 @@ export function BookingsLayer({
             staggerIndex={visibleStays.length + i}
             isDragging={dragState?.stayId === stay.id}
             onDragStart={onDragStart}
+            onExtendStart={onExtendStart
+              ? (stayId, roomId, rowIndex, originalCheckOut, clientX) =>
+                  onExtendStart(stayId, roomId, rowIndex, mapping.groupHeaderOffsetY, originalCheckOut, clientX)
+              : undefined}
             onClick={() => handleBlockClick(stay)}
             onCheckout={onCheckout}
             onNoShow={onNoShow}

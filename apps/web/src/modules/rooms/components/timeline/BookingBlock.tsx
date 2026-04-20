@@ -16,6 +16,7 @@ interface BookingBlockProps {
   groupHeaderOffsetY: number
   staggerIndex: number
   onDragStart: (stayId: string, clientX: number, clientY: number) => void
+  onExtendStart?: (stayId: string, roomId: string, rowIndex: number, originalCheckOut: Date, clientX: number) => void
   onClick: () => void
   onCheckout?: (stayId: string) => void
   onNoShow?: (stayId: string) => void
@@ -45,6 +46,7 @@ export function BookingBlock({
   groupHeaderOffsetY,
   staggerIndex,
   onDragStart,
+  onExtendStart,
   onClick,
   onCheckout,
   onNoShow,
@@ -373,6 +375,19 @@ export function BookingBlock({
           </div>
         )}
 
+        {/* Right-edge extend handle — invisible 8px strip, cursor changes to signal drag-to-extend */}
+        {!isPast && !isLocked && !isSegmentLocked && !isDragging && onExtendStart && (
+          <div
+            className="absolute right-0 top-0 bottom-0 w-2 z-10"
+            style={{ cursor: 'ew-resize' }}
+            title="Arrastrar para extender estadía"
+            onMouseDown={(e) => {
+              e.stopPropagation()
+              e.preventDefault()
+              onExtendStart(stay.id, stay.roomId, rowIndex, stay.checkOut, e.clientX)
+            }}
+          />
+        )}
       </div>
 
       <TooltipPortal

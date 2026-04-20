@@ -8,6 +8,7 @@ import {
 import { EventEmitter2 } from '@nestjs/event-emitter'
 import { Prisma, StaySegment } from '@prisma/client'
 import { eachDayOfInterval, isBefore, startOfDay, subDays } from 'date-fns'
+import { NotificationsService } from '../../notifications/notifications.service'
 import { PrismaService } from '../../prisma/prisma.service'
 import { ExtendNewRoomDto, ExtendSameRoomDto, RoomMoveDto } from './dto/stay-journey.dto'
 
@@ -28,6 +29,7 @@ export class StayJourneyService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly events: EventEmitter2,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async findById(journeyId: string) {
@@ -198,6 +200,14 @@ export class StayJourneyService {
       newCheckOut,
     })
 
+    // Housekeeping bridge: the old room is vacated at activeSegment.checkOut.
+    // Create PENDING cleaning tasks for each unit in that room so housekeeping
+    // knows it needs servicing (room change, not checkout — guest is still in-house).
+    await this.createRoomChangeTasks(
+      journey.propertyId,
+      activeSegment.roomId,
+    )
+
     return newSegment
   }
 
@@ -294,10 +304,42 @@ export class StayJourneyService {
       effectiveDate,
     })
 
+    // Housekeeping bridge: the old room is vacated at effectiveDate.
+    // Create PENDING cleaning tasks so housekeeping is notified of the room change.
+    await this.createRoomChangeTasks(
+      journey.propertyId,
+      activeSegment.roomId,
+    )
+
     return newSegment
   }
 
   // ── Private helpers ──────────────────────────────────────────────────────────
+
+  /** Creates PENDING cleaning tasks for all units in a vacated room (room-change bridge
+   *  to housekeeping) and emits `task:planned` SSE so the dashboard updates immediately. */
+  private async createRoomChangeTasks(
+    propertyId: string,
+    roomId: string,
+  ): Promise<void> {
+    const units = await this.prisma.unit.findMany({
+      where: { roomId },
+      select: { id: true },
+    })
+
+    if (units.length === 0) return
+
+    await this.prisma.cleaningTask.createMany({
+      data: units.map((unit) => ({
+        unitId: unit.id,
+        taskType: 'CLEANING' as const,
+        status: 'PENDING' as const,
+        priority: 'MEDIUM' as const,
+      })),
+    })
+
+    this.notifications.emit(propertyId, 'task:planned', { roomId })
+  }
 
   private getActiveSegment(segments: ActiveSegment[]): ActiveSegment {
     const active = segments.find((s) => s.status === 'ACTIVE' && !s.locked)

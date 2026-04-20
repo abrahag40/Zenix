@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { subDays, addDays, differenceInDays } from 'date-fns'
+import { subDays, addDays, differenceInDays, differenceInCalendarDays, startOfDay } from 'date-fns'
 import { useTimelineStore } from '../../stores/timeline.store'
 import { TIMELINE } from '../../utils/timeline.constants'
+import { getStayStatus } from '../../utils/timeline.utils'
 import { useDragDrop } from '../../hooks/useDragDrop'
-import { useGuestStays, useCreateGuestStay, useCheckout, useMoveRoom, useMarkNoShow, useRevertNoShow, useRoomReadinessTasks } from '../../hooks/useGuestStays'
+import { useGuestStays, useCreateGuestStay, useCheckout, useMoveRoom, useSplitMidStay, useMarkNoShow, useRevertNoShow, useRoomReadinessTasks, useExtendStay } from '../../hooks/useGuestStays'
 import { useStayJourneys } from '../../hooks/useStayJourneys'
 import { useRoomSSE } from '../../hooks/useRoomSSE'
 import { useDateVirtualizer } from '../../hooks/useDateVirtualizer'
@@ -21,10 +22,13 @@ import { BookingDetailSheet } from '../dialogs/BookingDetailSheet'
 import { CheckInDialog } from '../dialogs/CheckInDialog'
 import type { NewStayData } from '../dialogs/CheckInDialog'
 import { CheckOutDialog } from '../dialogs/CheckOutDialog'
+import { ExtendConfirmDialog } from '../dialogs/ExtendConfirmDialog'
+import { MoveRoomDialog } from '../dialogs/MoveRoomDialog'
 import { NoShowConfirmModal } from './NoShowConfirmModal'
 import type {
   FlatRow,
   DropResult,
+  ExtendState,
 } from '../../types/timeline.types'
 import { useRoomGroups } from '../../hooks/useRoomGroups'
 import { useAuthStore } from '@/store/auth'
@@ -40,6 +44,7 @@ export function TimelineScheduler() {
   // /properties fetch have had a chance to populate.
   const activeId = usePropertyStore((s) => s.activePropertyId)
   const jwtPropertyId = useAuthStore((s) => s.user?.propertyId) ?? ''
+  const currentUserId = useAuthStore((s) => s.user?.id) ?? ''
   const PROPERTY_ID = activeId ?? jwtPropertyId
 
   const { data: apiGroups = [], isLoading: groupsLoading } = useRoomGroups(PROPERTY_ID)
@@ -182,10 +187,12 @@ export function TimelineScheduler() {
     dataWindow.from,
     dataWindow.to,
   )
-  const createStay     = useCreateGuestStay(PROPERTY_ID)
-  const checkoutMut    = useCheckout(PROPERTY_ID)
-  const moveRoomMut    = useMoveRoom(PROPERTY_ID)
-  const markNoShowMut  = useMarkNoShow(PROPERTY_ID)
+  const createStay      = useCreateGuestStay(PROPERTY_ID)
+  const checkoutMut     = useCheckout(PROPERTY_ID)
+  const moveRoomMut     = useMoveRoom(PROPERTY_ID)
+  const splitMidStayMut = useSplitMidStay(PROPERTY_ID)
+  const extendStayMut   = useExtendStay(PROPERTY_ID)
+  const markNoShowMut   = useMarkNoShow(PROPERTY_ID)
   const revertNoShowMut = useRevertNoShow(PROPERTY_ID)
 
   const { journeyBlocks } = useStayJourneys(PROPERTY_ID, dataWindow.from, dataWindow.to)
@@ -237,6 +244,20 @@ export function TimelineScheduler() {
     ? ([...stays, ...journeyBlocks].find((s) => s.id === noShowDialog.stayId) ?? null)
     : null
 
+  // ─── Extend stay by drag ───────────────────────────────────────
+  const [extendState, setExtendState] = useState<ExtendState | null>(null)
+  const [extendConfirm, setExtendConfirm] = useState<{
+    stayId: string
+    originalCheckOut: Date
+    newCheckOut: Date
+  } | null>(null)
+
+  // ─── Move room dialog ──────────────────────────────────────────
+  const [moveRoomDialog, setMoveRoomDialog] = useState<{ stayId: string } | null>(null)
+  const moveRoomTarget = moveRoomDialog
+    ? (stays.find(s => s.id === moveRoomDialog.stayId) ?? journeyBlocks.find(s => s.id === moveRoomDialog.stayId) ?? null)
+    : null
+
   // ─── Drag & Drop ────────────────────────────────────────────
   const [ghostPosition, setGhostPosition] = useState({ x: -9999, y: -9999 })
 
@@ -256,6 +277,25 @@ export function TimelineScheduler() {
     setGhostPosition({ x: clientX, y: clientY })
     rawDragStart(stayId, clientX)
   }, [rawDragStart])
+
+  const handleExtendStart = useCallback((
+    stayId: string,
+    roomId: string,
+    rowIndex: number,
+    groupHeaderOffsetY: number,
+    originalCheckOut: Date,
+    clientX: number,
+  ) => {
+    setExtendState({
+      stayId,
+      roomId,
+      rowIndex,
+      groupHeaderOffsetY,
+      originalCheckOut,
+      previewCheckOut: originalCheckOut,
+      startClientX: clientX,
+    })
+  }, [])
 
   useEffect(() => {
     if (!dragState) return
@@ -295,6 +335,48 @@ export function TimelineScheduler() {
   const draggedStay = dragState
     ? stays.find(s => s.id === dragState.stayId) ?? null
     : null
+
+  // ─── Extend drag global listeners ─────────────────────────────
+  useEffect(() => {
+    if (!extendState) return
+
+    function onMouseMove(e: MouseEvent) {
+      setExtendState(prev => {
+        if (!prev) return null
+        const deltaDays = Math.round((e.clientX - prev.startClientX) / dayWidth)
+        const newCO = startOfDay(addDays(prev.originalCheckOut, Math.max(1, deltaDays)))
+        return { ...prev, previewCheckOut: newCO }
+      })
+    }
+
+    function onMouseUp() {
+      setExtendState(prev => {
+        if (!prev) return null
+        const added = differenceInCalendarDays(prev.previewCheckOut, prev.originalCheckOut)
+        if (added >= 1) {
+          setExtendConfirm({
+            stayId: prev.stayId,
+            originalCheckOut: prev.originalCheckOut,
+            newCheckOut: prev.previewCheckOut,
+          })
+        }
+        return null
+      })
+    }
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setExtendState(null)
+    }
+
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [extendState, dayWidth])
 
   if (groupsLoading) {
     return (
@@ -389,6 +471,11 @@ export function TimelineScheduler() {
                   (s) => s.roomId === roomId && date >= s.checkIn && date < s.checkOut,
                 )
               }}
+              getRoomRate={(roomId) => {
+                const group = groups.find(g => g.rooms.some(r => r.id === roomId))
+                if (!group) return undefined
+                return { rate: group.baseRate, currency: group.currency }
+              }}
             />
             <TodayColumnHighlight
               days={days}
@@ -396,6 +483,39 @@ export function TimelineScheduler() {
               flatRows={flatRows}
               poolStart={POOL_START}
             />
+            {/* Extend drag preview overlay */}
+            {extendState && (() => {
+              const daysAdded = differenceInCalendarDays(extendState.previewCheckOut, extendState.originalCheckOut)
+              if (daysAdded <= 0) return null
+              const topY = extendState.rowIndex * TIMELINE.ROW_HEIGHT + extendState.groupHeaderOffsetY
+              const originLeft = differenceInDays(extendState.originalCheckOut, POOL_START) * dayWidth
+              const previewWidth = daysAdded * dayWidth
+              return (
+                <div
+                  className="absolute pointer-events-none"
+                  style={{
+                    left: originLeft,
+                    top: topY + 3,
+                    width: previewWidth - 3,
+                    height: TIMELINE.ROW_HEIGHT - 4,
+                    background: 'rgba(16,185,129,0.18)',
+                    border: '2px dashed rgba(16,185,129,0.5)',
+                    borderRadius: 6,
+                    zIndex: 15,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  {daysAdded >= 2 && (
+                    <span className="text-[10px] font-bold text-emerald-700 select-none">
+                      +{daysAdded}n
+                    </span>
+                  )}
+                </div>
+              )
+            })()}
+
             <BookingsLayer
               stays={stays}
               flatRows={flatRows}
@@ -405,6 +525,7 @@ export function TimelineScheduler() {
               totalWidth={totalWidth}
               dragState={dragState}
               onDragStart={handleDragStartWithPosition}
+              onExtendStart={handleExtendStart}
               onStayClick={openSheet}
               onCheckout={(stayId) => {
                 closeSheet()
@@ -509,7 +630,7 @@ export function TimelineScheduler() {
           setCheckOutDialog({ open: true, stayId })
         }}
         onMoveRoom={(stayId) => {
-          console.log('TODO: mover habitación', stayId)
+          setMoveRoomDialog({ stayId })
           closeSheet()
         }}
         onNoShow={(stayId, opts) => {
@@ -547,6 +668,77 @@ export function TimelineScheduler() {
           setCheckOutDialog({ open: false, stayId: null })
         }}
       />
+
+      {/* ─── Extend confirm dialog ──────────────────────────── */}
+      {extendConfirm && (() => {
+        const stay = stays.find(s => s.id === extendConfirm.stayId)
+          ?? journeyBlocks.find(s => s.id === extendConfirm.stayId)
+        if (!stay) return null
+        const roomRow = flatRows.find(r => r.id === stay.roomId && r.type === 'room')
+        return (
+          <ExtendConfirmDialog
+            guestName={stay.guestName}
+            roomNumber={stay.roomNumber ?? roomRow?.room?.number}
+            originalCheckOut={extendConfirm.originalCheckOut}
+            newCheckOut={extendConfirm.newCheckOut}
+            ratePerNight={stay.ratePerNight}
+            originalTotal={stay.totalAmount}
+            currency={stay.currency}
+            source={stay.source}
+            otaName={stay.otaName}
+            isPending={extendStayMut.isPending}
+            onClose={() => setExtendConfirm(null)}
+            onConfirm={() => {
+              extendStayMut.mutate(
+                { stayId: extendConfirm.stayId, newCheckOut: extendConfirm.newCheckOut },
+                { onSettled: () => setExtendConfirm(null) },
+              )
+            }}
+          />
+        )
+      })()}
+
+      {/* ─── Move room dialog ────────────────────────────────── */}
+      {moveRoomDialog && moveRoomTarget && (() => {
+        const stayWithRoom = moveRoomTarget.roomNumber
+          ? moveRoomTarget
+          : { ...moveRoomTarget, roomNumber: flatRows.find(r => r.id === moveRoomTarget.roomId && r.type === 'room')?.room?.number }
+        const stayStatus = getStayStatus(moveRoomTarget.checkIn, moveRoomTarget.checkOut, moveRoomTarget.actualCheckout)
+        const isInHouse = stayStatus === 'IN_HOUSE'
+        const isBusy = isInHouse ? splitMidStayMut.isPending : moveRoomMut.isPending
+
+        return (
+          <MoveRoomDialog
+            stay={stayWithRoom}
+            groups={groups}
+            flatRows={flatRows}
+            stays={stays}
+            isInHouse={isInHouse}
+            isPending={isBusy}
+            onClose={() => setMoveRoomDialog(null)}
+            onConfirm={(newRoomId, effectiveDate) => {
+              if (isInHouse && moveRoomTarget.journeyId) {
+                // IN_HOUSE: route to stay-journeys endpoint to create ROOM_MOVE segment
+                splitMidStayMut.mutate(
+                  {
+                    journeyId: moveRoomTarget.journeyId,
+                    newRoomId,
+                    effectiveDate: effectiveDate ?? startOfDay(new Date()),
+                    actorId: currentUserId,
+                  },
+                  { onSettled: () => setMoveRoomDialog(null) },
+                )
+              } else {
+                // ARRIVING (no journey yet): simple moveRoom
+                moveRoomMut.mutate(
+                  { stayId: moveRoomDialog.stayId, newRoomId },
+                  { onSettled: () => setMoveRoomDialog(null) },
+                )
+              }
+            }}
+          />
+        )
+      })()}
     </div>
   )
 }

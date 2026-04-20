@@ -1,7 +1,7 @@
 # CLAUDE.md — Housekeeping Management System
 
 > Guía para retomar el proyecto desde cero. Lee esto antes de tocar código.
-> Última actualización: 2026-04-19 (Sesión 6 — PMS Calendar UX polish, NoShowConfirmModal, ReservationDetailPage, GlobalTopBar).
+> Última actualización: 2026-04-20 (Sprint 7A — Calendar UX polish, DragGhost, Ghost Block, Pricing Model, Housekeeping Bridge).
 
 ---
 
@@ -1606,3 +1606,132 @@ npx prisma studio
 20. **`GET /v1/guest-stays/availability` ANTES de `GET /v1/guest-stays/:id`** — NestJS resuelve rutas en orden de declaración. Si `:id` aparece antes que `availability`, el string literal "availability" es interpretado como un param dinámico y la ruta de disponibilidad nunca matchea. El orden en el controller es: `GET availability` → `GET :id` → `GET /` (lista).
 
 21. **`BookingDetailSheet` tiene su propio botón `×`** — `SheetContent` de Shadcn/Radix tiene un close button por defecto. Al agregar un `×` manual al header, se deben tener ambos o suprimir el de Radix con `showCloseButton={false}`. Usar `showCloseButton={false}` y renderizar el `×` propio en el header da control total sobre el posicionamiento y estilo.
+
+22. **Modelo de precios aditivo (no recalculativo)** — ninguna modificación de reserva "recalcula" el precio original. Cada cambio genera una línea nueva con su propio precio. El recepcionista aprueba solo el delta nuevo. Justificación: reduce errores de facturación (Baymard Institute 2022: 68% de errores ocurren en confirmación de precio). Estructura siempre: `[original ✓ cerrado] + [delta nuevo] = [total acumulado]`.
+
+23. **Precios en modales son informativos (snapshot)** — hasta Sprint 8, `ratePerNight` del segmento activo es la fuente de verdad. Los modales muestran precios pero no permiten editarlos. Los campos de Sprint 8 (`ratePlanId`, `rateOverride`, `channexRateId`) están documentados como TODO en el schema pero NO implementados.
+
+24. **Ghost block para celdas vacías (no tooltip)** — para celdas vacías en el calendario, usar un bloque fantasma semitransparente in-grid (no TooltipPortal). Patrón Apple Calendar / Google Calendar. El tooltip portal se reserva SOLO para bloques de reserva existentes (hover intencional sobre target Fitts). Tooltips ambient en espacio vacío generan "tooltip fatigue" (NNGroup). El ghost block usa `rgba(16,185,129,0.12)` + borde emerald dashed, aparece solo en la zona PM-half, desaparece inmediatamente al mover el cursor.
+
+25. **Psicología del color en el calendario** — cada color tiene semántica precisa: `emerald` = disponibilidad/acción positiva (Verde = "go", Mehrabian-Russell 1974); `amber` = advertencia no-bloqueante (semáforo advisory); `red` = rechazo/escasez (Cialdini 1984); OccupancyFooter: ≥80% → red, 50-79% → amber, <50% → emerald. El recepcionista puede tomar decisiones sin leer texto — solo por color y posición espacial.
+
+26. **SSE Soft-Lock TTL = 90s con cleanup en unmount** — el advisory lock se libera INMEDIATAMENTE cuando el dialog se cierra (cleanup del `useEffect`). El TTL de 90s es solo fallback para crashes/tabs cerradas sin unmount limpio. No hay delay artificial. El soft-lock cubre solo overbooking intra-Zenix; overbooking cross-channel (OTAs) se cubre con Channex.io (Sprint 8).
+
+27. **Housekeeping bridge: PMS → Housekeeping automático** — al ejecutar `extendNewRoom` o `executeMidStayRoomMove` en el backend, se debe crear automáticamente una `CleaningTask(PENDING)` para la habitación/cama liberada y emitir SSE `task:planned`. El recepcionista NO notifica manualmente a housekeeping. El enum `CleaningTaskSource` (CHECKOUT / STAYOVER / ROOM_CHANGE / EXTENSION) está documentado como TODO para distinguir el origen de cada tarea (ver `schema.prisma` TODO comment).
+
+28. **Connected Rooms: descartado permanentemente** — no implementar, no documentar como roadmap, no mencionar en UI. El mercado objetivo (boutique hotels/hostels 10-80 hab.) tiene <2% de adopción de este concepto. Complejidad de schema y rendering no justificada.
+
+---
+
+## Feature Map — Calendario PMS (Sprint 7A baseline)
+
+| Feature | Estado | Archivos clave |
+|---------|--------|----------------|
+| Grid habitación × día (semana/mes) | ✅ Completo | `TimelineScheduler.tsx`, `TimelineGrid.tsx` |
+| Bloques de reserva en grid | ✅ Completo | `BookingBlock.tsx`, `BookingsLayer.tsx` |
+| Drag & drop entre habitaciones | ✅ Completo | `TimelineScheduler.tsx` (dragState) |
+| Bloqueo visual drag a hab. ocupada | ✅ Fila roja | `TimelineGrid.tsx` |
+| DragGhost visual inválido (🚫) | ✅ Sprint 7A | `DragGhost.tsx` |
+| Extender borde derecho (resize) | ✅ Completo | `BookingBlock.tsx` handle 8px |
+| ExtendConfirmDialog | ✅ Completo | `ExtendConfirmDialog.tsx` |
+| Pricing aditivo en ExtendConfirmDialog | ✅ Sprint 7A | `ExtendConfirmDialog.tsx` |
+| MoveRoomDialog | ✅ Completo | `MoveRoomDialog.tsx` |
+| Pricing delta (↑/↓) en MoveRoomDialog | ✅ Sprint 7A | `MoveRoomDialog.tsx` |
+| Split mid-stay IN_HOUSE routing | ✅ Sprint 7A | `TimelineScheduler.tsx`, `useGuestStays.ts` |
+| Effective-date picker para room moves | ✅ Sprint 7A | `MoveRoomDialog.tsx` |
+| Ghost block para celdas vacías | ✅ Sprint 7A | `TimelineGrid.tsx` |
+| BookingDetailSheet (panel 420px) | ✅ Completo | `BookingDetailSheet.tsx` |
+| Ver folio → para DEPARTED | ✅ Sprint 7A | `BookingDetailSheet.tsx` |
+| Housekeeping bridge (room change) | ✅ Sprint 7A | `stay-journeys.service.ts` |
+| Tooltip de reserva (flip top/bottom) | ✅ Completo | `TooltipPortal.tsx`, `useTooltip.ts` |
+| No-show flow (modal + revert 48h) | ✅ Completo | `NoShowConfirmModal.tsx`, `GuestStaysService` |
+| ReservationDetailPage (/reservations/:id) | ✅ Completo | `ReservationDetailPage.tsx` |
+| Journey lines SVG (room moves) | ✅ Completo | `BookingsLayer.tsx` |
+| Columna de hoy resaltada (emerald) | ✅ Completo | `TodayColumnHighlight.tsx` |
+| GlobalTopBar (hamburger + [+] + bell) | ✅ Completo | `Sidebar.tsx`, `AppDrawer.tsx` |
+| Night audit multi-timezone | ✅ Completo | `night-audit.scheduler.ts` |
+| Extender en otra habitación (paso 2) | ⏳ Sprint 7B | `ExtendConfirmDialog.tsx` |
+| SSE Soft-Lock (advisory, 90s TTL) | ⏳ Sprint 7C | `useSoftLock.ts`, `NotificationsService` |
+| OccupancyFooter color por ocupación | ⏳ Sprint 7A pendiente | `TimelineGrid.tsx` |
+| Stayover tasks automáticas | ⏳ P1 Roadmap | `StayoverService` |
+| KanbanPage (supervisor board) | ⚠️ Esqueleto | `KanbanPage.tsx` |
+| Connected Rooms | 🚫 Descartado | — |
+| Day-Use / por horas | 📋 Módulo DayUse — Etapa 3 | — |
+
+---
+
+## Sprint 8 Scope — Gestión de Tarifas + Channex.io
+
+> Este sprint es independiente y dedicado. No mezclar con Sprint 7.
+
+### Objetivos
+
+1. **Rate Plans configurables por tipo de habitación**
+   - Modelo `RatePlan { id, propertyId, roomTypeId, name, baseRate, currency, isActive }`
+   - UI en Settings para crear/editar planes tarifarios
+   - Soporte para tarifas de temporada, fin de semana, eventos especiales
+
+2. **Modificación manual de precios por reserva**
+   - Campo `rateOverride: Decimal?` en `GuestStay` con `rateOverrideReason: String?`
+   - En modales de modificación: campo editable con razón obligatoria (auditable)
+   - Permisos: solo `SUPERVISOR` o `MANAGER` pueden hacer overrides
+
+3. **Sincronización bidireccional con Channex.io**
+   - Webhook inbound: Channex → Zenix (reservas de OTAs)
+   - Webhook outbound: Zenix → Channex (actualización de inventario/tarifas)
+   - Documentación API: api.channex.io
+   - Campos nuevos en `GuestStay`: `channexRateId`, `commissionRate`
+
+4. **Historial de cambios de precio (audit trail)**
+   - Modelo `PriceChangeLog { stayId, oldRate, newRate, reason, changedById, changedAt }`
+   - Visible en tab "Historial" de `ReservationDetailPage`
+
+5. **Revenue reports por canal**
+   - `GET /reports/revenue` con breakdown por canal (directo, Booking.com, Airbnb, etc.)
+   - `SUM(totalAmount - commissionRate * totalAmount)` = revenue neto
+   - Exportable a CSV
+
+6. **Cross-channel overbooking protection**
+   - Channex.io allotment push en tiempo real cierra el 99% del gap
+   - El hard-block de `checkAvailability` (ya existente) como segunda línea de defensa
+
+### Campos preparados en schema (TODO — NO implementar hasta Sprint 8)
+
+```prisma
+// GuestStay — campos Sprint 8 (ver TODO comments en schema.prisma)
+// ratePlanId        String?
+// rateOverride      Decimal?
+// rateOverrideReason String?
+// channexRateId     String?
+// commissionRate    Decimal?
+
+// Nuevo modelo RatePlan
+// model RatePlan { id, propertyId, roomTypeId, name, baseRate, currency,
+//   channexRatePlanId, isActive, markup, createdAt, updatedAt }
+
+// CleaningTask — campo Sprint 7A/7B
+// sourceType CleaningTaskSource @default(CHECKOUT)
+// enum CleaningTaskSource { CHECKOUT, STAYOVER, ROOM_CHANGE, EXTENSION }
+```
+
+### Limitación conocida hasta Sprint 8
+
+El SSE Soft-Lock (Sprint 7C) protege solo overbooking intra-Zenix. Una reserva de Booking.com que llega por webhook mientras un recepcionista está en `CheckInDialog` NO activa el soft-lock. Protección: el hard-block de `checkAvailability` rechaza la segunda reserva. El primer recepcionista que confirma gana. Riesgo bajo para propiedades con 1-10 habitaciones y tráfico moderado.
+
+---
+
+## Módulo DayUse — Etapa 3 (mercado motel/hotel de paso)
+
+México tiene >25,000 moteles (SECTUR 2023). Colombia y Argentina tienen mercados similares. No existe un PMS moderno especializado en este segmento — **oportunidad de mercado pendiente**.
+
+El módulo DayUse NO puede mezclarse con el calendario actual porque:
+- El calendario actual usa `startOfDay` para todo (`stayToRect`, `getStayStatus`, `checkAvailability`)
+- Las tarifas son por noche, no por hora o bloque
+- La UI asume granularidad de días en el eje X
+
+**Requerimientos del módulo DayUse (futura implementación):**
+- Modelo `DayUseReservation` independiente de `GuestStay`
+- UI con eje X en horas (6am–12pm, 12pm–6pm, 6pm–12am)
+- Tarifa por bloque de horas con reglas fiscales diferenciadas por país
+- Check-in/check-out en tiempo real (por hora, no por día)
+- Integración con el mismo módulo de Housekeeping (limpieza entre turnos)
