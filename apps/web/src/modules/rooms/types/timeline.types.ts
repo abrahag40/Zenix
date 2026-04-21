@@ -101,6 +101,7 @@ export interface DropResult {
 
 export interface ExtendState {
   stayId: string
+  journeyId?: string
   roomId: string
   rowIndex: number
   groupHeaderOffsetY: number

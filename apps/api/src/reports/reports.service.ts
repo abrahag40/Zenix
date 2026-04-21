@@ -15,6 +15,7 @@
  */
 import { Injectable } from '@nestjs/common'
 import { CleaningStatus, HousekeepingRole } from '@zenix/shared'
+import { SegmentReason } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { Decimal } from '@prisma/client/runtime/library'
 
@@ -352,6 +353,108 @@ export class ReportsService {
         source:           ns.source,
         markedById:       ns.noShowById,
       })),
+    }
+  }
+
+  /**
+   * getStayJourneysReport — Reporte de extensiones de estadía para administración.
+   *
+   * Fuente de datos: StaySegment WHERE reason IN (EXTENSION_SAME_ROOM, EXTENSION_NEW_ROOM)
+   * agrupados por StayJourney. Incluye datos de contacto del GuestStay para
+   * exportar a CRM / campañas de marketing.
+   *
+   * Filtro por fecha: checkIn del segmento de extensión (cuándo comenzó la extensión).
+   * Un huésped con múltiples extensiones aparece una sola vez con extensionCount > 1.
+   *
+   * No incluye ROOM_MOVE segments — esos son cambios de habitación, no extensiones de tiempo.
+   */
+  async getStayJourneysReport(propertyId: string, from: string, to: string) {
+    const fromDate = new Date(`${from}T00:00:00.000Z`)
+    const toDate   = new Date(`${to}T23:59:59.999Z`)
+
+    const segments = await this.prisma.staySegment.findMany({
+      where: {
+        journey: { propertyId },
+        reason: { in: [SegmentReason.EXTENSION_SAME_ROOM, SegmentReason.EXTENSION_NEW_ROOM] },
+        checkIn: { gte: fromDate, lte: toDate },
+      },
+      include: {
+        journey: {
+          include: {
+            guestStay: {
+              select: {
+                guestName: true,
+                guestEmail: true,
+                guestPhone: true,
+                source: true,
+                nationality: true,
+                currency: true,
+              },
+            },
+          },
+        },
+        room: { select: { number: true } },
+      },
+      orderBy: { checkIn: 'desc' },
+    })
+
+    // Group by journey — one guest may have extended multiple times
+    const byJourney = new Map<string, typeof segments>()
+    for (const seg of segments) {
+      const list = byJourney.get(seg.journeyId) ?? []
+      list.push(seg)
+      byJourney.set(seg.journeyId, list)
+    }
+
+    const items = Array.from(byJourney.values()).map((segs) => {
+      const first = segs[0]
+      const gs = first.journey.guestStay
+      const extensionNights = segs.reduce((acc, s) => {
+        return acc + Math.round((s.checkOut.getTime() - s.checkIn.getTime()) / 86400000)
+      }, 0)
+      const extensionRevenue = segs.reduce((acc, s) => {
+        const nights = Math.round((s.checkOut.getTime() - s.checkIn.getTime()) / 86400000)
+        return acc + (s.rateSnapshot ? s.rateSnapshot.toNumber() * nights : 0)
+      }, 0)
+
+      return {
+        journeyId:      first.journeyId,
+        guestName:      gs?.guestName ?? first.journey.guestName,
+        guestEmail:     gs?.guestEmail ?? first.journey.guestEmail ?? null,
+        guestPhone:     gs?.guestPhone ?? null,
+        source:         gs?.source ?? null,
+        nationality:    gs?.nationality ?? null,
+        currency:       gs?.currency ?? 'USD',
+        journeyCheckIn:  first.journey.journeyCheckIn.toISOString(),
+        journeyCheckOut: first.journey.journeyCheckOut.toISOString(),
+        extensionCount:  segs.length,
+        extensionNights,
+        extensionRevenue,
+        roomNumber:     first.room.number,
+      }
+    })
+
+    const totalExtensionNights  = items.reduce((a, i) => a + i.extensionNights, 0)
+    const totalExtensionRevenue = items.reduce((a, i) => a + i.extensionRevenue, 0)
+    const sourceMap = new Map<string, number>()
+    for (const item of items) {
+      const src = item.source ?? 'DIRECTO'
+      sourceMap.set(src, (sourceMap.get(src) ?? 0) + 1)
+    }
+
+    return {
+      from,
+      to,
+      summary: {
+        totalGuests: items.length,
+        totalExtensionNights,
+        totalExtensionRevenue,
+        avgExtensionNights: items.length
+          ? Math.round((totalExtensionNights / items.length) * 10) / 10
+          : 0,
+        bySource: Array.from(sourceMap.entries()).map(([source, count]) => ({ source, count })),
+      },
+      items,
     }
   }
 }

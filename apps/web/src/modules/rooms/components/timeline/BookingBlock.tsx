@@ -417,7 +417,7 @@ export function BookingBlock({
         {/* Right-edge extend handle — invisible 8px strip, cursor changes to signal drag-to-extend */}
         {!isPast && !isConfirmedNoShow && !isLocked && !isSegmentLocked && !isDragging && onExtendStart && (
           <div
-            className="absolute right-0 top-0 bottom-0 w-2 z-10"
+            className="absolute right-0 top-0 bottom-0 w-3 z-10"
             style={{ cursor: 'ew-resize' }}
             title="Arrastrar para extender estadía"
             onMouseDown={(e) => {

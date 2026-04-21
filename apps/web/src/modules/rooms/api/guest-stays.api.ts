@@ -51,4 +51,9 @@ export const guestStaysApi = {
 
   extendStay: (stayId: string, newCheckOut: Date) =>
     api.patch(`${BASE}/${stayId}/extend`, { newCheckOut: newCheckOut.toISOString() }),
+
+  extendSameRoom: (journeyId: string, newCheckOut: Date) =>
+    api.post(`/v1/stay-journeys/${journeyId}/extend-same-room`, {
+      newCheckOut: newCheckOut.toISOString(),
+    }),
 }

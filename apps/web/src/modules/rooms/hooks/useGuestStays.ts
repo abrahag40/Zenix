@@ -243,11 +243,27 @@ export function useExtendStay(propertyId: string) {
     mutationFn: ({ stayId, newCheckOut }: { stayId: string; newCheckOut: Date }) =>
       guestStaysApi.extendStay(stayId, newCheckOut),
     onSuccess: () => {
-      qc.invalidateQueries({
-        queryKey: ['guest-stays', propertyId],
-        exact: false,
-        refetchType: 'active',
-      })
+      qc.invalidateQueries({ queryKey: ['guest-stays', propertyId], exact: false, refetchType: 'active' })
+      toast.success('Estadía extendida')
+    },
+    onError: (err: Error) => {
+      toast.error(err.message ?? 'No se pudo extender la estadía')
+    },
+  })
+}
+
+/** Extension via StayJourney endpoint — creates EXTENSION_SAME_ROOM segment (+ext block).
+ *  Use this when the stay has a journeyId. Invalidates both guest-stays and
+ *  stay-journeys-timeline so the +ext block appears immediately after confirm. */
+export function useExtendSameRoom(propertyId: string) {
+  const qc = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ journeyId, newCheckOut }: { journeyId: string; newCheckOut: Date }) =>
+      guestStaysApi.extendSameRoom(journeyId, newCheckOut),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['guest-stays', propertyId], exact: false, refetchType: 'active' })
+      qc.invalidateQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false, refetchType: 'active' })
       toast.success('Estadía extendida')
     },
     onError: (err: Error) => {

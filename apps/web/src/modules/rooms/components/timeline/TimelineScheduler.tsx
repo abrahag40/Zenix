@@ -5,7 +5,7 @@ import { useTimelineStore } from '../../stores/timeline.store'
 import { TIMELINE } from '../../utils/timeline.constants'
 import { getStayStatus } from '../../utils/timeline.utils'
 import { useDragDrop } from '../../hooks/useDragDrop'
-import { useGuestStays, useCreateGuestStay, useCheckout, useMoveRoom, useSplitMidStay, useMarkNoShow, useRevertNoShow, useRoomReadinessTasks, useExtendStay } from '../../hooks/useGuestStays'
+import { useGuestStays, useCreateGuestStay, useCheckout, useMoveRoom, useSplitMidStay, useMarkNoShow, useRevertNoShow, useRoomReadinessTasks, useExtendStay, useExtendSameRoom } from '../../hooks/useGuestStays'
 import { useStayJourneys } from '../../hooks/useStayJourneys'
 import { useRoomSSE } from '../../hooks/useRoomSSE'
 import { useDateVirtualizer } from '../../hooks/useDateVirtualizer'
@@ -191,7 +191,8 @@ export function TimelineScheduler() {
   const checkoutMut     = useCheckout(PROPERTY_ID)
   const moveRoomMut     = useMoveRoom(PROPERTY_ID)
   const splitMidStayMut = useSplitMidStay(PROPERTY_ID)
-  const extendStayMut   = useExtendStay(PROPERTY_ID)
+  const extendStayMut     = useExtendStay(PROPERTY_ID)
+  const extendSameRoomMut = useExtendSameRoom(PROPERTY_ID)
   const markNoShowMut   = useMarkNoShow(PROPERTY_ID)
   const revertNoShowMut = useRevertNoShow(PROPERTY_ID)
 
@@ -248,6 +249,7 @@ export function TimelineScheduler() {
   const [extendState, setExtendState] = useState<ExtendState | null>(null)
   const [extendConfirm, setExtendConfirm] = useState<{
     stayId: string
+    journeyId?: string
     originalCheckOut: Date
     newCheckOut: Date
   } | null>(null)
@@ -293,8 +295,10 @@ export function TimelineScheduler() {
     originalCheckOut: Date,
     clientX: number,
   ) => {
+    const stayRef = stays.find(s => s.id === stayId) ?? journeyBlocks.find(s => s.id === stayId)
     setExtendState({
       stayId,
+      journeyId: stayRef?.journeyId,
       roomId,
       rowIndex,
       groupHeaderOffsetY,
@@ -302,7 +306,7 @@ export function TimelineScheduler() {
       previewCheckOut: originalCheckOut,
       startClientX: clientX,
     })
-  }, [])
+  }, [stays, journeyBlocks])
 
   useEffect(() => {
     if (!dragState) return
@@ -366,6 +370,7 @@ export function TimelineScheduler() {
         if (added >= 1) {
           setExtendConfirm({
             stayId: prev.stayId,
+            journeyId: prev.journeyId,
             originalCheckOut: prev.originalCheckOut,
             newCheckOut: prev.previewCheckOut,
           })
@@ -500,9 +505,29 @@ export function TimelineScheduler() {
                 by dayWidth/2 to avoid overlapping the original block. */}
             {extendState && (() => {
               const daysAdded = differenceInCalendarDays(extendState.previewCheckOut, extendState.originalCheckOut)
-              if (daysAdded <= 0) return null
               const topY = extendState.rowIndex * TIMELINE.ROW_HEIGHT + extendState.groupHeaderOffsetY
               const originLeft = differenceInDays(extendState.originalCheckOut, POOL_START) * dayWidth + dayWidth / 2
+
+              // Engagement indicator: shown immediately on mousedown before crossing
+              // the first column mid (Djajadiningrat 2004 — gesture must have instant echo).
+              if (daysAdded <= 0) {
+                return (
+                  <div
+                    className="absolute pointer-events-none"
+                    style={{
+                      left: originLeft,
+                      top: topY + 3,
+                      width: 6,
+                      height: TIMELINE.ROW_HEIGHT - 6,
+                      background: 'rgba(16,185,129,0.45)',
+                      borderLeft: '3px solid rgba(16,185,129,0.85)',
+                      borderRadius: '0 3px 3px 0',
+                      zIndex: 15,
+                    }}
+                  />
+                )
+              }
+
               const previewWidth = daysAdded * dayWidth
               const showLabel = previewWidth > 28
               return (
@@ -528,17 +553,7 @@ export function TimelineScheduler() {
                   }}
                 >
                   {showLabel && (
-                    <span
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 700,
-                        color: 'rgba(4,120,87,0.88)',
-                        letterSpacing: '-0.02em',
-                        lineHeight: 1,
-                        whiteSpace: 'nowrap',
-                        fontFamily: 'inherit',
-                      }}
-                    >
+                    <span style={{ fontSize: 11, fontWeight: 700, color: 'rgba(4,120,87,0.88)', letterSpacing: '-0.02em', lineHeight: 1, whiteSpace: 'nowrap', fontFamily: 'inherit' }}>
                       +{daysAdded}n
                     </span>
                   )}
@@ -716,13 +731,22 @@ export function TimelineScheduler() {
             currency={stay.currency}
             source={stay.source}
             otaName={stay.otaName}
-            isPending={extendStayMut.isPending}
+            isPending={extendStayMut.isPending || extendSameRoomMut.isPending}
             onClose={() => setExtendConfirm(null)}
             onConfirm={() => {
-              extendStayMut.mutate(
-                { stayId: extendConfirm.stayId, newCheckOut: extendConfirm.newCheckOut },
-                { onSettled: () => setExtendConfirm(null) },
-              )
+              if (extendConfirm.journeyId) {
+                // Journey-aware path: creates EXTENSION_SAME_ROOM segment → +ext block appears
+                extendSameRoomMut.mutate(
+                  { journeyId: extendConfirm.journeyId, newCheckOut: extendConfirm.newCheckOut },
+                  { onSettled: () => setExtendConfirm(null) },
+                )
+              } else {
+                // Legacy fallback: no journeyId, update GuestStay directly
+                extendStayMut.mutate(
+                  { stayId: extendConfirm.stayId, newCheckOut: extendConfirm.newCheckOut },
+                  { onSettled: () => setExtendConfirm(null) },
+                )
+              }
             }}
           />
         )

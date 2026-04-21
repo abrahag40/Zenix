@@ -23,6 +23,33 @@ import { NoShowChargeStatus } from '@zenix/shared'
 // Shape de un punto en el gráfico de tendencia diaria
 type TrendDay = { date: string; completed: number; checkouts: number }
 
+type StayJourneysReport = {
+  from: string
+  to: string
+  summary: {
+    totalGuests: number
+    totalExtensionNights: number
+    totalExtensionRevenue: number
+    avgExtensionNights: number
+    bySource: { source: string; count: number }[]
+  }
+  items: {
+    journeyId: string
+    guestName: string
+    guestEmail: string | null
+    guestPhone: string | null
+    source: string | null
+    nationality: string | null
+    currency: string
+    journeyCheckIn: string
+    journeyCheckOut: string
+    extensionCount: number
+    extensionNights: number
+    extensionRevenue: number
+    roomNumber: string
+  }[]
+}
+
 /** Formatea una fecha como string ISO (yyyy-MM-dd) para los inputs type=date y la API */
 function toYMD(d: Date) {
   return format(d, 'yyyy-MM-dd')
@@ -30,9 +57,9 @@ function toYMD(d: Date) {
 
 export function ReportsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const activeTab = (searchParams.get('tab') ?? 'housekeeping') as 'housekeeping' | 'noshow'
+  const activeTab = (searchParams.get('tab') ?? 'housekeeping') as 'housekeeping' | 'noshow' | 'stays'
 
-  function setTab(tab: 'housekeeping' | 'noshow') {
+  function setTab(tab: 'housekeeping' | 'noshow' | 'stays') {
     setSearchParams({ tab })
   }
 
@@ -70,6 +97,13 @@ export function ReportsPage() {
     enabled: activeTab === 'noshow',
   })
 
+  // Stay journeys query — solo se ejecuta en el tab de estadías
+  const { data: stayJourneysReport, isLoading: loadingStays } = useQuery<StayJourneysReport>({
+    queryKey: ['reports-stay-journeys', from, to],
+    queryFn: () => api.get(`/reports/stay-journeys?from=${from}&to=${to}`),
+    enabled: activeTab === 'stays',
+  })
+
   // Usar reduce en lugar de Math.max(...array) — el spread puede lanzar
   // RangeError si el array tiene más de ~100k elementos (límite del call stack).
   // El valor mínimo 1 evita divisiones por cero en los cálculos de altura.
@@ -95,7 +129,11 @@ export function ReportsPage() {
         <div>
           <h1 className="text-lg font-semibold text-gray-900">Reportes</h1>
           <p className="text-xs text-gray-400 mt-0.5">
-            {activeTab === 'noshow' ? 'Auditoría de no-shows y seguimiento de cargos' : 'Análisis de rendimiento de housekeeping'}
+            {activeTab === 'noshow'
+              ? 'Auditoría de no-shows y seguimiento de cargos'
+              : activeTab === 'stays'
+              ? 'Huéspedes que extendieron su estadía — exportable a CRM'
+              : 'Análisis de rendimiento de housekeeping'}
           </p>
         </div>
         <div className="flex items-center gap-2 text-sm">
@@ -127,11 +165,19 @@ export function ReportsPage() {
         <TabButton active={activeTab === 'noshow'} onClick={() => setTab('noshow')}>
           No Shows
         </TabButton>
+        <TabButton active={activeTab === 'stays'} onClick={() => setTab('stays')}>
+          Estadías
+        </TabButton>
       </div>
 
       {/* ── Tab: No Shows ─────────────────────────────────────────────────── */}
       {activeTab === 'noshow' && (
         <NoShowTab report={noShowReport} loading={loadingNoShow} />
+      )}
+
+      {/* ── Tab: Estadías ─────────────────────────────────────────────────── */}
+      {activeTab === 'stays' && (
+        <StaysTab report={stayJourneysReport} loading={loadingStays} />
       )}
 
       {/* ── Tab: Housekeeping ─────────────────────────────────────────────── */}
@@ -504,6 +550,190 @@ function InsightCard({ icon, title, body }: { icon: string; title: string; body:
         <p className="text-sm font-semibold text-gray-900">{title}</p>
       </div>
       <p className="text-xs text-gray-500 leading-relaxed">{body}</p>
+    </div>
+  )
+}
+
+// ── Stays Tab ────────────────────────────────────────────────────────────────
+
+function exportStaysCsv(items: StayJourneysReport['items']) {
+  const header = [
+    'Huésped', 'Email', 'Teléfono', 'Nacionalidad', 'Canal',
+    'Check-in', 'Check-out final', 'Habitación',
+    'Extensiones', 'Noches extendidas', 'Ingreso extensión', 'Moneda',
+  ]
+  const rows = items.map((i) => [
+    i.guestName,
+    i.guestEmail ?? '',
+    i.guestPhone ?? '',
+    i.nationality ?? '',
+    i.source ?? 'DIRECTO',
+    i.journeyCheckIn ? format(new Date(i.journeyCheckIn), 'dd/MM/yyyy') : '',
+    i.journeyCheckOut ? format(new Date(i.journeyCheckOut), 'dd/MM/yyyy') : '',
+    i.roomNumber,
+    i.extensionCount,
+    i.extensionNights,
+    i.extensionRevenue.toFixed(2),
+    i.currency,
+  ])
+  const csv = [header, ...rows]
+    .map((row) => row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(','))
+    .join('\n')
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href     = url
+  a.download = `estadias-extendidas-${format(new Date(), 'yyyy-MM-dd')}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function StaysTab({
+  report,
+  loading,
+}: {
+  report: StayJourneysReport | undefined
+  loading: boolean
+}) {
+  if (loading) {
+    return <div className="text-sm text-gray-400 py-8 text-center">Cargando reporte...</div>
+  }
+  if (!report) {
+    return <div className="text-sm text-gray-400 py-8 text-center">Sin datos</div>
+  }
+
+  const { summary, items } = report
+
+  return (
+    <div className="space-y-6">
+      {/* KPI row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KpiCard
+          label="Huéspedes que extendieron"
+          value={summary.totalGuests}
+          sub="en el período"
+          color="teal"
+        />
+        <KpiCard
+          label="Noches extendidas"
+          value={summary.totalExtensionNights}
+          sub="total acumulado"
+          color="indigo"
+        />
+        <KpiCard
+          label="Ingreso por extensiones"
+          value={summary.totalExtensionRevenue > 0 ? `$${summary.totalExtensionRevenue.toFixed(0)}` : '—'}
+          sub="estimado (tarifa × noches)"
+          color="green"
+        />
+        <KpiCard
+          label="Promedio noches ext."
+          value={summary.avgExtensionNights > 0 ? `${summary.avgExtensionNights}n` : '—'}
+          sub="por huésped"
+          color="amber"
+        />
+      </div>
+
+      {/* Por canal */}
+      {summary.bySource.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-xl p-5">
+          <h2 className="text-sm font-semibold text-gray-900 mb-3">Por canal de reserva</h2>
+          <div className="flex flex-wrap gap-2">
+            {summary.bySource.map((s) => (
+              <span
+                key={s.source}
+                className="inline-flex items-center gap-1.5 text-xs bg-teal-50 text-teal-700 px-3 py-1 rounded-full"
+              >
+                <span className="font-medium">{s.source}</span>
+                <span className="text-teal-400">·</span>
+                <span>{s.count} huésped{s.count !== 1 ? 'es' : ''}</span>
+              </span>
+            ))}
+          </div>
+          <p className="text-xs text-gray-400 mt-3">
+            Los huéspedes que extienden son el segmento de mayor lealtad — prioridad en campañas de retención.
+          </p>
+        </div>
+      )}
+
+      {/* Tabla + export */}
+      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-gray-900">Huéspedes con extensión</h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Datos de contacto incluidos para exportar a CRM / campaña de retención
+            </p>
+          </div>
+          {items.length > 0 && (
+            <button
+              onClick={() => exportStaysCsv(items)}
+              className="text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-200 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              Exportar CSV
+            </button>
+          )}
+        </div>
+
+        {items.length === 0 ? (
+          <div className="text-sm text-gray-400 py-10 text-center">
+            Sin extensiones en el período seleccionado
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[900px]">
+              <thead className="bg-gray-50 border-b border-gray-100">
+                <tr>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Huésped</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Email</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Teléfono</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Canal</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Hab.</th>
+                  <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase">Ext.</th>
+                  <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase">Noches</th>
+                  <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase">Ingreso</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Check-in</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Check-out final</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {items.map((item) => (
+                  <tr key={item.journeyId} className="hover:bg-gray-50/50">
+                    <td className="px-4 py-3 font-medium text-gray-900">{item.guestName}</td>
+                    <td className="px-4 py-3 text-gray-500 text-xs">{item.guestEmail ?? <span className="text-gray-300">—</span>}</td>
+                    <td className="px-4 py-3 text-gray-500 text-xs">{item.guestPhone ?? <span className="text-gray-300">—</span>}</td>
+                    <td className="px-4 py-3 text-gray-500 text-xs">{item.source ?? 'Directo'}</td>
+                    <td className="px-4 py-3 text-gray-600 text-xs">{item.roomNumber}</td>
+                    <td className="px-4 py-3 text-right">
+                      <span className="text-xs font-semibold bg-teal-50 text-teal-700 px-1.5 py-0.5 rounded">
+                        ×{item.extensionCount}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right text-gray-700 text-xs">{item.extensionNights}n</td>
+                    <td className="px-4 py-3 text-right text-gray-700 text-xs">
+                      {item.extensionRevenue > 0
+                        ? `$${item.extensionRevenue.toFixed(0)} ${item.currency}`
+                        : <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="px-4 py-3 text-gray-500 text-xs">
+                      {format(new Date(item.journeyCheckIn), 'dd/MM/yyyy')}
+                    </td>
+                    <td className="px-4 py-3 text-gray-500 text-xs">
+                      {format(new Date(item.journeyCheckOut), 'dd/MM/yyyy')}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="bg-teal-50 border border-teal-200 rounded-xl p-4 text-xs text-teal-800">
+        <strong>Nota marketing:</strong> Este reporte incluye datos de contacto para exportar a tu CRM
+        (HubSpot, Mailchimp, etc.). Los huéspedes que extendieron su estadía tienen una tasa de retorno
+        3× mayor que el promedio — segmento prioritario para campañas de fidelización.
+      </div>
     </div>
   )
 }
