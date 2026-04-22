@@ -71,6 +71,12 @@ export function BookingDetailSheet({
   const canRevert = isNoShow && differenceInHours(new Date(), stay.noShowAt!) < 48
   const canNoShow = !isNoShow && (status === 'ARRIVING' || status === 'IN_HOUSE')
 
+  const isExtension =
+    stay.segmentReason === 'EXTENSION_SAME_ROOM' ||
+    stay.segmentReason === 'EXTENSION_NEW_ROOM'
+
+  const isRoomMove = stay.segmentReason === 'ROOM_MOVE'
+
   const nights = differenceInDays(
     new Date(stay.checkOut),
     new Date(stay.checkIn)
@@ -124,6 +130,11 @@ export function BookingDetailSheet({
                   >
                     {status === 'IN_HOUSE'
                       ? 'Alojado'
+                      : status === 'ARRIVING' && (
+                          stay.segmentReason === 'EXTENSION_SAME_ROOM' ||
+                          stay.segmentReason === 'EXTENSION_NEW_ROOM'
+                        )
+                      ? 'Extensión programada'
                       : status === 'ARRIVING'
                       ? 'Por llegar'
                       : status === 'DEPARTING'
@@ -140,6 +151,12 @@ export function BookingDetailSheet({
                     {stay.otaName}
                   </span>
                 )}
+
+                {isExtension && (
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">
+                    +ext · {nights}n
+                  </span>
+                )}
               </div>
             </div>
 
@@ -148,7 +165,7 @@ export function BookingDetailSheet({
               <button
                 onClick={() => {
                   onClose()
-                  navigate(`/reservations/${stay.id}`)
+                  navigate(`/reservations/${stay.guestStayId ?? stay.id}`)
                 }}
                 className="flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md transition-colors"
                 style={{ color: `${statusColors.text}99` }}
@@ -201,6 +218,82 @@ export function BookingDetailSheet({
             {/* TAB ESTADÍA */}
             <TabsContent value="stay" className="mt-0 ">
               <div className="p-4 space-y-3">
+                {/* Extension banner — same room */}
+                {stay.segmentReason === 'EXTENSION_SAME_ROOM' && (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 space-y-1.5">
+                    <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">
+                      Extensión de estadía
+                    </div>
+                    {/* Primary: absolute checkout — no mental math required */}
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-sm font-semibold text-emerald-800">
+                        +{nights} noche{nights !== 1 ? 's' : ''}
+                      </span>
+                      <span className="text-slate-400 text-xs">·</span>
+                      <span className="text-sm font-semibold text-emerald-800">
+                        Checkout: {format(new Date(stay.checkOut), "EEE d MMM", { locale: es })}
+                      </span>
+                    </div>
+                    {/* Secondary: when it started */}
+                    <div className="text-xs text-emerald-600">
+                      Desde {format(new Date(stay.checkIn), "EEE d MMM yyyy", { locale: es })}
+                      {stay.roomNumber ? ` · Hab. ${stay.roomNumber}` : ''}
+                    </div>
+                  </div>
+                )}
+
+                {/* Extension + room change banner */}
+                {stay.segmentReason === 'EXTENSION_NEW_ROOM' && (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 space-y-1.5">
+                    <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">
+                      Extensión · Cambio de habitación
+                    </div>
+                    {/* Primary: room transition — most salient fact */}
+                    {stay.originalRoomNumber && stay.roomNumber && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-slate-500">Hab. {stay.originalRoomNumber}</span>
+                        <span className="text-emerald-500">→</span>
+                        <span className="text-sm font-bold text-emerald-800">Hab. {stay.roomNumber}</span>
+                      </div>
+                    )}
+                    {/* Secondary: duration + absolute checkout */}
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-xs text-emerald-700 font-medium">
+                        +{nights} noche{nights !== 1 ? 's' : ''}
+                      </span>
+                      <span className="text-slate-400 text-xs">·</span>
+                      <span className="text-xs text-emerald-700 font-medium">
+                        Checkout: {format(new Date(stay.checkOut), "EEE d MMM", { locale: es })}
+                      </span>
+                    </div>
+                    <div className="text-xs text-emerald-600">
+                      Desde {format(new Date(stay.checkIn), "EEE d MMM yyyy", { locale: es })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Room move banner */}
+                {isRoomMove && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 space-y-1.5">
+                    <div className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">
+                      Cambio de habitación
+                    </div>
+                    {/* Primary: the spatial transition — answer "from where to where" */}
+                    {stay.originalRoomNumber && stay.roomNumber ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-slate-500">Hab. {stay.originalRoomNumber}</span>
+                        <span className="text-blue-400">→</span>
+                        <span className="text-sm font-bold text-blue-800">Hab. {stay.roomNumber}</span>
+                      </div>
+                    ) : (
+                      <div className="text-sm font-bold text-blue-800">Hab. {stay.roomNumber}</div>
+                    )}
+                    <div className="text-xs text-blue-600">
+                      Desde {format(new Date(stay.checkIn), "EEE d MMM yyyy", { locale: es })}
+                    </div>
+                  </div>
+                )}
+
                 {/* Fechas */}
                 <div className="bg-slate-50 rounded-xl p-4">
                   <div className="flex items-stretch gap-3">
@@ -501,7 +594,22 @@ export function BookingDetailSheet({
           )}
 
           <div className="flex gap-2 flex-wrap">
-            {!isNoShow && (
+            {/* DEPARTED — progressive disclosure: full folio/audit trail in ReservationDetailPage */}
+            {status === 'DEPARTED' && (
+              <Button
+                size="sm"
+                className="flex-1 text-xs bg-slate-700 hover:bg-slate-800 text-white"
+                onClick={() => {
+                  onClose()
+                  navigate(`/reservations/${stay.guestStayId ?? stay.id}`)
+                }}
+              >
+                <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
+                Ver folio completo →
+              </Button>
+            )}
+
+            {!isNoShow && status !== 'DEPARTED' && (
               <Button
                 variant="outline"
                 size="sm"

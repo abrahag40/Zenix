@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { subDays, addDays, differenceInDays } from 'date-fns'
+import { subDays, addDays, differenceInDays, differenceInCalendarDays, startOfDay } from 'date-fns'
 import { useTimelineStore } from '../../stores/timeline.store'
 import { TIMELINE } from '../../utils/timeline.constants'
+import { getStayStatus } from '../../utils/timeline.utils'
 import { useDragDrop } from '../../hooks/useDragDrop'
-import { useGuestStays, useCreateGuestStay, useCheckout, useMoveRoom, useMarkNoShow, useRevertNoShow, useRoomReadinessTasks } from '../../hooks/useGuestStays'
+import { useGuestStays, useCreateGuestStay, useCheckout, useMoveRoom, useSplitMidStay, useMarkNoShow, useRevertNoShow, useRoomReadinessTasks, useExtendStay, useExtendSameRoom, useMoveExtensionRoom } from '../../hooks/useGuestStays'
 import { useStayJourneys } from '../../hooks/useStayJourneys'
 import { useRoomSSE } from '../../hooks/useRoomSSE'
 import { useDateVirtualizer } from '../../hooks/useDateVirtualizer'
@@ -21,10 +22,14 @@ import { BookingDetailSheet } from '../dialogs/BookingDetailSheet'
 import { CheckInDialog } from '../dialogs/CheckInDialog'
 import type { NewStayData } from '../dialogs/CheckInDialog'
 import { CheckOutDialog } from '../dialogs/CheckOutDialog'
+import { ExtendConfirmDialog } from '../dialogs/ExtendConfirmDialog'
+import { MoveRoomDialog } from '../dialogs/MoveRoomDialog'
+import { MoveExtensionConfirmDialog } from '../dialogs/MoveExtensionConfirmDialog'
 import { NoShowConfirmModal } from './NoShowConfirmModal'
 import type {
   FlatRow,
   DropResult,
+  ExtendState,
 } from '../../types/timeline.types'
 import { useRoomGroups } from '../../hooks/useRoomGroups'
 import { useAuthStore } from '@/store/auth'
@@ -40,6 +45,7 @@ export function TimelineScheduler() {
   // /properties fetch have had a chance to populate.
   const activeId = usePropertyStore((s) => s.activePropertyId)
   const jwtPropertyId = useAuthStore((s) => s.user?.propertyId) ?? ''
+  const currentUserId = useAuthStore((s) => s.user?.id) ?? ''
   const PROPERTY_ID = activeId ?? jwtPropertyId
 
   const { data: apiGroups = [], isLoading: groupsLoading } = useRoomGroups(PROPERTY_ID)
@@ -182,10 +188,14 @@ export function TimelineScheduler() {
     dataWindow.from,
     dataWindow.to,
   )
-  const createStay     = useCreateGuestStay(PROPERTY_ID)
-  const checkoutMut    = useCheckout(PROPERTY_ID)
-  const moveRoomMut    = useMoveRoom(PROPERTY_ID)
-  const markNoShowMut  = useMarkNoShow(PROPERTY_ID)
+  const createStay      = useCreateGuestStay(PROPERTY_ID)
+  const checkoutMut     = useCheckout(PROPERTY_ID)
+  const moveRoomMut     = useMoveRoom(PROPERTY_ID)
+  const splitMidStayMut = useSplitMidStay(PROPERTY_ID)
+  const extendStayMut     = useExtendStay(PROPERTY_ID)
+  const extendSameRoomMut    = useExtendSameRoom(PROPERTY_ID)
+  const moveExtensionRoomMut = useMoveExtensionRoom(PROPERTY_ID)
+  const markNoShowMut   = useMarkNoShow(PROPERTY_ID)
   const revertNoShowMut = useRevertNoShow(PROPERTY_ID)
 
   const { journeyBlocks } = useStayJourneys(PROPERTY_ID, dataWindow.from, dataWindow.to)
@@ -211,8 +221,27 @@ export function TimelineScheduler() {
   )
 
   const handleDropSuccess = useCallback((result: DropResult) => {
+    // Check if the dropped block is an extension segment — those open a lightweight
+    // confirm dialog instead of MoveRoomDialog (no effectiveDate needed).
+    const draggedJourneyBlock = journeyBlocks.find(b => b.id === result.stayId)
+    if (
+      draggedJourneyBlock?.segmentReason === 'EXTENSION_SAME_ROOM' ||
+      draggedJourneyBlock?.segmentReason === 'EXTENSION_NEW_ROOM'
+    ) {
+      const newRoomRow = flatRows.find(r => r.id === result.newRoomId && r.type === 'room')
+      setMoveExtensionConfirm({
+        segmentId: draggedJourneyBlock.segmentId!,
+        journeyId: draggedJourneyBlock.journeyId!,
+        newRoomId: result.newRoomId,
+        newRoomNumber: newRoomRow?.room?.number ?? result.newRoomId.slice(0, 8),
+        nights: differenceInCalendarDays(draggedJourneyBlock.checkOut, draggedJourneyBlock.checkIn),
+        checkIn: draggedJourneyBlock.checkIn,
+        checkOut: draggedJourneyBlock.checkOut,
+      })
+      return
+    }
     moveRoomMut.mutate({ stayId: result.stayId, newRoomId: result.newRoomId })
-  }, [moveRoomMut])
+  }, [moveRoomMut, journeyBlocks, flatRows])
 
   // ─── Journey highlight (lifted from BookingsLayer for cross-component sync) ──
   const [activeJourneyId, setActiveJourneyId] = useState<string | null>(null)
@@ -237,8 +266,74 @@ export function TimelineScheduler() {
     ? ([...stays, ...journeyBlocks].find((s) => s.id === noShowDialog.stayId) ?? null)
     : null
 
+  // ─── Extend stay by drag ───────────────────────────────────────
+  const [extendState, setExtendState] = useState<ExtendState | null>(null)
+  const [extendConfirm, setExtendConfirm] = useState<{
+    stayId: string
+    journeyId?: string
+    originalCheckOut: Date
+    newCheckOut: Date
+  } | null>(null)
+
+  // ─── Move room dialog ──────────────────────────────────────────
+  const [moveRoomDialog, setMoveRoomDialog] = useState<{ stayId: string } | null>(null)
+  const moveRoomTarget = moveRoomDialog
+    ? (stays.find(s => s.id === moveRoomDialog.stayId) ?? journeyBlocks.find(s => s.id === moveRoomDialog.stayId) ?? null)
+    : null
+
+  // ─── Move extension confirm (drag +ext block to another row) ──
+  const [moveExtensionConfirm, setMoveExtensionConfirm] = useState<{
+    segmentId: string
+    journeyId: string
+    newRoomId: string
+    newRoomNumber: string
+    nights: number
+    checkIn: Date
+    checkOut: Date
+  } | null>(null)
+
   // ─── Drag & Drop ────────────────────────────────────────────
-  const [ghostPosition, setGhostPosition] = useState({ x: -9999, y: -9999 })
+  // Ghost position is updated via direct DOM mutation (not state) so moving
+  // the cursor doesn't trigger a React re-render every frame.
+  const ghostRef = useRef<HTMLDivElement | null>(null)
+
+  // GuestStay blocks whose journey is tracked via StayJourney segments are
+  // replaced visually by the ORIGINAL + extension/move segments. Hide them
+  // from the rendered layer so the original room row is not double-occupied.
+  const staysWithoutJourneys = useMemo(
+    () => stays.filter((s) => !s.journeyId),
+    [stays],
+  )
+
+  // Merge journeyBlocks into conflict detection so dragging a stay
+  // can't overwrite a pre-planned ROOM_MOVE/EXTENSION segment.
+  const allBlocksForDragCheck = useMemo(
+    () => [...stays, ...journeyBlocks],
+    [stays, journeyBlocks],
+  )
+
+  // Pre-built occupancy Set for O(1) per-cell lookup in TimelineGrid.
+  // Without this, isOccupied scans all blocks on every cell × every render,
+  // costing O(rooms × days × blocks) when dragTargetRoomId changes.
+  const occupancySet = useMemo(() => {
+    const set = new Set<string>()
+    for (const block of allBlocksForDragCheck) {
+      if (block.actualCheckout) continue // departed — not an active occupancy
+      const checkIn = block.checkIn.getTime()
+      const checkOut = block.checkOut.getTime()
+      const MS_DAY = 86400000
+      for (let t = checkIn; t < checkOut; t += MS_DAY) {
+        const d = new Date(t)
+        set.add(`${block.roomId}:${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`)
+      }
+    }
+    return set
+  }, [allBlocksForDragCheck])
+
+  const isOccupied = useCallback((roomId: string, date: Date) => {
+    const d = startOfDay(date)
+    return occupancySet.has(`${roomId}:${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`)
+  }, [occupancySet])
 
   const {
     dragState,
@@ -248,27 +343,56 @@ export function TimelineScheduler() {
     handleDragCancel,
   } = useDragDrop({
     flatRows,
-    stays,
+    stays: allBlocksForDragCheck,
     onDropSuccess: handleDropSuccess,
   })
 
   const handleDragStartWithPosition = useCallback((stayId: string, clientX: number, clientY: number) => {
-    setGhostPosition({ x: clientX, y: clientY })
+    if (ghostRef.current) {
+      ghostRef.current.style.transform = `translate(${clientX - 20}px, ${clientY - TIMELINE.ROW_HEIGHT / 2}px)`
+    }
     rawDragStart(stayId, clientX)
   }, [rawDragStart])
 
+  const handleExtendStart = useCallback((
+    stayId: string,
+    roomId: string,
+    rowIndex: number,
+    groupHeaderOffsetY: number,
+    originalCheckOut: Date,
+    clientX: number,
+  ) => {
+    const stayRef = stays.find(s => s.id === stayId) ?? journeyBlocks.find(s => s.id === stayId)
+    setExtendState({
+      stayId,
+      journeyId: stayRef?.journeyId,
+      roomId,
+      rowIndex,
+      groupHeaderOffsetY,
+      originalCheckOut,
+      previewCheckOut: originalCheckOut,
+      startClientX: clientX,
+    })
+  }, [stays, journeyBlocks])
+
+  // isDraggingActive flips only when drag starts/ends — NOT on every mousemove.
+  // This prevents the effect from re-subscribing event listeners every frame.
+  const isDraggingActive = !!dragState
+
   useEffect(() => {
-    if (!dragState) return
+    if (!isDraggingActive) return
 
     function onMouseMove(e: MouseEvent) {
-      setGhostPosition({ x: e.clientX, y: e.clientY })
+      // Move ghost via GPU-composited transform — zero React re-renders.
+      if (ghostRef.current) {
+        ghostRef.current.style.transform = `translate(${e.clientX - 20}px, ${e.clientY - TIMELINE.ROW_HEIGHT / 2}px)`
+      }
 
       const container = scrollContainerRef.current
       if (!container) return
 
       const containerRect = container.getBoundingClientRect()
-      const gridY =
-        e.clientY - containerRect.top + container.scrollTop
+      const gridY = e.clientY - containerRect.top + container.scrollTop
 
       handleDragMove(e.clientX, gridY)
     }
@@ -290,11 +414,59 @@ export function TimelineScheduler() {
       window.removeEventListener('mouseup', onMouseUp)
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [dragState, handleDragMove, handleDragEnd, handleDragCancel])
+  // handleDragMove/End/Cancel are now stable ([] deps in useDragDrop via refs).
+  // isDraggingActive changes only on drag start/end, not on every mousemove.
+  }, [isDraggingActive, handleDragMove, handleDragEnd, handleDragCancel])
 
   const draggedStay = dragState
-    ? stays.find(s => s.id === dragState.stayId) ?? null
+    ? stays.find(s => s.id === dragState.stayId) ?? journeyBlocks.find(s => s.id === dragState.stayId) ?? null
     : null
+
+  // ─── Extend drag global listeners ─────────────────────────────
+  useEffect(() => {
+    if (!extendState) return
+
+    function onMouseMove(e: MouseEvent) {
+      setExtendState(prev => {
+        if (!prev) return null
+        // Math.floor: trigger at the MID of each next column (where the block
+        // endpoint visually lives — stayToRect places checkOut at dayWidth/2).
+        // Math.round triggered at the column boundary, half a cell too early.
+        const deltaDays = Math.max(0, Math.floor((e.clientX - prev.startClientX) / dayWidth))
+        const newCO = startOfDay(addDays(prev.originalCheckOut, deltaDays))
+        return { ...prev, previewCheckOut: newCO }
+      })
+    }
+
+    function onMouseUp() {
+      setExtendState(prev => {
+        if (!prev) return null
+        const added = differenceInCalendarDays(prev.previewCheckOut, prev.originalCheckOut)
+        if (added >= 1) {
+          setExtendConfirm({
+            stayId: prev.stayId,
+            journeyId: prev.journeyId,
+            originalCheckOut: prev.originalCheckOut,
+            newCheckOut: prev.previewCheckOut,
+          })
+        }
+        return null
+      })
+    }
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setExtendState(null)
+    }
+
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [extendState, dayWidth])
 
   if (groupsLoading) {
     return (
@@ -374,20 +546,17 @@ export function TimelineScheduler() {
               flatRows={flatRows}
               dragTargetRoomId={dragState?.currentRoomId}
               dragIsValid={dragState?.isValid ?? true}
+              isDragging={!!dragState || !!extendState}
               onCellClick={(roomId, date) => {
-                const allBlocks = [...stays, ...journeyBlocks]
-                const occupied = allBlocks.some(
-                  (s) => s.roomId === roomId && date >= s.checkIn && date < s.checkOut,
-                )
-                if (occupied) return
+                if (isOccupied(roomId, date)) return
                 const roomRow = flatRows.find(r => r.id === roomId && r.type === 'room')
                 setCheckInDialog({ open: true, roomId, roomNumber: roomRow?.room?.number ?? roomId.slice(0, 8), checkIn: date })
               }}
-              isOccupied={(roomId, date) => {
-                const allBlocks = [...stays, ...journeyBlocks]
-                return allBlocks.some(
-                  (s) => s.roomId === roomId && date >= s.checkIn && date < s.checkOut,
-                )
+              isOccupied={isOccupied}
+              getRoomRate={(roomId) => {
+                const group = groups.find(g => g.rooms.some(r => r.id === roomId))
+                if (!group) return undefined
+                return { rate: group.baseRate, currency: group.currency }
               }}
             />
             <TodayColumnHighlight
@@ -396,8 +565,70 @@ export function TimelineScheduler() {
               flatRows={flatRows}
               poolStart={POOL_START}
             />
+            {/* Extend drag preview overlay
+                originLeft aligns with the block's right edge: stayToRect places
+                checkOut at (checkOutDays * dayWidth + dayWidth/2), so we offset
+                by dayWidth/2 to avoid overlapping the original block. */}
+            {extendState && (() => {
+              const daysAdded = differenceInCalendarDays(extendState.previewCheckOut, extendState.originalCheckOut)
+              const topY = extendState.rowIndex * TIMELINE.ROW_HEIGHT + extendState.groupHeaderOffsetY
+              const originLeft = differenceInDays(extendState.originalCheckOut, POOL_START) * dayWidth + dayWidth / 2
+
+              // Engagement indicator: shown immediately on mousedown before crossing
+              // the first column mid (Djajadiningrat 2004 — gesture must have instant echo).
+              if (daysAdded <= 0) {
+                return (
+                  <div
+                    className="absolute pointer-events-none"
+                    style={{
+                      left: originLeft,
+                      top: topY + 3,
+                      width: 6,
+                      height: TIMELINE.ROW_HEIGHT - 6,
+                      background: 'rgba(16,185,129,0.45)',
+                      borderLeft: '3px solid rgba(16,185,129,0.85)',
+                      borderRadius: '0 3px 3px 0',
+                      zIndex: 15,
+                    }}
+                  />
+                )
+              }
+
+              const previewWidth = daysAdded * dayWidth
+              const showLabel = previewWidth > 28
+              return (
+                <div
+                  className="absolute pointer-events-none"
+                  style={{
+                    left: originLeft,
+                    top: topY + 3,
+                    width: previewWidth - 2,
+                    height: TIMELINE.ROW_HEIGHT - 6,
+                    background: 'rgba(16,185,129,0.10)',
+                    borderLeft: '3px solid rgba(16,185,129,0.70)',
+                    borderTop: '1px solid rgba(16,185,129,0.25)',
+                    borderBottom: '1px solid rgba(16,185,129,0.25)',
+                    borderRight: '1px solid rgba(16,185,129,0.25)',
+                    borderRadius: '0 5px 5px 0',
+                    boxShadow: '0 2px 8px rgba(16,185,129,0.12), inset 0 1px 0 rgba(255,255,255,0.4)',
+                    zIndex: 15,
+                    display: 'flex',
+                    alignItems: 'center',
+                    paddingLeft: 8,
+                    overflow: 'hidden',
+                  }}
+                >
+                  {showLabel && (
+                    <span style={{ fontSize: 11, fontWeight: 700, color: 'rgba(4,120,87,0.88)', letterSpacing: '-0.02em', lineHeight: 1, whiteSpace: 'nowrap', fontFamily: 'inherit' }}>
+                      +{daysAdded}n
+                    </span>
+                  )}
+                </div>
+              )
+            })()}
+
             <BookingsLayer
-              stays={stays}
+              stays={staysWithoutJourneys}
               flatRows={flatRows}
               days={days}
               dayWidth={dayWidth}
@@ -405,6 +636,7 @@ export function TimelineScheduler() {
               totalWidth={totalWidth}
               dragState={dragState}
               onDragStart={handleDragStartWithPosition}
+              onExtendStart={handleExtendStart}
               onStayClick={openSheet}
               onCheckout={(stayId) => {
                 closeSheet()
@@ -446,16 +678,19 @@ export function TimelineScheduler() {
         readinessTasks={readinessTasks}
       />
 
-      {/* Drag ghost — follows cursor via portal */}
+      {/* Drag ghost — position updated via DOM ref (no React re-render per frame).
+          GPU-composited translate keeps this on the compositor thread. */}
       {dragState && draggedStay && createPortal(
         <div
+          ref={ghostRef}
           style={{
             position: 'fixed',
-            left: ghostPosition.x,
-            top: ghostPosition.y - (TIMELINE.ROW_HEIGHT / 2),
+            top: 0,
+            left: 0,
+            transform: 'translate(-9999px, -9999px)', // off-screen until first mousemove
             pointerEvents: 'none',
             zIndex: 9998,
-            transform: 'translateX(-20px)',
+            willChange: 'transform',
           }}
         >
           <DragGhost
@@ -509,7 +744,7 @@ export function TimelineScheduler() {
           setCheckOutDialog({ open: true, stayId })
         }}
         onMoveRoom={(stayId) => {
-          console.log('TODO: mover habitación', stayId)
+          setMoveRoomDialog({ stayId })
           closeSheet()
         }}
         onNoShow={(stayId, opts) => {
@@ -547,6 +782,102 @@ export function TimelineScheduler() {
           setCheckOutDialog({ open: false, stayId: null })
         }}
       />
+
+      {/* ─── Extend confirm dialog ──────────────────────────── */}
+      {extendConfirm && (() => {
+        const stay = stays.find(s => s.id === extendConfirm.stayId)
+          ?? journeyBlocks.find(s => s.id === extendConfirm.stayId)
+        if (!stay) return null
+        const roomRow = flatRows.find(r => r.id === stay.roomId && r.type === 'room')
+        return (
+          <ExtendConfirmDialog
+            guestName={stay.guestName}
+            roomNumber={stay.roomNumber ?? roomRow?.room?.number}
+            originalCheckOut={extendConfirm.originalCheckOut}
+            newCheckOut={extendConfirm.newCheckOut}
+            ratePerNight={stay.ratePerNight}
+            originalTotal={stay.totalAmount}
+            currency={stay.currency}
+            source={stay.source}
+            otaName={stay.otaName}
+            isPending={extendStayMut.isPending || extendSameRoomMut.isPending}
+            onClose={() => setExtendConfirm(null)}
+            onConfirm={() => {
+              if (extendConfirm.journeyId) {
+                // Journey-aware path: creates EXTENSION_SAME_ROOM segment → +ext block appears
+                extendSameRoomMut.mutate(
+                  { journeyId: extendConfirm.journeyId, newCheckOut: extendConfirm.newCheckOut },
+                  { onSettled: () => setExtendConfirm(null) },
+                )
+              } else {
+                // Legacy fallback: no journeyId, update GuestStay directly
+                extendStayMut.mutate(
+                  { stayId: extendConfirm.stayId, newCheckOut: extendConfirm.newCheckOut },
+                  { onSettled: () => setExtendConfirm(null) },
+                )
+              }
+            }}
+          />
+        )
+      })()}
+
+      {/* ─── Move room dialog ────────────────────────────────── */}
+      {moveRoomDialog && moveRoomTarget && (() => {
+        const stayWithRoom = moveRoomTarget.roomNumber
+          ? moveRoomTarget
+          : { ...moveRoomTarget, roomNumber: flatRows.find(r => r.id === moveRoomTarget.roomId && r.type === 'room')?.room?.number }
+        const stayStatus = getStayStatus(moveRoomTarget.checkIn, moveRoomTarget.checkOut, moveRoomTarget.actualCheckout)
+        const isInHouse = stayStatus === 'IN_HOUSE'
+        const isBusy = isInHouse ? splitMidStayMut.isPending : moveRoomMut.isPending
+
+        return (
+          <MoveRoomDialog
+            stay={stayWithRoom}
+            groups={groups}
+            flatRows={flatRows}
+            stays={stays}
+            isInHouse={isInHouse}
+            isPending={isBusy}
+            onClose={() => setMoveRoomDialog(null)}
+            onConfirm={(newRoomId, effectiveDate) => {
+              if (isInHouse && moveRoomTarget.journeyId) {
+                // IN_HOUSE: route to stay-journeys endpoint to create ROOM_MOVE segment
+                splitMidStayMut.mutate(
+                  {
+                    journeyId: moveRoomTarget.journeyId,
+                    newRoomId,
+                    effectiveDate: effectiveDate ?? startOfDay(new Date()),
+                    actorId: currentUserId,
+                  },
+                  { onSettled: () => setMoveRoomDialog(null) },
+                )
+              } else {
+                // ARRIVING (no journey yet): simple moveRoom
+                moveRoomMut.mutate(
+                  { stayId: moveRoomDialog.stayId, newRoomId },
+                  { onSettled: () => setMoveRoomDialog(null) },
+                )
+              }
+            }}
+          />
+        )
+      })()}
+      {moveExtensionConfirm && (
+        <MoveExtensionConfirmDialog
+          newRoomNumber={moveExtensionConfirm.newRoomNumber}
+          nights={moveExtensionConfirm.nights}
+          checkIn={moveExtensionConfirm.checkIn}
+          checkOut={moveExtensionConfirm.checkOut}
+          isPending={moveExtensionRoomMut.isPending}
+          onClose={() => setMoveExtensionConfirm(null)}
+          onConfirm={() => {
+            moveExtensionRoomMut.mutate(
+              { segmentId: moveExtensionConfirm.segmentId, newRoomId: moveExtensionConfirm.newRoomId },
+              { onSettled: () => setMoveExtensionConfirm(null) },
+            )
+          }}
+        />
+      )}
     </div>
   )
 }

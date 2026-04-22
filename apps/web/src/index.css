@@ -10,6 +10,18 @@
   --ease-sharp-out: cubic-bezier(0.55, 0, 1, 0.45);  /* expo-in: exit rápido y limpio */
 }
 
+/* ── Modal / dialog entrance animation ────────────────────────────────────── */
+@keyframes modal-spring-in {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0);   }
+}
+:root {
+  --animate-spring-in: modal-spring-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root { --animate-spring-in: none; }
+}
+
 /* ── Timeline tooltip entrance animations ─────────────────────────────────── */
 /* Aparecen solo al hacer mount (visible=true). GPU composited: solo          */
 /* opacity + translateY. 160ms es el límite superior para tooltips per        */
@@ -26,6 +38,21 @@
 .tooltip-bottom { animation: tooltip-in-bottom 160ms var(--ease-spring); }
 @media (prefers-reduced-motion: reduce) {
   .tooltip-top, .tooltip-bottom { animation-duration: 0ms; }
+}
+
+/* ── Journey connection dot — SwiftUI-style pulse ────────────────────────── */
+/* Matches the Apple Maps / Find My ring: expands + fades over 2.2s.         */
+/* Ring element uses this; solid center is static.                            */
+@keyframes journey-pulse {
+  0%   { transform: scale(1);   opacity: 0.75; }
+  65%  { transform: scale(2.4); opacity: 0;    }
+  100% { transform: scale(2.4); opacity: 0;    }
+}
+.journey-pulse-ring {
+  animation: journey-pulse 2.2s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .journey-pulse-ring { animation: none; }
 }
 
 /* ── shadcn/ui CSS variables (neutral / radix-nova) ───────────────────────── */

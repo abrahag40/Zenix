@@ -17,10 +17,12 @@ function adaptStay(raw: Record<string, unknown>): GuestStayBlock {
   const source = (raw.source as string) ?? 'other'
   const ota = OTA_OPTIONS.find(o => o.value === source)
 
+  const stayJourney = raw.stayJourney as { id: string } | null | undefined
   return {
     id:               raw.id as string,
     roomId:           raw.roomId as string,
     guestName:        raw.guestName as string,
+    journeyId:        stayJourney?.id ?? undefined,
     guestEmail:       raw.guestEmail as string | undefined,
     guestPhone:       raw.guestPhone as string | undefined,
     nationality:      raw.nationality as string | undefined,
@@ -232,6 +234,97 @@ export function useRevertNoShow(propertyId: string) {
     },
     onError: (err: Error) => {
       toast.error(err.message ?? 'No se pudo revertir el no-show')
+    },
+  })
+}
+
+export function useExtendStay(propertyId: string) {
+  const qc = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ stayId, newCheckOut }: { stayId: string; newCheckOut: Date }) =>
+      guestStaysApi.extendStay(stayId, newCheckOut),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['guest-stays', propertyId], exact: false, refetchType: 'active' })
+      qc.invalidateQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false, refetchType: 'active' })
+      toast.success('Estadía extendida')
+    },
+    onError: (err: Error) => {
+      toast.error(err.message ?? 'No se pudo extender la estadía')
+    },
+  })
+}
+
+/** Extension via StayJourney endpoint — creates EXTENSION_SAME_ROOM segment (+ext block).
+ *  Use this when the stay has a journeyId. Invalidates both guest-stays and
+ *  stay-journeys-timeline so the +ext block appears immediately after confirm. */
+export function useExtendSameRoom(propertyId: string) {
+  const qc = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ journeyId, newCheckOut }: { journeyId: string; newCheckOut: Date }) =>
+      guestStaysApi.extendSameRoom(journeyId, newCheckOut),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['guest-stays', propertyId], exact: false, refetchType: 'active' })
+      qc.invalidateQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false, refetchType: 'active' })
+      toast.success('Estadía extendida')
+    },
+    onError: (err: Error) => {
+      toast.error(err.message ?? 'No se pudo extender la estadía')
+    },
+  })
+}
+
+/** Mid-stay room move for IN_HOUSE guests. Routes to stay-journeys endpoint which
+ *  creates a ROOM_MOVE segment preserving the StayJourney audit trail. */
+export function useSplitMidStay(propertyId: string) {
+  const qc = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({
+      journeyId,
+      newRoomId,
+      effectiveDate,
+      actorId,
+    }: {
+      journeyId: string
+      newRoomId: string
+      effectiveDate: Date
+      actorId: string
+    }) =>
+      api.post(`/v1/stay-journeys/${journeyId}/room-move`, {
+        journeyId,
+        newRoomId,
+        effectiveDate: effectiveDate.toISOString(),
+        actorId,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['guest-stays', propertyId], exact: false, refetchType: 'active' })
+      qc.invalidateQueries({ queryKey: ['rooms', propertyId], exact: false })
+      toast.success('Habitación cambiada')
+    },
+    onError: (err: Error) => {
+      toast.error(err.message ?? 'No se pudo cambiar la habitación')
+    },
+  })
+}
+
+/** Reassign an existing EXTENSION_SAME_ROOM / EXTENSION_NEW_ROOM segment to a different room.
+ *  No effectiveDate needed — the extension dates are already fixed.
+ *  Invalidates stay-journeys-timeline so the dragged block re-renders in its new row. */
+export function useMoveExtensionRoom(propertyId: string) {
+  const qc = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ segmentId, newRoomId }: { segmentId: string; newRoomId: string }) =>
+      guestStaysApi.moveExtensionRoom(segmentId, newRoomId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false, refetchType: 'active' })
+      qc.invalidateQueries({ queryKey: ['guest-stays', propertyId], exact: false, refetchType: 'active' })
+      toast.success('Extensión movida a la nueva habitación')
+    },
+    onError: (err: Error) => {
+      toast.error(err.message ?? 'No se pudo mover la extensión')
     },
   })
 }

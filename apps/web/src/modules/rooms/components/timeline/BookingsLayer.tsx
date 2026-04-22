@@ -1,4 +1,4 @@
-import { useMemo, useRef, useEffect } from 'react'
+import { useMemo, useRef, useEffect, useCallback } from 'react'
 import { differenceInCalendarDays } from 'date-fns'
 import { TIMELINE } from '../../utils/timeline.constants'
 import { BookingBlock } from './BookingBlock'
@@ -13,6 +13,7 @@ interface BookingsLayerProps {
   totalWidth: number
   dragState?: DragState | null
   onDragStart: (stayId: string, clientX: number, clientY: number) => void
+  onExtendStart?: (stayId: string, roomId: string, rowIndex: number, groupHeaderOffsetY: number, originalCheckOut: Date, clientX: number) => void
   onStayClick: (stayId: string) => void
   onCheckout: (stayId: string) => void
   onNoShow?: (stayId: string) => void
@@ -103,6 +104,7 @@ export function BookingsLayer({
   totalWidth,
   dragState,
   onDragStart,
+  onExtendStart,
   onStayClick,
   onCheckout,
   onNoShow,
@@ -265,13 +267,27 @@ export function BookingsLayer({
     svg.style.opacity = drew ? '1' : '0'
   }, [activeJourneyId, stays, journeyStays])
 
-  function handleBlockClick(stay: GuestStayBlock) {
+
+  const visibleJourneyStays = useMemo(
+    () =>
+      journeyStays.filter((stay) => {
+        const mapping = roomIndexMap.get(stay.roomId)
+        if (!mapping) return false
+        if (!calendarEnd) return false
+        return (
+          differenceInCalendarDays(stay.checkOut, calendarStart) > 0 &&
+          differenceInCalendarDays(stay.checkIn, calendarEnd) < 1
+        )
+      }),
+    [journeyStays, roomIndexMap, calendarStart, calendarEnd],
+  )
+
+  // Stable block-click handler — wrapped in useCallback so BookingBlock (memo'd)
+  // doesn't re-render just because BookingsLayer re-renders.
+  const handleBlockClickCb = useCallback((stay: GuestStayBlock) => {
     if (stay.journeyId) {
-      // Segment block: activate its own journey.
       onSetActiveJourneyId(stay.journeyId)
     } else {
-      // Regular block: check if it is a predecessor for any journey segment.
-      // This makes the SVG highlight bidirectional — clicking the first block works too.
       const allStays = [...stays, ...journeyStays]
       const asSegment = journeyStays.find(
         (seg) => findPredecessor(seg, allStays)?.id === stay.id,
@@ -279,17 +295,7 @@ export function BookingsLayer({
       onSetActiveJourneyId(asSegment?.journeyId ?? null)
     }
     onStayClick(stay.id)
-  }
-
-  const visibleJourneyStays = journeyStays.filter((stay) => {
-    const mapping = roomIndexMap.get(stay.roomId)
-    if (!mapping) return false
-    if (!calendarEnd) return false
-    return (
-      differenceInCalendarDays(stay.checkOut, calendarStart) > 0 &&
-      differenceInCalendarDays(stay.checkIn, calendarEnd) < 1
-    )
-  })
+  }, [onSetActiveJourneyId, onStayClick, stays, journeyStays])
 
   return (
     <div
@@ -337,13 +343,15 @@ export function BookingsLayer({
             staggerIndex={i}
             isDragging={dragState?.stayId === stay.id}
             onDragStart={onDragStart}
-            onClick={() => handleBlockClick(stay)}
+            onExtendStart={onExtendStart}
+            onClick={() => handleBlockClickCb(stay)}
             onCheckout={onCheckout}
             onNoShow={onNoShow}
             isLocked={lockedStays?.has(stay.id)}
             onToggleLock={onToggleLock}
             scrollLeft={scrollLeft}
             dimmed={activeJourneyId !== null && !activeStayIds.has(stay.id)}
+            isInActiveJourney={activeJourneyId !== null && activeStayIds.has(stay.id)}
           />
         )
       })}
@@ -361,13 +369,15 @@ export function BookingsLayer({
             staggerIndex={visibleStays.length + i}
             isDragging={dragState?.stayId === stay.id}
             onDragStart={onDragStart}
-            onClick={() => handleBlockClick(stay)}
+            onExtendStart={onExtendStart}
+            onClick={() => handleBlockClickCb(stay)}
             onCheckout={onCheckout}
             onNoShow={onNoShow}
             isLocked={lockedStays?.has(stay.id)}
             onToggleLock={onToggleLock}
             scrollLeft={scrollLeft}
             dimmed={activeJourneyId !== null && !activeStayIds.has(stay.id)}
+            isInActiveJourney={activeJourneyId !== null && activeStayIds.has(stay.id)}
           />
         )
       })}

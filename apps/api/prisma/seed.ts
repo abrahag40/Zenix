@@ -280,7 +280,7 @@ async function main() {
   }
 
   // 7. TULUM GUEST DATA — run the SQL fixture ──────────────────────────────
-  const sqlPath = path.join(__dirname, 'seed_hotel_tulum.sql')
+  const sqlPath = path.join(__dirname, 'seed_hotel_tulum_v4.sql')
   if (fs.existsSync(sqlPath)) {
     const sql = fs.readFileSync(sqlPath, 'utf8')
     console.log(`\n🏖  Loading Hotel Tulum fixture (${sql.length.toLocaleString()} chars)…`)
@@ -298,266 +298,26 @@ async function main() {
     console.warn(`⚠️  ${sqlPath} not found — Tulum timeline will be empty`)
   }
 
-  // 8. CANCÚN CURATED GUESTS ───────────────────────────────────────────────
-  // A compact scenario set so the Cancún timeline is visually meaningful
-  // without duplicating the 41-stay catalog. Covers: past/completed,
-  // in-house today, arriving today, arriving next week, extension, and a
-  // room move across two rooms.
+  // 8. CANCÚN GUEST DATA — run the SQL fixture ─────────────────────────────
 
-  // Clean Cancún fixture data in FK-safe order before re-creating it.
-  await prisma.segmentNight.deleteMany({
-    where: { segment: { journey: { propertyId: cancun.id } } },
-  })
-  await prisma.staySegment.deleteMany({
-    where: { journey: { propertyId: cancun.id } },
-  })
-  await prisma.stayJourneyEvent.deleteMany({
-    where: { journey: { propertyId: cancun.id } },
-  })
-  await prisma.stayJourney.deleteMany({ where: { propertyId: cancun.id } })
-  await prisma.guestStay.deleteMany({ where: { propertyId: cancun.id } })
-
-  type CancunStay = {
-    id: string
-    roomNumber: string
-    guestName: string
-    guestEmail: string
-    checkIn: Date
-    checkOut: Date
-    actualCheckout?: Date
-    rate: number
-    paid: number
-    paymentStatus: 'PENDING' | 'PARTIAL' | 'PAID'
-    source: string
-    notes: string
-  }
-
-  const roomByNumber = new Map(cancunRooms.map((r) => [r.number, r]))
-
-  const cancunStays: CancunStay[] = [
-    // past completed
-    {
-      id: 'stay-cun-past-201',
-      roomNumber: '201',
-      guestName: 'Roberto Sánchez',
-      guestEmail: 'rsanchez@mail.com',
-      checkIn: daysFromNow(-9, 15),
-      checkOut: daysFromNow(-5, 12),
-      actualCheckout: daysFromNow(-5, 11),
-      rate: 100,
-      paid: 400,
-      paymentStatus: 'PAID',
-      source: 'booking.com',
-      notes: 'Estadía completada. Pago total al check-in.',
-    },
-    // in-house today (arrived a few days ago)
-    {
-      id: 'stay-cun-now-301',
-      roomNumber: '301',
-      guestName: 'Isabel Fernández',
-      guestEmail: 'isabel.f@mail.com',
-      checkIn: daysFromNow(-2, 15),
-      checkOut: daysFromNow(3, 12),
-      rate: 150,
-      paid: 300,
-      paymentStatus: 'PARTIAL',
-      source: 'direct',
-      notes: 'Huésped en casa. Saldo pendiente al checkout.',
-    },
-    // arriving today
-    {
-      id: 'stay-cun-arr-today-202',
-      roomNumber: '202',
-      guestName: 'Thomas Weber',
-      guestEmail: 'thomas.w@gmail.com',
-      checkIn: daysFromNow(0, 15),
-      checkOut: daysFromNow(5, 12),
-      rate: 100,
-      paid: 0,
-      paymentStatus: 'PENDING',
-      source: 'walk-in',
-      notes: 'Arriving today. Pago al check-in presencial.',
-    },
-    // arriving next week
-    {
-      id: 'stay-cun-arr-future-401',
-      roomNumber: '401',
-      guestName: 'Chen Wei',
-      guestEmail: 'chen.wei@corp.com',
-      checkIn: daysFromNow(6, 15),
-      checkOut: daysFromNow(13, 12),
-      rate: 250,
-      paid: 1750,
-      paymentStatus: 'PAID',
-      source: 'corporate',
-      notes: 'Viaje de negocios, pago corporativo.',
-    },
-    // long stay to seed an extension journey below
-    {
-      id: 'stay-cun-ext-302',
-      roomNumber: '302',
-      guestName: 'Julia Novak',
-      guestEmail: 'julia.n@remote.io',
-      checkIn: daysFromNow(-3, 15),
-      checkOut: daysFromNow(2, 12),
-      rate: 150,
-      paid: 750,
-      paymentStatus: 'PAID',
-      source: 'direct',
-      notes: 'Nómada digital. Extensión aprobada (ver StayJourney).',
-    },
-    // arriving in two days, canceled later (useful for future work)
-    {
-      id: 'stay-cun-arr-203',
-      roomNumber: '203',
-      guestName: 'Marie Dubois',
-      guestEmail: 'mdubois@mail.fr',
-      checkIn: daysFromNow(2, 15),
-      checkOut: daysFromNow(4, 12),
-      rate: 100,
-      paid: 0,
-      paymentStatus: 'PENDING',
-      source: 'expedia',
-      notes: 'Reserva confirmada por OTA, pago al checkout.',
-    },
-  ]
-
-  for (const s of cancunStays) {
-    const room = roomByNumber.get(s.roomNumber)
-    if (!room) continue
-    const nights = Math.max(
-      1,
-      Math.round((s.checkOut.getTime() - s.checkIn.getTime()) / 86400000),
+  const sqlCancunPath = path.join(__dirname, 'seed_hotel_cancun_v2.sql')
+  if (fs.existsSync(sqlCancunPath)) {
+    const sqlCancun = fs.readFileSync(sqlCancunPath, 'utf8')
+    console.log(`\n🏙  Loading Hotel Cancún fixture (${sqlCancun.length.toLocaleString()} chars)…`)
+    await prisma.$executeRawUnsafe(sqlCancun)
+    const [{ count: cancunStayCount }] = await prisma.$queryRawUnsafe<{ count: bigint }[]>(
+      `SELECT COUNT(*)::bigint AS count FROM guest_stays WHERE property_id = $1`,
+      cancun.id,
     )
-    await prisma.guestStay.create({
-      data: {
-        id: s.id,
-        organizationId: org.id,
-        propertyId: cancun.id,
-        roomId: room.id,
-        guestName: s.guestName,
-        guestEmail: s.guestEmail,
-        paxCount: 1,
-        checkinAt: s.checkIn,
-        scheduledCheckout: s.checkOut,
-        actualCheckout: s.actualCheckout ?? null,
-        ratePerNight: s.rate,
-        currency: 'USD',
-        totalAmount: s.rate * nights,
-        amountPaid: s.paid,
-        paymentStatus: s.paymentStatus,
-        source: s.source,
-        notes: s.notes,
-        checkedInById: receptionC.id,
-      },
-    })
+    const [{ count: cancunJourneys }] = await prisma.$queryRawUnsafe<{ count: bigint }[]>(
+      `SELECT COUNT(*)::bigint AS count FROM stay_journeys WHERE property_id = $1`,
+      cancun.id,
+    )
+    console.log(`   Cancún: ${cancunStayCount} stays · ${cancunJourneys} journeys`)
+  } else {
+    console.warn(`⚠️  ${sqlCancunPath} not found — Cancún timeline will be empty`)
   }
 
-  // Extension StayJourney for Julia Novak — original segment + approved
-  // extension (same room, 3 extra nights).
-  const juliaStayId = 'stay-cun-ext-302'
-  const juliaJourney = await prisma.stayJourney.create({
-    data: {
-      id: 'journey-cun-julia',
-      organizationId: org.id,
-      propertyId: cancun.id,
-      guestStayId: juliaStayId,
-      guestName: 'Julia Novak',
-      guestEmail: 'julia.n@remote.io',
-      status: 'ACTIVE',
-      journeyCheckIn: daysFromNow(-3, 15),
-      journeyCheckOut: daysFromNow(5, 12),
-      segments: {
-        create: [
-          {
-            roomId: roomByNumber.get('302')!.id,
-            guestStayId: juliaStayId,
-            checkIn: daysFromNow(-3, 15),
-            checkOut: daysFromNow(2, 12),
-            status: 'ACTIVE',
-            locked: true,
-            reason: 'ORIGINAL',
-            rateSnapshot: 150,
-          },
-          {
-            roomId: roomByNumber.get('302')!.id,
-            checkIn: daysFromNow(2, 12),
-            checkOut: daysFromNow(5, 12),
-            status: 'PENDING',
-            locked: false,
-            reason: 'EXTENSION_SAME_ROOM',
-            rateSnapshot: 150,
-            notes: 'Extensión aprobada por supervisor, misma tarifa',
-          },
-        ],
-      },
-      events: {
-        create: [
-          {
-            eventType: 'JOURNEY_CREATED',
-            actorId: reception.id,
-            payload: { channel: 'direct' },
-          },
-          {
-            eventType: 'EXTENSION_APPROVED',
-            actorId: supervisor.id,
-            payload: { extraNights: 3, reason: 'Guest requested — room available' },
-          },
-        ],
-      },
-    },
-    include: { segments: true },
-  })
-
-  // Room-move StayJourney for Chen Wei — starts in 401, moves to 402 mid-stay.
-  const chenStayId = 'stay-cun-arr-future-401'
-  const chenCheckIn  = daysFromNow(6, 15)
-  const chenMoveDate = daysFromNow(9, 11)
-  const chenCheckOut = daysFromNow(13, 12)
-  await prisma.stayJourney.create({
-    data: {
-      id: 'journey-cun-chen',
-      organizationId: org.id,
-      propertyId: cancun.id,
-      guestStayId: chenStayId,
-      guestName: 'Chen Wei',
-      guestEmail: 'chen.wei@corp.com',
-      status: 'ACTIVE',
-      journeyCheckIn: chenCheckIn,
-      journeyCheckOut: chenCheckOut,
-      segments: {
-        create: [
-          {
-            roomId: roomByNumber.get('401')!.id,
-            guestStayId: chenStayId,
-            checkIn: chenCheckIn,
-            checkOut: chenMoveDate,
-            status: 'PENDING',
-            reason: 'ORIGINAL',
-            rateSnapshot: 250,
-          },
-          {
-            roomId: roomByNumber.get('402')!.id,
-            checkIn: chenMoveDate,
-            checkOut: chenCheckOut,
-            status: 'PENDING',
-            reason: 'ROOM_MOVE',
-            rateSnapshot: 250,
-            notes: 'Corporativo pidió suite con vista, se acomoda en 402',
-          },
-        ],
-      },
-      events: {
-        create: {
-          eventType: 'ROOM_MOVE_EXECUTED',
-          actorId: supervisor.id,
-          payload: { fromRoom: '401', toRoom: '402' },
-        },
-      },
-    },
-  })
-
-  console.log(`✅ Cancún: ${cancunStays.length} stays · 2 journeys (extension, room-move)`)
 
   // ── Final summary ─────────────────────────────────────────────────────────
   console.log('\n📋 Credenciales:')

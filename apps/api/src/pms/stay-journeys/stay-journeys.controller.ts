@@ -1,7 +1,14 @@
-import { Controller, Get, Post, Param, Body, Query } from '@nestjs/common'
+import { Controller, Get, Post, Patch, Param, Body, Query } from '@nestjs/common'
 import { StayJourneyService } from './stay-journeys.service'
-import { ExtendSameRoomDto, ExtendNewRoomDto, RoomMoveDto } from './dto/stay-journey.dto'
+import {
+  ExtendSameRoomBodyDto,
+  ExtendNewRoomBodyDto,
+  RoomMoveBodyDto,
+  MoveExtensionRoomDto,
+} from './dto/stay-journey.dto'
 import { TenantResource } from '../../common/guards/tenant.guard'
+import { CurrentUser } from '../../common/decorators/current-user.decorator'
+import type { JwtPayload } from '@zenix/shared'
 
 @Controller('v1/stay-journeys')
 export class StayJourneyController {
@@ -24,19 +31,49 @@ export class StayJourneyController {
 
   @Post(':id/extend-same-room')
   @TenantResource({ model: 'stayJourney', paramName: 'id' })
-  extendSameRoom(@Body() dto: ExtendSameRoomDto) {
-    return this.service.extendSameRoom(dto)
+  extendSameRoom(
+    @Param('id') journeyId: string,
+    @CurrentUser() actor: JwtPayload,
+    @Body() body: ExtendSameRoomBodyDto,
+  ) {
+    return this.service.extendSameRoom({ journeyId, newCheckOut: body.newCheckOut, actorId: actor.sub })
   }
 
   @Post(':id/extend-new-room')
   @TenantResource({ model: 'stayJourney', paramName: 'id' })
-  extendNewRoom(@Body() dto: ExtendNewRoomDto) {
-    return this.service.extendNewRoom(dto)
+  extendNewRoom(
+    @Param('id') journeyId: string,
+    @CurrentUser() actor: JwtPayload,
+    @Body() body: ExtendNewRoomBodyDto,
+  ) {
+    return this.service.extendNewRoom({
+      journeyId,
+      newRoomId: body.newRoomId,
+      newCheckOut: body.newCheckOut,
+      actorId: actor.sub,
+    })
   }
 
   @Post(':id/room-move')
   @TenantResource({ model: 'stayJourney', paramName: 'id' })
-  roomMove(@Body() dto: RoomMoveDto) {
-    return this.service.executeMidStayRoomMove(dto)
+  roomMove(
+    @Param('id') journeyId: string,
+    @CurrentUser() actor: JwtPayload,
+    @Body() body: RoomMoveBodyDto,
+  ) {
+    return this.service.executeMidStayRoomMove({
+      journeyId,
+      newRoomId: body.newRoomId,
+      effectiveDate: body.effectiveDate,
+      actorId: actor.sub,
+    })
+  }
+
+  @Patch('segments/:segmentId/move-room')
+  moveExtensionRoom(
+    @Param('segmentId') segmentId: string,
+    @Body() dto: MoveExtensionRoomDto,
+  ) {
+    return this.service.moveExtensionRoom(segmentId, dto.newRoomId)
   }
 }

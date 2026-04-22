@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState, useCallback } from 'react'
 import { isBefore, startOfDay, isToday } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { TIMELINE } from '../../utils/timeline.constants'
@@ -11,8 +11,12 @@ interface TimelineGridProps {
   flatRows: FlatRow[]
   dragTargetRoomId?: string | null
   dragIsValid?: boolean
+  /** Suppress ghost block while a drag or resize gesture is in progress */
+  isDragging?: boolean
   onCellClick?: (roomId: string, date: Date) => void
   isOccupied?: (roomId: string, date: Date) => boolean
+  /** Returns base rate + currency for a room — used to render ghost block price */
+  getRoomRate?: (roomId: string) => { rate: number; currency: string } | undefined
 }
 
 export function TimelineGrid({
@@ -22,10 +26,24 @@ export function TimelineGrid({
   flatRows,
   dragTargetRoomId,
   dragIsValid = true,
+  isDragging = false,
   onCellClick,
   isOccupied,
+  getRoomRate,
 }: TimelineGridProps) {
   const isCompact = dayWidth <= 20
+
+  // Ghost block for empty cells — Apple Calendar / Google Calendar pattern.
+  // Suppressed during drag/resize: isDragging guard prevents conflict with those gestures.
+  const [hoveredCell, setHoveredCell] = useState<{
+    roomId: string
+    date: Date
+    colStart: number
+    rowY: number
+    colWidth: number
+  } | null>(null)
+
+  const clearHover = useCallback(() => setHoveredCell(null), [])
 
   // Precompute cumulative Y offsets and total height
   const { rowYOffsets, totalHeight } = useMemo(() => {
@@ -35,7 +53,7 @@ export function TimelineGrid({
       offsets.push(y)
       y += row.type === 'group' ? TIMELINE.GROUP_HEADER_HEIGHT : TIMELINE.ROW_HEIGHT
     })
-    return { rowYOffsets: offsets, totalHeight: y }
+    return { rowYOffsets: offsets, totalHeight: y + 16 }
   }, [flatRows])
 
   // Find today column for the vertical line
@@ -99,18 +117,24 @@ export function TimelineGrid({
                   >
                     {/* AM half (left) — checkout zone, no interaction */}
                     <div className="absolute inset-y-0 left-0 w-1/2" />
-                    {/* PM half (right) — checkin zone hover hint */}
+                    {/* PM half (right) — checkin zone: shows ghost block on hover */}
                     {(() => {
                       const cellOccupied = isOccupied?.(row.id, vc.date) ?? false
-                      const blocked = isPastDay || cellOccupied
+                      const blocked = isPastDay || cellOccupied || isDragging
                       return (
                         <div
                           className={cn(
                             'absolute inset-y-0 right-0 w-1/2',
-                            'transition-opacity duration-100',
-                            !blocked && 'opacity-0 hover:opacity-100 bg-emerald-50/40 cursor-pointer',
-                            blocked && 'cursor-not-allowed',
+                            isDragging ? '' : blocked ? 'cursor-not-allowed' : 'cursor-pointer',
                           )}
+                          onMouseEnter={!blocked ? () => setHoveredCell({
+                            roomId: row.id,
+                            date: vc.date,
+                            colStart: vc.start,
+                            rowY: y,
+                            colWidth: vc.size,
+                          }) : clearHover}
+                          onMouseLeave={clearHover}
                           onClick={!blocked ? () => {
                             onCellClick?.(row.id, vc.date)
                           } : undefined}
@@ -137,6 +161,90 @@ export function TimelineGrid({
           }}
         />
       )}
+
+      {/* Ghost block — Apple Calendar / Google Calendar empty-cell hover pattern.
+          Suppressed during drag/resize (isDragging guard).
+          Design language: left-border stripe (Mews/Cloudbeds blocks) + emerald tint.
+          Rate is ALWAYS the primary value-add — rendered unconditionally.
+          "Nueva reserva" label shown only when column is wide enough (≥90px).
+          Emerald = availability signal (Mehrabian-Russell 1974). */}
+      {!isDragging && hoveredCell && getRoomRate && !isCompact && (() => {
+        const rateInfo = getRoomRate(hoveredCell.roomId)
+        if (!rateInfo) return null
+        const colW   = hoveredCell.colWidth
+        const blockW = Math.max(colW - 2, dayWidth / 2)
+        const showLabel = blockW >= 90
+
+        return (
+          <div
+            style={{
+              position: 'absolute',
+              top: hoveredCell.rowY + 3,
+              left: hoveredCell.colStart,
+              width: blockW,
+              height: TIMELINE.ROW_HEIGHT - 6,
+              background: 'rgba(16,185,129,0.08)',
+              borderLeft: '3px solid rgba(16,185,129,0.52)',
+              borderRadius: '0 5px 5px 0',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              paddingLeft: 6,
+              paddingRight: 5,
+              pointerEvents: 'none',
+              zIndex: 5,
+              overflow: 'hidden',
+              gap: 3,
+            }}
+          >
+            {/* Left: + indicator, optionally "Nueva reserva" when space allows */}
+            <span
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 3,
+                fontSize: 11,
+                fontWeight: 700,
+                color: 'rgba(4,120,87,0.82)',
+                letterSpacing: '-0.015em',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                lineHeight: 1,
+                fontFamily: 'inherit',
+                flexShrink: 1,
+                minWidth: 0,
+              }}
+            >
+              <span style={{ fontSize: 13, lineHeight: 1, fontWeight: 600, flexShrink: 0 }}>+</span>
+              {showLabel && (
+                <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.85, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  Nueva reserva
+                </span>
+              )}
+            </span>
+
+            {/* Right: rate — always rendered, primary value-add of the ghost block */}
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                color: 'rgba(4,120,87,0.72)',
+                fontVariantNumeric: 'tabular-nums',
+                fontFamily: 'inherit',
+                whiteSpace: 'nowrap',
+                letterSpacing: '-0.01em',
+                lineHeight: 1,
+                background: 'rgba(16,185,129,0.14)',
+                borderRadius: 4,
+                padding: '2px 4px',
+                flexShrink: 0,
+              }}
+            >
+              {rateInfo.currency} {rateInfo.rate.toLocaleString()}
+            </span>
+          </div>
+        )
+      })()}
     </div>
   )
 }

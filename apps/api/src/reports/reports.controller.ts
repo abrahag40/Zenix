@@ -64,4 +64,25 @@ export class ReportsController {
       to  ?? toYMD(new Date()),
     )
   }
+
+  /**
+   * GET /reports/stay-journeys?from=YYYY-MM-DD&to=YYYY-MM-DD
+   *
+   * Reporte de extensiones de estadía con datos de contacto del huésped.
+   * Filtro: checkIn del segmento de extensión. Default: últimos 30 días.
+   * Incluye email/teléfono para exportar a CRM — el PMS exporta datos,
+   * el CRM ejecuta campañas (Inmon 2005).
+   */
+  @Get('stay-journeys')
+  stayJourneysReport(
+    @CurrentUser() user: JwtPayload,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.service.getStayJourneysReport(
+      user.propertyId,
+      from ?? daysAgo(29),
+      to  ?? toYMD(new Date()),
+    )
+  }
 }

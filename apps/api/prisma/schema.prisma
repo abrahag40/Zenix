@@ -383,6 +383,10 @@ model CleaningTask {
   assignedToId       String?
   status             CleaningStatus @default(PENDING)
   taskType           TaskType       @default(CLEANING)
+  // TODO(housekeeping-pms-bridge): agregar sourceType para distinguir el origen de la tarea.
+  // Descomentar y migrar cuando se implemente el bridge PMS → Housekeeping (Sprint 7A/7B).
+  // sourceType         CleaningTaskSource @default(CHECKOUT)
+  // enum CleaningTaskSource { CHECKOUT, STAYOVER, ROOM_CHANGE, EXTENSION }
   requiredCapability Capability     @default(CLEANING)
   priority           Priority       @default(MEDIUM)
   hasSameDayCheckIn  Boolean        @default(false)
@@ -617,6 +621,30 @@ model GuestStay {
   deletedAt         DateTime?     @map("deleted_at")
   createdAt         DateTime      @default(now()) @map("created_at")
   updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  // ── TODO(sprint8-pricing): campos para gestión de tarifas y channel manager ──
+  // Descomentar y migrar cuando se implemente Sprint 8. Ver CLAUDE.md §Sprint 8.
+  //
+  // ratePlanId         String?    @map("rate_plan_id")         // FK → RatePlan
+  // rateOverride       Decimal?   @map("rate_override") @db.Decimal(10, 2)
+  // rateOverrideReason String?    @map("rate_override_reason")
+  // channexRateId      String?    @map("channex_rate_id")      // ID en Channex.io
+  // commissionRate     Decimal?   @map("commission_rate") @db.Decimal(5, 4)   // e.g. 0.15 = 15%
+  //
+  // TODO(sprint8-pricing): Nuevo modelo RatePlan (separado de GuestStay)
+  // model RatePlan {
+  //   id                String   @id @default(uuid())
+  //   propertyId        String
+  //   roomTypeId        String?
+  //   name              String
+  //   baseRate          Decimal  @db.Decimal(10, 2)
+  //   currency          String   @default("MXN")
+  //   channexRatePlanId String?
+  //   isActive          Boolean  @default(true)
+  //   markup            Decimal? @db.Decimal(5, 4)  // markup sobre tarifa base OTA
+  //   createdAt         DateTime @default(now())
+  //   updatedAt         DateTime @updatedAt
+  // }
 
   organization Organization @relation(fields: [organizationId], references: [id])
   room         Room         @relation(fields: [roomId], references: [id])

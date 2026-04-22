@@ -19,6 +19,11 @@ class MarkNoShowDto {
   @IsBoolean()
   waiveCharge?: boolean
 }
+
+class ExtendStayDto {
+  @IsString()
+  newCheckOut: string
+}
 import { GuestStaysService } from './guest-stays.service'
 import { CreateGuestStayDto } from './dto/create-guest-stay.dto'
 import { MoveRoomDto } from './dto/move-room.dto'
@@ -84,6 +89,16 @@ export class GuestStaysController {
   @Post(':id/checkout')
   checkout(@Param('id') id: string, @CurrentUser() actor: JwtPayload) {
     return this.service.checkout(id, actor.sub)
+  }
+
+  @Patch(':id/extend')
+  extendStay(
+    @Param('id') id: string,
+    @Body() dto: ExtendStayDto,
+    @CurrentUser() actor: JwtPayload,
+  ) {
+    if (!dto.newCheckOut) throw new BadRequestException('newCheckOut es requerido')
+    return this.service.extendStay(id, new Date(dto.newCheckOut), actor.sub)
   }
 
   @Patch(':id/move-room')

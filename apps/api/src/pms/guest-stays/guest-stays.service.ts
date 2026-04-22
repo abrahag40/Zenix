@@ -14,6 +14,7 @@ import { CreateGuestStayDto } from './dto/create-guest-stay.dto'
 import { MoveRoomDto } from './dto/move-room.dto'
 import type { AvailabilityConflict, RoomAvailabilityResult } from '@zenix/shared'
 import { Prisma } from '@prisma/client'
+import { StayJourneyService } from '../stay-journeys/stay-journeys.service'
 
 /** Returns the local date string (YYYY-MM-DD) for a given UTC date in the specified IANA timezone. */
 function toLocalDate(date: Date, timezone: string): string {
@@ -45,6 +46,7 @@ export class GuestStaysService {
     private readonly tenant: TenantContextService,
     private readonly events: EventEmitter2,
     private readonly email: EmailService,
+    private readonly journeyService: StayJourneyService,
   ) {}
 
   async create(dto: CreateGuestStayDto, actorId: string) {
@@ -99,9 +101,9 @@ export class GuestStaysService {
     const pmsId = `PMS-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`
 
     const guestName = `${dto.firstName} ${dto.lastName}`
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const ops: Prisma.PrismaPromise<any>[] = [
-      this.prisma.guestStay.create({
+
+    const stay = await this.prisma.$transaction(async (tx) => {
+      const newStay = await tx.guestStay.create({
         data: {
           organizationId: orgId,
           propertyId: dto.propertyId,
@@ -128,18 +130,43 @@ export class GuestStaysService {
           notes: dto.notes,
           checkedInById: actorId,
         },
-      }),
-    ]
+      })
 
-    // Only flip room status immediately for same-day check-ins.
-    // Future reservations keep the room AVAILABLE until the guest physically arrives.
-    if (isSameDayCheckin) {
-      ops.push(
-        this.prisma.room.update({
+      // Create StayJourney + ORIGINAL segment so extensions route through
+      // the journey-aware path (extendSameRoom) instead of the legacy
+      // PATCH /guest-stays/:id/extend that stretches the original block.
+      const journey = await tx.stayJourney.create({
+        data: {
+          organizationId: orgId,
+          propertyId: dto.propertyId,
+          guestName,
+          guestEmail: dto.guestEmail,
+          guestStayId: newStay.id,
+          journeyCheckIn: checkIn,
+          journeyCheckOut: checkOut,
+        },
+      })
+      await tx.staySegment.create({
+        data: {
+          journeyId: journey.id,
+          roomId: dto.roomId,
+          guestStayId: newStay.id,
+          checkIn,
+          checkOut,
+          status: 'ACTIVE',
+          reason: 'ORIGINAL',
+          rateSnapshot: dto.ratePerNight,
+        },
+      })
+
+      // Only flip room status immediately for same-day check-ins.
+      // Future reservations keep the room AVAILABLE until the guest physically arrives.
+      if (isSameDayCheckin) {
+        await tx.room.update({
           where: { id: dto.roomId },
           data: { status: 'OCCUPIED' },
-        }),
-        this.prisma.roomStatusLog.create({
+        })
+        await tx.roomStatusLog.create({
           data: {
             organizationId: orgId,
             propertyId: dto.propertyId,
@@ -149,11 +176,11 @@ export class GuestStaysService {
             changedById: actorId,
             reason: `Check-in: ${guestName}`,
           },
-        }),
-      )
-    }
+        })
+      }
 
-    const [stay] = await this.prisma.$transaction(ops)
+      return newStay
+    })
 
     this.events.emit('checkin.completed', {
       stayId: stay.id,
@@ -290,6 +317,9 @@ export class GuestStaysService {
             ],
           }),
       },
+      include: {
+        stayJourney: { select: { id: true } },
+      },
       orderBy: { checkinAt: 'desc' },
     })
   }
@@ -410,6 +440,60 @@ export class GuestStaysService {
     })
 
     return { success: true }
+  }
+
+  /**
+   * extendStay — Extiende la fecha de checkout de una estadía activa.
+   *
+   * Validaciones:
+   *  - newCheckOut debe ser posterior al scheduledCheckout actual
+   *  - La habitación no debe tener otra reserva en el período de extensión
+   *  - La estadía no debe haber sido marcada como no-show ni como checkout
+   *
+   * Recalcula totalAmount en base al nuevo número de noches × ratePerNight.
+   */
+  async extendStay(stayId: string, newCheckOut: Date, actorId: string) {
+    const orgId = this.tenant.getOrganizationId()
+    const stay = await this.prisma.guestStay.findUnique({
+      where: { id: stayId, organizationId: orgId },
+      include: { stayJourney: { select: { id: true } } },
+    })
+    if (!stay) throw new NotFoundException('Estadía no encontrada')
+
+    if (stay.actualCheckout !== null) {
+      throw new BadRequestException('No se puede extender una estadía que ya realizó checkout')
+    }
+    if (stay.noShowAt !== null) {
+      throw new BadRequestException('No se puede extender una estadía marcada como no-show')
+    }
+    if (newCheckOut <= stay.scheduledCheckout) {
+      throw new BadRequestException('La nueva fecha de checkout debe ser posterior a la actual')
+    }
+
+    // Always route through the journey-aware path so the extend creates a new
+    // EXTENSION_SAME_ROOM segment instead of stretching the original block.
+    if (stay.stayJourney) {
+      return this.journeyService.extendSameRoom({
+        journeyId: stay.stayJourney.id,
+        newCheckOut: newCheckOut.toISOString(),
+        actorId,
+      })
+    }
+
+    // Stay has no journey yet (e.g. legacy seed data): bootstrap journey + extension.
+    return this.journeyService.initJourneyAndExtend({
+      guestStayId: stayId,
+      guestName: stay.guestName,
+      guestEmail: stay.guestEmail,
+      organizationId: orgId,
+      propertyId: stay.propertyId,
+      roomId: stay.roomId,
+      checkinAt: stay.checkinAt,
+      scheduledCheckout: stay.scheduledCheckout,
+      newCheckOut,
+      ratePerNight: stay.ratePerNight,
+      actorId,
+    })
   }
 
   /**

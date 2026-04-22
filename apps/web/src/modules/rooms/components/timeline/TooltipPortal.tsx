@@ -37,8 +37,7 @@ export function TooltipPortal({ stay, position, visible, registerTooltipRef, onN
     // top → BOTTOM of tooltip aligns with `top` (tooltip appears above block).
     // bottom → TOP of tooltip aligns with `top` (tooltip appears below block).
     transform: position.placement === 'top' ? 'translate(-50%, -100%)' : 'translate(-50%, 0)',
-    // Allow pointer events when tooltip has an interactive no-show action.
-    pointerEvents: isPotentialNoShow && onNoShow ? 'auto' : 'none',
+    pointerEvents: 'auto',
   }
 
   const animationClass =
@@ -76,7 +75,7 @@ export function TooltipPortal({ stay, position, visible, registerTooltipRef, onN
                 <div className="flex items-center gap-1 mt-1">
                   <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
                   <span className="text-[10px] font-semibold text-amber-700">
-                    Sale hoy — checkout pendiente
+                    Sale hoy
                   </span>
                 </div>
               )}
