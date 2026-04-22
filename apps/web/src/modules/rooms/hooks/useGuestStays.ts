@@ -17,10 +17,12 @@ function adaptStay(raw: Record<string, unknown>): GuestStayBlock {
   const source = (raw.source as string) ?? 'other'
   const ota = OTA_OPTIONS.find(o => o.value === source)
 
+  const stayJourney = raw.stayJourney as { id: string } | null | undefined
   return {
     id:               raw.id as string,
     roomId:           raw.roomId as string,
     guestName:        raw.guestName as string,
+    journeyId:        stayJourney?.id ?? undefined,
     guestEmail:       raw.guestEmail as string | undefined,
     guestPhone:       raw.guestPhone as string | undefined,
     nationality:      raw.nationality as string | undefined,
@@ -244,6 +246,7 @@ export function useExtendStay(propertyId: string) {
       guestStaysApi.extendStay(stayId, newCheckOut),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['guest-stays', propertyId], exact: false, refetchType: 'active' })
+      qc.invalidateQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false, refetchType: 'active' })
       toast.success('Estadía extendida')
     },
     onError: (err: Error) => {
@@ -302,6 +305,26 @@ export function useSplitMidStay(propertyId: string) {
     },
     onError: (err: Error) => {
       toast.error(err.message ?? 'No se pudo cambiar la habitación')
+    },
+  })
+}
+
+/** Reassign an existing EXTENSION_SAME_ROOM / EXTENSION_NEW_ROOM segment to a different room.
+ *  No effectiveDate needed — the extension dates are already fixed.
+ *  Invalidates stay-journeys-timeline so the dragged block re-renders in its new row. */
+export function useMoveExtensionRoom(propertyId: string) {
+  const qc = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ segmentId, newRoomId }: { segmentId: string; newRoomId: string }) =>
+      guestStaysApi.moveExtensionRoom(segmentId, newRoomId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false, refetchType: 'active' })
+      qc.invalidateQueries({ queryKey: ['guest-stays', propertyId], exact: false, refetchType: 'active' })
+      toast.success('Extensión movida a la nueva habitación')
+    },
+    onError: (err: Error) => {
+      toast.error(err.message ?? 'No se pudo mover la extensión')
     },
   })
 }

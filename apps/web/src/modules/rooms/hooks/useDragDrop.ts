@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { startOfDay } from 'date-fns'
 import { TIMELINE } from '../utils/timeline.constants'
 import type {
@@ -71,11 +71,20 @@ export function useDragDrop({
 }: UseDragDropParams) {
   const [dragState, setDragState] = useState<DragState | null>(null)
 
+  // Refs allow stable callbacks that don't depend on closure-captured state.
+  // dragStateRef mirrors the state value for use inside handleDragMove/End.
+  // flatRowsRef/staysRef mirror their props so we never need them as deps.
+  const dragStateRef = useRef<DragState | null>(null)
+  const flatRowsRef = useRef(flatRows)
+  const staysRef = useRef(stays)
+  flatRowsRef.current = flatRows
+  staysRef.current = stays
+
   const handleDragStart = useCallback((stayId: string, _clientX: number) => {
-    const stay = stays.find(s => s.id === stayId)
+    const stay = staysRef.current.find(s => s.id === stayId)
     if (!stay) return
 
-    setDragState({
+    const state: DragState = {
       stayId,
       originalRoomId: stay.roomId,
       originalCheckIn: stay.checkIn,
@@ -85,58 +94,69 @@ export function useDragDrop({
       currentCheckIn: stay.checkIn,
       currentCheckOut: stay.checkOut,
       isValid: true,
-    })
-  }, [stays])
+    }
+    dragStateRef.current = state
+    setDragState(state)
+  }, []) // stable — reads staysRef.current at call time
 
   const handleDragMove = useCallback((
     _clientX: number,
     gridY: number,
   ) => {
-    if (!dragState) return
+    const current = dragStateRef.current
+    if (!current) return
 
-    // Vertical-only: dates stay exactly the same
-    const newCheckIn = dragState.originalCheckIn
-    const newCheckOut = dragState.originalCheckOut
-
-    const targetRoom = findRoomAtGridY(flatRows, gridY)
+    const targetRoom = findRoomAtGridY(flatRowsRef.current, gridY)
     if (!targetRoom) return
 
     const { conflict, reason } = hasConflict({
-      stayId: dragState.stayId,
+      stayId: current.stayId,
       targetRoomId: targetRoom.id,
-      checkIn: newCheckIn,
-      checkOut: newCheckOut,
-      stays,
+      checkIn: current.originalCheckIn,
+      checkOut: current.originalCheckOut,
+      stays: staysRef.current,
     })
 
-    setDragState(prev => prev ? {
-      ...prev,
+    // Only trigger a React re-render (row highlight, ghost validity) when the
+    // visual state actually changes. Most mousemove events stay within the same
+    // row → no state update → no re-render → smooth 60fps ghost via DOM ref.
+    const roomChanged = targetRoom.id !== current.currentRoomId
+    const validityChanged = !conflict !== current.isValid
+    if (!roomChanged && !validityChanged) return
+
+    const next: DragState = {
+      ...current,
       currentRoomId: targetRoom.id,
-      currentCheckIn: newCheckIn,
-      currentCheckOut: newCheckOut,
+      currentCheckIn: current.originalCheckIn,
+      currentCheckOut: current.originalCheckOut,
       isValid: !conflict,
       conflictReason: reason,
-    } : null)
-  }, [dragState, flatRows, stays])
+    }
+    dragStateRef.current = next
+    setDragState(next)
+  }, []) // stable — reads all data from refs
 
   const handleDragEnd = useCallback(() => {
-    if (!dragState) return
+    const current = dragStateRef.current
+    if (!current) return
 
-    const moved = dragState.currentRoomId !== dragState.originalRoomId
+    const moved = current.currentRoomId !== current.originalRoomId
 
-    if (moved && dragState.isValid) {
+    if (moved && current.isValid) {
       onDropSuccess({
-        stayId: dragState.stayId,
-        newRoomId: dragState.currentRoomId,
-        newCheckIn: dragState.currentCheckIn,
-        newCheckOut: dragState.currentCheckOut,
+        stayId: current.stayId,
+        newRoomId: current.currentRoomId,
+        newCheckIn: current.currentCheckIn,
+        newCheckOut: current.currentCheckOut,
       })
     }
 
+    dragStateRef.current = null
     setDragState(null)
-  }, [dragState, onDropSuccess])
+  }, [onDropSuccess])
 
   const handleDragCancel = useCallback(() => {
+    dragStateRef.current = null
     setDragState(null)
   }, [])
 

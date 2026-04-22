@@ -40,6 +40,21 @@
   .tooltip-top, .tooltip-bottom { animation-duration: 0ms; }
 }
 
+/* ── Journey connection dot — SwiftUI-style pulse ────────────────────────── */
+/* Matches the Apple Maps / Find My ring: expands + fades over 2.2s.         */
+/* Ring element uses this; solid center is static.                            */
+@keyframes journey-pulse {
+  0%   { transform: scale(1);   opacity: 0.75; }
+  65%  { transform: scale(2.4); opacity: 0;    }
+  100% { transform: scale(2.4); opacity: 0;    }
+}
+.journey-pulse-ring {
+  animation: journey-pulse 2.2s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .journey-pulse-ring { animation: none; }
+}
+
 /* ── shadcn/ui CSS variables (neutral / radix-nova) ───────────────────────── */
 @layer base {
   /* Channel-only values so Tailwind's <alpha-value> interpolation works:

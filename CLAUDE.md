@@ -1,7 +1,7 @@
 # CLAUDE.md — Housekeeping Management System
 
 > Guía para retomar el proyecto desde cero. Lee esto antes de tocar código.
-> Última actualización: 2026-04-20 (Sprint 7A — Calendar UX polish, DragGhost, Ghost Block, Pricing Model, Housekeeping Bridge).
+> Última actualización: 2026-04-21 (Sprint 7A — Marketing Module scaffold, Data Network Effects, cursor fix, 404 fix).
 
 ---
 
@@ -1717,6 +1717,84 @@ npx prisma studio
 ### Limitación conocida hasta Sprint 8
 
 El SSE Soft-Lock (Sprint 7C) protege solo overbooking intra-Zenix. Una reserva de Booking.com que llega por webhook mientras un recepcionista está en `CheckInDialog` NO activa el soft-lock. Protección: el hard-block de `checkAvailability` rechaza la segunda reserva. El primer recepcionista que confirma gana. Riesgo bajo para propiedades con 1-10 habitaciones y tráfico moderado.
+
+---
+
+## Módulo de Marketing — Sprint 9+ (scaffold listo)
+
+**Ubicación:** `apps/api/src/marketing/` — archivos de pseudocode listos para implementar.
+
+### Filosofía: PMS ↔ Marketing separation (Inmon 2005)
+
+El módulo de marketing es **READ-ONLY** sobre datos del PMS. No modifica ningún modelo operacional (`GuestStay`, `StayJourney`, etc.). Su único trabajo es:
+1. **Agregar** y **filtrar** datos existentes en cuatro segmentos accionables
+2. **Exportar** esos segmentos en CSV/JSON para que el área administrativa los lleve a su CRM externo
+
+Las campañas activas (emails, push, WhatsApp) se ejecutan en herramientas externas:
+- **Mailchimp** — API v3, bulk import vía `POST /3.0/lists/{listId}/members`
+- **HubSpot** — CRM API v3, `POST /crm/v3/objects/contacts/batch/create`
+- **Brevo** (ex-Sendinblue) — `POST /v3/contacts/import`
+
+El PMS exporta. El CRM ejecuta. Esta separación es la línea que distingue un sistema operacional de una plataforma de marketing — no mezclar.
+
+### Cuatro segmentos MVP
+
+| Segmento | Fuente de datos | Insight accionable |
+|----------|-----------------|-------------------|
+| **Extensiones** | `StaySegment WHERE reason IN [EXTENSION_*]` | Extendieron → alta disposición a quedarse más → candidatos para paquetes long-stay |
+| **No-shows** | `GuestStay WHERE noShowAt IS NOT NULL` | Reservaron pero no llegaron → win-back con incentivo |
+| **Huéspedes frecuentes** | `GROUP BY guestEmail HAVING COUNT >= 2` | Ya confían → programa de fidelidad, tarifa preferencial |
+| **Alto valor** | `GROUP BY guestEmail SUM(totalAmount) >= threshold` | 80% del revenue viene del 20% de huéspedes (Pareto) → trato VIP |
+
+### Data Network Effects — Estrategia de crecimiento (Sprint 9+)
+
+**Hipótesis:** Con ~50 propiedades activas, los datos ANONIMIZADOS cross-propiedad tienen valor de mercado independiente del PMS.
+
+**Use cases:**
+
+1. **Benchmarks por ciudad (B2B, revenue stream directo):**
+   - "Tu tasa de extensión en Cancún en Semana Santa: 18%. Promedio del mercado: 22%."
+   - Los operadores pagan por estos insights para mejorar pricing y retención.
+
+2. **Modelos predictivos de demanda (producto de BI para la consultora):**
+   - Datos históricos cross-propiedad → forecasting de ocupación por evento, temporada, mercado emisor.
+   - Integración con cubos OLAP para la consultora de BI.
+
+3. **Benchmarks para OTAs (B2B2C, modelo STR/CoStar):**
+   - Las OTAs pagan por inteligencia de mercado de sus partners.
+
+**Principios de privacidad (no negociables):**
+- Opt-in explícito: `Property.consentToAggregation = true` (campo pendiente, Sprint 9+)
+- Anonimización ANTES de agregar: cero PII en datos cross-propiedad
+- k-anonymity mínimo: si el filtro retorna < 5 propiedades → no retornar resultado
+- Los datos brutos del huésped NUNCA salen de la propiedad propietaria
+
+**Schema pendiente (Sprint 9+ — NO implementar antes):**
+```prisma
+// En Property:
+consentToAggregation  Boolean   @default(false)
+consentGrantedAt      DateTime?
+consentGrantedById    String?
+
+// Nuevo modelo:
+model AggregatedCityReport {
+  id            String   @id @default(uuid())
+  city          String
+  period        String   // 'YYYY-MM'
+  propertyCount Int
+  avgOccupancy  Float
+  avgRevenue    Decimal
+  extensionRate Float
+  noShowRate    Float
+  topSources    Json
+  createdAt     DateTime @default(now())
+  @@unique([city, period])
+}
+```
+
+### Limitación hasta Sprint 9
+
+El módulo de marketing actual (`ReportsPage ?tab=stays`) ya provee el export CSV del segmento de extensiones. Es el MVP mínimo. El `MarketingModule` completo (cuatro segmentos + API endpoints + integraciones CRM) se implementa en Sprint 9 cuando haya demanda operativa confirmada.
 
 ---
 

@@ -1,40 +1,57 @@
-import { IsUUID, IsDateString } from 'class-validator'
+import { IsUUID, IsDateString, IsOptional } from 'class-validator'
 
-export class ExtendSameRoomDto {
-  @IsUUID()
-  journeyId: string
+// ── HTTP request body DTOs ────────────────────────────────────────────────────
+// journeyId comes from the URL param (:id), actorId from @CurrentUser().
+// These DTOs only carry what the client sends in the request body.
 
+export class ExtendSameRoomBodyDto {
   @IsDateString()
   newCheckOut: string
-
-  @IsUUID()
-  actorId: string
 }
 
-export class ExtendNewRoomDto {
-  @IsUUID()
-  journeyId: string
-
+export class ExtendNewRoomBodyDto {
   @IsUUID()
   newRoomId: string
 
   @IsDateString()
   newCheckOut: string
-
-  @IsUUID()
-  actorId: string
 }
 
-export class RoomMoveDto {
-  @IsUUID()
-  journeyId: string
-
+export class RoomMoveBodyDto {
   @IsUUID()
   newRoomId: string
 
   @IsDateString()
   effectiveDate: string
+}
 
+export class MoveExtensionRoomDto {
   @IsUUID()
+  newRoomId: string
+
+  @IsOptional()
+  @IsUUID()
+  actorId?: string
+}
+
+// ── Service-layer param types (assembled by controller from body + param + auth) ──
+
+export interface ExtendSameRoomDto {
+  journeyId: string
+  newCheckOut: string
+  actorId: string
+}
+
+export interface ExtendNewRoomDto {
+  journeyId: string
+  newRoomId: string
+  newCheckOut: string
+  actorId: string
+}
+
+export interface RoomMoveDto {
+  journeyId: string
+  newRoomId: string
+  effectiveDate: string
   actorId: string
 }

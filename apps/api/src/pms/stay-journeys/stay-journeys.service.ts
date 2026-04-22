@@ -138,6 +138,108 @@ export class StayJourneyService {
     return newSegment
   }
 
+  /**
+   * Creates a StayJourney from scratch for a plain GuestStay and adds an
+   * EXTENSION_SAME_ROOM segment. Called when the receptionist drags the extend
+   * handle on a block that has no journey yet.
+   */
+  async initJourneyAndExtend(params: {
+    guestStayId: string
+    guestName: string
+    guestEmail: string | null
+    organizationId: string
+    propertyId: string
+    roomId: string
+    checkinAt: Date
+    scheduledCheckout: Date
+    newCheckOut: Date
+    ratePerNight: Prisma.Decimal
+    actorId: string | null
+  }): Promise<StaySegment> {
+    const {
+      guestStayId, guestName, guestEmail, organizationId, propertyId,
+      roomId, checkinAt, scheduledCheckout, newCheckOut: rawNewCheckOut, ratePerNight, actorId,
+    } = params
+
+    const origCheckIn = startOfDay(checkinAt)
+    const origCheckOut = startOfDay(scheduledCheckout)
+    const extCheckOut = startOfDay(rawNewCheckOut)
+
+    if (extCheckOut <= origCheckOut) {
+      throw new BadRequestException('newCheckOut must be after the current scheduledCheckout')
+    }
+
+    await this.assertRoomAvailable(roomId, origCheckOut, extCheckOut)
+
+    const extSegment = await this.prisma.$transaction(async (tx) => {
+      const journey = await tx.stayJourney.create({
+        data: {
+          organizationId,
+          propertyId,
+          guestStayId,
+          guestName,
+          guestEmail,
+          journeyCheckIn: origCheckIn,
+          journeyCheckOut: extCheckOut,
+          status: 'ACTIVE',
+        },
+      })
+
+      const origSeg = await tx.staySegment.create({
+        data: {
+          journeyId: journey.id,
+          roomId,
+          guestStayId,
+          checkIn: origCheckIn,
+          checkOut: origCheckOut,
+          status: 'ACTIVE',
+          locked: true,
+          reason: 'ORIGINAL',
+          rateSnapshot: ratePerNight,
+        },
+      })
+      await this.createSegmentNights(tx, origSeg.id, origCheckIn, origCheckOut, ratePerNight)
+
+      const extSeg = await tx.staySegment.create({
+        data: {
+          journeyId: journey.id,
+          roomId,
+          checkIn: origCheckOut,
+          checkOut: extCheckOut,
+          status: 'ACTIVE',
+          locked: false,
+          reason: 'EXTENSION_SAME_ROOM',
+          rateSnapshot: ratePerNight,
+        },
+      })
+      await this.createSegmentNights(tx, extSeg.id, origCheckOut, extCheckOut, ratePerNight)
+
+      await tx.stayJourneyEvent.create({
+        data: {
+          journeyId: journey.id,
+          eventType: 'EXTENSION_APPROVED',
+          actorId,
+          payload: {
+            reason: 'EXTENSION_SAME_ROOM',
+            roomId,
+            previousCheckOut: origCheckOut,
+            newCheckOut: extCheckOut,
+          },
+        },
+      })
+
+      return extSeg
+    })
+
+    this.events.emit('stay.extended', {
+      guestStayId,
+      roomId,
+      newCheckOut: extCheckOut,
+    })
+
+    return extSegment
+  }
+
   async extendNewRoom(dto: ExtendNewRoomDto): Promise<StaySegment> {
     const journey = await this.findById(dto.journeyId)
     const activeSegment = this.getActiveSegment(journey.segments)
@@ -314,6 +416,49 @@ export class StayJourneyService {
     return newSegment
   }
 
+  /**
+   * moveExtensionRoom — Reasigna un segmento de extensión a una habitación diferente.
+   *
+   * Solo aplica a segmentos EXTENSION_SAME_ROOM o EXTENSION_NEW_ROOM.
+   * Si el nuevo cuarto coincide con el cuarto del segmento ORIGINAL del journey,
+   * el reason se ajusta a EXTENSION_SAME_ROOM; de lo contrario EXTENSION_NEW_ROOM.
+   */
+  async moveExtensionRoom(segmentId: string, newRoomId: string) {
+    const segment = await this.prisma.staySegment.findUniqueOrThrow({
+      where: { id: segmentId },
+      include: {
+        journey: {
+          include: {
+            segments: {
+              where: { reason: 'ORIGINAL' },
+              select: { roomId: true },
+            },
+          },
+        },
+      },
+    })
+
+    if (
+      segment.reason !== 'EXTENSION_SAME_ROOM' &&
+      segment.reason !== 'EXTENSION_NEW_ROOM'
+    ) {
+      throw new BadRequestException(
+        'Solo se pueden reubicar segmentos de extensión',
+      )
+    }
+
+    await this.assertRoomAvailable(newRoomId, segment.checkIn, segment.checkOut, segmentId)
+
+    const originalRoomId = segment.journey.segments[0]?.roomId
+    const newReason =
+      newRoomId === originalRoomId ? 'EXTENSION_SAME_ROOM' : 'EXTENSION_NEW_ROOM'
+
+    return this.prisma.staySegment.update({
+      where: { id: segmentId },
+      data: { roomId: newRoomId, reason: newReason },
+    })
+  }
+
   // ── Private helpers ──────────────────────────────────────────────────────────
 
   /** Creates PENDING cleaning tasks for all units in a vacated room (room-change bridge
@@ -342,7 +487,13 @@ export class StayJourneyService {
   }
 
   private getActiveSegment(segments: ActiveSegment[]): ActiveSegment {
-    const active = segments.find((s) => s.status === 'ACTIVE' && !s.locked)
+    // The "active" segment is the LAST one chronologically that is ACTIVE and unlocked.
+    // Using find() (first match) was wrong: when a ROOM_MOVE is followed by an
+    // EXTENSION_SAME_ROOM, both are unlocked ACTIVE — find() returned the ROOM_MOVE
+    // causing assertRoomAvailable to conflict against the existing EXTENSION.
+    const active = [...segments]
+      .filter((s) => s.status === 'ACTIVE' && !s.locked)
+      .sort((a, b) => new Date(b.checkIn).getTime() - new Date(a.checkIn).getTime())[0]
     if (!active) {
       throw new BadRequestException('No active unlocked segment found for this journey')
     }

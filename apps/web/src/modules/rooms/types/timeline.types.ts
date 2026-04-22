@@ -44,12 +44,14 @@ export interface GuestStayBlock {
   nationality?: string
   roomNumber?: string
   journeyId?: string
+  guestStayId?: string      // GuestStay ID for journey blocks (id = segment ID)
   segmentId?: string
   segmentReason?: 'ORIGINAL' | 'EXTENSION_SAME_ROOM' | 'EXTENSION_NEW_ROOM' | 'ROOM_MOVE'
   segmentLocked?: boolean
   isFirstSegment?: boolean
   isLastSegment?: boolean
   hasMultipleSegments?: boolean
+  originalRoomNumber?: string  // room the journey started in (for EXT_NEW_ROOM / ROOM_MOVE)
 }
 
 export interface DayMetrics {

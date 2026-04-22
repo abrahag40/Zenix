@@ -18,6 +18,7 @@ interface ApiSegment {
 
 interface ApiJourney {
   id: string
+  guestStayId: string
   guestName: string
   segments: ApiSegment[]
 }
@@ -36,6 +37,9 @@ function adaptJourneys(journeys: ApiJourney[]): GuestStayBlock[] {
     const firstId = sorted[0]?.id
     const lastId = sorted[sorted.length - 1]?.id
 
+    // The ORIGINAL segment's room number — used to annotate EXT_NEW_ROOM / ROOM_MOVE blocks.
+    const originalRoomNumber = sorted[0]?.room.number
+
     for (let i = 0; i < sorted.length; i++) {
       const seg = sorted[i]
       let checkIn = new Date(seg.checkIn)
@@ -51,9 +55,12 @@ function adaptJourneys(journeys: ApiJourney[]): GuestStayBlock[] {
 
       const nights = Math.max(1, differenceInCalendarDays(checkOut, checkIn))
       const ratePerNight = seg.rateSnapshot ?? 0
+      const isNonOriginal =
+        seg.reason === 'EXTENSION_NEW_ROOM' || seg.reason === 'ROOM_MOVE'
 
       blocks.push({
         id: seg.id,
+        guestStayId: journey.guestStayId,
         roomId: seg.room.id,
         guestName: journey.guestName,
         checkIn,
@@ -75,6 +82,7 @@ function adaptJourneys(journeys: ApiJourney[]): GuestStayBlock[] {
         isLastSegment: seg.id === lastId,
         hasMultipleSegments: hasMultiple,
         roomNumber: seg.room.number,
+        originalRoomNumber: isNonOriginal ? originalRoomNumber : undefined,
       })
     }
   }
@@ -102,9 +110,5 @@ export function useStayJourneys(propertyId: string, from: Date, to: Date) {
     placeholderData: keepPreviousData,
   })
 
-  const filteredBlocks = (data ?? []).filter(
-    b => b.segmentReason !== 'ORIGINAL'
-  )
-
-  return { journeyBlocks: filteredBlocks, isLoading, error }
+  return { journeyBlocks: data ?? [], isLoading, error }
 }

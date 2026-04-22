@@ -53,7 +53,7 @@ export function TimelineGrid({
       offsets.push(y)
       y += row.type === 'group' ? TIMELINE.GROUP_HEADER_HEIGHT : TIMELINE.ROW_HEIGHT
     })
-    return { rowYOffsets: offsets, totalHeight: y }
+    return { rowYOffsets: offsets, totalHeight: y + 16 }
   }, [flatRows])
 
   // Find today column for the vertical line
@@ -125,7 +125,7 @@ export function TimelineGrid({
                         <div
                           className={cn(
                             'absolute inset-y-0 right-0 w-1/2',
-                            blocked ? 'cursor-not-allowed' : 'cursor-pointer',
+                            isDragging ? '' : blocked ? 'cursor-not-allowed' : 'cursor-pointer',
                           )}
                           onMouseEnter={!blocked ? () => setHoveredCell({
                             roomId: row.id,

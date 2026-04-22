@@ -135,7 +135,7 @@ export function RoomColumn({ flatRows, groups, onToggleGroup, scrollTop = 0, rea
   if (embedded) {
     return (
       <div
-        className="bg-white"
+        className="bg-white pb-4"
         style={{ width: TIMELINE.COLUMN_WIDTH }}
       >
         {rowsContent}

@@ -56,4 +56,7 @@ export const guestStaysApi = {
     api.post(`/v1/stay-journeys/${journeyId}/extend-same-room`, {
       newCheckOut: newCheckOut.toISOString(),
     }),
+
+  moveExtensionRoom: (segmentId: string, newRoomId: string) =>
+    api.patch(`/v1/stay-journeys/segments/${segmentId}/move-room`, { newRoomId }),
 }

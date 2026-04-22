@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react'
+import { memo, useMemo, useRef } from 'react'
 import { Lock, Unlock, LogOut, UserX } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { STAY_STATUS_COLORS, OTA_ACCENT_COLORS, TIMELINE } from '../../utils/timeline.constants'
@@ -16,7 +16,7 @@ interface BookingBlockProps {
   groupHeaderOffsetY: number
   staggerIndex: number
   onDragStart: (stayId: string, clientX: number, clientY: number) => void
-  onExtendStart?: (stayId: string, roomId: string, rowIndex: number, originalCheckOut: Date, clientX: number) => void
+  onExtendStart?: (stayId: string, roomId: string, rowIndex: number, groupHeaderOffsetY: number, originalCheckOut: Date, clientX: number) => void
   onClick: () => void
   onCheckout?: (stayId: string) => void
   onNoShow?: (stayId: string) => void
@@ -25,6 +25,7 @@ interface BookingBlockProps {
   onToggleLock?: (stayId: string) => void
   scrollLeft?: number
   dimmed?: boolean
+  isInActiveJourney?: boolean
 }
 
 const BLOCK_SHADOW = [
@@ -37,8 +38,48 @@ const BLOCK_SHADOW = [
 ].join(', ')
 
 const DRAG_THRESHOLD = 5
+const JOURNEY_DOT_COLOR = '#378ADD'
 
-export function BookingBlock({
+function JourneyDot({ x, y, side }: { x: number; y: number; side: 'left' | 'right' }) {
+  const R = 5 // dot radius px
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        left: x - R,
+        top: y - R,
+        width: R * 2,
+        height: R * 2,
+        pointerEvents: 'none',
+        zIndex: 28,
+      }}
+    >
+      {/* Expanding ring — SwiftUI-style pulse */}
+      <span
+        className="journey-pulse-ring"
+        style={{
+          position: 'absolute',
+          inset: 0,
+          borderRadius: '50%',
+          backgroundColor: JOURNEY_DOT_COLOR,
+          opacity: 0.55,
+        }}
+      />
+      {/* Solid center dot */}
+      <span
+        style={{
+          position: 'absolute',
+          inset: 2,
+          borderRadius: '50%',
+          backgroundColor: JOURNEY_DOT_COLOR,
+          boxShadow: '0 0 0 1.5px white',
+        }}
+      />
+    </div>
+  )
+}
+
+function BookingBlockInner({
   stay,
   rowIndex,
   calendarStart,
@@ -55,6 +96,7 @@ export function BookingBlock({
   onToggleLock,
   scrollLeft = 0,
   dimmed = false,
+  isInActiveJourney = false,
 }: BookingBlockProps) {
   const forceAbove = stay.hasMultipleSegments === true && stay.isLastSegment !== true
   const { triggerRef, registerTooltipRef, visible, position, hide } = useTooltip({ forceAbove })
@@ -88,7 +130,12 @@ export function BookingBlock({
     return textOffset > 0 ? rect.width - textOffset : rect.width
   }, [rect.width, textOffset])
 
-  const stayStatus = getStayStatus(stay.checkIn, stay.checkOut, stay.actualCheckout)
+  const rawStatus = getStayStatus(stay.checkIn, stay.checkOut, stay.actualCheckout)
+  // If this segment has a successor (extension or room move), the guest is still in-house
+  // even if checkOut = today — show IN_HOUSE (green) rather than DEPARTING (amber).
+  const stayStatus = (rawStatus === 'DEPARTING' && stay.hasMultipleSegments && !stay.isLastSegment)
+    ? 'IN_HOUSE'
+    : rawStatus
   const isDeparting = stayStatus === 'DEPARTING'
   // Confirmed no-show: noShowAt is set
   const isConfirmedNoShow = !!stay.noShowAt
@@ -96,9 +143,12 @@ export function BookingBlock({
   const isPotentialNoShow = stayStatus === 'IN_HOUSE' && !stay.noShowAt
   const colors = STAY_STATUS_COLORS[stayStatus as StayStatusKey]
   const otaAccent = OTA_ACCENT_COLORS[stay.source] ?? OTA_ACCENT_COLORS.other
-  // Journey continuation blocks (ROOM_MOVE, EXTENSION_*) are not drag-movable
-  // via the drag gesture — they must be moved via the MoveRoomDialog.
+  // Journey block flags: EXTENSION segments can be dragged to reassign room;
+  // ROOM_MOVE segments are immutable (represent placed history) → click-only.
   const isJourneyBlock = !!stay.segmentReason
+  const isMovableExtension =
+    stay.segmentReason === 'EXTENSION_SAME_ROOM' ||
+    stay.segmentReason === 'EXTENSION_NEW_ROOM'
   const isCompact = dayWidth <= 20
   const showText = rect.width > TIMELINE.MIN_BLOCK_WIDTH
   const showEdgeLabels = !isCompact && rect.width > 80
@@ -127,21 +177,16 @@ export function BookingBlock({
 
   // Segment-derived style flags
   const isSegmentLocked = stay.segmentLocked === true
-  const showSegmentBadge = rect.width > 80 && (
-    stay.segmentReason === 'EXTENSION_SAME_ROOM' ||
-    stay.segmentReason === 'EXTENSION_NEW_ROOM' ||
-    stay.segmentReason === 'ROOM_MOVE'
-  )
-  const segmentBadgeLabel =
-    stay.segmentReason === 'ROOM_MOVE' ? '+mov' : '+ext'
-  const segmentBadgeStyle: React.CSSProperties =
-    stay.segmentReason === 'ROOM_MOVE'
-      ? { backgroundColor: '#B5D4F4', color: '#0C447C' }
-      : { backgroundColor: '#FAC775', color: '#633806' }
   const lastSegmentBorder =
     stay.hasMultipleSegments && stay.isLastSegment && stay.segmentReason !== 'ORIGINAL'
       ? '2px solid #1D9E75'
       : undefined
+
+  // Journey edge dots — replace the old +mov/+ext text badges.
+  // hasPredecessor: this block is a journey continuation (has something before it).
+  // hasSuccessor:   this block has at least one following segment in the journey.
+  const hasPredecessor = !!stay.segmentReason
+  const hasSuccessor   = !!stay.hasMultipleSegments && !stay.isLastSegment
 
   if (rect.width < 4) return null
 
@@ -151,9 +196,9 @@ export function BookingBlock({
     e.preventDefault()
     e.stopPropagation()
 
-    // Past stays, confirmed no-shows, and journey continuation blocks:
-    // click-only (no drag). Journey blocks are moved via MoveRoomDialog.
-    if (isPast || isConfirmedNoShow || isJourneyBlock) {
+    // Past stays, no-shows, and ROOM_MOVE segments: click-only.
+    // EXTENSION segments are draggable — drop on different row → MoveExtensionConfirmDialog.
+    if (isPast || isConfirmedNoShow || (isJourneyBlock && !isMovableExtension)) {
       function handleMouseUpReadOnly() {
         window.removeEventListener('mouseup', handleMouseUpReadOnly)
         onClick()
@@ -232,9 +277,9 @@ export function BookingBlock({
             : isSegmentLocked || stayStatus === 'DEPARTED' || isConfirmedNoShow
             ? 0.72
             : 1,
-          cursor: isPast || isLocked || isSegmentLocked
+          cursor: isLocked || isSegmentLocked
             ? 'default'
-            : isConfirmedNoShow || isJourneyBlock
+            : isPast || isConfirmedNoShow || isJourneyBlock
             ? 'pointer'
             : isDragging
             ? 'grabbing'
@@ -270,17 +315,8 @@ export function BookingBlock({
                   right: isDeparting && onCheckout && !isDragging && !isSegmentLocked ? 58 : 6,
                 }}
               >
-                {showDot ? (
+                {showDot && (
                   <div style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: dotColor, flexShrink: 0 }} />
-                ) : (
-                  showSegmentBadge && (
-                    <div
-                      className="shrink-0"
-                      style={{ ...segmentBadgeStyle, fontSize: 9, fontWeight: 700, padding: '1px 4px', borderRadius: 3, lineHeight: 1.4, pointerEvents: 'none' }}
-                    >
-                      {segmentBadgeLabel}
-                    </div>
-                  )
                 )}
                 <span
                   className="text-[11px] font-medium truncate leading-none"
@@ -323,17 +359,8 @@ export function BookingBlock({
                   : 8,
             }}
           >
-            {showDot ? (
+            {showDot && (
               <div style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: dotColor, flexShrink: 0 }} />
-            ) : (
-              showSegmentBadge && (
-                <div
-                  className="shrink-0"
-                  style={{ ...segmentBadgeStyle, fontSize: 9, fontWeight: 700, padding: '1px 4px', borderRadius: 3, lineHeight: 1.4, pointerEvents: 'none' }}
-                >
-                  {segmentBadgeLabel}
-                </div>
-              )
             )}
             {(showDot || showText) && (
               <span
@@ -414,8 +441,11 @@ export function BookingBlock({
           </div>
         )}
 
-        {/* Right-edge extend handle — invisible 8px strip, cursor changes to signal drag-to-extend */}
-        {!isPast && !isConfirmedNoShow && !isLocked && !isSegmentLocked && !isDragging && onExtendStart && (
+        {/* Right-edge extend handle — visible on the last segment of a journey (even if the
+            ORIGINAL is locked) and on plain non-journey blocks. Locked mid-journey segments
+            (not last) stay non-resizable so only one active tail can be extended at a time. */}
+        {!isPast && !isConfirmedNoShow && !isLocked && !isDragging && onExtendStart
+          && (!isSegmentLocked || stay.isLastSegment === true) && (
           <div
             className="absolute right-0 top-0 bottom-0 w-3 z-10"
             style={{ cursor: 'ew-resize' }}
@@ -423,11 +453,29 @@ export function BookingBlock({
             onMouseDown={(e) => {
               e.stopPropagation()
               e.preventDefault()
-              onExtendStart(stay.id, stay.roomId, rowIndex, stay.checkOut, e.clientX)
+              onExtendStart(stay.id, stay.roomId, rowIndex, groupHeaderOffsetY, stay.checkOut, e.clientX)
             }}
           />
         )}
       </div>
+
+      {/* Journey edge dots — left (predecessor) and/or right (successor).
+          Rendered outside the block div so overflow:hidden doesn't clip them.
+          Positioned in the same coordinate space as the block (BookingsLayer container). */}
+      {!isCompact && hasPredecessor && isInActiveJourney && (
+        <JourneyDot
+          x={rect.x + 1}
+          y={rect.y + groupHeaderOffsetY + 3 + rect.height / 2}
+          side="left"
+        />
+      )}
+      {!isCompact && hasSuccessor && isInActiveJourney && (
+        <JourneyDot
+          x={rect.x + 1 + rect.width}
+          y={rect.y + groupHeaderOffsetY + 3 + rect.height / 2}
+          side="right"
+        />
+      )}
 
       <TooltipPortal
         stay={stay}
@@ -440,3 +488,24 @@ export function BookingBlock({
     </>
   )
 }
+
+// Skip re-render when only callback references change (inline closures in BookingsLayer).
+// Data-driven props are the only ones that actually change during drag/scroll:
+//   - isDragging: true only for the one block being dragged
+//   - dimmed:     changes when journey highlight activates
+//   - isLocked:   changes on user toggle
+//   - scrollLeft: changes on horizontal scroll
+//   - dayWidth:   changes on zoom
+//   - stay:       stable React Query reference
+export const BookingBlock = memo(BookingBlockInner, (prev, next) =>
+  prev.stay === next.stay &&
+  prev.rowIndex === next.rowIndex &&
+  prev.groupHeaderOffsetY === next.groupHeaderOffsetY &&
+  prev.dayWidth === next.dayWidth &&
+  prev.isDragging === next.isDragging &&
+  prev.isLocked === next.isLocked &&
+  prev.scrollLeft === next.scrollLeft &&
+  prev.dimmed === next.dimmed &&
+  prev.staggerIndex === next.staggerIndex &&
+  prev.isInActiveJourney === next.isInActiveJourney,
+)
