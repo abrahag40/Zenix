@@ -17,6 +17,8 @@ import { NotesModule } from './notes/notes.module'
 import { MaintenanceModule } from './maintenance/maintenance.module'
 import { NotificationsModule } from './notifications/notifications.module'
 import { CloudbedsModule } from './integrations/cloudbeds/cloudbeds.module'
+import { ChannexModule } from './integrations/channex/channex.module'
+import { AvailabilityModule } from './pms/availability/availability.module'
 import { SettingsModule } from './settings/settings.module'
 import { DiscrepanciesModule } from './discrepancies/discrepancies.module'
 import { ReportsModule } from './reports/reports.module'
@@ -58,6 +60,8 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
     MaintenanceModule,
     NotificationsModule,
     CloudbedsModule,
+    ChannexModule,
+    AvailabilityModule,
     SettingsModule,
     DiscrepanciesModule,
     ReportsModule,

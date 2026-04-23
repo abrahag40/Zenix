@@ -10,7 +10,13 @@ import { Prisma, StaySegment } from '@prisma/client'
 import { eachDayOfInterval, isBefore, startOfDay, subDays } from 'date-fns'
 import { NotificationsService } from '../../notifications/notifications.service'
 import { PrismaService } from '../../prisma/prisma.service'
-import { ExtendNewRoomDto, ExtendSameRoomDto, RoomMoveDto } from './dto/stay-journey.dto'
+import { AvailabilityService } from '../availability/availability.service'
+import {
+  ExtendNewRoomDto,
+  ExtendSameRoomDto,
+  RoomMoveDto,
+  SplitReservationServiceDto,
+} from './dto/stay-journey.dto'
 
 type ActiveSegment = {
   id: string
@@ -30,6 +36,7 @@ export class StayJourneyService {
     private readonly prisma: PrismaService,
     private readonly events: EventEmitter2,
     private readonly notifications: NotificationsService,
+    private readonly availability: AvailabilityService,
   ) {}
 
   async findById(journeyId: string) {
@@ -417,6 +424,239 @@ export class StayJourneyService {
   }
 
   /**
+   * splitReservation — Reemplaza los segmentos ACTIVE del journey con N segmentos
+   * nuevos, cada uno en su propia habitación y rango. Soporta ARRIVING (toda la
+   * reserva futura) e IN_HOUSE (conserva las noches ya pasadas en la habitación
+   * actual; el primer part debe usar esa misma habitación).
+   *
+   * Validaciones:
+   *   - journey ACTIVE
+   *   - parts cubren exactamente [journey.checkIn, journey.checkOut] sin gaps/overlaps
+   *   - cada part.roomId disponible en su rango
+   *   - IN_HOUSE: parts[0].roomId === activeSegment.roomId y parts[0].checkOut > today
+   */
+  async splitReservation(dto: SplitReservationServiceDto): Promise<StaySegment[]> {
+    const journey = await this.findById(dto.journeyId)
+
+    if (journey.status !== 'ACTIVE') {
+      throw new BadRequestException(
+        'No se puede dividir una reserva que no está ACTIVE',
+      )
+    }
+
+    const today = startOfDay(new Date())
+    const parts = dto.parts
+      .map((p) => ({
+        roomId: p.roomId,
+        checkIn: startOfDay(new Date(p.checkIn)),
+        checkOut: startOfDay(new Date(p.checkOut)),
+      }))
+      .sort((a, b) => a.checkIn.getTime() - b.checkIn.getTime())
+
+    const journeyIn = startOfDay(new Date(journey.journeyCheckIn))
+    const journeyOut = startOfDay(new Date(journey.journeyCheckOut))
+    if (parts[0].checkIn.getTime() !== journeyIn.getTime()) {
+      throw new BadRequestException(
+        'La primera parte debe empezar en el check-in del journey',
+      )
+    }
+    if (parts[parts.length - 1].checkOut.getTime() !== journeyOut.getTime()) {
+      throw new BadRequestException(
+        'La última parte debe terminar en el check-out del journey',
+      )
+    }
+    for (let i = 0; i < parts.length; i++) {
+      if (!isBefore(parts[i].checkIn, parts[i].checkOut)) {
+        throw new BadRequestException(`Parte ${i + 1}: checkIn debe ser anterior a checkOut`)
+      }
+      if (i > 0 && parts[i].checkIn.getTime() !== parts[i - 1].checkOut.getTime()) {
+        throw new BadRequestException(
+          `Gap u overlap entre parte ${i} y parte ${i + 1}`,
+        )
+      }
+    }
+
+    // Detección IN_HOUSE: algún segmento ACTIVE cuyo checkIn ya pasó
+    const activeSegments = journey.segments.filter(
+      (s) => s.status === 'ACTIVE',
+    )
+    const isInHouse = activeSegments.some(
+      (s) => !isBefore(today, startOfDay(s.checkIn)),
+    )
+
+    let activeSegment: ActiveSegment | null = null
+    if (isInHouse) {
+      activeSegment = this.getActiveSegment(journey.segments)
+      if (parts[0].roomId !== activeSegment.roomId) {
+        throw new BadRequestException(
+          'IN_HOUSE: la primera parte debe mantener la habitación actual del huésped',
+        )
+      }
+      if (!isBefore(today, parts[0].checkOut)) {
+        throw new BadRequestException(
+          'IN_HOUSE: la primera parte debe incluir al menos hasta hoy',
+        )
+      }
+    }
+
+    // Validación de disponibilidad vía AvailabilityService — cubre local DB
+    // (GuestStay + StaySegment + RoomBlock) Y Channex.io (channel manager).
+    // Sprint 8+: un split rechaza si Channex reporta stop-sell o allotment=0.
+    // Ver CLAUDE.md §29 — toda operación de inventario pasa por este servicio.
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i]
+      const result = await this.availability.check({
+        roomId: part.roomId,
+        from: part.checkIn,
+        to: part.checkOut,
+        // Los segmentos del propio journey se van a cancelar/reemplazar — excluirlos.
+        excludeJourneyId: dto.journeyId,
+      })
+      if (!result.available) {
+        const c = result.conflicts[0]
+        throw new ConflictException(
+          `Parte ${i + 1}: habitación no disponible — ${c.label}` +
+            (c.source === 'CHANNEX' ? ' (canal externo)' : ''),
+        )
+      }
+    }
+
+    const rateSnapshot =
+      activeSegment?.rateSnapshot ?? activeSegments[0]?.rateSnapshot ?? null
+
+    const createdSegments = await this.prisma.$transaction(async (tx) => {
+      // Lock noches pasadas, borrar noches futuras de cada segmento ACTIVE
+      for (const seg of activeSegments) {
+        await tx.segmentNight.updateMany({
+          where: { segmentId: seg.id, date: { lt: today }, locked: false },
+          data: { locked: true, status: 'LOCKED' },
+        })
+        await tx.segmentNight.deleteMany({
+          where: { segmentId: seg.id, date: { gte: today }, locked: false },
+        })
+      }
+
+      // Truncar/cancelar segmentos ACTIVE
+      for (const seg of activeSegments) {
+        if (isInHouse && activeSegment && seg.id === activeSegment.id) {
+          // Truncar el segmento activo principal a `today` como COMPLETED+locked
+          await tx.staySegment.update({
+            where: { id: seg.id },
+            data: { checkOut: today, status: 'COMPLETED', locked: true },
+          })
+        } else {
+          // Resto: cancelar. En ARRIVING esto incluye el ORIGINAL.
+          await tx.staySegment.update({
+            where: { id: seg.id },
+            data: { status: 'CANCELLED' },
+          })
+        }
+      }
+
+      // Crear N segmentos nuevos
+      const created: StaySegment[] = []
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i]
+        // En IN_HOUSE parts[0] se materializa como: (truncated original hasta today) + (nuevo segment hoy→part.checkOut)
+        // Por eso, para parts[0] en IN_HOUSE creamos un segmento SPLIT que arranca en `today`.
+        const segCheckIn =
+          isInHouse && i === 0 ? today : part.checkIn
+        if (!isBefore(segCheckIn, part.checkOut)) {
+          // Defensivo: si por timezone el rango queda vacío, saltar
+          continue
+        }
+        const isFirstAndArriving = !isInHouse && i === 0
+        const reason = isFirstAndArriving ? 'ORIGINAL' : 'SPLIT'
+        const segment = await tx.staySegment.create({
+          data: {
+            journeyId: dto.journeyId,
+            roomId: part.roomId,
+            guestStayId: isFirstAndArriving ? journey.guestStayId : null,
+            checkIn: segCheckIn,
+            checkOut: part.checkOut,
+            status: 'ACTIVE',
+            locked: false,
+            reason,
+            rateSnapshot,
+          },
+        })
+        await this.createSegmentNights(
+          tx,
+          segment.id,
+          segCheckIn,
+          part.checkOut,
+          rateSnapshot,
+        )
+        created.push(segment)
+      }
+
+      await tx.stayJourneyEvent.create({
+        data: {
+          journeyId: dto.journeyId,
+          eventType: 'JOURNEY_SPLIT',
+          actorId: dto.actorId,
+          payload: {
+            parts: parts.map((p) => ({
+              roomId: p.roomId,
+              checkIn: p.checkIn,
+              checkOut: p.checkOut,
+            })),
+            isInHouse,
+          },
+        },
+      })
+
+      return created
+    })
+
+    this.events.emit('stay.split', {
+      journeyId: dto.journeyId,
+      partsCount: parts.length,
+    })
+
+    // Housekeeping bridge: crear CleaningTask(PENDING) para cada habitación
+    // liberada (estaba en algún segmento activo previo y NO aparece en ningún part).
+    const previousRoomIds = new Set(activeSegments.map((s) => s.roomId))
+    const newRoomIds = new Set(parts.map((p) => p.roomId))
+    for (const roomId of previousRoomIds) {
+      if (!newRoomIds.has(roomId)) {
+        await this.createRoomChangeTasks(journey.propertyId, roomId)
+      }
+    }
+
+    // Channel manager sync (Channex.io) — fire-and-forget. Each new part
+    // decrements allotment for its range, each fully-released room increments.
+    // Gateway is a stub until Sprint 8; calls are already wired so the migration
+    // is zero-refactor. Failures are logged inside the service, never thrown.
+    const traceId = `split-${dto.journeyId}-${Date.now()}`
+    for (const part of parts) {
+      void this.availability.notifyReservation({
+        roomId: part.roomId,
+        from: part.checkIn,
+        to: part.checkOut,
+        reason: 'SPLIT',
+        traceId,
+      })
+    }
+    for (const roomId of previousRoomIds) {
+      if (!newRoomIds.has(roomId)) {
+        const prev = activeSegments.find((s) => s.roomId === roomId)
+        if (prev) {
+          void this.availability.notifyRelease({
+            roomId,
+            from: prev.checkIn,
+            to: prev.checkOut,
+            reason: 'SPLIT',
+            traceId,
+          })
+        }
+      }
+    }
+
+    return createdSegments
+  }
+
+  /**
    * moveExtensionRoom — Reasigna un segmento de extensión a una habitación diferente.
    *
    * Solo aplica a segmentos EXTENSION_SAME_ROOM o EXTENSION_NEW_ROOM.
@@ -500,6 +740,12 @@ export class StayJourneyService {
     return active
   }
 
+  // TODO(sprint8-migrate): reemplazar por this.availability.check(...).
+  // Motivo: CLAUDE.md §29 exige que TODA validación de inventario pase por
+  // AvailabilityService (cubre local DB + Channex channel manager). Esta función
+  // solo consulta StaySegment local, dejando invisible el cross-channel overbooking.
+  // Ya fue migrado en splitReservation(); extendSameRoom / extendNewRoom /
+  // executeMidStayRoomMove / moveExtensionRoom deben migrarse en Sprint 8.
   private async assertRoomAvailable(
     roomId: string,
     from: Date,

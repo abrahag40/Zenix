@@ -162,6 +162,8 @@ function BookingBlockInner({
     ? '#BA7517'
     : stay.segmentReason === 'ROOM_MOVE'
     ? '#378ADD'
+    : stay.segmentReason === 'SPLIT'
+    ? '#378ADD'
     : stay.segmentReason === 'EXTENSION_SAME_ROOM' || stay.segmentReason === 'EXTENSION_NEW_ROOM'
     ? '#378ADD'
     : '#1D9E75'
@@ -185,20 +187,21 @@ function BookingBlockInner({
   // Journey edge dots — replace the old +mov/+ext text badges.
   // hasPredecessor: this block is a journey continuation (has something before it).
   // hasSuccessor:   this block has at least one following segment in the journey.
-  const hasPredecessor = !!stay.segmentReason
+  const hasPredecessor = !!stay.segmentReason && stay.segmentReason !== 'ORIGINAL'
   const hasSuccessor   = !!stay.hasMultipleSegments && !stay.isLastSegment
 
   if (rect.width < 4) return null
 
   function handleMouseDown(e: React.MouseEvent) {
-    if (isLocked || isSegmentLocked) return
+    if (isLocked) return
     if (e.button !== 0 || e.ctrlKey || e.metaKey) return
     e.preventDefault()
     e.stopPropagation()
 
-    // Past stays, no-shows, and ROOM_MOVE segments: click-only.
-    // EXTENSION segments are draggable — drop on different row → MoveExtensionConfirmDialog.
-    if (isPast || isConfirmedNoShow || (isJourneyBlock && !isMovableExtension)) {
+    // Past stays, no-shows, locked journey segments (ORIGINAL with extensions), and
+    // ROOM_MOVE segments: click-only. EXTENSION segments are draggable — drop on
+    // different row → MoveExtensionConfirmDialog.
+    if (isPast || isConfirmedNoShow || isSegmentLocked || (isJourneyBlock && !isMovableExtension)) {
       function handleMouseUpReadOnly() {
         window.removeEventListener('mouseup', handleMouseUpReadOnly)
         onClick()
@@ -267,6 +270,8 @@ function BookingBlockInner({
           color: isConfirmedNoShow ? '#7F1D1D' : colors.text,
           boxShadow: isConfirmedNoShow
             ? `inset 0 0 0 1.5px rgba(239,68,68,0.50), ${BLOCK_SHADOW}`
+            : isInActiveJourney
+            ? `0 0 0 2px #378ADD, 0 4px 12px rgba(55,138,221,0.35), ${BLOCK_SHADOW}`
             : BLOCK_SHADOW,
           borderRadius: 6,
           pointerEvents: isDragging ? 'none' : 'auto',
@@ -277,9 +282,9 @@ function BookingBlockInner({
             : isSegmentLocked || stayStatus === 'DEPARTED' || isConfirmedNoShow
             ? 0.72
             : 1,
-          cursor: isLocked || isSegmentLocked
+          cursor: isLocked
             ? 'default'
-            : isPast || isConfirmedNoShow || isJourneyBlock
+            : isPast || isConfirmedNoShow || isJourneyBlock || isSegmentLocked
             ? 'pointer'
             : isDragging
             ? 'grabbing'

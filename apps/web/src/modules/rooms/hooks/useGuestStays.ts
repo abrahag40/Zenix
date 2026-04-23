@@ -329,6 +329,33 @@ export function useMoveExtensionRoom(propertyId: string) {
   })
 }
 
+/** Split N-way: reemplaza los segmentos ACTIVE del journey con N tramos nuevos.
+ *  Soporta ARRIVING (toda la reserva en N cuartos) e IN_HOUSE (primer tramo
+ *  = cuarto actual hasta hoy, resto en otros cuartos). Invalida ambos caches
+ *  para que los bloques aparezcan inmediatamente. */
+export function useSplitReservation(propertyId: string) {
+  const qc = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({
+      journeyId,
+      parts,
+    }: {
+      journeyId: string
+      parts: Array<{ roomId: string; checkIn: Date; checkOut: Date }>
+    }) => guestStaysApi.splitReservation(journeyId, parts),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['guest-stays', propertyId], exact: false, refetchType: 'active' })
+      qc.invalidateQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false, refetchType: 'active' })
+      qc.invalidateQueries({ queryKey: ['rooms', propertyId], exact: false })
+      toast.success(`Reserva dividida en ${vars.parts.length} habitaciones`)
+    },
+    onError: (err: Error) => {
+      toast.error(err.message ?? 'No se pudo dividir la reserva')
+    },
+  })
+}
+
 export function useRoomReadinessTasks(propertyId: string) {
   return useQuery({
     queryKey: ['room-readiness', propertyId],
