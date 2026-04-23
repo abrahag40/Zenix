@@ -1,7 +1,7 @@
 # CLAUDE.md — Housekeeping Management System
 
 > Guía para retomar el proyecto desde cero. Lee esto antes de tocar código.
-> Última actualización: 2026-04-21 (Sprint 7A — Marketing Module scaffold, Data Network Effects, cursor fix, 404 fix).
+> Última actualización: 2026-04-23 (Split N-parts + AvailabilityService/ChannexGateway scaffold).
 
 ---
 
@@ -1620,6 +1620,26 @@ npx prisma studio
 27. **Housekeeping bridge: PMS → Housekeeping automático** — al ejecutar `extendNewRoom` o `executeMidStayRoomMove` en el backend, se debe crear automáticamente una `CleaningTask(PENDING)` para la habitación/cama liberada y emitir SSE `task:planned`. El recepcionista NO notifica manualmente a housekeeping. El enum `CleaningTaskSource` (CHECKOUT / STAYOVER / ROOM_CHANGE / EXTENSION) está documentado como TODO para distinguir el origen de cada tarea (ver `schema.prisma` TODO comment).
 
 28. **Connected Rooms: descartado permanentemente** — no implementar, no documentar como roadmap, no mencionar en UI. El mercado objetivo (boutique hotels/hostels 10-80 hab.) tiene <2% de adopción de este concepto. Complejidad de schema y rendering no justificada.
+
+29. **Toda validación de inventario pasa por `AvailabilityService`** — **regla arquitectónica obligatoria** para todo código nuevo que reserve, mueva o libere una habitación. Ningún feature service debe hacer queries `prisma.staySegment.findFirst` ni `prisma.guestStay.findMany` para responder "¿está libre esta habitación?". Siempre `this.availability.check({ roomId, from, to, excludeJourneyId? })`.
+    **Por qué:** `AvailabilityService` combina tres fuentes en una sola llamada:
+    - Local `GuestStay` (reservas directas pre-journey)
+    - Local `StaySegment` (segmentos de journey: extensiones, splits, moves)
+    - Local `RoomBlock` (mantenimiento, OOS)
+    - **Remote Channex.io** (channel manager — cierra el gap de cross-channel overbooking)
+    Añadir una query directa nueva es **deuda técnica inmediata**. Los checks legacy (`guest-stays.checkAvailability`, `stay-journeys.assertRoomAvailable`) ya están marcados con `TODO(sprint8-migrate)`.
+    **Post-commit:** tras cualquier operación que reserve/libere inventario, llamar `availability.notifyReservation(...)` o `availability.notifyRelease(...)`. Estos son fire-and-forget — jamás `await`-ar dentro de la transacción crítica, jamás lanzar excepciones si Channex falla (logging interno).
+    **Ubicación:** `apps/api/src/pms/availability/availability.service.ts`. Gateway Channex en `apps/api/src/integrations/channex/channex.gateway.ts` — hoy stub no-op; Sprint 8 llena sin cambios en consumidores.
+
+30. **Channel Manager = Channex.io** — cualquier integración futura con OTAs pasa por Channex, no directo a Booking.com/Expedia/etc. Auth: `user-api-key` header. Base URL: `https://app.channex.io/api/v1` (prod), staging en `staging.channex.io/api/v1`. Endpoints críticos:
+    - `GET  /room_types/:id/availabilities` — pull allotment
+    - `POST /availability` — push inventario
+    - `POST /restrictions` — stop-sell, MLOS, CTA
+    - `POST /rates` — tarifas (Sprint 8)
+    - Webhooks inbound: `booking_new`, `booking_modify`, `booking_cancel` → consumir en `/api/webhooks/channex`
+    La capa `ChannexGateway` abstrae todo I/O. **Nunca importar `fetch`/`axios` para hablar con Channex desde otro módulo.**
+
+31. **Política Channex ante fallo** — `pushInventory` es **best-effort**: la operación local ya está commiteada, un fallo de red a Channex NO la revierte. Se loguea para que ops lo detecte y retrigger. `pullAvailability` es **fail-soft** en lecturas normales (fallback a local), pero **fail-closed** en operaciones críticas del futuro (ej. aceptar reserva OTA webhook). Sprint 8 decide qué operaciones escalan a fail-closed.
 
 ---
 

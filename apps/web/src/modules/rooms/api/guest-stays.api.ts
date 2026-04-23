@@ -59,4 +59,16 @@ export const guestStaysApi = {
 
   moveExtensionRoom: (segmentId: string, newRoomId: string) =>
     api.patch(`/v1/stay-journeys/segments/${segmentId}/move-room`, { newRoomId }),
+
+  splitReservation: (
+    journeyId: string,
+    parts: Array<{ roomId: string; checkIn: Date; checkOut: Date }>,
+  ) =>
+    api.post(`/v1/stay-journeys/${journeyId}/split`, {
+      parts: parts.map((p) => ({
+        roomId: p.roomId,
+        checkIn: p.checkIn.toISOString(),
+        checkOut: p.checkOut.toISOString(),
+      })),
+    }),
 }

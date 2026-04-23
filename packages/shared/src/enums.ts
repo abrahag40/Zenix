@@ -130,6 +130,15 @@ export enum JourneyEventType {
   CANCELLED          = 'CANCELLED',
   NO_SHOW_MARKED     = 'NO_SHOW_MARKED',
   NO_SHOW_REVERTED   = 'NO_SHOW_REVERTED',
+  JOURNEY_SPLIT      = 'JOURNEY_SPLIT',
+}
+
+export enum SegmentReason {
+  ORIGINAL            = 'ORIGINAL',
+  EXTENSION_SAME_ROOM = 'EXTENSION_SAME_ROOM',
+  EXTENSION_NEW_ROOM  = 'EXTENSION_NEW_ROOM',
+  ROOM_MOVE           = 'ROOM_MOVE',
+  SPLIT               = 'SPLIT',
 }
 
 // ─── SmartBlock ───────────────────────────────────────────────────────────────

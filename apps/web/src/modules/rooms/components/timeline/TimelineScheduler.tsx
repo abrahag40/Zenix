@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import toast from 'react-hot-toast'
 import { subDays, addDays, differenceInDays, differenceInCalendarDays, startOfDay } from 'date-fns'
 import { useTimelineStore } from '../../stores/timeline.store'
 import { TIMELINE } from '../../utils/timeline.constants'
 import { getStayStatus } from '../../utils/timeline.utils'
 import { useDragDrop } from '../../hooks/useDragDrop'
-import { useGuestStays, useCreateGuestStay, useCheckout, useMoveRoom, useSplitMidStay, useMarkNoShow, useRevertNoShow, useRoomReadinessTasks, useExtendStay, useExtendSameRoom, useMoveExtensionRoom } from '../../hooks/useGuestStays'
+import { useGuestStays, useCreateGuestStay, useCheckout, useMoveRoom, useSplitMidStay, useSplitReservation, useMarkNoShow, useRevertNoShow, useRoomReadinessTasks, useExtendStay, useExtendSameRoom, useMoveExtensionRoom } from '../../hooks/useGuestStays'
 import { useStayJourneys } from '../../hooks/useStayJourneys'
 import { useRoomSSE } from '../../hooks/useRoomSSE'
 import { useDateVirtualizer } from '../../hooks/useDateVirtualizer'
@@ -192,6 +193,7 @@ export function TimelineScheduler() {
   const checkoutMut     = useCheckout(PROPERTY_ID)
   const moveRoomMut     = useMoveRoom(PROPERTY_ID)
   const splitMidStayMut = useSplitMidStay(PROPERTY_ID)
+  const splitReservationMut = useSplitReservation(PROPERTY_ID)
   const extendStayMut     = useExtendStay(PROPERTY_ID)
   const extendSameRoomMut    = useExtendSameRoom(PROPERTY_ID)
   const moveExtensionRoomMut = useMoveExtensionRoom(PROPERTY_ID)
@@ -828,14 +830,16 @@ export function TimelineScheduler() {
           : { ...moveRoomTarget, roomNumber: flatRows.find(r => r.id === moveRoomTarget.roomId && r.type === 'room')?.room?.number }
         const stayStatus = getStayStatus(moveRoomTarget.checkIn, moveRoomTarget.checkOut, moveRoomTarget.actualCheckout)
         const isInHouse = stayStatus === 'IN_HOUSE'
-        const isBusy = isInHouse ? splitMidStayMut.isPending : moveRoomMut.isPending
+        const isBusy = isInHouse
+          ? (splitMidStayMut.isPending || splitReservationMut.isPending)
+          : (moveRoomMut.isPending || splitReservationMut.isPending)
 
         return (
           <MoveRoomDialog
             stay={stayWithRoom}
             groups={groups}
             flatRows={flatRows}
-            stays={stays}
+            stays={allBlocksForDragCheck}
             isInHouse={isInHouse}
             isPending={isBusy}
             onClose={() => setMoveRoomDialog(null)}
@@ -858,6 +862,16 @@ export function TimelineScheduler() {
                   { onSettled: () => setMoveRoomDialog(null) },
                 )
               }
+            }}
+            onSplit={(parts) => {
+              if (!moveRoomTarget.journeyId) {
+                toast.error('No se puede dividir: la reserva no tiene journey asociado')
+                return
+              }
+              splitReservationMut.mutate(
+                { journeyId: moveRoomTarget.journeyId, parts },
+                { onSettled: () => setMoveRoomDialog(null) },
+              )
             }}
           />
         )

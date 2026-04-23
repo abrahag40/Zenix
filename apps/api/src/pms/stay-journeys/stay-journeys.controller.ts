@@ -5,6 +5,7 @@ import {
   ExtendNewRoomBodyDto,
   RoomMoveBodyDto,
   MoveExtensionRoomDto,
+  SplitReservationBodyDto,
 } from './dto/stay-journey.dto'
 import { TenantResource } from '../../common/guards/tenant.guard'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
@@ -65,6 +66,24 @@ export class StayJourneyController {
       journeyId,
       newRoomId: body.newRoomId,
       effectiveDate: body.effectiveDate,
+      actorId: actor.sub,
+    })
+  }
+
+  @Post(':id/split')
+  @TenantResource({ model: 'stayJourney', paramName: 'id' })
+  split(
+    @Param('id') journeyId: string,
+    @CurrentUser() actor: JwtPayload,
+    @Body() body: SplitReservationBodyDto,
+  ) {
+    return this.service.splitReservation({
+      journeyId,
+      parts: body.parts.map((p) => ({
+        roomId: p.roomId,
+        checkIn: new Date(p.checkIn),
+        checkOut: new Date(p.checkOut),
+      })),
       actorId: actor.sub,
     })
   }

@@ -46,7 +46,7 @@ export interface GuestStayBlock {
   journeyId?: string
   guestStayId?: string      // GuestStay ID for journey blocks (id = segment ID)
   segmentId?: string
-  segmentReason?: 'ORIGINAL' | 'EXTENSION_SAME_ROOM' | 'EXTENSION_NEW_ROOM' | 'ROOM_MOVE'
+  segmentReason?: 'ORIGINAL' | 'EXTENSION_SAME_ROOM' | 'EXTENSION_NEW_ROOM' | 'ROOM_MOVE' | 'SPLIT'
   segmentLocked?: boolean
   isFirstSegment?: boolean
   isLastSegment?: boolean

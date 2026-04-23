@@ -166,17 +166,6 @@ export class GuestStaysService {
           where: { id: dto.roomId },
           data: { status: 'OCCUPIED' },
         })
-        await tx.roomStatusLog.create({
-          data: {
-            organizationId: orgId,
-            propertyId: dto.propertyId,
-            roomId: dto.roomId,
-            fromStatus: room.status,
-            toStatus: 'OCCUPIED',
-            changedById: actorId,
-            reason: `Check-in: ${guestName}`,
-          },
-        })
       }
 
       return newStay
@@ -222,6 +211,11 @@ export class GuestStaysService {
    * Sources checked (in priority order):
    *   1. Room operational status — MAINTENANCE / OUT_OF_SERVICE block all bookings (SOFT severity)
    *   2. GuestStay date-range overlap — active reservation on the same room (HARD severity)
+   *
+   * TODO(sprint8-migrate): migrar a AvailabilityService.check() para cubrir
+   * Channex channel manager (ver CLAUDE.md §29). Hoy este método NO detecta
+   * overbooking cross-channel (una reserva llegando por Booking.com mientras
+   * el recepcionista crea la estadía manualmente).
    *
    * @param excludeStayId - optional stayId to exclude (used by moveRoom to ignore the stay being moved)
    */
@@ -341,17 +335,6 @@ export class GuestStaysService {
       this.prisma.room.update({
         where: { id: stay.roomId },
         data: { status: 'CHECKING_OUT' },
-      }),
-      this.prisma.roomStatusLog.create({
-        data: {
-          organizationId: orgId,
-          propertyId: stay.propertyId,
-          roomId: stay.roomId,
-          fromStatus: 'OCCUPIED',
-          toStatus: 'CHECKING_OUT',
-          changedById: actorId,
-          reason: 'Checkout confirmado',
-        },
       }),
     ])
 
@@ -579,17 +562,6 @@ export class GuestStaysService {
       })
       if (othersActive === 0 && stay.room.status === 'OCCUPIED') {
         await tx.room.update({ where: { id: stay.roomId }, data: { status: 'AVAILABLE' } })
-        await tx.roomStatusLog.create({
-          data: {
-            organizationId: orgId,
-            propertyId: stay.propertyId,
-            roomId:     stay.roomId,
-            fromStatus: 'OCCUPIED',
-            toStatus:   'AVAILABLE',
-            changedById: actorId,
-            reason:     `No-show: ${stay.guestName}`,
-          },
-        })
       }
 
       // 3. Cancelar tareas de limpieza activas de las unidades de la habitación
@@ -692,17 +664,6 @@ export class GuestStaysService {
       const room = await tx.room.findUnique({ where: { id: stay.roomId }, select: { status: true } })
       if (room?.status === 'AVAILABLE') {
         await tx.room.update({ where: { id: stay.roomId }, data: { status: 'OCCUPIED' } })
-        await tx.roomStatusLog.create({
-          data: {
-            organizationId: orgId,
-            propertyId: stay.propertyId,
-            roomId:     stay.roomId,
-            fromStatus: 'AVAILABLE',
-            toStatus:   'OCCUPIED',
-            changedById: actorId,
-            reason:     `No-show revertido: ${stay.guestName}`,
-          },
-        })
       }
 
       if (stay.stayJourney?.id) {
@@ -772,17 +733,6 @@ export class GuestStaysService {
       })
       if (othersActive === 0 && stay.room.status === 'OCCUPIED') {
         await tx.room.update({ where: { id: stay.roomId }, data: { status: 'AVAILABLE' } })
-        await tx.roomStatusLog.create({
-          data: {
-            organizationId: orgId,
-            propertyId,
-            roomId:     stay.roomId,
-            fromStatus: 'OCCUPIED',
-            toStatus:   'AVAILABLE',
-            changedById: 'system',
-            reason:     `No-show automático (night audit): ${stay.guestName}`,
-          },
-        })
       }
 
       const unitIds = stay.room.units.map((u) => u.id)

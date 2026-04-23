@@ -790,6 +790,7 @@ enum SegmentReason {
   EXTENSION_SAME_ROOM
   EXTENSION_NEW_ROOM
   ROOM_MOVE
+  SPLIT
 
   @@map("segment_reason")
 }
@@ -812,6 +813,7 @@ enum JourneyEventType {
   CANCELLED
   NO_SHOW_MARKED
   NO_SHOW_REVERTED
+  JOURNEY_SPLIT
 
   @@map("journey_event_type")
 }

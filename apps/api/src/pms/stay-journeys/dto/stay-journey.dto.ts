@@ -1,4 +1,5 @@
-import { IsUUID, IsDateString, IsOptional } from 'class-validator'
+import { IsUUID, IsDateString, IsOptional, ValidateNested, ArrayMinSize } from 'class-validator'
+import { Type } from 'class-transformer'
 
 // ── HTTP request body DTOs ────────────────────────────────────────────────────
 // journeyId comes from the URL param (:id), actorId from @CurrentUser().
@@ -34,6 +35,24 @@ export class MoveExtensionRoomDto {
   actorId?: string
 }
 
+export class SplitPartBodyDto {
+  @IsUUID()
+  roomId: string
+
+  @IsDateString()
+  checkIn: string
+
+  @IsDateString()
+  checkOut: string
+}
+
+export class SplitReservationBodyDto {
+  @ValidateNested({ each: true })
+  @Type(() => SplitPartBodyDto)
+  @ArrayMinSize(2)
+  parts: SplitPartBodyDto[]
+}
+
 // ── Service-layer param types (assembled by controller from body + param + auth) ──
 
 export interface ExtendSameRoomDto {
@@ -53,5 +72,17 @@ export interface RoomMoveDto {
   journeyId: string
   newRoomId: string
   effectiveDate: string
+  actorId: string
+}
+
+export interface SplitReservationPart {
+  roomId: string
+  checkIn: Date
+  checkOut: Date
+}
+
+export interface SplitReservationServiceDto {
+  journeyId: string
+  parts: SplitReservationPart[]
   actorId: string
 }

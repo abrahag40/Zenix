@@ -71,11 +71,20 @@ export function BookingDetailSheet({
   const canRevert = isNoShow && differenceInHours(new Date(), stay.noShowAt!) < 48
   const canNoShow = !isNoShow && (status === 'ARRIVING' || status === 'IN_HOUSE')
 
+  const isRoomMove = stay.segmentReason === 'ROOM_MOVE'
+  const isSplit    = stay.segmentReason === 'SPLIT'
   const isExtension =
     stay.segmentReason === 'EXTENSION_SAME_ROOM' ||
     stay.segmentReason === 'EXTENSION_NEW_ROOM'
 
-  const isRoomMove = stay.segmentReason === 'ROOM_MOVE'
+  // Third chip: segment context (optional). Only shown when this block is *not*
+  // the original reservation — the user can skim color + short label instead of
+  // reading the banner below. Max 3 chips total (status + OTA + segment).
+  const segmentChip =
+    isExtension ? { label: 'Extensión', bg: 'rgba(16,185,129,0.14)', fg: '#047857', border: 'rgba(16,185,129,0.30)' }
+    : isRoomMove ? { label: 'Cambio hab.', bg: 'rgba(59,130,246,0.14)', fg: '#1D4ED8', border: 'rgba(59,130,246,0.30)' }
+    : isSplit    ? { label: 'División',    bg: 'rgba(139,92,246,0.14)', fg: '#6D28D9', border: 'rgba(139,92,246,0.30)' }
+    : null
 
   const nights = differenceInDays(
     new Date(stay.checkOut),
@@ -114,14 +123,15 @@ export function BookingDetailSheet({
                 {stay.guestName}
               </SheetTitle>
 
-              <div className="flex items-center gap-2 mt-1">
+              <div className="flex items-center flex-wrap gap-1.5 mt-1.5">
+                {/* Chip 1 — estado de la reserva (fase operativa) */}
                 {isNoShow ? (
-                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200">
+                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200 whitespace-nowrap shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
                     No-show
                   </span>
                 ) : (
                   <span
-                    className="text-xs font-semibold px-2 py-0.5 rounded-full"
+                    className="text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
                     style={{
                       backgroundColor: `${otaColor}20`,
                       color: otaColor,
@@ -130,11 +140,6 @@ export function BookingDetailSheet({
                   >
                     {status === 'IN_HOUSE'
                       ? 'Alojado'
-                      : status === 'ARRIVING' && (
-                          stay.segmentReason === 'EXTENSION_SAME_ROOM' ||
-                          stay.segmentReason === 'EXTENSION_NEW_ROOM'
-                        )
-                      ? 'Extensión programada'
                       : status === 'ARRIVING'
                       ? 'Por llegar'
                       : status === 'DEPARTING'
@@ -143,18 +148,27 @@ export function BookingDetailSheet({
                   </span>
                 )}
 
+                {/* Chip 2 — OTA (origen de la reserva) */}
                 {stay.otaName && (
                   <span
-                    className="text-xs font-semibold px-2 py-0.5 rounded-full text-white"
+                    className="text-[11px] font-semibold px-2 py-0.5 rounded-full text-white whitespace-nowrap shadow-[0_1px_2px_rgba(0,0,0,0.08)]"
                     style={{ backgroundColor: otaColor }}
                   >
                     {stay.otaName}
                   </span>
                 )}
 
-                {isExtension && (
-                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">
-                    +ext · {nights}n
+                {/* Chip 3 — contexto del segmento (solo si aplica) */}
+                {segmentChip && (
+                  <span
+                    className="text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
+                    style={{
+                      backgroundColor: segmentChip.bg,
+                      color: segmentChip.fg,
+                      border: `1px solid ${segmentChip.border}`,
+                    }}
+                  >
+                    {segmentChip.label}
                   </span>
                 )}
               </div>
@@ -218,82 +232,6 @@ export function BookingDetailSheet({
             {/* TAB ESTADÍA */}
             <TabsContent value="stay" className="mt-0 ">
               <div className="p-4 space-y-3">
-                {/* Extension banner — same room */}
-                {stay.segmentReason === 'EXTENSION_SAME_ROOM' && (
-                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 space-y-1.5">
-                    <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">
-                      Extensión de estadía
-                    </div>
-                    {/* Primary: absolute checkout — no mental math required */}
-                    <div className="flex items-baseline gap-1.5">
-                      <span className="text-sm font-semibold text-emerald-800">
-                        +{nights} noche{nights !== 1 ? 's' : ''}
-                      </span>
-                      <span className="text-slate-400 text-xs">·</span>
-                      <span className="text-sm font-semibold text-emerald-800">
-                        Checkout: {format(new Date(stay.checkOut), "EEE d MMM", { locale: es })}
-                      </span>
-                    </div>
-                    {/* Secondary: when it started */}
-                    <div className="text-xs text-emerald-600">
-                      Desde {format(new Date(stay.checkIn), "EEE d MMM yyyy", { locale: es })}
-                      {stay.roomNumber ? ` · Hab. ${stay.roomNumber}` : ''}
-                    </div>
-                  </div>
-                )}
-
-                {/* Extension + room change banner */}
-                {stay.segmentReason === 'EXTENSION_NEW_ROOM' && (
-                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 space-y-1.5">
-                    <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">
-                      Extensión · Cambio de habitación
-                    </div>
-                    {/* Primary: room transition — most salient fact */}
-                    {stay.originalRoomNumber && stay.roomNumber && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-slate-500">Hab. {stay.originalRoomNumber}</span>
-                        <span className="text-emerald-500">→</span>
-                        <span className="text-sm font-bold text-emerald-800">Hab. {stay.roomNumber}</span>
-                      </div>
-                    )}
-                    {/* Secondary: duration + absolute checkout */}
-                    <div className="flex items-baseline gap-1.5">
-                      <span className="text-xs text-emerald-700 font-medium">
-                        +{nights} noche{nights !== 1 ? 's' : ''}
-                      </span>
-                      <span className="text-slate-400 text-xs">·</span>
-                      <span className="text-xs text-emerald-700 font-medium">
-                        Checkout: {format(new Date(stay.checkOut), "EEE d MMM", { locale: es })}
-                      </span>
-                    </div>
-                    <div className="text-xs text-emerald-600">
-                      Desde {format(new Date(stay.checkIn), "EEE d MMM yyyy", { locale: es })}
-                    </div>
-                  </div>
-                )}
-
-                {/* Room move banner */}
-                {isRoomMove && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 space-y-1.5">
-                    <div className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">
-                      Cambio de habitación
-                    </div>
-                    {/* Primary: the spatial transition — answer "from where to where" */}
-                    {stay.originalRoomNumber && stay.roomNumber ? (
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-slate-500">Hab. {stay.originalRoomNumber}</span>
-                        <span className="text-blue-400">→</span>
-                        <span className="text-sm font-bold text-blue-800">Hab. {stay.roomNumber}</span>
-                      </div>
-                    ) : (
-                      <div className="text-sm font-bold text-blue-800">Hab. {stay.roomNumber}</div>
-                    )}
-                    <div className="text-xs text-blue-600">
-                      Desde {format(new Date(stay.checkIn), "EEE d MMM yyyy", { locale: es })}
-                    </div>
-                  </div>
-                )}
-
                 {/* Fechas */}
                 <div className="bg-slate-50 rounded-xl p-4">
                   <div className="flex items-stretch gap-3">
@@ -355,6 +293,73 @@ export function BookingDetailSheet({
                     </div>
                   </div>
                 </div>
+
+                {/* ── Segment context banners ─────────────────────────────────
+                    Body uses regular weight: the dates card above is the primary
+                    anchor (font-bold). Bold in the body would compete with it and
+                    flatten the hierarchy. Room-transition numbers keep bold since
+                    the spatial delta *is* the primary info of these banners. */}
+
+                {/* Extension — same room */}
+                {stay.segmentReason === 'EXTENSION_SAME_ROOM' && (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+                    <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">
+                      Extensión
+                    </div>
+                    <div className="text-sm text-emerald-800 mt-0.5">
+                      +{nights} noche{nights !== 1 ? 's' : ''} en la misma habitación
+                    </div>
+                  </div>
+                )}
+
+                {/* Extension + room change */}
+                {stay.segmentReason === 'EXTENSION_NEW_ROOM' && (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 space-y-1">
+                    <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">
+                      Extensión con cambio de habitación
+                    </div>
+                    {stay.originalRoomNumber && stay.roomNumber && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-slate-500">Hab. {stay.originalRoomNumber}</span>
+                        <span className="text-emerald-500">→</span>
+                        <span className="text-sm font-bold text-emerald-800">Hab. {stay.roomNumber}</span>
+                      </div>
+                    )}
+                    <div className="text-xs text-emerald-700">
+                      +{nights} noche{nights !== 1 ? 's' : ''}
+                    </div>
+                  </div>
+                )}
+
+                {/* Room move — the spatial delta is the whole story */}
+                {isRoomMove && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3">
+                    <div className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">
+                      Cambio de habitación
+                    </div>
+                    {stay.originalRoomNumber && stay.roomNumber ? (
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-sm text-slate-500">Hab. {stay.originalRoomNumber}</span>
+                        <span className="text-blue-400">→</span>
+                        <span className="text-sm font-bold text-blue-800">Hab. {stay.roomNumber}</span>
+                      </div>
+                    ) : (
+                      <div className="text-sm font-bold text-blue-800 mt-0.5">Hab. {stay.roomNumber}</div>
+                    )}
+                  </div>
+                )}
+
+                {/* Split — tramo de una reserva dividida en varias habitaciones */}
+                {isSplit && (
+                  <div className="bg-violet-50 border border-violet-200 rounded-xl px-4 py-3">
+                    <div className="text-[10px] font-bold text-violet-600 uppercase tracking-wider">
+                      Tramo de reserva dividida
+                    </div>
+                    <div className="text-sm text-violet-800 mt-0.5">
+                      Hab. {stay.roomNumber} · {nights} noche{nights !== 1 ? 's' : ''}
+                    </div>
+                  </div>
+                )}
 
                 {/* Room + pax */}
                 <div className="grid grid-cols-2 gap-3">
