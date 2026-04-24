@@ -3,7 +3,7 @@
 > **Para uso interno del equipo comercial.**
 > Este documento es el mapa completo de funcionalidades de Zenix PMS. Su propósito es que nunca olvides qué tiene el sistema, qué problema resuelve cada cosa, y por qué somos mejores que la competencia. No es técnico — es la fuente de tu speech.
 >
-> Última actualización: 2026-04-23
+> Última actualización: 2026-04-24 — Sprint 7B y 7C completados
 
 ---
 
@@ -50,6 +50,8 @@ Zenix conecta estas dos realidades en un solo sistema con el calendario como fue
 |---|---|---|---|---|---|
 | Calendario PMS visual en tiempo real (SSE) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Integración nativa calendario → housekeeping | ⚠️ módulo separado | ⚠️ módulo separado | ❌ | ⚠️ básico | ✅ nativa |
+| Coordinación en tiempo real entre recepcionistas | ❌ | ❌ | ❌ | ❌ | ✅ badge 🔒 SSE |
+| Auto-detección de conflicto al extender estadía | ❌ | ❌ | ❌ | ❌ | ✅ con cuartos alternativos |
 | Gestión por cama (no solo por habitación) | ❌ | ⚠️ parcial | ❌ | ❌ | ✅ |
 | Checkout de 2 fases (planificación + confirmación física) | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Reversión de salida confirmada por error | ❌ | ❌ | ❌ | ❌ | ✅ |
@@ -103,7 +105,9 @@ Cuando suelta en una habitación disponible, aparece un panel de confirmación q
 
 El recepcionista arrastra el borde derecho del bloque para extender las fechas. Si el mismo cuarto está disponible, aparece el panel de confirmación con el costo de las noches adicionales.
 
-**La parte que ningún otro PMS tiene:** si el cuarto original ya tiene otra reserva en esas fechas, el sistema lo detecta automáticamente en el mismo momento del gesto y ofrece cuartos alternativos del mismo tipo. El recepcionista elige, confirma, y el sistema gestiona todo — el traslado, el precio, el historial. El huésped se entera del cambio de cuarto, no de la logística detrás.
+**La parte que ningún otro PMS tiene:** si el cuarto original ya tiene otra reserva en esas fechas, el sistema lo detecta automáticamente — antes de que el recepcionista llegue siquiera al panel de confirmación — y ofrece cuartos alternativos del mismo tipo (misma categoría: dorm, privada, suite). El recepcionista elige del listado, confirma, y el sistema gestiona todo: el traslado al nuevo cuarto, el ajuste de precio, el registro en el historial y la notificación a housekeeping. El huésped se entera del cambio de cuarto, no de la logística detrás.
+
+Ningún otro PMS del mercado hace este auto-detect en el momento del gesto. En Opera y Mews el recepcionista descubre el conflicto al intentar confirmar — recibe un error y tiene que empezar desde cero eligiendo otra habitación manualmente.
 
 ---
 
@@ -275,9 +279,18 @@ Toda reserva que intenta confirmarse — venga del recepcionista, de Booking.com
 
 Cuando se confirma una reserva en Zenix, el sistema notifica a Channex.io en tiempo real. Channex actualiza la disponibilidad en todas las OTAs conectadas en segundos. La habitación desaparece de Booking.com y Hostelworld antes de que otro huésped pueda confirmar. Es el mismo estándar que Opera Cloud y Mews.
 
-**Capa 3 — Soft-lock entre recepcionistas (activo hoy)**
+**Capa 3 — Coordinación en tiempo real entre recepcionistas (activo hoy)**
 
-Si dos recepcionistas del mismo hotel abren el mismo cuarto simultáneamente, el primero activa un badge visible para el otro: "🔒 En uso por María G." El segundo recepcionista sabe inmediatamente que alguien ya está gestionando esa habitación. Sin esta capa, ambos ven "disponible" y el que confirma segundo recibe un error confuso sin explicación.
+En hoteles con más de un recepcionista — algo muy común en temporada alta — puede ocurrir que dos personas estén gestionando la misma habitación al mismo tiempo sin saberlo. Zenix resuelve esto con un sistema de señalización en tiempo real:
+
+En el momento en que un recepcionista abre el dialog de una habitación (sea para crear una reserva nueva o para gestionar una existente), aparece inmediatamente un badge **🔒 "En uso por [nombre]"** en la fila de esa habitación en el calendario — visible para todos los demás recepcionistas conectados.
+
+El badge es informativo, no bloqueante. Esto es intencional:
+- Si el recepcionista B quiere reservar la **misma habitación en fechas distintas**, puede hacerlo sin problema — el sistema verificará disponibilidad y la reserva se creará sin conflicto
+- Si las fechas se superponen y ambos intentan confirmar, el hard block del servidor rechaza automáticamente al segundo con un mensaje claro que explica el conflicto
+- El badge desaparece automáticamente cuando el recepcionista cierra el dialog
+
+**Para el speech de ventas:** ningún PMS entry-level del mercado tiene este mecanismo de coordinación visual en tiempo real. En Cloudbeds o Clock PMS+, dos recepcionistas pueden estar trabajando en la misma habitación en silencio absoluto — el primero en confirmar gana, el segundo recibe un error genérico sin contexto. En Zenix, el segundo recepcionista ve el badge antes de iniciar su proceso y puede tomar una decisión informada.
 
 ---
 

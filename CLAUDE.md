@@ -1,7 +1,7 @@
 # CLAUDE.md — Zenix PMS
 
 > Guía para retomar el proyecto desde cero. Lee esto antes de tocar código.
-> Última actualización: 2026-04-24 (Sprint 7B/7C scope; análisis no-show competitivo; bitácora de funcionalidades; estrategia de documentación y onboarding; arquitectura anti-overbooking; principios de diseño cognitivo).
+> Última actualización: 2026-04-24 (Sprint 7B ✅ + 7C ✅ completos; análisis no-show competitivo; bitácora de funcionalidades; estrategia de documentación y onboarding; arquitectura anti-overbooking; principios de diseño cognitivo).
 
 ---
 
@@ -1668,6 +1668,10 @@ npx prisma studio
 25. **Psicología del color en el calendario** — cada color tiene semántica precisa: `emerald` = disponibilidad/acción positiva (Verde = "go", Mehrabian-Russell 1974); `amber` = advertencia no-bloqueante (semáforo advisory); `red` = rechazo/escasez (Cialdini 1984); OccupancyFooter: ≥80% → red, 50-79% → amber, <50% → emerald. El recepcionista puede tomar decisiones sin leer texto — solo por color y posición espacial.
 
 26. **SSE Soft-Lock TTL = 90s con cleanup en unmount** — el advisory lock se libera INMEDIATAMENTE cuando el dialog se cierra (cleanup del `useEffect`). El TTL de 90s es solo fallback para crashes/tabs cerradas sin unmount limpio. No hay delay artificial. El soft-lock cubre solo overbooking intra-Zenix; overbooking cross-channel (OTAs) se cubre con Channex.io (Sprint 8).
+    - **Lock es por habitación, no por rango de fechas.** Múltiples recepcionistas pueden tener abierta la misma habitación para fechas distintas — todos ven el badge, pero la protección real es `checkAvailability` al confirmar.
+    - **Single-entry por roomId en el servidor.** Si N recepcionistas abren la misma habitación, el badge muestra el nombre del último en adquirir (last-writer). Los heartbeats de todos los recepcionistas activos renuevan el TTL correctamente aunque sus nombres no estén en el badge.
+    - **Dialogs que adquieren el lock:** `CheckInDialog` y `BookingDetailSheet`. Ambos liberan el lock en el cleanup del `useEffect` al cerrarse.
+    - **TOCTOU es inherente:** entre el pre-flight `checkAvailability` (Paso 2 del dialog) y la confirmación final pueden pasar hasta 60 segundos. En ese intervalo otro proceso puede tomar la habitación. El hard block del servidor es la defensa final. Este gap es estándar en todos los PMS del mercado incluyendo Opera y Mews.
 
 27. **Housekeeping bridge: PMS → Housekeeping automático** — al ejecutar `extendNewRoom` o `executeMidStayRoomMove` en el backend, se debe crear automáticamente una `CleaningTask(PENDING)` para la habitación/cama liberada y emitir SSE `task:planned`. El recepcionista NO notifica manualmente a housekeeping. El enum `CleaningTaskSource` (CHECKOUT / STAYOVER / ROOM_CHANGE / EXTENSION) está documentado como TODO para distinguir el origen de cada tarea (ver `schema.prisma` TODO comment).
 
@@ -1768,8 +1772,8 @@ npx prisma studio
 | Columna de hoy resaltada (emerald) | ✅ Completo | `TodayColumnHighlight.tsx` |
 | GlobalTopBar (hamburger + [+] + bell) | ✅ Completo | `Sidebar.tsx`, `AppDrawer.tsx` |
 | Night audit multi-timezone | ✅ Completo | `night-audit.scheduler.ts` |
-| Extender en otra habitación (paso 2) | ⏳ Sprint 7B | `ExtendConfirmDialog.tsx` |
-| SSE Soft-Lock (advisory, 90s TTL) | ⏳ Sprint 7C | `useSoftLock.ts`, `NotificationsService` |
+| Extender en otra habitación (paso 2) | ✅ Sprint 7B | `ExtendConfirmDialog.tsx`, `useGuestStays.ts` |
+| SSE Soft-Lock (advisory, 90s TTL) | ✅ Sprint 7C | `useSoftLock.ts`, `RoomColumn.tsx`, `BookingDetailSheet.tsx` |
 | OccupancyFooter color por ocupación | ⏳ Sprint 7A pendiente | `TimelineGrid.tsx` |
 | Stayover tasks automáticas | ⏳ P1 Roadmap | `StayoverService` |
 | KanbanPage (supervisor board) | ⚠️ Esqueleto | `KanbanPage.tsx` |
@@ -2236,7 +2240,11 @@ export function useSoftLock(roomId: string | null) {
 }
 ```
 
-**Visual en calendario:** Los bloques de reserva en `BookingBlock.tsx` que estén soft-locked reciben un overlay `🔒` + nombre del usuario. El bloque no se deshabilita — el recepcionista B puede igualmente intentar la reserva, recibirá el badge como advertencia, no como bloqueo.
+**Visual en calendario:** Badge `🔒 [nombre truncado]` en amber en la fila de `RoomColumn` correspondiente a la habitación bloqueada. El bloque de reserva NO se deshabilita — el recepcionista B puede igualmente intentar la reserva; el badge es advertencia, no barrera.
+
+**Comportamiento con múltiples recepcionistas en la misma habitación:** El backend mantiene una sola entrada `Map<roomId, LockEntry>` por habitación. Si varios recepcionistas abren la misma habitación simultáneamente, cada `acquire` sobreescribe la entrada anterior — el badge muestra el nombre del último en adquirir. Todos los heartbeats renuevan el TTL independientemente. Esto es correcto por diseño: el objetivo del badge es comunicar "alguien está aquí", no listar a todos. Si recepcionistas A, B y C abren la misma habitación para fechas distintas, los tres pueden confirmar sin conflicto siempre que las fechas no se superpongan (el hard block los atrapa si sí).
+
+**Distinción por tipo de lock (fechas vs. habitación):** El lock es a nivel de `roomId`, no de rango de fechas. Un recepcionista 6 que abre la misma habitación que el 1 para fechas completamente distintas verá el badge pero su reserva no tiene impedimento real — `checkAvailability` confirmará disponibilidad en su rango y el servidor la creará sin conflicto. El soft-lock informa; el servidor decide.
 
 ### Diferencia con un mutex real
 
@@ -2300,8 +2308,8 @@ export function useSoftLock(roomId: string | null) {
 | PMS-03 | Drag & drop de reservas entre habitaciones | ✅ | Sprint 7A | Recepcionista | `MoveRoomDialog` con confirmación |
 | PMS-04 | Extensión de estadía arrastrando borde derecho | ✅ | Sprint 7A | Recepcionista | `ExtendConfirmDialog` |
 | PMS-05 | Extensión con pricing aditivo (no recalculativo) | ✅ | Sprint 7A | Recepcionista | §22 decisión de diseño |
-| PMS-06 | Extensión en otra habitación (con auto-detect de conflicto) | 🔄 | Sprint 7B | Recepcionista | Ver §Sprint 7C |
-| PMS-07 | SSE Soft-Lock advisory (badge "en uso") | 🔄 | Sprint 7C | Recepcionista | Ver §Sprint 7C |
+| PMS-06 | Extensión en otra habitación (con auto-detect de conflicto) | ✅ | Sprint 7B | Recepcionista | Pre-flight check + selector de alternativas del mismo tipo |
+| PMS-07 | SSE Soft-Lock advisory (badge "en uso") | ✅ | Sprint 7C | Recepcionista | Badge 🔒 en RoomColumn; lock en CheckInDialog + BookingDetailSheet |
 | PMS-08 | Tooltip de reserva (flip top/bottom) | ✅ | Sprint 6 | Recepcionista | `TooltipPortal.tsx` |
 | PMS-09 | Panel de detalle de reserva 420px | ✅ | Sprint 6 | Recepcionista | `BookingDetailSheet.tsx` |
 | PMS-10 | Página de detalle completo de reserva | ✅ | Sprint 6 | Recepcionista | `ReservationDetailPage.tsx` |
@@ -2504,7 +2512,7 @@ Onboarding (primera sesión del usuario)
 Antes de construir el onboarding (Sprint 10+), deben estar completos:
 1. ✅ Flujos de Etapa 1 (Housekeeping) — completos
 2. ✅ Flujos PMS básicos (calendario, crear reserva, no-show) — completos
-3. ⏳ Sprint 7B y 7C — en progreso
+3. ✅ Sprint 7B y 7C — completos
 4. ⏳ Sprint 8 (payments, Channex real) — pendiente
 5. 📋 KanbanPage completa para supervisores — pendiente
 6. 📋 Módulo de Mantenimiento MVP — pendiente
