@@ -20,6 +20,9 @@ import {
   Hash,
   Clock,
   AlertTriangle,
+  KeyRound,
+  Smartphone,
+  StickyNote,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -35,8 +38,18 @@ import { PaymentStatusBadge } from '../modules/rooms/components/shared/PaymentSt
 import { OTA_OPTIONS } from '../modules/rooms/components/dialogs/CheckInDialog'
 import { EarlyCheckoutDialog } from '../modules/rooms/components/dialogs/EarlyCheckoutDialog'
 import { useCheckout, useRevertNoShow, useEarlyCheckout } from '../modules/rooms/hooks/useGuestStays'
+import { KeyDeliveryType } from '@zenix/shared'
 import type { GuestStayDto } from '@zenix/shared'
 import type { PaymentStatus } from '../modules/rooms/types/timeline.types'
+
+// ─── Key delivery helpers ─────────────────────────────────────────────────────
+
+const KEY_LABELS: Record<KeyDeliveryType, string> = {
+  [KeyDeliveryType.PHYSICAL]: 'Llave física',
+  [KeyDeliveryType.CARD]:     'Tarjeta magnética',
+  [KeyDeliveryType.CODE]:     'Código PIN',
+  [KeyDeliveryType.MOBILE]:   'Acceso móvil',
+}
 
 // ─── Helper components ────────────────────────────────────────────────────────
 
@@ -339,6 +352,17 @@ export function ReservationDetailPage() {
             )}
             <InfoRow icon={Users}  label="Huéspedes" value={`${data.paxCount} pax`} />
             <InfoRow icon={Tag}    label="Canal de venta" value={otaName} />
+            {data.actualCheckin && (
+              <InfoRow icon={Clock} label="Check-in real"
+                value={format(new Date(data.actualCheckin), "dd/MM/yyyy HH:mm", { locale: es })} />
+            )}
+            {data.keyType && (
+              <InfoRow
+                icon={data.keyType === KeyDeliveryType.MOBILE ? Smartphone : KeyRound}
+                label="Acceso entregado"
+                value={KEY_LABELS[data.keyType as KeyDeliveryType]}
+              />
+            )}
           </SectionCard>
 
           <SectionCard>
@@ -351,8 +375,18 @@ export function ReservationDetailPage() {
 
           {data.notes && (
             <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
-              <div className="text-[10px] font-bold text-amber-600 uppercase tracking-wider mb-1.5">Nota</div>
+              <div className="text-[10px] font-bold text-amber-600 uppercase tracking-wider mb-1.5">Solicitudes especiales</div>
               <p className="text-sm text-amber-800">{data.notes}</p>
+            </div>
+          )}
+
+          {data.arrivalNotes && (
+            <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
+              <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                <StickyNote className="h-3 w-3" />
+                Notas de llegada
+              </div>
+              <p className="text-sm text-slate-700">{data.arrivalNotes}</p>
             </div>
           )}
 
@@ -442,8 +476,8 @@ export function ReservationDetailPage() {
               {
                 icon: FileText,
                 label: 'Documento',
-                value: data.documentType && data.documentNumber
-                  ? `${data.documentType.toUpperCase()} · ${data.documentNumber}`
+                value: data.documentType
+                  ? `${data.documentType.toUpperCase()}${data.documentNumber ? ` · ···${data.documentNumber.slice(-4)}` : ''}`
                   : null,
               },
             ]

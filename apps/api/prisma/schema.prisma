@@ -112,8 +112,8 @@ enum TaskLogEvent {
 }
 
 enum CheckoutSource {
-  CLOUDBEDS
   MANUAL
+  SYSTEM
 }
 
 enum MaintenanceCategory {
@@ -303,7 +303,6 @@ model Room {
   capacity        Int
   status          RoomStatus  @default(AVAILABLE) @map("room_status")
   roomTypeId      String?     @map("room_type_id")
-  cloudbedsRoomId   String?
   channexRoomTypeId String?   @map("channex_room_type_id")   // ID del room type en Channex.io (Sprint 8)
   notes             String?
   deletedAt       DateTime?   @map("deleted_at")
@@ -379,6 +378,9 @@ model HousekeepingStaff {
   notificationsTriggered AppNotification[] @relation("NotifTriggeredBy")
   notificationReads      AppNotificationRead[] @relation("NotifReadBy")
   notificationApprovals  AppNotificationApproval[] @relation("NotifApprovedBy")
+  collectedPayments      PaymentLog[]     @relation("PaymentCollectedBy")
+  approvedPayments       PaymentLog[]     @relation("PaymentApprovedBy")
+  voidedPayments         PaymentLog[]     @relation("PaymentVoidedBy")
 
   @@index([organizationId])
   @@index([organizationId, propertyId])
@@ -392,7 +394,6 @@ model Checkout {
   guestName              String?
   actualCheckoutAt       DateTime
   source                 CheckoutSource
-  cloudbedsReservationId String?        @unique
   isEarlyCheckout        Boolean        @default(false)
   hasSameDayCheckIn      Boolean        @default(false)
   notes                  String?
@@ -674,6 +675,9 @@ model GuestStay {
   noShowChargeStatus NoShowChargeStatus? @map("no_show_charge_status")
   noShowRevertedAt   DateTime?           @map("no_show_reverted_at")
   noShowRevertedById String?             @map("no_show_reverted_by_id")
+  // ── Check-in extended fields (Sprint 9) ─────────────────────────────────
+  arrivalNotes  String?          @map("arrival_notes")
+  keyType       KeyDeliveryType? @map("key_type")
   // ── Stripe card-on-file (Sprint 8) ───────────────────────────────────────
   // Guardados al hacer check-in via SetupIntent (usage: 'off_session').
   // stripePaymentIntentId se genera al procesar el cargo de no-show.
@@ -713,6 +717,7 @@ model GuestStay {
   stayJourney  StayJourney?
   staySegments StaySegment[]
   contactLogs  GuestContactLog[]
+  paymentLogs  PaymentLog[]
 
   @@index([organizationId])
   @@index([organizationId, propertyId])
@@ -872,6 +877,7 @@ enum JourneyEventType {
   SEGMENT_LOCKED
   ROOM_MOVE_EXECUTED
   EXTENSION_APPROVED
+  CHECKED_IN
   CHECKED_OUT
   CANCELLED
   NO_SHOW_MARKED
@@ -879,6 +885,29 @@ enum JourneyEventType {
   JOURNEY_SPLIT
 
   @@map("journey_event_type")
+}
+
+// ── Payment method for front-desk transactions ────────────────────────────────
+// CARD_TERMINAL: POS físico externo — Zenix guarda solo el número de referencia
+// del comprobante, nunca datos de tarjeta (PCI DSS fuera de alcance para TERMINAL).
+enum PaymentMethod {
+  CASH
+  CARD_TERMINAL
+  BANK_TRANSFER
+  OTA_PREPAID
+  COMP
+
+  @@map("payment_method")
+}
+
+// ── Tipo de acceso físico entregado al huésped en check-in ────────────────────
+enum KeyDeliveryType {
+  PHYSICAL  // llave física tradicional
+  CARD      // tarjeta magnética / RFID
+  CODE      // PIN / código numérico
+  MOBILE    // link o app móvil
+
+  @@map("key_delivery_type")
 }
 
 // ── No-Show charge lifecycle ──────────────────────────────────────────────────
@@ -1209,4 +1238,53 @@ model AppNotificationApproval {
   actionBy       HousekeepingStaff   @relation("NotifApprovedBy", fields: [actionById], references: [id])
 
   @@map("app_notification_approvals")
+}
+
+// ======================= PAYMENT LOG =======================
+//
+// Registro inmutable de pagos recibidos en recepción (USALI-compliant).
+// Reglas de inmutabilidad:
+//   - No hay campo updatedAt — Prisma no genera rutas UPDATE para este modelo.
+//   - La capa de servicio solo permite create(). Nunca update().
+//   - Las anulaciones crean un nuevo registro con isVoid=true y amount negativo.
+//   - El registro original permanece intacto (trail auditnable).
+//
+// Anti-fraude:
+//   - collectedById identifica al recepcionista que cobró.
+//   - COMP / amount=0 requieren approvedById + approvalReason obligatorios.
+//   - shiftDate permite reconciliar por turno: sum(CASH, isVoid=false) vs. efectivo físico.
+//   - reference = número de autorización del terminal (6-8 dígitos del comprobante),
+//     nunca PAN / CVV / track data. Zenix está fuera del flujo de datos de tarjeta.
+
+model PaymentLog {
+  id             String        @id @default(uuid())
+  organizationId String        @map("organization_id")
+  propertyId     String        @map("property_id")
+  stayId         String        @map("stay_id")
+  method         PaymentMethod
+  amount         Decimal       @db.Decimal(10, 2)
+  currency       String        @default("MXN")
+  reference      String?                           // autorización terminal / referencia bancaria
+  approvedById   String?       @map("approved_by_id")
+  approvalReason String?       @map("approval_reason")
+  isVoid         Boolean       @default(false) @map("is_void")
+  voidedAt       DateTime?     @map("voided_at")
+  voidedById     String?       @map("voided_by_id")
+  voidReason     String?       @map("void_reason")
+  voidsLogId     String?       @unique @map("voids_log_id")
+  shiftDate      DateTime      @db.Date @map("shift_date")
+  collectedById  String        @map("collected_by_id")
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  stay         GuestStay            @relation(fields: [stayId], references: [id])
+  collectedBy  HousekeepingStaff    @relation("PaymentCollectedBy", fields: [collectedById], references: [id])
+  approvedBy   HousekeepingStaff?   @relation("PaymentApprovedBy", fields: [approvedById], references: [id])
+  voidedBy     HousekeepingStaff?   @relation("PaymentVoidedBy", fields: [voidedById], references: [id])
+  voidsEntry   PaymentLog?          @relation("VoidOf", fields: [voidsLogId], references: [id])
+  voidedByLog  PaymentLog?          @relation("VoidOf")
+
+  @@index([stayId])
+  @@index([organizationId, propertyId, shiftDate])
+  @@index([collectedById, shiftDate])
+  @@map("payment_logs")
 }

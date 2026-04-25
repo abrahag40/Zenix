@@ -13,7 +13,11 @@ import { EmailService } from '../../common/email/email.service'
 import { CreateGuestStayDto } from './dto/create-guest-stay.dto'
 import { MoveRoomDto } from './dto/move-room.dto'
 import type { AvailabilityConflict, RoomAvailabilityResult } from '@zenix/shared'
+import { PaymentMethod } from '@zenix/shared'
 import { Prisma } from '@prisma/client'
+import { ConfirmCheckinDto } from './dto/confirm-checkin.dto'
+import { RegisterPaymentDto } from './dto/register-payment.dto'
+import { VoidPaymentDto } from './dto/void-payment.dto'
 import { StayJourneyService } from '../stay-journeys/stay-journeys.service'
 import { ChannexGateway } from '../../integrations/channex/channex.gateway'
 import { NotificationCenterService } from '../../notification-center/notification-center.service'
@@ -80,16 +84,20 @@ export class GuestStaysService {
       throw new ConflictException({ message, conflicts: availability.conflicts })
     }
 
-    // For same-day arrivals the room must be physically available right now.
-    // Future reservations are only blocked by date-range conflicts (checked above).
     const todayStart = new Date()
     todayStart.setHours(0, 0, 0, 0)
     const checkInDay = new Date(checkIn)
     checkInDay.setHours(0, 0, 0, 0)
     const isSameDayCheckin = checkInDay.getTime() === todayStart.getTime()
 
-    if (isSameDayCheckin && room.status !== 'AVAILABLE') {
-      throw new ConflictException(`Habitación no disponible: estado ${room.status}`)
+    // Operational status blocks ALL bookings only for MAINTENANCE / OUT_OF_SERVICE.
+    // OCCUPIED / DIRTY / CHECKING_OUT are transient housekeeping states — they do NOT
+    // block future or same-day reservations. Date-range availability (checkAvailability
+    // above) is the authoritative inventory guard; room.status reflects physical state,
+    // not calendar availability. Blocking on OCCUPIED here would prevent legitimate
+    // same-day turnover (guest A checking out today while guest B checks in today).
+    if (room.status === 'MAINTENANCE' || room.status === 'OUT_OF_SERVICE') {
+      throw new ConflictException(`Habitación fuera de servicio: estado ${room.status}`)
     }
     const nights = Math.max(
       1,
@@ -762,6 +770,17 @@ export class GuestStaysService {
       throw new ConflictException('No se puede marcar no-show antes de la fecha de llegada')
     }
 
+    // Guard: no se puede marcar no-show antes de la hora de alerta del día de llegada.
+    // El recepcionista debe esperar hasta potentialNoShowWarningHour (default 20:00 hora local)
+    // para que haya suficiente evidencia de que el huésped no llegará.
+    const warningHour = stay.room.property.settings?.potentialNoShowWarningHour ?? 20
+    const currentLocalHour = toLocalHour(new Date(), tz)
+    if (checkinLocal === todayLocal && currentLocalHour < warningHour) {
+      throw new ConflictException(
+        `No se puede marcar no-show antes de las ${warningHour}:00 hora local`,
+      )
+    }
+
     const feeAmount    = opts?.waiveCharge ? new Prisma.Decimal(0) : stay.ratePerNight
     const chargeStatus = opts?.waiveCharge ? 'WAIVED' : 'PENDING'
 
@@ -1036,6 +1055,387 @@ export class GuestStaysService {
     })
 
     this.logger.log(`[NightAudit] No-show automático: stay=${stayId} guest="${stay.guestName}"`)
+  }
+
+  // ─── Check-in Confirmation (Sprint 8) ────────────────────────────────────
+
+  /**
+   * POST /v1/guest-stays/:id/confirm-checkin
+   *
+   * Confirma la llegada física del huésped. Este es el único endpoint que escribe
+   * `actualCheckin` — sin él el status permanece UNCONFIRMED y el night audit
+   * puede marcar no-show.
+   *
+   * Guards (en orden, antes de cualquier mutación):
+   *  1. Ya confirmado → ConflictException
+   *  2. No-show → BadRequestException
+   *  3. checkIn > hoy (localmente) → BadRequestException
+   *  4. documentVerified !== true → BadRequestException
+   *  5. balance > 0 sin pago ni override COMP → BadRequestException { code: 'BALANCE_UNPAID' }
+   *  6. method = COMP sin approvedById + approvalReason → ForbiddenException
+   *  7. CARD_TERMINAL / BANK_TRANSFER sin reference → BadRequestException
+   *
+   * Transacción:
+   *  - Crear PaymentLog[] por cada entrada en dto.payments
+   *  - Actualizar GuestStay: amountPaid, paymentStatus, actualCheckin, checkinConfirmedById
+   *  - Actualizar Room.status → OCCUPIED
+   *  - Crear StayJourneyEvent(CHECKED_IN)
+   *
+   * Post-tx (fire-and-forget):
+   *  - SSE checkin:confirmed
+   *  - NotificationCenter INFO → housekeeping (SUPERVISOR)
+   */
+  async confirmCheckin(stayId: string, dto: ConfirmCheckinDto, actorId: string) {
+    const orgId = this.tenant.getOrganizationId()
+
+    const stay = await this.prisma.guestStay.findUnique({
+      where: { id: stayId, organizationId: orgId },
+      include: {
+        room: {
+          select: {
+            id: true,
+            number: true,
+            status: true,
+            property: { select: { id: true, settings: true } },
+          },
+        },
+        stayJourney: { select: { id: true } },
+        paymentLogs:  { where: { isVoid: false } },
+      },
+    })
+    if (!stay) throw new NotFoundException('Estadía no encontrada')
+
+    // Guard 1: ya confirmado
+    if (stay.actualCheckin !== null) {
+      throw new ConflictException('El check-in ya fue confirmado')
+    }
+
+    // Guard 2: no-show
+    if (stay.noShowAt !== null) {
+      throw new BadRequestException('No se puede confirmar check-in de un no-show')
+    }
+
+    // Guard 3: fecha aún no llegó
+    const tz = stay.room.property.settings?.timezone ?? 'UTC'
+    const todayLocal   = toLocalDate(new Date(), tz)
+    const checkinLocal = toLocalDate(stay.checkinAt, tz)
+    if (checkinLocal > todayLocal) {
+      throw new BadRequestException('La fecha de check-in aún no ha llegado')
+    }
+
+    // Guard 4: documento no verificado
+    if (!dto.documentVerified) {
+      throw new BadRequestException('Se requiere verificar el documento de identidad del huésped')
+    }
+
+    // Guard 6 & 7: validar cada entrada de pago antes de tocar BD
+    for (const p of dto.payments) {
+      if (
+        (p.method === PaymentMethod.CARD_TERMINAL || p.method === PaymentMethod.BANK_TRANSFER) &&
+        !p.reference?.trim()
+      ) {
+        throw new BadRequestException(
+          `El método ${p.method} requiere un número de referencia de la terminal`,
+        )
+      }
+      if (
+        (p.method === PaymentMethod.COMP || p.amount === 0) &&
+        (!p.approvedById?.trim() || !p.approvalReason?.trim())
+      ) {
+        throw new ForbiddenException(
+          'Pagos en $0 o tipo COMP requieren código y razón de aprobación del manager',
+        )
+      }
+    }
+
+    // Guard 5: balance pendiente sin pago
+    const paidSoFar        = Number(stay.amountPaid)
+    const totalAmount      = Number(stay.totalAmount)
+    const paymentSum       = dto.payments.reduce((s, p) => s + p.amount, 0)
+    const projectedBalance = totalAmount - paidSoFar - paymentSum
+    const hasOtaPrepaid    = dto.payments.some((p) => p.method === PaymentMethod.OTA_PREPAID)
+    const hasComp          = dto.payments.some((p) => p.method === PaymentMethod.COMP)
+
+    if (projectedBalance > 0 && !hasOtaPrepaid && !hasComp) {
+      throw new BadRequestException({
+        code:    'BALANCE_UNPAID',
+        balance: projectedBalance,
+        message: `Saldo pendiente de $${projectedBalance.toFixed(2)} ${stay.currency} sin cubrir`,
+      })
+    }
+
+    const now = new Date()
+    const shiftDate = new Date(now.toISOString().split('T')[0] + 'T00:00:00.000Z')
+
+    await this.prisma.$transaction(async (tx) => {
+      // 1. Crear registros de pago (append-only)
+      for (const p of dto.payments) {
+        await tx.paymentLog.create({
+          data: {
+            organizationId: orgId,
+            propertyId:     stay.propertyId,
+            stayId,
+            method:         p.method as any,
+            amount:         p.amount,
+            currency:       stay.currency,
+            reference:      p.reference ?? null,
+            approvedById:   p.approvedById ?? null,
+            approvalReason: p.approvalReason ?? null,
+            shiftDate,
+            collectedById:  actorId,
+          },
+        })
+      }
+
+      // 2. Calcular nuevo amountPaid y paymentStatus
+      const newAmountPaid = paidSoFar + paymentSum
+      const paymentStatus =
+        hasOtaPrepaid || hasComp || newAmountPaid >= totalAmount
+          ? 'PAID'
+          : newAmountPaid > 0
+            ? 'PARTIAL'
+            : 'PENDING'
+
+      // 3. Confirmar check-in
+      await tx.guestStay.update({
+        where: { id: stayId },
+        data: {
+          actualCheckin:          now,
+          checkinConfirmedById:   actorId,
+          amountPaid:             newAmountPaid,
+          paymentStatus,
+          documentType:           dto.documentType   ?? stay.documentType,
+          documentNumber:         dto.documentNumber ?? stay.documentNumber,
+          arrivalNotes:           dto.arrivalNotes   ?? null,
+          keyType:                dto.keyType        ?? null,
+        },
+      })
+
+      // 4. Marcar habitación como ocupada
+      await tx.room.update({
+        where: { id: stay.roomId },
+        data: { status: 'OCCUPIED' },
+      })
+
+      // 5. Audit trail
+      if (stay.stayJourney?.id) {
+        await tx.stayJourneyEvent.create({
+          data: {
+            journeyId: stay.stayJourney.id,
+            eventType: 'CHECKED_IN',
+            actorId,
+            payload: {
+              confirmedAt:      now.toISOString(),
+              documentVerified: dto.documentVerified,
+              documentType:     dto.documentType,
+              // PII: enmascarar últimos 4 dígitos — nunca loguear número completo
+              documentNumber:   dto.documentNumber ? `***${dto.documentNumber.slice(-4)}` : undefined,
+              keyType:          dto.keyType,
+              arrivalNotes:     dto.arrivalNotes,
+              paymentSum,
+              paymentStatus,
+              methods:          dto.payments.map((p) => p.method),
+            },
+          },
+        })
+      }
+    })
+
+    // Post-tx: SSE + notificación (fire-and-forget)
+    this.events.emit('checkin.confirmed', {
+      stayId,
+      roomId:     stay.roomId,
+      propertyId: stay.propertyId,
+      orgId,
+      guestName:  stay.guestName,
+    })
+
+    void this.notifCenter.send({
+      propertyId:    stay.propertyId,
+      type:          'INFORMATIONAL',
+      category:      'CHECKIN_UNCONFIRMED',
+      priority:      'MEDIUM',
+      title:         `Check-in confirmado — ${stay.guestName}`,
+      body:          `${stay.guestName} ingresó a Hab. ${stay.room.number}. Habitación en estado OCCUPIED.`,
+      metadata:      { stayId, roomId: stay.roomId },
+      actionUrl:     `/reservations/${stayId}`,
+      recipientType: 'ROLE',
+      recipientRole: 'SUPERVISOR',
+      triggeredById: actorId,
+    }).catch((err: Error) =>
+      this.logger.warn(`[ConfirmCheckin] notification failed: ${err?.message}`),
+    )
+
+    this.logger.log(`[ConfirmCheckin] stay=${stayId} guest="${stay.guestName}" paid=${paidSoFar + paymentSum}`)
+    return { success: true, actualCheckin: now.toISOString() }
+  }
+
+  /**
+   * POST /v1/guest-stays/:id/payments
+   * Registra un pago adicional sobre una estadía (sin tocar actualCheckin).
+   * Útil para abonos parciales, cobros extra de mini-bar, extensiones, etc.
+   */
+  async registerPayment(stayId: string, dto: RegisterPaymentDto, actorId: string) {
+    const orgId = this.tenant.getOrganizationId()
+
+    const stay = await this.prisma.guestStay.findUnique({
+      where: { id: stayId, organizationId: orgId },
+      select: { id: true, propertyId: true, currency: true, amountPaid: true, totalAmount: true, noShowAt: true },
+    })
+    if (!stay) throw new NotFoundException('Estadía no encontrada')
+    if (stay.noShowAt) throw new BadRequestException('No se puede registrar pago en un no-show')
+
+    if (
+      (dto.method === PaymentMethod.CARD_TERMINAL || dto.method === PaymentMethod.BANK_TRANSFER) &&
+      !dto.reference?.trim()
+    ) {
+      throw new BadRequestException(`El método ${dto.method} requiere número de referencia`)
+    }
+    if (
+      (dto.method === PaymentMethod.COMP || dto.amount === 0) &&
+      (!dto.approvedById?.trim() || !dto.approvalReason?.trim())
+    ) {
+      throw new ForbiddenException('Pagos COMP o $0 requieren aprobación del manager')
+    }
+
+    const now = new Date()
+    const shiftDate = new Date(now.toISOString().split('T')[0] + 'T00:00:00.000Z')
+    const newAmountPaid = Number(stay.amountPaid) + dto.amount
+    const totalAmount   = Number(stay.totalAmount)
+
+    const [log] = await this.prisma.$transaction([
+      this.prisma.paymentLog.create({
+        data: {
+          organizationId: orgId,
+          propertyId:     stay.propertyId,
+          stayId,
+          method:         dto.method as any,
+          amount:         dto.amount,
+          currency:       stay.currency,
+          reference:      dto.reference ?? null,
+          approvedById:   dto.approvedById ?? null,
+          approvalReason: dto.approvalReason ?? null,
+          shiftDate,
+          collectedById:  actorId,
+        },
+      }),
+      this.prisma.guestStay.update({
+        where: { id: stayId },
+        data: {
+          amountPaid:    newAmountPaid,
+          paymentStatus: newAmountPaid >= totalAmount ? 'PAID' : newAmountPaid > 0 ? 'PARTIAL' : 'PENDING',
+        },
+      }),
+    ])
+
+    this.logger.log(`[RegisterPayment] stay=${stayId} method=${dto.method} amount=${dto.amount}`)
+    return log
+  }
+
+  /**
+   * POST /v1/guest-stays/payments/:paymentLogId/void
+   * Anula un PaymentLog creando una entrada negativa (append-only).
+   * El registro original nunca se modifica (USALI audit trail requirement).
+   */
+  async voidPayment(paymentLogId: string, dto: VoidPaymentDto, actorId: string) {
+    const orgId = this.tenant.getOrganizationId()
+
+    const original = await this.prisma.paymentLog.findUnique({
+      where: { id: paymentLogId },
+      include: { stay: { select: { organizationId: true, amountPaid: true, totalAmount: true, currency: true, propertyId: true } } },
+    })
+    if (!original) throw new NotFoundException('Registro de pago no encontrado')
+    if (original.stay.organizationId !== orgId) throw new ForbiddenException()
+    if (original.isVoid) throw new ConflictException('Este registro ya fue anulado')
+
+    const voidEntry = await this.prisma.paymentLog.findFirst({ where: { voidsLogId: paymentLogId } })
+    if (voidEntry) throw new ConflictException('Ya existe una anulación para este pago')
+
+    const now         = new Date()
+    const shiftDate   = new Date(now.toISOString().split('T')[0] + 'T00:00:00.000Z')
+    const voidAmount  = -Number(original.amount)
+    const newPaid     = Math.max(0, Number(original.stay.amountPaid) + voidAmount)
+    const totalAmount = Number(original.stay.totalAmount)
+
+    await this.prisma.$transaction([
+      this.prisma.paymentLog.create({
+        data: {
+          organizationId: orgId,
+          propertyId:     original.stay.propertyId,
+          stayId:         original.stayId,
+          method:         original.method,
+          amount:         voidAmount,
+          currency:       original.currency,
+          isVoid:         true,
+          voidedAt:       now,
+          voidedById:     actorId,
+          voidReason:     dto.voidReason,
+          voidsLogId:     paymentLogId,
+          shiftDate,
+          collectedById:  actorId,
+        },
+      }),
+      this.prisma.guestStay.update({
+        where: { id: original.stayId },
+        data: {
+          amountPaid:    newPaid,
+          paymentStatus: newPaid >= totalAmount ? 'PAID' : newPaid > 0 ? 'PARTIAL' : 'PENDING',
+        },
+      }),
+    ])
+
+    this.logger.log(`[VoidPayment] paymentLogId=${paymentLogId} amount=${original.amount} voided by ${actorId}`)
+    return { success: true }
+  }
+
+  /**
+   * GET /v1/guest-stays/cash-summary?propertyId=X&date=YYYY-MM-DD
+   * Suma PaymentLog del turno por colector — para reconciliación de caja al cierre.
+   */
+  async getCashSummary(propertyId: string, dateStr: string) {
+    const orgId    = this.tenant.getOrganizationId()
+    const shiftDate = new Date(`${dateStr}T00:00:00.000Z`)
+
+    const logs = await this.prisma.paymentLog.findMany({
+      where: {
+        organizationId: orgId,
+        propertyId,
+        shiftDate,
+        method: 'CASH' as any,
+        isVoid: false,
+      },
+      include: {
+        collectedBy: { select: { id: true, name: true } },
+      },
+    })
+
+    const byCollector = new Map<string, { name: string; total: number; count: number }>()
+    let totalCash = 0
+
+    for (const log of logs) {
+      const amount = Number(log.amount)
+      totalCash += amount
+      const entry = byCollector.get(log.collectedById) ?? {
+        name:  log.collectedBy.name,
+        total: 0,
+        count: 0,
+      }
+      entry.total += amount
+      entry.count += 1
+      byCollector.set(log.collectedById, entry)
+    }
+
+    return {
+      date:        dateStr,
+      propertyId,
+      totalCash:   totalCash.toFixed(2),
+      byCollector: Array.from(byCollector.entries()).map(([id, v]) => ({
+        collectedById: id,
+        collectorName: v.name,
+        total:         v.total.toFixed(2),
+        count:         v.count,
+      })),
+    }
   }
 
   /**

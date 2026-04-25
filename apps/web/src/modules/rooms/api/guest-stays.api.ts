@@ -1,5 +1,7 @@
 import { api } from '@/api/client'
-import type { RoomAvailabilityResult } from '@zenix/shared'
+import type { RoomAvailabilityResult, ConfirmCheckinInput, PaymentEntryInput } from '@zenix/shared'
+
+export type { ConfirmCheckinInput, PaymentEntryInput }
 
 const BASE = '/v1/guest-stays'
 
@@ -83,4 +85,10 @@ export const guestStaysApi = {
         checkOut: p.checkOut.toISOString(),
       })),
     }),
+
+  confirmCheckin: (stayId: string, data: ConfirmCheckinInput) =>
+    api.post<{ success: boolean; actualCheckin: string }>(
+      `${BASE}/${stayId}/confirm-checkin`,
+      data,
+    ),
 }

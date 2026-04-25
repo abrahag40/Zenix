@@ -75,6 +75,20 @@ export class PmsSseListener {
     })
   }
 
+  @OnEvent('checkin.confirmed')
+  onCheckinConfirmed(payload: {
+    stayId: string
+    roomId: string
+    propertyId: string
+    guestName?: string
+  }) {
+    this.notifications.emit(payload.propertyId, 'checkin:confirmed', {
+      stayId:    payload.stayId,
+      roomId:    payload.roomId,
+      guestName: payload.guestName,
+    })
+  }
+
   @OnEvent('soft-lock.acquired')
   onSoftLockAcquired(payload: { roomId: string; userName: string; propertyId: string }) {
     this.notifications.emit(payload.propertyId, 'soft:lock:acquired', {

@@ -13,6 +13,7 @@ import {
   Phone,
   Mail,
   FileText,
+  LogIn,
   LogOut,
   ArrowRightLeft,
   UserX,
@@ -49,6 +50,7 @@ interface BookingDetailSheetProps {
   onMoveRoom: (stayId: string) => void
   onNoShow: (stayId: string, opts: { reason?: string; waiveCharge?: boolean }) => void
   onRevertNoShow: (stayId: string) => void
+  onStartCheckin?: (stayId: string) => void
   /** propertyId needed for soft-lock advisory (Sprint 7C). */
   propertyId?: string
 }
@@ -61,6 +63,7 @@ export function BookingDetailSheet({
   onMoveRoom,
   onNoShow,
   onRevertNoShow,
+  onStartCheckin,
   propertyId,
 }: BookingDetailSheetProps) {
   /**
@@ -89,7 +92,7 @@ export function BookingDetailSheet({
 
   if (!stay) return null
 
-  const status = getStayStatus(stay.checkIn, stay.checkOut, stay.actualCheckout)
+  const status = getStayStatus(stay.checkIn, stay.checkOut, stay.actualCheckout, stay.actualCheckin, stay.noShowAt)
   const statusColors = STAY_STATUS_COLORS[status]
   const otaColor = OTA_ACCENT_COLORS[stay.source] ?? OTA_ACCENT_COLORS.other
 
@@ -102,7 +105,8 @@ export function BookingDetailSheet({
   //   · !isArrivalDay → past check-in day, system assumes guest arrived → "Salida anticipada"
   // ARRIVING (future check-in) is excluded: you cannot no-show someone before their arrival day.
   const isArrivalDay = startOfDay(new Date(stay.checkIn)).getTime() === startOfDay(new Date()).getTime()
-  const canNoShow       = !isNoShow && status === 'IN_HOUSE' && isArrivalDay
+  const isUnconfirmed    = status === 'UNCONFIRMED'
+  const canNoShow       = !isNoShow && (status === 'IN_HOUSE' || isUnconfirmed) && isArrivalDay
   const canEarlyCheckout = !isNoShow && status === 'IN_HOUSE' && !isArrivalDay
 
   const isRoomMove = stay.segmentReason === 'ROOM_MOVE'
@@ -163,6 +167,10 @@ export function BookingDetailSheet({
                 {isNoShow ? (
                   <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200 whitespace-nowrap shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
                     No-show
+                  </span>
+                ) : isUnconfirmed ? (
+                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap shadow-[0_1px_2px_rgba(0,0,0,0.04)] bg-amber-100 text-amber-800 border border-amber-300">
+                    Sin confirmar
                   </span>
                 ) : (
                   <span
@@ -891,6 +899,21 @@ export function BookingDetailSheet({
               >
                 <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
                 Revertir no-show
+              </Button>
+            )}
+
+            {/* UNCONFIRMED: guest arrived today but check-in not confirmed yet */}
+            {isUnconfirmed && onStartCheckin && (
+              <Button
+                size="sm"
+                className="flex-1 text-xs text-white bg-emerald-600 hover:bg-emerald-700"
+                onClick={() => {
+                  onStartCheckin(stay.guestStayId ?? stay.id)
+                  onClose()
+                }}
+              >
+                <LogIn className="h-3.5 w-3.5 mr-1.5" />
+                Confirmar check-in
               </Button>
             )}
 

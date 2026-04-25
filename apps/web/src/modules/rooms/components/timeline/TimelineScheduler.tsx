@@ -6,11 +6,12 @@ import { useTimelineStore } from '../../stores/timeline.store'
 import { TIMELINE } from '../../utils/timeline.constants'
 import { getStayStatus } from '../../utils/timeline.utils'
 import { useDragDrop } from '../../hooks/useDragDrop'
-import { useGuestStays, useCreateGuestStay, useCheckout, useMoveRoom, useSplitMidStay, useSplitReservation, useMarkNoShow, useRevertNoShow, useRoomReadinessTasks, useExtendStay, useExtendSameRoom, useExtendNewRoom, useMoveExtensionRoom } from '../../hooks/useGuestStays'
+import { useGuestStays, useCreateGuestStay, useCheckout, useMoveRoom, useSplitMidStay, useSplitReservation, useMarkNoShow, useRevertNoShow, useRoomReadinessTasks, useExtendStay, useExtendSameRoom, useExtendNewRoom, useMoveExtensionRoom, useConfirmCheckin } from '../../hooks/useGuestStays'
 import { guestStaysApi } from '../../api/guest-stays.api'
 import { useStayJourneys } from '../../hooks/useStayJourneys'
 import { useRoomSSE } from '../../hooks/useRoomSSE'
 import { useSoftLockSSE } from '@/hooks/useSoftLock'
+import { usePropertySettings } from '@/hooks/usePropertySettings'
 import { useDateVirtualizer } from '../../hooks/useDateVirtualizer'
 import { TimelineTopBar } from './TimelineTopBar'
 import { TimelineSubBar } from './TimelineSubBar'
@@ -30,6 +31,7 @@ import { MoveRoomDialog } from '../dialogs/MoveRoomDialog'
 import { MoveExtensionConfirmDialog } from '../dialogs/MoveExtensionConfirmDialog'
 import { MoveReservationConfirmDialog } from '../dialogs/MoveReservationConfirmDialog'
 import { NoShowConfirmModal } from './NoShowConfirmModal'
+import { ConfirmCheckinDialog } from '../dialogs/ConfirmCheckinDialog'
 import type {
   FlatRow,
   DropResult,
@@ -203,6 +205,7 @@ export function TimelineScheduler() {
   const moveExtensionRoomMut = useMoveExtensionRoom(PROPERTY_ID)
   const markNoShowMut   = useMarkNoShow(PROPERTY_ID)
   const revertNoShowMut = useRevertNoShow(PROPERTY_ID)
+  const { potentialNoShowWarningHour, noShowCutoffHour } = usePropertySettings()
 
   const { journeyBlocks: rawJourneyBlocks } = useStayJourneys(PROPERTY_ID, dataWindow.from, dataWindow.to)
 
@@ -330,6 +333,9 @@ export function TimelineScheduler() {
   }>({ open: false, stayId: null })
 
   const [noShowDialog, setNoShowDialog] = useState<{ stayId: string } | null>(null)
+
+  const [checkinDialog, setCheckinDialog] = useState<{ stayId: string } | null>(null)
+  const confirmCheckinMut = useConfirmCheckin(PROPERTY_ID)
   const noShowTarget = noShowDialog
     ? ([...stays, ...journeyBlocks].find((s) => s.id === noShowDialog.stayId) ?? null)
     : null
@@ -772,6 +778,15 @@ export function TimelineScheduler() {
               onNoShow={(stayId) => {
                 setNoShowDialog({ stayId })
               }}
+              onStartCheckin={(stayId) => {
+                closeSheet()
+                setCheckinDialog({ stayId })
+              }}
+              onRevertNoShow={(stayId) => {
+                revertNoShowMut.mutate(stayId)
+              }}
+              potentialNoShowWarningHour={potentialNoShowWarningHour}
+              noShowCutoffHour={noShowCutoffHour}
               lockedStays={lockedStays}
               onToggleLock={toggleLock}
               scrollLeft={scrollLeft}
@@ -880,6 +895,10 @@ export function TimelineScheduler() {
         onRevertNoShow={(stayId) => {
           revertNoShowMut.mutate(stayId)
         }}
+        onStartCheckin={(stayId) => {
+          closeSheet()
+          setCheckinDialog({ stayId })
+        }}
         propertyId={PROPERTY_ID}
       />
 
@@ -895,6 +914,29 @@ export function TimelineScheduler() {
           setCheckInDialog({ open: false })
         }}
       />
+
+      {/* ─── Confirm check-in dialog (Sprint 8) ─────────────── */}
+      {checkinDialog && (() => {
+        const raw = [...stays, ...journeyBlocks].find(s => s.id === checkinDialog.stayId) ?? null
+        if (!raw) return null
+        const roomRow = flatRows.find(r => r.id === raw.roomId && r.type === 'room')
+        const stay = raw.roomNumber ? raw : { ...raw, roomNumber: roomRow?.room?.number }
+        return (
+          <ConfirmCheckinDialog
+            stay={stay}
+            roomLabel={stay.roomNumber ? `Hab. ${stay.roomNumber}` : 'Habitación'}
+            open={true}
+            onClose={() => setCheckinDialog(null)}
+            onConfirm={(data) => {
+              confirmCheckinMut.mutate(
+                { stayId: checkinDialog.stayId, data },
+                { onSettled: () => setCheckinDialog(null) },
+              )
+            }}
+            isPending={confirmCheckinMut.isPending}
+          />
+        )
+      })()}
 
       <CheckOutDialog
         stay={(() => {

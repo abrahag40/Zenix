@@ -3,7 +3,7 @@
 > **Para uso interno del equipo comercial.**
 > Este documento es el mapa completo de funcionalidades de Zenix PMS. Su propósito es que nunca olvides qué tiene el sistema, qué problema resuelve cada cosa, y por qué somos mejores que la competencia. No es técnico — es la fuente de tu speech.
 >
-> Última actualización: 2026-04-24 — Sprint 7B y 7C completados
+> Última actualización: 2026-04-25 — Sprint 8F completado (Ventana temporal de no-show con día hotelero real)
 
 ---
 
@@ -60,8 +60,14 @@ Zenix conecta estas dos realidades en un solo sistema con el calendario como fue
 | Log de contacto al huésped (evidencia chargeback) | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Night audit multi-timezone por propiedad | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Cumplimiento fiscal CFDI 4.0 / DIAN / SUNAT | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Ventana temporal de no-show (día hotelero real, no medianoche) | ❌ | ❌ | ❌ | ❌ | ✅ configurable por propiedad |
+| Reversión de no-show desde tooltip del calendario (< 48h) | ❌ | ❌ | ❌ | ❌ | ✅ botón ámbar en 1 click |
 | Reversión de no-show auditada con razón y actor | ❌ | ⚠️ sin razón | ❌ | ⚠️ sin actor | ✅ |
 | Cargo perdonado con razón auditada | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Confirmación física de llegada del huésped (anti ghost check-in) | ❌ | ❌ | ❌ | ❌ | ✅ wizard 4 pasos |
+| Audit trail de pagos en recepción (append-only, USALI 12ª ed.) | ❌ | ⚠️ básico | ❌ | ❌ | ✅ |
+| Control de efectivo por turno (cash reconciliation) | ❌ | ❌ | ❌ | ❌ | ✅ con voids auditados |
+| Aprobación de gerente para cortesías y exenciones (COMP) | ❌ | ❌ | ❌ | ❌ | ✅ obligatorio |
 | Precio accesible para propiedades boutique LATAM | ❌ muy caro | ❌ caro | ⚠️ medio | ⚠️ medio | ✅ |
 
 **La conclusión en una frase:** Opera Cloud y Mews tienen el mismo nivel de profundidad que Zenix, pero están diseñados para cadenas internacionales con equipos de IT dedicados y presupuestos de decenas de miles de dólares al año. Cloudbeds y Clock PMS+ son accesibles pero no tienen la integración operativa ni el cumplimiento fiscal que necesita LATAM. **Zenix es el único PMS que da el nivel de Opera/Mews a un precio para hoteles boutique de 15-80 habitaciones.**
@@ -207,7 +213,27 @@ La verificación es un click: la tarea pasa de "Terminada" a "Verificada". Queda
 
 > Este es el módulo donde Zenix supera a todos los competidores, incluyendo Opera Cloud y Mews.
 
-### El ciclo completo — Zenix cubre 5 fases que la competencia ignora
+### El ciclo completo — Zenix cubre 6 fases que la competencia ignora
+
+#### Fase 0 — La lógica del día hotelero (solo Zenix entiende esto)
+
+Antes de hablar de no-shows, hay que entender una realidad operativa que **ningún PMS del mercado ha implementado correctamente**: el día hotelero no termina a medianoche. Termina en el night audit, típicamente a las 2:00 AM.
+
+¿Qué significa en la práctica? Si un huésped tiene check-in el lunes y son las 1:00 AM del martes, sigue siendo "el lunes hotelero". El huésped puede aparecer con retraso de vuelo — es una situación normal. Zenix sabe esto y actúa en consecuencia:
+
+**La regla en tres franjas:**
+
+| Horario | ¿Qué ve el recepcionista? |
+|---------|--------------------------|
+| Llegada – 19:59 (hora local) | Solo "Confirmar check-in" — el sistema bloquea marcar no-show antes de tiempo |
+| 20:00 – ~02:00 del día siguiente | Ambas opciones: "Confirmar check-in" Y "Marcar no-show" coexisten |
+| Después del night audit (~02:00) | Solo "Revertir no-show" si el sistema ya lo procesó automáticamente |
+
+**Por qué esto importa en ventas:** ningún PMS del mercado protege al recepcionista de tomar una mala decisión a las 4 PM. Un no-show marcado a las 4 PM con el huésped en un vuelo retrasado es una disputa de chargeback garantizada — y el hotel la pierde. **Zenix previene esta situación por diseño: el sistema simplemente no permite marcar no-show antes de la hora configurada.**
+
+Además, si son las 1 AM y el huésped no ha llegado, Zenix muestra el bloque en ámbar (`Sin confirmar`) — no en verde (`En casa`). Los demás sistemas asumen que si el check-in era ayer el huésped ya está adentro. Zenix sabe que dentro del mismo "día hotelero" aún puede estar en camino.
+
+---
 
 #### Fase 1 — 20:00: Detección temprana y outreach automático (solo Zenix)
 
@@ -328,6 +354,69 @@ Una cuenta de Zenix gestiona múltiples propiedades. Cada propiedad tiene config
 
 ---
 
+## Módulo 6 — Check-in Confirmado + Anti-fraude en Recepción
+
+> El módulo que cierra el último punto ciego del ciclo operativo: ¿el huésped que figura como "alojado" realmente llegó? ¿El efectivo cobrado quedó registrado?
+
+### El problema: ghost check-ins y robo en caja
+
+En todos los PMS del mercado — incluidos Opera y Mews — el sistema marca a un huésped como "en casa" basándose únicamente en las fechas. Si el check-in programado es hoy, el sistema asume que llegó. Esto genera:
+
+- **Ghost check-ins:** huéspedes que figuran como "alojados" pero nunca llegaron. La habitación aparece ocupada durante días sin que nadie lo detecte hasta el cierre.
+- **No-shows tardíos:** el recepcionista no tiene señal visual de que el huésped del día aún no ha sido confirmado — mezcla huéspedes reales con llegadas pendientes.
+- **Efectivo no registrado:** sin un punto de registro de pago en el momento de la llegada, un recepcionista deshonesto puede cobrar en mano y no registrar nada. La ACFE documenta que el 40% del fraude en hotelería ocurre exactamente aquí — promedio de $140,000 USD por incidente.
+
+### La solución: wizard de check-in de 4 pasos
+
+Cuando llega un huésped cuyo check-in es hoy, en el calendario aparece un badge ámbar **"Sin confirmar"** sobre su bloque. El recepcionista inicia el proceso desde el tooltip o desde el panel lateral.
+
+El wizard guía al recepcionista por 4 pasos:
+
+**Paso 1 — Verificación de datos:** toda la información de la reserva aparece pre-llenada (nombre, fechas, canal, número de huéspedes). El recepcionista la confirma y puede completar el número de documento si falta.
+
+**Paso 2 — Identidad:** el recepcionista marca el checkbox "Documento verificado". El wizard no avanza sin esta confirmación — es el forcing function que garantiza que nadie entre sin identificarse.
+
+**Paso 3 — Pago:** si hay saldo pendiente, el recepcionista registra el método de pago:
+- Efectivo
+- Terminal POS (referencia del voucher — nunca datos de tarjeta)
+- Transferencia bancaria (con referencia)
+- Prepago OTA (el sistema lo confirma sin cargo adicional)
+- Cortesía/COMP — **requiere código y razón de aprobación de gerente**, sin excepción
+
+**Paso 4 — Resumen y confirmación:** preview de todos los cambios que se van a aplicar. Un solo botón "Confirmar check-in" ejecuta todo en una transacción: el badge cambia a "Alojado" (emerald) en tiempo real para todos los recepcionistas, housekeeping recibe notificación de que el huésped ya está instalado.
+
+---
+
+### Audit trail de pagos — USALI 12ª edición
+
+Cada pago registrado en el check-in genera un `PaymentLog` que cumple con la norma USALI 12ª edición (vigente desde enero 2026):
+
+- **Append-only:** el registro nunca se modifica. Si hay un error, se crea un registro de void (negativo) que referencia al original. El registro original permanece intacto para auditoría.
+- **Actor obligatorio:** cada pago registra quién cobró (`collectedById`) y la fecha del turno (`shiftDate`) — para cierre de caja por turno.
+- **COMP con aprobación:** si el método es "Cortesía", el sistema exige código de aprobación y razón del gerente antes de guardar. El bypass es técnicamente imposible — el backend rechaza la operación si faltan estos campos.
+
+---
+
+### Cash reconciliation al cierre de turno
+
+El supervisor puede consultar en cualquier momento el resumen de efectivo del turno:
+```
+GET /cash-summary?date=2026-04-24
+```
+El resultado muestra: total de efectivo cobrado, por recepcionista, con cada transacción individual. Si el efectivo físico en caja no cuadra con el registro del sistema, hay una discrepancia investigable — con nombre, hora, y monto exacto.
+
+**Por qué esto importa en LATAM:** a diferencia de mercados donde el 90% de los pagos son con tarjeta, en México y Colombia el efectivo sigue siendo el método principal en hoteles boutique. Sin este control, cada turno de noche es un punto ciego financiero.
+
+---
+
+### Para el speech de ventas
+
+> "¿Sabes cuántos de los huéspedes que tu PMS marca como 'alojados' hoy realmente están en el hotel? Zenix es el único sistema en el mercado que exige una confirmación explícita de llegada — con documento verificado y pago registrado — antes de cambiar el estado a 'En casa'. Sin esa confirmación, el badge queda en ámbar. No hay ghost check-ins. No hay efectivo que se pierde en el camino."
+
+> "La ACFE dice que el robo más común en hotelería es el recepcionista que cobra en efectivo y no registra nada. Zenix cierra ese hueco: cada peso cobrado queda registrado con nombre, hora, y turno. Al final del día el supervisor compara el efectivo físico con el registro del sistema. Cualquier discrepancia tiene dueño."
+
+---
+
 ## Próximamente — Módulo de Mantenimiento
 
 El housekeeper es quien entra a cada habitación todos los días — es el primero en ver un grifo roto, una lámpara fundida, o una mancha. Hoy ese reporte llega por WhatsApp y se pierde.
@@ -356,6 +445,14 @@ El resultado: cero incidencias de mantenimiento que caen en el olvido. Un regist
 
 > "Ningún PMS del mercado — ni Opera, ni Mews, ni Cloudbeds — gestiona por cama de verdad. Zenix es el único construido desde el principio para la realidad del hostal: la Cama 1 y la Cama 3 del mismo dorm pueden tener estados, huéspedes y tareas completamente distintos."
 
+### Para hoteles con recepción de efectivo
+
+> "En LATAM el efectivo sigue siendo el método principal. Sin un registro por turno, cada noche es un punto ciego financiero. Zenix registra cada peso cobrado — quién lo cobró, a qué hora, en qué turno. Al cierre el supervisor compara caja física con sistema. Si no cuadra, el sistema ya sabe quién cobró en ese rango."
+
+### Para hoteles que han tenido problemas con ghost check-ins o no-shows mal gestionados
+
+> "¿Cuántos huéspedes tiene tu sistema marcados como 'alojados' que en realidad nunca llegaron? Con Zenix, eso no ocurre: el sistema distingue entre 'check-in programado' y 'check-in confirmado'. Un huésped sin confirmación de llegada aparece en ámbar, no en verde. El night audit lo detecta como potencial no-show automáticamente."
+
 ### Para cadenas con hoteles en múltiples países
 
 > "¿Tu PMS actual corre el cierre nocturno a la misma hora para el hotel en Cancún y el de Madrid? Porque si es así, uno de los dos está cortando en horario operativo. Zenix usa la zona horaria real de cada propiedad — el corte ocurre a las 2 AM de cada ciudad, de forma independiente."
@@ -376,6 +473,10 @@ El resultado: cero incidencias de mantenimiento que caen en el olvido. Un regist
 | Cero overbooking con OTAs | Hard block transaccional + Channex.io (mismo estándar Opera/Mews) |
 | Trazabilidad ante disputas | Audit trail con actor, timestamp y razón en cada operación |
 | Un sistema que los housekeepers realmente usen | App diseñada para uso con una mano, en movimiento, sin capacitación |
+| Confirmar que el huésped realmente llegó | Badge "Sin confirmar" en calendario + wizard de check-in de 4 pasos |
+| Control de efectivo sin riesgo de robo en caja | PaymentLog append-only por turno + cash reconciliation al cierre |
+| Cortesías y exenciones sin bypass posible | COMP requiere código + razón de gerente — backend lo exige sin excepción |
+| Cumplimiento USALI 12ª edición en pagos | Registros de pago inmutables con voids auditados — vigente desde ene 2026 |
 
 ---
 

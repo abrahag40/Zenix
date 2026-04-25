@@ -41,6 +41,7 @@ function adaptStay(raw: Record<string, unknown>): GuestStayBlock {
     pmsReservationId: raw.pmsReservationId as string | undefined,
     notes:            raw.notes as string | undefined,
     isLocked:         false,
+    actualCheckin:    raw.actualCheckin ? new Date(raw.actualCheckin as string) : undefined,
     actualCheckout:   raw.actualCheckout ? new Date(raw.actualCheckout as string) : undefined,
     noShowAt:             raw.noShowAt ? new Date(raw.noShowAt as string) : undefined,
     noShowFeeAmount:      raw.noShowFeeAmount != null ? Number(raw.noShowFeeAmount) : undefined,
@@ -158,6 +159,11 @@ export function useCreateGuestStay(propertyId: string) {
       qc.invalidateQueries({
         predicate: (q) =>
           q.queryKey[0] === 'guest-stays' && q.queryKey[1] === propertyId,
+      })
+      qc.invalidateQueries({
+        queryKey: ['stay-journeys-timeline', propertyId],
+        exact: false,
+        refetchType: 'active',
       })
       qc.invalidateQueries({
         predicate: (q) =>
@@ -397,6 +403,28 @@ export function useSplitReservation(propertyId: string) {
     },
     onError: (err: Error) => {
       toast.error(err.message ?? 'No se pudo dividir la reserva')
+    },
+  })
+}
+
+export function useConfirmCheckin(propertyId: string) {
+  const qc = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({
+      stayId,
+      data,
+    }: {
+      stayId: string
+      data: Parameters<typeof guestStaysApi.confirmCheckin>[1]
+    }) => guestStaysApi.confirmCheckin(stayId, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['guest-stays', propertyId], exact: false, refetchType: 'active' })
+      qc.invalidateQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false, refetchType: 'active' })
+      toast.success('Check-in confirmado — el huésped está en casa')
+    },
+    onError: (err: Error) => {
+      toast.error(err.message ?? 'No se pudo confirmar el check-in')
     },
   })
 }
