@@ -22,12 +22,14 @@ import {
   BlockSemantic,
   BlockReason,
   HousekeepingRole,
+  PropertyType,
   type CreateBlockDto,
   type RoomDto,
   type UnitDto,
 } from '@zenix/shared'
 import { api } from '../../api/client'
 import { useAuthStore } from '../../store/auth'
+import { usePropertySettings } from '../../hooks/usePropertySettings'
 import { SEMANTIC_LABELS, REASON_LABELS } from '../../pages/BlocksPage'
 
 // ─── Motivos válidos por semántica ────────────────────────────────────────────
@@ -114,6 +116,8 @@ export function BlockModal({
 }: BlockModalProps) {
   const user         = useAuthStore((s) => s.user)
   const isSupervisor = user?.role === HousekeepingRole.SUPERVISOR
+  const { propertyType } = usePropertySettings()
+  const isHotel = propertyType === PropertyType.HOTEL
 
   const formRef = useRef<HTMLFormElement>(null)
 
@@ -158,7 +162,7 @@ export function BlockModal({
   useEffect(() => {
     if (!isOpen) return
     const start = prefillStartDate ?? isoToday()
-    setScope(prefillUnitId ? 'unit' : 'room')
+    setScope(isHotel ? 'room' : (prefillUnitId ? 'unit' : 'room'))
     setRoomId(prefillRoomId ?? '')
     setUnitId(prefillUnitId ?? '')
     setSemantic(BlockSemantic.OUT_OF_SERVICE)
@@ -168,7 +172,7 @@ export function BlockModal({
     setEndDate(prefillEndDate ?? addDaysToIso(start, 1))
     setError('')
     setShowEndDateWarning(false)
-  }, [isOpen, prefillRoomId, prefillUnitId, prefillStartDate, prefillEndDate])
+  }, [isOpen, isHotel, prefillRoomId, prefillUnitId, prefillStartDate, prefillEndDate])
 
   // Atajos: Escape → cerrar, Cmd/Ctrl+Enter → submit
   useEffect(() => {
@@ -280,27 +284,29 @@ export function BlockModal({
                 Alcance del bloqueo
               </p>
 
-              {/* Toggle — Habitación completa */}
-              <label className="flex items-center gap-3 cursor-pointer select-none">
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={scope === 'room'}
-                  onClick={() => { setScope(scope === 'room' ? 'unit' : 'room'); setUnitId('') }}
-                  className={[
-                    'relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1',
-                    scope === 'room' ? 'bg-indigo-600' : 'bg-gray-200',
-                  ].join(' ')}
-                >
-                  <span
+              {/* Toggle — Habitación completa (solo hostales con habitaciones compartidas) */}
+              {!isHotel && (
+                <label className="flex items-center gap-3 cursor-pointer select-none">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={scope === 'room'}
+                    onClick={() => { setScope(scope === 'room' ? 'unit' : 'room'); setUnitId('') }}
                     className={[
-                      'inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform duration-150',
-                      scope === 'room' ? 'translate-x-[18px]' : 'translate-x-0.5',
+                      'relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1',
+                      scope === 'room' ? 'bg-indigo-600' : 'bg-gray-200',
                     ].join(' ')}
-                  />
-                </button>
-                <span className="text-sm font-medium text-gray-700">Habitación completa</span>
-              </label>
+                  >
+                    <span
+                      className={[
+                        'inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform duration-150',
+                        scope === 'room' ? 'translate-x-[18px]' : 'translate-x-0.5',
+                      ].join(' ')}
+                    />
+                  </button>
+                  <span className="text-sm font-medium text-gray-700">Habitación completa</span>
+                </label>
+              )}
 
               {/* Habitación */}
               <div>
@@ -322,8 +328,8 @@ export function BlockModal({
                 </select>
               </div>
 
-              {/* Unidad (conditional) */}
-              {scope === 'unit' && roomId && (
+              {/* Unidad (conditional — oculta en hoteles donde toda hab. es privada) */}
+              {!isHotel && scope === 'unit' && roomId && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">
                     Unidad

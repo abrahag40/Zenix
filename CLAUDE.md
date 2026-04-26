@@ -1038,6 +1038,62 @@ it('descripción en español — qué debe hacer', async () => {
 
 ---
 
+## TODO — Wizard de Configuración Inicial (Nuevo Cliente)
+
+> **Pendiente de diseño y implementación.** No hay fecha asignada. El consultor (Abraham) realiza esta configuración manualmente hoy vía seed SQL o Prisma Studio.
+
+### Contexto
+
+Cuando un nuevo hotel/hostal contrata Zenix, alguien (el consultor o el propio dueño) debe configurar la propiedad desde cero antes de que el equipo operativo pueda trabajar. Hoy esto requiere acceso directo a la base de datos. El objetivo es que el flujo completo sea autoservicio en ≤30 minutos sin asistencia técnica.
+
+### Pasos del wizard (orden propuesto)
+
+1. **Datos básicos de la propiedad**
+   - Nombre, ciudad, región
+   - Timezone (selector con zonas LATAM pre-filtradas)
+   - **Tipo de propiedad** (`PropertyType`: HOTEL / HOSTAL / BOUTIQUE / GLAMPING / ECO_LODGE / VACATION_RENTAL)
+   - Moneda base (MXN, COP, USD, EUR, etc.)
+
+2. **Configuración operativa**
+   - Hora de checkout estándar (default 12:00)
+   - Hora de corte de no-show (`noShowCutoffHour`, default 2)
+   - Hora de alerta pre-arrival (`potentialNoShowWarningHour`, default 20)
+   - PMS mode: STANDALONE o CONNECTED (Channex.io)
+
+3. **Habitaciones y camas**
+   - Crear habitaciones: número, piso, categoría (PRIVATE/SHARED), capacidad
+   - Por cada habitación: crear camas/unidades (label: "Cama 1", "Cama 2", etc.)
+   - **Nota:** Si `PropertyType === HOTEL`, no mostrar opción de habitaciones SHARED ni creación de múltiples camas por habitación (el wizard simplifica el flujo para el tipo correcto)
+
+4. **Equipo (Staff)**
+   - Crear cuentas: nombre, email, contraseña inicial, rol (RECEPTIONIST / SUPERVISOR / HOUSEKEEPER)
+   - Opcionales: capabilities (CLEANING, SANITIZATION, MAINTENANCE)
+
+5. **Revisión final**
+   - Resumen de lo configurado
+   - Botón "Activar propiedad" — crea el registro `PropertySettings` con los valores configurados
+   - Credenciales por email a cada staff creado
+
+### Consideraciones de diseño
+
+- **Solo SUPERVISOR o admin de Zenix puede ejecutar el wizard** — no es accesible desde la operativa diaria
+- **El tipo de propiedad (`PropertyType`) determina qué opciones aparecen** en todo el sistema, no solo en el wizard:
+  - HOTEL → ocultar "Habitación completa" en BlockModal, no mostrar habitaciones SHARED en planning
+  - HOSTAL → comportamiento actual (toggle visible, habitaciones compartidas disponibles)
+- **Wizard progresivo en pasos** — no un formulario largo. Cada paso guarda parcialmente (draft) para poder retomar
+- **Datos mínimos obligatorios para activar**: nombre, timezone, tipo, al menos 1 habitación, al menos 1 staff con rol RECEPTIONIST o SUPERVISOR
+
+### Archivos que tocará esta feature
+
+| Archivo | Cambio |
+|---------|--------|
+| `apps/api/src/properties/` | Nuevo endpoint `POST /properties/setup-wizard` (transacción atómica) |
+| `apps/api/prisma/schema.prisma` | Posiblemente: `Property.setupCompleted Boolean @default(false)` para redirigir al wizard si no hay setup |
+| `apps/web/src/pages/SetupWizardPage.tsx` | Nueva página — accesible solo en primera sesión o desde admin |
+| `apps/web/src/router.tsx` | Guard: si `!property.setupCompleted` → redirect a `/setup` |
+
+---
+
 ## Roadmap — Etapa 2 (Propuestas de Estudio de Mercado)
 
 Propuestas priorizadas basadas en análisis competitivo de Mews, Opera Cloud, Cloudbeds, Clock PMS+, Guesty, Flexkeeping y Optii. Cada propuesta incluye el diseño técnico de implementación.

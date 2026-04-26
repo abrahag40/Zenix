@@ -18,6 +18,7 @@ import {
   RoomCategory,
   TaskLogEvent,
   TaskType,
+  PropertyType,
 } from './enums'
 
 // ─── Property ────────────────────────────────────────────────────────────────
@@ -302,6 +303,7 @@ export interface PropertySettingsDto {
   timezone: string
   pmsMode: PmsMode
   noShowCutoffHour: number     // hora local (0-23) a partir de la cual se marca no-show
+  propertyType: PropertyType
   updatedAt: string
 }
 
