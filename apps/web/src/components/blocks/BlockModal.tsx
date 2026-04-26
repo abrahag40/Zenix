@@ -261,7 +261,7 @@ export function BlockModal({
       <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
 
       {/* Panel */}
-      <div className="relative w-full max-w-2xl bg-white rounded-2xl shadow-xl flex flex-col max-h-[90vh]">
+      <div className="relative w-full max-w-[832px] bg-white rounded-2xl shadow-xl flex flex-col max-h-[90vh]">
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
@@ -291,35 +291,27 @@ export function BlockModal({
                 Alcance del bloqueo
               </p>
 
-              {/* Segmented control — scope */}
-              <div
-                role="radiogroup"
-                aria-label="Alcance"
-                className="flex rounded-lg border border-gray-200 p-0.5 bg-gray-50"
-              >
-                {(
-                  [
-                    { value: 'unit', label: 'Unidad específica' },
-                    { value: 'room', label: 'Habitación completa' },
-                  ] as const
-                ).map(({ value, label }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    role="radio"
-                    aria-checked={scope === value}
-                    onClick={() => { setScope(value); setUnitId('') }}
+              {/* Toggle — Habitación completa */}
+              <label className="flex items-center gap-3 cursor-pointer select-none">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={scope === 'room'}
+                  onClick={() => { setScope(scope === 'room' ? 'unit' : 'room'); setUnitId('') }}
+                  className={[
+                    'relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1',
+                    scope === 'room' ? 'bg-indigo-600' : 'bg-gray-200',
+                  ].join(' ')}
+                >
+                  <span
                     className={[
-                      'flex-1 px-3 py-1.5 text-sm rounded-md font-medium transition-colors',
-                      scope === value
-                        ? 'bg-white text-gray-900 shadow-sm border border-gray-200'
-                        : 'text-gray-500 hover:text-gray-700',
+                      'inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform duration-150',
+                      scope === 'room' ? 'translate-x-[18px]' : 'translate-x-0.5',
                     ].join(' ')}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+                  />
+                </button>
+                <span className="text-sm font-medium text-gray-700">Habitación completa</span>
+              </label>
 
               {/* Habitación */}
               <div>
@@ -413,19 +405,17 @@ export function BlockModal({
                         ].join(' ')}
                         style={{ minHeight: '84px' }}
                       >
-                        {/* Badge "Más usado" o checkmark — top-right absolute */}
+                        {/* Badge "Más usado" — solo OOS cuando no está seleccionado */}
                         {isMostUsed && !isSelected && (
                           <span className="absolute top-2 right-2 text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-semibold leading-none">
                             Más usado
                           </span>
                         )}
-                        {isSelected && (
-                          <span className="absolute top-2 right-2 text-indigo-600 text-[11px] font-bold leading-none">
-                            ✓
-                          </span>
-                        )}
 
-                        <p className="text-xs font-semibold text-gray-900 leading-tight pr-10">
+                        <p className={[
+                          'text-xs font-semibold text-gray-900 leading-tight',
+                          isMostUsed && !isSelected ? 'pr-14' : '',
+                        ].join(' ')}>
                           {SEMANTIC_LABELS[s]}
                         </p>
                         <p className="text-[11px] text-gray-500 mt-1 leading-[1.45]">
@@ -604,11 +594,13 @@ export function BlockModal({
 
           {/* ── Footer ─────────────────────────────────────────────────────── */}
           <div className="px-6 pb-5 pt-4 border-t border-gray-100 space-y-3 shrink-0">
-            {needsApproval && (
-              <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700">
-                ℹ Este tipo de bloqueo requiere aprobación del supervisor antes de activarse.
-              </div>
-            )}
+            {/* Siempre ocupa el mismo espacio — evita saltos de altura al cambiar tipo */}
+            <div className={[
+              'bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700',
+              needsApproval ? '' : 'invisible',
+            ].join(' ')}>
+              ℹ Este tipo de bloqueo requiere aprobación del supervisor antes de activarse.
+            </div>
             {showEndDateWarning && (
               <div className="bg-orange-50 border border-orange-200 rounded-lg px-3 py-2 text-xs text-orange-700">
                 ⚠ Sin fecha de fin — el bloqueo se extenderá indefinidamente hasta liberarlo
