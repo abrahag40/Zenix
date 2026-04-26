@@ -189,7 +189,6 @@ export function BlockModal({
     if (scope === 'unit' && !unitId) { setError('Selecciona una unidad'); return }
     if (reason === BlockReason.OTHER && !notes.trim()) {
       setError('Agrega una nota cuando el motivo es "Otro"')
-      setShowNotes(true)
       return
     }
     if (endDate && endDate <= startDate) {
