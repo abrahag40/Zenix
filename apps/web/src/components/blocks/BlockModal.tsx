@@ -367,48 +367,48 @@ export function BlockModal({
                   aria-label="Tipo de bloqueo"
                   className="grid grid-cols-2 gap-1.5"
                 >
-                  {Object.values(BlockSemantic).map((s) => {
-                    if (s === BlockSemantic.OUT_OF_INVENTORY && !isSupervisor) return null
-                    const isSelected = semantic === s
-                    const isMostUsed = s === BlockSemantic.OUT_OF_SERVICE
-                    return (
-                      <div
-                        key={s}
-                        role="radio"
-                        aria-checked={isSelected}
-                        tabIndex={0}
-                        onClick={() => handleSemanticChange(s)}
-                        onKeyDown={(e) => {
-                          if (e.key === ' ' || e.key === 'Enter') {
-                            e.preventDefault()
-                            handleSemanticChange(s)
-                          }
-                        }}
-                        className={[
-                          'relative p-2 rounded-lg border cursor-pointer transition-colors',
-                          'focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1',
-                          isSelected
-                            ? 'border-indigo-500 bg-indigo-50 ring-2 ring-indigo-500 ring-offset-1'
-                            : 'border-gray-200 hover:bg-gray-50 hover:border-gray-300',
-                        ].join(' ')}
-                        style={{ minHeight: '84px' }}
-                      >
-                        {/* Badge "Más usado" — solo OOS cuando no está seleccionado */}
-                        {isMostUsed && !isSelected && (
-                          <span className="absolute top-2 right-2 text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-semibold leading-none">
-                            Más usado
-                          </span>
-                        )}
-
-                        <p className="text-xs font-semibold text-gray-900 leading-tight pr-12">
-                          {SEMANTIC_LABELS[s]}
-                        </p>
-                        <p className="text-[11px] text-gray-500 mt-1 leading-[1.45] text-left">
-                          {SEMANTIC_DESCRIPTIONS[s]}
-                        </p>
-                      </div>
+                  {(() => {
+                    const visible = Object.values(BlockSemantic).filter(
+                      (s) => !(s === BlockSemantic.OUT_OF_INVENTORY && !isSupervisor)
                     )
-                  })}
+                    const isOdd = visible.length % 2 !== 0
+                    return visible.map((s, idx) => {
+                      const isSelected = semantic === s
+                      const isMostUsed = s === BlockSemantic.OUT_OF_SERVICE
+                      const isLast = idx === visible.length - 1
+                      return (
+                        <div
+                          key={s}
+                          role="radio"
+                          aria-checked={isSelected}
+                          tabIndex={0}
+                          onClick={() => handleSemanticChange(s)}
+                          onKeyDown={(e) => {
+                            if (e.key === ' ' || e.key === 'Enter') {
+                              e.preventDefault()
+                              handleSemanticChange(s)
+                            }
+                          }}
+                          className={[
+                            'relative p-2 rounded-lg border cursor-pointer transition-colors',
+                            'focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1',
+                            isOdd && isLast ? 'col-span-2' : '',
+                            isSelected
+                              ? 'border-indigo-500 bg-indigo-50 ring-2 ring-indigo-500 ring-offset-1'
+                              : 'border-gray-200 hover:bg-gray-50 hover:border-gray-300',
+                          ].join(' ')}
+                          style={{ minHeight: '84px' }}
+                        >
+                          <p className={`text-xs font-semibold text-gray-900 leading-tight${isMostUsed ? ' pr-12' : ''}`}>
+                            {SEMANTIC_LABELS[s]}
+                          </p>
+                          <p className="text-[11px] text-gray-500 mt-1 leading-[1.45] text-left">
+                            {SEMANTIC_DESCRIPTIONS[s]}
+                          </p>
+                        </div>
+                      )
+                    })
+                  })()}
                 </div>
               </div>
             </div>
