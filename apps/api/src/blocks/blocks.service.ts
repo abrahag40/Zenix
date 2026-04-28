@@ -50,8 +50,8 @@ const ALWAYS_REQUIRES_APPROVAL = new Set<BlockSemantic>([
 const BLOCK_INCLUDE = {
   room: { select: { id: true, number: true, floor: true } },
   unit: { select: { id: true, label: true, status: true } },
-  requestedBy: { select: { id: true, name: true } },
-  approvedBy: { select: { id: true, name: true } },
+  requestedBy: { select: { id: true, name: true, role: true } },
+  approvedBy: { select: { id: true, name: true, role: true } },
   cleaningTask: { select: { id: true, status: true, assignedToId: true } },
   logs: {
     orderBy: { createdAt: 'asc' as const },
