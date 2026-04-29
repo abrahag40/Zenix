@@ -497,6 +497,25 @@ export class BlocksService {
       throw new BadRequestException('La nueva fecha debe ser posterior a la fecha actual de expiración')
     }
 
+    // Guard: verificar que el rango extendido no colisione con huéspedes activos
+    if (block.roomId) {
+      const checkFrom = currentEnd ?? new Date()
+      const avail = await this.availability.check({
+        roomId: block.roomId,
+        from:   checkFrom,
+        to:     newEndDate,
+      })
+      const guestConflicts = avail.conflicts.filter(
+        (c) => c.source === 'LOCAL_STAY' || c.source === 'LOCAL_SEGMENT',
+      )
+      if (guestConflicts.length > 0) {
+        const names = [...new Set(guestConflicts.map((c) => c.label))].join(', ')
+        throw new ConflictException(
+          `No se puede extender: hay huéspedes en ese período (${names})`,
+        )
+      }
+    }
+
     const updated = await this.prisma.$transaction(async (tx) => {
       const u = await tx.roomBlock.update({
         where: { id: blockId },

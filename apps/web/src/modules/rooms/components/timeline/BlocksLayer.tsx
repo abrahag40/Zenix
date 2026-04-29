@@ -12,7 +12,7 @@
  *  · Width cap: if no endDate, extend to the calendarEnd prop
  */
 import { useMemo } from 'react'
-import { differenceInCalendarDays, parseISO, addDays } from 'date-fns'
+import { differenceInCalendarDays, parseISO, addDays, startOfDay } from 'date-fns'
 import { BlockSemantic, BlockStatus, type RoomBlockDto } from '@zenix/shared'
 import { TIMELINE } from '../../utils/timeline.constants'
 import type { FlatRow } from '../../types/timeline.types'
@@ -105,14 +105,28 @@ export function BlocksLayer({
         const rowY = rowYMap.get(block.roomId!)
         if (rowY === undefined) return null
 
-        const start = parseISO(block.startDate)
-        const end   = block.endDate ? parseISO(block.endDate) : addDays(calendarEnd, 1)
+        // Slice to YYYY-MM-DD before parseISO so date-fns treats it as local
+        // midnight. Without this, a UTC-midnight ISO string ("2026-04-29T00:00Z")
+        // becomes April 28 19:00 in UTC-5 → startOfDay shifts it one day back.
+        const cal0  = startOfDay(calendarStart)
+        const start = startOfDay(parseISO(block.startDate.slice(0, 10)))
+        const end   = block.endDate
+          ? startOfDay(parseISO(block.endDate.slice(0, 10)))
+          : addDays(cal0, differenceInCalendarDays(startOfDay(calendarEnd), cal0) + 1)
 
-        const leftDays  = differenceInCalendarDays(start, calendarStart)
-        const widthDays = Math.max(1, differenceInCalendarDays(end, start))
+        const leftDays = differenceInCalendarDays(start, cal0)
+        const endDays  = differenceInCalendarDays(end, cal0)
 
-        const left  = leftDays * dayWidth
-        const width = widthDays * dayWidth
+        // Mirror stayToRect convention: block starts at the right-half (PM) of the
+        // startDate column (like a check-in) and ends at the right-half (AM) of the
+        // endDate column (like a check-out).  This keeps visual parity with guest
+        // stay blocks so the calendar reads as a single coherent timeline.
+        //
+        // TODO(mobile): replicate this same halfDayWidth offset in the React Native
+        // timeline component (apps/mobile) so block rendering stays consistent
+        // across platforms without needing a separate fix sprint.
+        const left  = leftDays * dayWidth + dayWidth / 2
+        const width = Math.max((endDays - leftDays) * dayWidth, dayWidth / 2)
 
         // Clip to avoid extremely wide offscreen elements
         if (left + width < 0 || left > totalWidth) return null

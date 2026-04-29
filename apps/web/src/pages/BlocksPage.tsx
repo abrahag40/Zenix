@@ -8,8 +8,14 @@ import {
   isToday,
   isYesterday,
   subDays,
+  addDays,
+  isSameDay,
+  startOfDay,
 } from 'date-fns'
 import { es } from 'date-fns/locale'
+import { DayPicker } from 'react-day-picker'
+import * as Dialog from '@radix-ui/react-dialog'
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import {
   Lock,
   Check,
@@ -29,6 +35,11 @@ import {
   Hammer,
   UserCheck,
   HelpCircle,
+  Ban,
+  Archive,
+  PanelRight,
+  XCircle,
+  AlertTriangle,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
@@ -156,13 +167,13 @@ function blockLocation(b: RoomBlockDto): string {
 
 function blockNightsShort(b: RoomBlockDto): string {
   if (!b.endDate) return '∞'
-  const n = differenceInCalendarDays(parseISO(b.endDate), parseISO(b.startDate))
+  const n = differenceInCalendarDays(parseISO(b.endDate.slice(0, 10)), parseISO(b.startDate.slice(0, 10)))
   return `${n}n`
 }
 
 function blockDateRange(b: RoomBlockDto): string {
-  const start = format(parseISO(b.startDate), 'd MMM', { locale: es })
-  const end = b.endDate ? format(parseISO(b.endDate), 'd MMM', { locale: es }) : '∞'
+  const start = format(parseISO(b.startDate.slice(0, 10)), 'd MMM', { locale: es })
+  const end = b.endDate ? format(parseISO(b.endDate.slice(0, 10)), 'd MMM', { locale: es }) : '∞'
   return `${start} → ${end}`
 }
 
@@ -213,13 +224,13 @@ function KpiStrip({ blocks }: { blocks: RoomBlockDto[] }) {
     const hasIndefinite = activeBlocks.some((b) => !b.endDate)
     const blockedNights = activeBlocks.reduce((sum, b) => {
       if (!b.endDate) return sum + 30
-      return sum + Math.max(0, differenceInCalendarDays(parseISO(b.endDate), new Date()))
+      return sum + Math.max(0, differenceInCalendarDays(parseISO(b.endDate.slice(0, 10)), new Date()))
     }, 0)
     return {
       pending:        blocks.filter((b) => b.status === BlockStatus.PENDING_APPROVAL).length,
       active:         activeBlocks.length,
       releasingToday: activeBlocks.filter(
-        (b) => b.endDate && format(parseISO(b.endDate), 'yyyy-MM-dd') === todayStr,
+        (b) => b.endDate && format(parseISO(b.endDate.slice(0, 10)), 'yyyy-MM-dd') === todayStr,
       ).length,
       blockedNights: hasIndefinite ? `${blockedNights}+` : blockedNights,
     }
@@ -301,9 +312,381 @@ function CardSkeleton() {
   )
 }
 
-// ─── BlockCard ────────────────────────────────────────────────────────────────
+// ─── DayPicker shared classNames ──────────────────────────────────────────────
 
-type ConfirmOp = 'approve' | 'reject' | 'cancel' | 'release' | 'extend'
+const DAY_PICKER_CLASSNAMES = {
+  root:            'relative text-[13px]',
+  month_caption:   'flex items-center justify-center h-8 font-medium text-gray-700 text-sm mb-1',
+  nav:             'absolute inset-x-0 top-0 flex items-center justify-between h-8 pointer-events-none',
+  button_next:     'pointer-events-auto h-7 w-7 flex items-center justify-center rounded hover:bg-gray-100 text-gray-500',
+  button_previous: 'pointer-events-auto h-7 w-7 flex items-center justify-center rounded hover:bg-gray-100 text-gray-500',
+  month_grid:      'w-full border-collapse',
+  weekdays:        'flex',
+  weekday:         'flex-1 text-center text-[11px] font-medium text-gray-400 pb-1',
+  week:            'flex',
+  day:             'flex-1 p-0.5',
+  day_button:      'w-full aspect-square flex items-center justify-center rounded text-[12px] hover:bg-gray-100 transition-colors',
+  selected:        '[&>button]:bg-blue-600 [&>button]:text-white [&>button]:hover:bg-blue-700',
+  today:           '[&>button]:font-bold [&>button]:underline',
+  disabled:        '[&>button]:text-gray-200 [&>button]:cursor-not-allowed [&>button]:hover:bg-transparent',
+}
+
+// ─── ExtendBlockDialog ────────────────────────────────────────────────────────
+
+function ExtendBlockDialog({
+  open,
+  onOpenChange,
+  block,
+  onExtend,
+  working,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  block: RoomBlockDto
+  onExtend: (id: string, endDate: string) => void
+  working: boolean
+}) {
+  const todayMidnight = startOfDay(new Date())
+  const blockEnd      = block.endDate ? startOfDay(parseISO(block.endDate.slice(0, 10))) : null
+  const minDate       = blockEnd ? addDays(blockEnd, 1) : addDays(todayMidnight, 1)
+  // If the block is already expired (endDate in the past), effectiveMin is at least today+1
+  const effectiveMin  = minDate > todayMidnight ? minDate : addDays(todayMidnight, 1)
+  // rangeAnchor is the existing end of the block — the "from" side of the visual range
+  const rangeAnchor   = blockEnd ?? effectiveMin
+
+  const [picked, setPicked] = useState<Date | undefined>(undefined)
+
+  const presets = [
+    { label: '+1 día',   date: addDays(effectiveMin, 0) },
+    { label: '+3 días',  date: addDays(effectiveMin, 2) },
+    { label: '+7 días',  date: addDays(effectiveMin, 6) },
+    { label: '+14 días', date: addDays(effectiveMin, 13) },
+  ]
+
+  // Show range shading only when a date is picked and it's after the anchor
+  const showRange = !!picked && picked > rangeAnchor
+
+  function handleApply() {
+    if (!picked) return
+    onExtend(block.id, format(picked, 'yyyy-MM-dd'))
+    onOpenChange(false)
+    setPicked(undefined)
+  }
+
+  function handleClose() {
+    onOpenChange(false)
+    setPicked(undefined)
+  }
+
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 bg-black/40 z-50" />
+        <Dialog.Content
+          className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-sm bg-white rounded-xl shadow-xl p-5"
+          onEscapeKeyDown={handleClose}
+        >
+          {/* Header */}
+          <div className="flex items-start gap-3 mb-4">
+            <div>
+              <Dialog.Title className="text-base font-semibold text-gray-900">
+                Extender bloqueo
+              </Dialog.Title>
+              <p className="text-[13px] text-gray-500 mt-0.5">
+                {blockLocation(block)} · hasta {block.endDate ? format(parseISO(block.endDate.slice(0, 10)), 'd MMM', { locale: es }) : '—'}
+              </p>
+            </div>
+            <button onClick={handleClose} className="ml-auto text-gray-400 hover:text-gray-600 transition-colors">
+              <X className="h-4 w-4" strokeWidth={2} />
+            </button>
+          </div>
+
+          {/* Quick presets */}
+          <div className="flex gap-1.5 flex-wrap mb-4">
+            {presets.map((p) => (
+              <button
+                key={p.label}
+                onClick={() => setPicked(p.date)}
+                className={[
+                  'h-7 px-2.5 text-[11.5px] rounded-full border transition-colors',
+                  picked && isSameDay(picked, p.date)
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'text-gray-600 border-gray-200 hover:bg-gray-50',
+                ].join(' ')}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Calendar with range shading */}
+          <DayPicker
+            mode="single"
+            locale={es}
+            selected={picked}
+            onSelect={setPicked}
+            disabled={{ before: effectiveMin }}
+            modifiers={{
+              range_start:  showRange ? rangeAnchor  : false,
+              range_middle: (date: Date) =>
+                showRange && !!picked && date > rangeAnchor && date < picked,
+            }}
+            modifiersClassNames={{
+              range_start:
+                '[&>button]:!bg-blue-100 [&>button]:!text-blue-600 [&>button]:!rounded-r-none',
+              range_middle:
+                '[&>button]:!bg-blue-50 [&>button]:!text-blue-600 [&>button]:!rounded-none',
+            }}
+            classNames={{
+              ...DAY_PICKER_CLASSNAMES,
+              selected: showRange
+                ? '[&>button]:!bg-blue-600 [&>button]:!text-white [&>button]:!rounded-l-none hover:[&>button]:!bg-blue-700'
+                : '[&>button]:!bg-blue-600 [&>button]:!text-white hover:[&>button]:!bg-blue-700',
+            }}
+          />
+
+          {/* Footer */}
+          <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100">
+            <span className="text-[12px] text-gray-400 font-mono">
+              {picked ? format(picked, 'd MMM yyyy', { locale: es }) : 'Elige una fecha'}
+            </span>
+            <div className="flex gap-1.5">
+              <button
+                onClick={handleClose}
+                className="px-4 py-2 text-[13px] text-gray-600 hover:text-gray-800 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                disabled={!picked || working}
+                onClick={handleApply}
+                className="px-4 py-2 text-[13px] font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors"
+              >
+                Extender
+              </button>
+            </div>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  )
+}
+
+// ─── ReleaseBlockDialog ───────────────────────────────────────────────────────
+
+function ReleaseBlockDialog({
+  open,
+  onOpenChange,
+  block,
+  onRelease,
+  working,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  block: RoomBlockDto
+  onRelease: (id: string) => void
+  working: boolean
+}) {
+  function handleConfirm() {
+    onRelease(block.id)
+    onOpenChange(false)
+  }
+
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 bg-black/40 z-50" />
+        <Dialog.Content
+          className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-sm bg-white rounded-xl shadow-xl p-6"
+          onEscapeKeyDown={() => onOpenChange(false)}
+        >
+          <div className="flex items-start gap-3 mb-4">
+            <div>
+              <Dialog.Title className="text-base font-semibold text-gray-900">
+                Liberar bloqueo
+              </Dialog.Title>
+              <p className="text-[13px] text-gray-500 mt-0.5">
+                {blockLocation(block)} · {blockDateRange(block)}
+              </p>
+            </div>
+            <button onClick={() => onOpenChange(false)} className="ml-auto text-gray-400 hover:text-gray-600 transition-colors">
+              <X className="h-4 w-4" strokeWidth={2} />
+            </button>
+          </div>
+
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-5">
+            <p className="text-[12px] font-medium text-gray-700 mb-1.5">Al liberar este bloqueo:</p>
+            <ul className="space-y-0.5 text-[12px] text-gray-500">
+              <li>· La habitación quedará disponible de inmediato para nuevas reservas</li>
+              <li>· El bloqueo pasará al historial como liberado manualmente</li>
+            </ul>
+          </div>
+
+          <div className="flex items-center gap-2 justify-end">
+            <button
+              onClick={() => onOpenChange(false)}
+              className="px-4 py-2 text-[13px] text-gray-600 hover:text-gray-800 transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              disabled={working}
+              onClick={handleConfirm}
+              className="px-4 py-2 text-[13px] font-semibold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-40 transition-colors"
+            >
+              Liberar habitación
+            </button>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  )
+}
+
+// ─── CancelBlockDialog ────────────────────────────────────────────────────────
+
+const CANCEL_REASON_CHIPS = [
+  'Estadía del huésped extendida',
+  'Reparación completada antes',
+  'Cambio de planes operativos',
+  'Error al crear el bloqueo',
+  'Otro motivo',
+]
+
+function CancelBlockDialog({
+  open,
+  onOpenChange,
+  block,
+  onCancel,
+  working,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  block: RoomBlockDto
+  onCancel: (id: string, reason: string) => void
+  working: boolean
+}) {
+  const [selectedChip, setSelectedChip] = useState<string | null>(null)
+  const [customText, setCustomText] = useState('')
+
+  const reason = selectedChip === 'Otro motivo'
+    ? customText.trim()
+    : selectedChip
+      ? `${selectedChip}${customText.trim() ? ` — ${customText.trim()}` : ''}`
+      : customText.trim()
+
+  const canConfirm = reason.length >= 10
+
+  function handleConfirm() {
+    if (!canConfirm) return
+    onCancel(block.id, reason)
+    onOpenChange(false)
+    setSelectedChip(null)
+    setCustomText('')
+  }
+
+  function handleClose() {
+    onOpenChange(false)
+    setSelectedChip(null)
+    setCustomText('')
+  }
+
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 bg-black/40 z-50 animate-in fade-in-0 duration-150" />
+        <Dialog.Content
+          className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-md bg-white rounded-xl shadow-xl p-6 animate-in fade-in-0 zoom-in-95 duration-200"
+          onInteractOutside={handleClose}
+          onEscapeKeyDown={handleClose}
+        >
+          {/* Header */}
+          <div className="flex items-start gap-3 mb-4">
+            <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center shrink-0">
+              <XCircle className="h-5 w-5 text-red-500" strokeWidth={2} />
+            </div>
+            <div>
+              <Dialog.Title className="text-base font-semibold text-gray-900">
+                Cancelar bloqueo
+              </Dialog.Title>
+              <p className="text-[13px] text-gray-500 mt-0.5">
+                {blockLocation(block)} · {blockDateRange(block)}
+              </p>
+            </div>
+            <button onClick={handleClose} className="ml-auto text-gray-400 hover:text-gray-600 transition-colors">
+              <X className="h-4 w-4" strokeWidth={2} />
+            </button>
+          </div>
+
+          {/* Consequences */}
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+            <div className="flex items-center gap-1.5 text-amber-700 font-medium text-[12px] mb-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+              Consecuencias de cancelar
+            </div>
+            <ul className="space-y-0.5 text-[12px] text-amber-700">
+              <li>• La habitación volverá a estar disponible inmediatamente</li>
+              <li>• El bloqueo quedará marcado como Cancelado en el historial</li>
+              <li>• Esta acción no se puede deshacer</li>
+            </ul>
+          </div>
+
+          {/* Reason chips */}
+          <p className="text-[12px] font-medium text-gray-700 mb-2">Motivo de cancelación *</p>
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            {CANCEL_REASON_CHIPS.map((chip) => (
+              <button
+                key={chip}
+                onClick={() => setSelectedChip(selectedChip === chip ? null : chip)}
+                className={[
+                  'h-7 px-2.5 text-[11.5px] rounded-full border transition-colors',
+                  selectedChip === chip
+                    ? 'bg-gray-800 text-white border-gray-800'
+                    : 'text-gray-600 border-gray-200 hover:bg-gray-50',
+                ].join(' ')}
+              >
+                {chip}
+              </button>
+            ))}
+          </div>
+
+          {/* Custom textarea */}
+          <textarea
+            rows={2}
+            value={customText}
+            onChange={(e) => setCustomText(e.target.value)}
+            placeholder={selectedChip && selectedChip !== 'Otro motivo'
+              ? 'Detalles adicionales (opcional)…'
+              : 'Describe el motivo (mínimo 10 caracteres)…'}
+            className="w-full text-[12.5px] border border-gray-200 rounded-lg px-3 py-2 resize-none text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-red-400"
+          />
+          <p className="text-[11px] text-gray-400 mt-1 mb-4">
+            {reason.length}/10 caracteres mínimos
+          </p>
+
+          {/* Actions */}
+          <div className="flex items-center gap-2 justify-end">
+            <button
+              onClick={handleClose}
+              className="px-4 py-2 text-[13px] text-gray-600 hover:text-gray-800 transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              disabled={!canConfirm || working}
+              onClick={handleConfirm}
+              className="px-4 py-2 text-[13px] font-semibold bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-40 transition-colors"
+            >
+              Cancelar bloqueo
+            </button>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  )
+}
+
+// ─── BlockCard ────────────────────────────────────────────────────────────────
 
 function BlockCard({
   block,
@@ -326,11 +709,14 @@ function BlockCard({
   working: boolean
   variant: 'inbox' | 'history'
 }) {
-  const [showLogs, setShowLogs] = useState(false)
-  const [confirmOp, setConfirmOp] = useState<ConfirmOp | null>(null)
-  const [confirmNote, setConfirmNote] = useState('')
-  const [extendDate, setExtendDate] = useState('')
-  const [overflowOpen, setOverflowOpen] = useState(false)
+  const [showLogs, setShowLogs]       = useState(false)
+  const [releaseOpen, setReleaseOpen] = useState(false)
+  const [extendOpen, setExtendOpen]   = useState(false)
+  const [cancelOpen, setCancelOpen]   = useState(false)
+  const [rejectOpen, setRejectOpen]   = useState(false)
+  const [rejectNote, setRejectNote]   = useState('')
+  const [approveNote, setApproveNote] = useState('')
+  const [approveOpen, setApproveOpen] = useState(false)
 
   const sem = SEMANTIC_COLORS[block.semantic]
   const isPending  = block.status === BlockStatus.PENDING_APPROVAL
@@ -348,290 +734,290 @@ function BlockCard({
 
   const createdAgo = formatDistanceToNow(parseISO(block.createdAt), { addSuffix: true, locale: es })
 
-  const extendMin = block.endDate
-    ? format(new Date(parseISO(block.endDate).getTime() + 86_400_000), 'yyyy-MM-dd')
-    : format(new Date(Date.now() + 86_400_000), 'yyyy-MM-dd')
-
-  function openConfirm(op: ConfirmOp) {
-    setOverflowOpen(false)
-    setConfirmOp(op)
-    setConfirmNote('')
-    setExtendDate('')
-  }
-
-  function handleConfirm() {
-    if (confirmOp === 'approve')  onApprove(block.id, confirmNote || undefined)
-    if (confirmOp === 'reject')   { if (!confirmNote.trim()) return; onReject(block.id, confirmNote) }
-    if (confirmOp === 'cancel')   { if (!confirmNote.trim()) return; onCancel(block.id, confirmNote) }
-    if (confirmOp === 'release')  onRelease(block.id)
-    if (confirmOp === 'extend')   { if (!extendDate) return; onExtend(block.id, extendDate) }
-    setConfirmOp(null)
-    setConfirmNote('')
-    setExtendDate('')
-  }
-
-  const needsNote  = confirmOp === 'reject' || confirmOp === 'cancel'
-  const canConfirm = confirmOp === 'extend' ? !!extendDate : needsNote ? !!confirmNote.trim() : true
-
   const cardBase = variant === 'inbox'
     ? 'bg-white border border-gray-200 shadow-sm'
     : 'bg-gray-50/60 border border-gray-100'
   const cardRing = isPending ? ' ring-1 ring-amber-300' : ''
 
   return (
-    <div className={`rounded-lg ${cardBase}${cardRing}`}>
-      <div className="flex">
-        {/* Accent bar */}
-        <div className={`w-1.5 shrink-0 rounded-l-lg ${sem.bar}`} />
+    <>
+      <div className={`rounded-lg ${cardBase}${cardRing}`}>
+        <div className="flex">
+          {/* Accent bar */}
+          <div className={`w-1.5 shrink-0 rounded-l-lg ${sem.bar}`} />
 
-        {/* Body */}
-        <div className="flex-1 min-w-0 px-4 py-3.5 flex flex-col">
+          {/* Body */}
+          <div className="flex-1 min-w-0 px-4 py-3.5 flex flex-col">
 
-          {/* ── Main row: icon + content + actions ── */}
-          <div className="flex items-start gap-3">
+            {/* ── Main row: icon + content + actions ── */}
+            <div className="flex items-start gap-3">
 
-            {/* Reason icon with semantic background */}
-            <div className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center mt-0.5 ${sem.iconBg}`}>
-              {REASON_ICONS[block.reason]}
-            </div>
-
-            {/* Text content */}
-            <div className="flex-1 min-w-0">
-              {/* Row 1: location + badges */}
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="font-semibold text-sm text-gray-900">{blockLocation(block)}</span>
-                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium ${sem.badge} ${sem.badgeText}`}>
-                  {SEMANTIC_LABELS[block.semantic]}
-                </span>
-                {block.status !== BlockStatus.ACTIVE && (
-                  <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-medium ring-1 ${STATUS_COLORS[block.status]}`}>
-                    {block.status === BlockStatus.APPROVED && (
-                      <Check className="h-2.5 w-2.5" strokeWidth={3} />
-                    )}
-                    {isAutoApproved && block.status === BlockStatus.APPROVED
-                      ? 'Aprobación no requerida'
-                      : STATUS_LABELS[block.status]}
-                  </span>
-                )}
-                {isPending && isSupervisor && (
-                  <span className="text-[11px] font-semibold text-amber-600 animate-pulse">
-                    · Requiere acción
-                  </span>
-                )}
+              {/* Reason icon with semantic background */}
+              <div className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center mt-0.5 ${sem.iconBg}`}>
+                {REASON_ICONS[block.reason]}
               </div>
 
-              {/* Row 2: reason · dates · nights */}
-              <div className="mt-0.5 flex items-center gap-1.5 text-xs flex-wrap">
-                <span className="text-gray-500">{REASON_LABELS[block.reason]}</span>
-                <span className="text-gray-300">·</span>
-                <span className="font-mono font-semibold text-gray-700">{blockDateRange(block)}</span>
-                <span className="text-gray-300">·</span>
-                <span className="text-gray-400 font-medium">{blockNightsShort(block)}</span>
-              </div>
-
-              {/* Row 3: requester */}
-              {requester && (
-                <div className="mt-1 flex items-center gap-1.5">
-                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gray-200 text-[9px] font-bold text-gray-600 shrink-0">
-                    {initials(requester.name)}
+              {/* Text content */}
+              <div className="flex-1 min-w-0">
+                {/* Row 1: location + badges */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="font-semibold text-sm text-gray-900">{blockLocation(block)}</span>
+                  <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium ${sem.badge} ${sem.badgeText}`}>
+                    {SEMANTIC_LABELS[block.semantic]}
                   </span>
-                  <span className="text-[11px] text-gray-600">
-                    {requester.name}
-                    <span className="text-gray-400"> · {ROLE_LABELS[requester.role] ?? requester.role} · {createdAgo}</span>
-                  </span>
+                  {block.status !== BlockStatus.ACTIVE && (
+                    <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-medium ring-1 ${STATUS_COLORS[block.status]}`}>
+                      {block.status === BlockStatus.APPROVED && (
+                        <Check className="h-2.5 w-2.5" strokeWidth={3} />
+                      )}
+                      {isAutoApproved && block.status === BlockStatus.APPROVED
+                        ? 'Aprobación no requerida'
+                        : STATUS_LABELS[block.status]}
+                    </span>
+                  )}
+                  {isPending && isSupervisor && (
+                    <span className="text-[11px] font-semibold text-amber-600 animate-pulse">
+                      · Requiere acción
+                    </span>
+                  )}
                 </div>
-              )}
-            </div>
 
-            {/* ── Right-side actions ── */}
-            {!confirmOp && canAct && isSupervisor && (
-              <div className="shrink-0 flex items-center gap-2 ml-2 mt-0.5">
-                {isPending && (
-                  <>
-                    <button
-                      disabled={working}
-                      onClick={() => openConfirm('approve')}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-600 text-white rounded-md text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50 transition-colors"
-                    >
-                      <Check className="h-3 w-3" strokeWidth={3} /> Aprobar
-                    </button>
-                    <button
-                      disabled={working}
-                      onClick={() => openConfirm('reject')}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 border border-red-300 text-red-600 rounded-md text-xs font-semibold hover:bg-red-50 disabled:opacity-50 transition-colors bg-white"
-                    >
-                      <X className="h-3 w-3" strokeWidth={3} /> Rechazar
-                    </button>
-                  </>
+                {/* Row 2: reason · dates · nights */}
+                <div className="mt-0.5 flex items-center gap-1.5 text-xs flex-wrap">
+                  <span className="text-gray-500">{REASON_LABELS[block.reason]}</span>
+                  <span className="text-gray-300">·</span>
+                  <span className="font-mono font-semibold text-gray-700">{blockDateRange(block)}</span>
+                  <span className="text-gray-300">·</span>
+                  <span className="text-gray-400 font-medium">{blockNightsShort(block)}</span>
+                </div>
+
+                {/* Row 3: requester */}
+                {requester && (
+                  <div className="mt-1 flex items-center gap-1.5">
+                    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gray-200 text-[9px] font-bold text-gray-600 shrink-0">
+                      {initials(requester.name)}
+                    </span>
+                    <span className="text-[11px] text-gray-600">
+                      {requester.name}
+                      <span className="text-gray-400"> · {ROLE_LABELS[requester.role] ?? requester.role} · {createdAgo}</span>
+                    </span>
+                  </div>
                 )}
-                {isActive && (
-                  <>
+              </div>
+
+              {/* ── Right-side actions ── */}
+              {canAct && isSupervisor && (
+                <div className="shrink-0 flex items-center gap-2 ml-2 mt-0.5" onClick={(e) => e.stopPropagation()}>
+                  {isPending && (
+                    <>
+                      <button
+                        disabled={working}
+                        onClick={() => setApproveOpen(true)}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-600 text-white rounded-md text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                      >
+                        <Check className="h-3 w-3" strokeWidth={3} /> Aprobar
+                      </button>
+                      <button
+                        disabled={working}
+                        onClick={() => { setRejectOpen(true); setRejectNote('') }}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 border border-red-300 text-red-600 rounded-md text-xs font-semibold hover:bg-red-50 disabled:opacity-50 transition-colors bg-white"
+                      >
+                        <X className="h-3 w-3" strokeWidth={3} /> Rechazar
+                      </button>
+                    </>
+                  )}
+                  {isActive && (
                     <button
                       disabled={working}
-                      onClick={() => openConfirm('release')}
+                      onClick={() => setReleaseOpen(true)}
                       className="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-600 text-white rounded-md text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50 transition-colors"
                     >
                       <Unlock className="h-3 w-3" /> Liberar
                     </button>
-                    <button
-                      disabled={working}
-                      onClick={() => openConfirm('extend')}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 border border-gray-300 text-gray-700 rounded-md text-xs font-semibold hover:bg-gray-50 disabled:opacity-50 transition-colors bg-white"
-                    >
-                      <CalendarPlus className="h-3 w-3" /> Extender
-                    </button>
-                  </>
-                )}
-                {/* Overflow menu for Cancel */}
-                <div className="relative">
-                  <button
-                    onClick={() => setOverflowOpen((p) => !p)}
-                    className="p-1.5 rounded-md hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
-                  >
-                    <MoreHorizontal className="h-4 w-4" />
-                  </button>
-                  {overflowOpen && (
-                    <>
-                      <div
-                        className="fixed inset-0 z-40"
-                        onClick={() => setOverflowOpen(false)}
-                      />
-                      <div className="absolute right-0 top-full mt-1 z-50 bg-white shadow-lg rounded-lg border border-gray-200 py-1 min-w-[160px]">
-                        <button
-                          onClick={() => openConfirm('cancel')}
-                          className="w-full text-left px-3 py-2 text-xs text-red-600 hover:bg-red-50 transition-colors"
-                        >
-                          Cancelar bloqueo
-                        </button>
-                      </div>
-                    </>
                   )}
+
+                  {/* ⋯ Overflow menu */}
+                  <DropdownMenu.Root>
+                    <DropdownMenu.Trigger asChild>
+                      <button className="inline-flex items-center justify-center w-8 h-8 rounded-md border border-gray-200 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors">
+                        <MoreHorizontal className="h-4 w-4" strokeWidth={2} />
+                      </button>
+                    </DropdownMenu.Trigger>
+                    <DropdownMenu.Portal>
+                      <DropdownMenu.Content
+                        align="end"
+                        sideOffset={4}
+                        className="z-50 min-w-[180px] bg-white border border-gray-200 rounded-lg shadow-lg py-1"
+                      >
+                        {isActive && (
+                          <DropdownMenu.Item
+                            className="flex items-center gap-2 px-3 py-2 text-[13px] text-gray-700 hover:bg-gray-50 cursor-pointer outline-none"
+                            onSelect={(e) => { e.preventDefault(); setExtendOpen(true) }}
+                          >
+                            <CalendarPlus className="h-3.5 w-3.5 text-gray-400" strokeWidth={2} />
+                            Extender
+                          </DropdownMenu.Item>
+                        )}
+                        <DropdownMenu.Item
+                          className="flex items-center gap-2 px-3 py-2 text-[13px] text-gray-700 hover:bg-gray-50 cursor-pointer outline-none"
+                          onSelect={() => toast('Detalle de bloqueo — próximamente disponible', { icon: '🔧' })}
+                        >
+                          <PanelRight className="h-3.5 w-3.5 text-gray-400" strokeWidth={2} />
+                          Ver detalle completo
+                        </DropdownMenu.Item>
+                        <DropdownMenu.Separator className="my-1 h-px bg-gray-100" />
+                        <DropdownMenu.Item
+                          className="flex items-center gap-2 px-3 py-2 text-[13px] text-red-600 hover:bg-red-50 cursor-pointer outline-none"
+                          onSelect={() => setCancelOpen(true)}
+                        >
+                          <XCircle className="h-3.5 w-3.5" strokeWidth={2} />
+                          Cancelar bloqueo
+                        </DropdownMenu.Item>
+                      </DropdownMenu.Content>
+                    </DropdownMenu.Portal>
+                  </DropdownMenu.Root>
+                </div>
+              )}
+            </div>
+
+            {/* Notes */}
+            {block.notes && (
+              <p className="mt-2 ml-11 text-xs text-gray-600 bg-gray-50 rounded px-2 py-1.5 italic border border-gray-100">
+                "{block.notes}"
+              </p>
+            )}
+
+            {/* Log toggle */}
+            {logs.length > 0 && (
+              <button
+                onClick={() => setShowLogs((p) => !p)}
+                className="mt-1.5 ml-11 text-[11px] text-gray-400 hover:text-gray-600 transition-colors self-start"
+              >
+                {showLogs ? '▾ Ocultar actividad' : `▸ Ver actividad (${logs.length} ${logs.length === 1 ? 'evento' : 'eventos'})`}
+              </button>
+            )}
+
+            {/* Log list */}
+            {showLogs && (
+              <div className="mt-2 ml-11 border-t border-gray-100 pt-2">
+                {(() => {
+                  let lastDay = ''
+                  return logs.map((log: any) => {
+                    const logDate = parseISO(log.createdAt)
+                    const logDay  = format(logDate, 'yyyy-MM-dd')
+                    const showSep = logDay !== lastDay
+                    lastDay = logDay
+                    return (
+                      <Fragment key={log.id}>
+                        {showSep && (
+                          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mt-2 mb-1 first:mt-0">
+                            {dayLabel(logDate)}
+                          </p>
+                        )}
+                        <div className="text-[11px] text-gray-500 flex gap-2 py-0.5">
+                          <span className="text-gray-300 whitespace-nowrap font-mono shrink-0">
+                            {format(logDate, 'HH:mm')}
+                          </span>
+                          <span className="font-medium text-gray-600">
+                            {LOG_EVENT_LABELS[log.event] ?? log.event}
+                          </span>
+                          {log.staff && <span className="text-gray-400">por {log.staff.name}</span>}
+                          {log.note && (
+                            <span className="italic text-gray-400">— {translateNote(log.note)}</span>
+                          )}
+                        </div>
+                      </Fragment>
+                    )
+                  })
+                })()}
+              </div>
+            )}
+
+            {/* ── Inline approve/reject panels (only for pending) ── */}
+            {approveOpen && (
+              <div className="mt-3 ml-11 border-t border-gray-100 pt-3 space-y-2">
+                <p className="text-xs font-medium text-gray-700">Confirmar aprobación</p>
+                <textarea
+                  autoFocus
+                  rows={2}
+                  value={approveNote}
+                  onChange={(e) => setApproveNote(e.target.value)}
+                  placeholder="Nota de aprobación (opcional)…"
+                  className="w-full text-xs border border-gray-200 rounded px-2.5 py-1.5 resize-none text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                />
+                <div className="flex items-center gap-2">
+                  <button
+                    disabled={working}
+                    onClick={() => { onApprove(block.id, approveNote || undefined); setApproveOpen(false); setApproveNote('') }}
+                    className="px-3 py-1.5 rounded-md text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 transition-colors"
+                  >
+                    Confirmar aprobación
+                  </button>
+                  <button
+                    onClick={() => { setApproveOpen(false); setApproveNote('') }}
+                    className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {rejectOpen && (
+              <div className="mt-3 ml-11 border-t border-gray-100 pt-3 space-y-2">
+                <p className="text-xs font-medium text-gray-700">Motivo de rechazo *</p>
+                <textarea
+                  autoFocus
+                  rows={2}
+                  value={rejectNote}
+                  onChange={(e) => setRejectNote(e.target.value)}
+                  placeholder="Explica el motivo del rechazo…"
+                  className="w-full text-xs border border-gray-200 rounded px-2.5 py-1.5 resize-none text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                />
+                <div className="flex items-center gap-2">
+                  <button
+                    disabled={working || !rejectNote.trim()}
+                    onClick={() => { onReject(block.id, rejectNote); setRejectOpen(false); setRejectNote('') }}
+                    className="px-3 py-1.5 rounded-md text-xs font-semibold bg-red-600 text-white hover:bg-red-700 disabled:opacity-40 transition-colors"
+                  >
+                    Confirmar rechazo
+                  </button>
+                  <button
+                    onClick={() => { setRejectOpen(false); setRejectNote('') }}
+                    className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+                  >
+                    Cancelar
+                  </button>
                 </div>
               </div>
             )}
           </div>
-
-          {/* Notes */}
-          {block.notes && (
-            <p className="mt-2 ml-11 text-xs text-gray-600 bg-gray-50 rounded px-2 py-1.5 italic border border-gray-100">
-              "{block.notes}"
-            </p>
-          )}
-
-          {/* Log toggle */}
-          {logs.length > 0 && (
-            <button
-              onClick={() => setShowLogs((p) => !p)}
-              className="mt-1.5 ml-11 text-[11px] text-gray-400 hover:text-gray-600 transition-colors self-start"
-            >
-              {showLogs ? '▾ Ocultar actividad' : `▸ Ver actividad (${logs.length} eventos)`}
-            </button>
-          )}
-
-          {/* ── Inline confirm panel ── */}
-          {confirmOp && (
-            <div className="mt-3 ml-11 border-t border-gray-100 pt-3 space-y-2">
-              <p className="text-xs font-medium text-gray-700">
-                {confirmOp === 'approve'  ? 'Confirmar aprobación' :
-                 confirmOp === 'reject'   ? 'Motivo de rechazo *' :
-                 confirmOp === 'cancel'   ? 'Motivo de cancelación *' :
-                 confirmOp === 'release'  ? 'Liberar habitación' :
-                                            'Extender hasta'}
-              </p>
-
-              {(confirmOp === 'approve' || confirmOp === 'reject' || confirmOp === 'cancel') && (
-                <textarea
-                  autoFocus
-                  rows={2}
-                  value={confirmNote}
-                  onChange={(e) => setConfirmNote(e.target.value)}
-                  placeholder={
-                    confirmOp === 'approve' ? 'Nota de aprobación (opcional)…' :
-                    confirmOp === 'reject'  ? 'Explica el motivo del rechazo…' :
-                                              'Explica el motivo de cancelación…'
-                  }
-                  className="w-full text-xs border border-gray-200 rounded px-2.5 py-1.5 resize-none text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
-                />
-              )}
-              {confirmOp === 'release' && (
-                <p className="text-xs text-gray-500">La habitación volverá a estar disponible inmediatamente.</p>
-              )}
-              {confirmOp === 'extend' && (
-                <input
-                  autoFocus
-                  type="date"
-                  min={extendMin}
-                  value={extendDate}
-                  onChange={(e) => setExtendDate(e.target.value)}
-                  className="text-xs border border-gray-200 rounded px-2.5 py-1.5 text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-400"
-                />
-              )}
-
-              <div className="flex items-center gap-2">
-                <button
-                  disabled={working || !canConfirm}
-                  onClick={handleConfirm}
-                  className={[
-                    'px-3 py-1.5 rounded-md text-xs font-semibold transition-colors disabled:opacity-40',
-                    confirmOp === 'reject' ? 'bg-red-600 text-white hover:bg-red-700' :
-                    confirmOp === 'cancel' ? 'bg-gray-700 text-white hover:bg-gray-800' :
-                    'bg-emerald-600 text-white hover:bg-emerald-700',
-                  ].join(' ')}
-                >
-                  {confirmOp === 'approve'  ? 'Confirmar aprobación' :
-                   confirmOp === 'reject'   ? 'Confirmar rechazo' :
-                   confirmOp === 'cancel'   ? 'Confirmar cancelación' :
-                   confirmOp === 'release'  ? 'Confirmar liberación' :
-                                              'Confirmar extensión'}
-                </button>
-                <button
-                  onClick={() => { setConfirmOp(null); setConfirmNote(''); setExtendDate('') }}
-                  className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700 transition-colors"
-                >
-                  Cancelar
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Log list */}
-          {showLogs && (
-            <div className="mt-2 ml-11 border-t border-gray-100 pt-2">
-              {(() => {
-                let lastDay = ''
-                return logs.map((log: any) => {
-                  const logDate = parseISO(log.createdAt)
-                  const logDay  = format(logDate, 'yyyy-MM-dd')
-                  const showSep = logDay !== lastDay
-                  lastDay = logDay
-                  return (
-                    <Fragment key={log.id}>
-                      {showSep && (
-                        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mt-2 mb-1 first:mt-0">
-                          {dayLabel(logDate)}
-                        </p>
-                      )}
-                      <div className="text-[11px] text-gray-500 flex gap-2 py-0.5">
-                        <span className="text-gray-300 whitespace-nowrap font-mono shrink-0">
-                          {format(logDate, 'HH:mm')}
-                        </span>
-                        <span className="font-medium text-gray-600">
-                          {LOG_EVENT_LABELS[log.event] ?? log.event}
-                        </span>
-                        {log.staff && <span className="text-gray-400">por {log.staff.name}</span>}
-                        {log.note && (
-                          <span className="italic text-gray-400">— {translateNote(log.note)}</span>
-                        )}
-                      </div>
-                    </Fragment>
-                  )
-                })
-              })()}
-            </div>
-          )}
         </div>
       </div>
-    </div>
+
+      {/* ── Modal dialogs ── */}
+      <ReleaseBlockDialog
+        open={releaseOpen}
+        onOpenChange={setReleaseOpen}
+        block={block}
+        onRelease={onRelease}
+        working={working}
+      />
+      <CancelBlockDialog
+        open={cancelOpen}
+        onOpenChange={setCancelOpen}
+        block={block}
+        onCancel={onCancel}
+        working={working}
+      />
+      <ExtendBlockDialog
+        open={extendOpen}
+        onOpenChange={setExtendOpen}
+        block={block}
+        onExtend={onExtend}
+        working={working}
+      />
+    </>
   )
 }
 
@@ -667,35 +1053,35 @@ export function BlocksPage() {
   const approveMut = useMutation({
     mutationFn: ({ id, note }: { id: string; note?: string }) =>
       api.post(`/blocks/${id}/approve`, { approvalNotes: note }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['blocks'] }); toast.success('Bloqueo aprobado') },
+    onSuccess: async () => { await qc.refetchQueries({ queryKey: ['blocks'] }); toast.success('Bloqueo aprobado') },
     onError: (e: any) => toast.error(e?.message ?? 'Error al aprobar'),
   })
   const rejectMut = useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: string }) =>
       api.post(`/blocks/${id}/reject`, { approvalNotes: reason }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['blocks'] }); toast.success('Bloqueo rechazado') },
+    onSuccess: async () => { await qc.refetchQueries({ queryKey: ['blocks'] }); toast.success('Bloqueo rechazado') },
     onError: (e: any) => toast.error(e?.message ?? 'Error al rechazar'),
   })
   const cancelMut = useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: string }) =>
       api.post(`/blocks/${id}/cancel`, { reason }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['blocks'] }); toast.success('Bloqueo cancelado') },
+    onSuccess: async () => { await qc.refetchQueries({ queryKey: ['blocks'] }); toast.success('Bloqueo cancelado') },
     onError: (e: any) => toast.error(e?.message ?? 'Error al cancelar'),
   })
   const releaseMut = useMutation({
     mutationFn: (id: string) => api.post(`/blocks/${id}/release`, {}),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['blocks'] }); toast.success('Habitación liberada') },
+    onSuccess: async () => { await qc.refetchQueries({ queryKey: ['blocks'] }); toast.success('Habitación liberada') },
     onError: (e: any) => toast.error(e?.message ?? 'Error al liberar'),
   })
   const extendMut = useMutation({
     mutationFn: ({ id, endDate }: { id: string; endDate: string }) =>
       api.post(`/blocks/${id}/extend`, { endDate }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['blocks'] }); toast.success('Bloqueo extendido') },
+    onSuccess: async () => { await qc.refetchQueries({ queryKey: ['blocks'] }); toast.success('Bloqueo extendido') },
     onError: (e: any) => toast.error(e?.message ?? 'Error al extender'),
   })
   const createMut = useMutation({
     mutationFn: (dto: CreateBlockDto) => api.post('/blocks', dto),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['blocks'] }); toast.success('Bloqueo creado') },
+    onSuccess: async () => { await qc.refetchQueries({ queryKey: ['blocks'] }); toast.success('Bloqueo creado') },
     onError: (e: any) => toast.error(e?.message ?? 'Error al crear bloqueo'),
   })
 
@@ -727,7 +1113,7 @@ export function BlocksPage() {
       .sort(
         (a, b) =>
           STATUS_SORT[a.status] - STATUS_SORT[b.status] ||
-          parseISO(b.startDate).getTime() - parseISO(a.startDate).getTime(),
+          parseISO(b.startDate.slice(0, 10)).getTime() - parseISO(a.startDate.slice(0, 10)).getTime(),
       ),
   [blocks, semanticFilter, searchQuery])
 

@@ -151,7 +151,8 @@ export function BlockModal({
     queryKey: ['rooms-for-block'],
     queryFn: () => api.get<RoomDto[]>('/rooms'),
     enabled: isOpen,
-    staleTime: 60_000,
+    staleTime: 0,
+    refetchOnMount: 'always',
   })
 
   const selectedRoom              = rooms.find((r) => r.id === roomId)
@@ -192,7 +193,7 @@ export function BlockModal({
     }
   }
 
-  // Reset al abrir
+  // Reset al abrir — isHotel excluded from deps to avoid re-resetting while open
   useEffect(() => {
     if (!isOpen) return
     const start = prefillStartDate ?? isoToday()
@@ -206,7 +207,13 @@ export function BlockModal({
     setEndDate(prefillEndDate ?? addDaysToIso(start, 1))
     setError('')
     setShowEndDateWarning(false)
-  }, [isOpen, isHotel, prefillRoomId, prefillUnitId, prefillStartDate, prefillEndDate])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, prefillRoomId, prefillUnitId, prefillStartDate, prefillEndDate])
+
+  // When hotel mode resolves after open, force scope to 'room' without resetting the form
+  useEffect(() => {
+    if (isOpen && isHotel) setScope('room')
+  }, [isHotel, isOpen])
 
   // Atajos: Escape → cerrar, Cmd/Ctrl+Enter → submit
   useEffect(() => {
@@ -482,6 +489,7 @@ export function BlockModal({
                       type="date"
                       value={startDate}
                       min={isoToday()}
+                      max={endDate || undefined}
                       onChange={(e) => {
                         setStartDate(e.target.value)
                         if (endDate) setEndDate(addDaysToIso(e.target.value, 1))

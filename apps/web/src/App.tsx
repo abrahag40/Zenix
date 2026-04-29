@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'react-hot-toast'
+import { Toaster as SonnerToaster } from 'sonner'
 import { useAuthStore } from './store/auth'
 import { Sidebar } from './components/Sidebar'
 import { LoginPage } from './pages/LoginPage'
@@ -75,6 +76,7 @@ export default function App() {
         </Routes>
       </BrowserRouter>
       <Toaster position="top-right" toastOptions={{ className: 'text-sm' }} />
+      <SonnerToaster richColors position="bottom-right" />
     </QueryClientProvider>
   )
 }

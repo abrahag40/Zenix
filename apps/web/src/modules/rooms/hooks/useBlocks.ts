@@ -34,8 +34,8 @@ export function useCreateBlock(propertyId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (dto: CreateBlockDto) => api.post<RoomBlockDto>('/blocks', dto),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['blocks'] })
+    onSuccess: async () => {
+      await qc.refetchQueries({ queryKey: ['blocks'] })
     },
   })
 }
@@ -44,8 +44,8 @@ export function useReleaseBlock() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (blockId: string) => api.post(`/blocks/${blockId}/release`, {}),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['blocks'] })
+    onSuccess: async () => {
+      await qc.refetchQueries({ queryKey: ['blocks'] })
     },
   })
 }
@@ -55,8 +55,8 @@ export function useCancelBlock() {
   return useMutation({
     mutationFn: ({ blockId, reason }: { blockId: string; reason: string }) =>
       api.post(`/blocks/${blockId}/cancel`, { reason }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['blocks'] })
+    onSuccess: async () => {
+      await qc.refetchQueries({ queryKey: ['blocks'] })
     },
   })
 }

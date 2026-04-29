@@ -1,7 +1,7 @@
 # CLAUDE.md — Zenix PMS
 
 > Guía para retomar el proyecto desde cero. Lee esto antes de tocar código.
-> Última actualización: 2026-04-26 (Sprint 8G ✅ — NS stripe collision detection + UI rediseñada; fix memo comparator; fix night audit re-marcando no-shows revertidos; booking ref en tooltip).
+> Última actualización: 2026-04-29 (Sprint 8H ✅ — SmartBlock: fix UTC date rendering en BlocksPage + BlocksLayer; guard anti-overbooking en extendBlock; detección is-hotel en BlockModal; fix SSE named events en useSSE; refetchQueries en todas las mutations de bloqueo).
 
 ---
 
@@ -1630,7 +1630,18 @@ OPEN → ACKNOWLEDGED → IN_PROGRESS → RESOLVED → VERIFIED → CLOSED
 
 ## Known Issues & Edge Cases
 
-### Resueltos en Sprint 8G (sesión actual)
+### Resueltos en Sprint 8H (sesión actual)
+
+| Issue | Causa | Fix |
+|-------|-------|-----|
+| Fechas de bloqueo en `BlocksPage` se mostraban un día antes | `parseISO("2026-04-28T00:00:00.000Z")` en UTC-5 resuelve a April 27 19:00 local → `format` muestra el día anterior | Agregar `.slice(0, 10)` a los 7 usos de `parseISO(b.startDate/b.endDate)` en `BlocksPage.tsx` |
+| Fechas de bloqueo en el calendario (`BlocksLayer`) se mostraban un día antes | Mismo bug UTC en `BlocksLayer.tsx` | `parseISO(block.startDate.slice(0, 10))` / `parseISO(block.endDate.slice(0, 10))` |
+| Bloqueo recién creado no aparecía sin refrescar el navegador | `useSSE` solo registraba listener `'message'` genérico; el servidor emite eventos nombrados (`event: block:created\n`) que `EventSource` nunca dispara como `'message'` | Reescribir `useSSE` con array `ALL_SSE_TYPES` y registrar `es.addEventListener(type, handle)` para cada tipo SSE conocido |
+| `invalidateQueries` en mutations de bloqueo no garantizaba datos frescos antes de la UI | `invalidateQueries` es fire-and-forget (§7 CLAUDE.md) | Cambiar todos los `onSuccess` de mutations en `BlocksPage.tsx` y `useBlocks.ts` a `async`/`await qc.refetchQueries(...)` |
+| `extendBlock` no validaba disponibilidad antes de extender el período | Extensión podía solaparse con una reserva de huésped activa | Guard en `blocks.service.ts`: llamar `AvailabilityService.check()` filtrando conflictos `LOCAL_STAY`/`LOCAL_SEGMENT`; lanzar `ConflictException` con nombres de huéspedes |
+| `BlockModal` no detectaba si la propiedad es hotel y seguía mostrando "Habitación completa" | `rooms` query tenía `staleTime: 5min`; si el modal abría antes de que se cargaran las rooms, `isHotel` era `false` y nunca se actualizaba | `staleTime: 0, refetchOnMount: 'always'` en la query de rooms; separar `useEffect` de reset de formulario |
+
+### Resueltos en Sprint 8G
 
 | Issue | Causa | Fix |
 |-------|-------|-----|
@@ -1937,6 +1948,12 @@ npx prisma studio
 | NS stripe UI: badge NS + nombre, rayas sutiles, 14px alto | ✅ Sprint 8G | `BookingBlock.tsx` |
 | Booking ref en tooltip de reserva | ✅ Sprint 8G | `TooltipPortal.tsx`, `GuestStayBlock`, `GuestStayDto` |
 | UNCONFIRMED color azul (antes amber → confundía con advisory) | ✅ Sprint 8G | `timeline.constants.ts` |
+| SmartBlock: fix UTC date rendering en BlocksPage (7 ubicaciones) | ✅ Sprint 8H | `BlocksPage.tsx` |
+| SmartBlock: fix UTC date rendering en BlocksLayer (calendar) | ✅ Sprint 8H | `BlocksLayer.tsx` |
+| SmartBlock: guard anti-overbooking en extendBlock | ✅ Sprint 8H | `blocks.service.ts`, `AvailabilityService` |
+| SmartBlock: detección is-hotel en BlockModal (staleTime: 0) | ✅ Sprint 8H | `BlockModal.tsx` |
+| useSSE: registro de eventos nombrados SSE (ALL_SSE_TYPES) | ✅ Sprint 8H | `useSSE.ts` |
+| SmartBlock mutations: refetchQueries garantizado post-mutación | ✅ Sprint 8H | `BlocksPage.tsx`, `useBlocks.ts` |
 | OccupancyFooter color por ocupación | ⏳ Sprint 7A pendiente | `TimelineGrid.tsx` |
 | Stayover tasks automáticas | ⏳ P1 Roadmap | `StayoverService` |
 | KanbanPage (supervisor board) | ⚠️ Esqueleto | `KanbanPage.tsx` |
