@@ -31,6 +31,7 @@ import { PrismaService } from '../prisma/prisma.service'
 import { TenantContextService } from '../common/tenant-context.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import { PushService } from '../notifications/push.service'
+import { AssignmentService } from '../assignment/assignment.service'
 
 // ─── Builders de datos de prueba ──────────────────────────────────────────────
 
@@ -82,7 +83,8 @@ function makeCheckout(
     tasks: tasks.map((t) => ({
       ...t,
       assignedToId: t.assignedToId ?? null,
-      assignedTo: t.assignedToId ? { id: t.assignedToId, pushTokens: [] } : null,
+      assignedTo: t.assignedToId ? { id: t.assignedToId, name: 'Housekeeper', pushTokens: [] } : null,
+      unit: { id: t.unitId, room: { id: 'room-1', number: '201' } },
     })),
     ...overrides,
   }
@@ -113,6 +115,11 @@ describe('CheckoutsService', () => {
   const notificationsMock = { emit: jest.fn() }
   const pushMock          = { sendToStaff: jest.fn().mockResolvedValue(undefined) }
   const eventsMock        = { emit: jest.fn() }
+  const assignmentMock    = {
+    autoAssign: jest.fn().mockResolvedValue({ assigned: false, staffId: null, rule: null, reason: 'NO_ELIGIBLE_STAFF_ON_SHIFT' }),
+    decide: jest.fn(),
+    reassignTasksForAbsence: jest.fn(),
+  }
   const tenantMock        = {
     getOrganizationId: jest.fn().mockReturnValue('org-1'),
     getPropertyId: jest.fn().mockReturnValue('property-1'),
@@ -127,6 +134,7 @@ describe('CheckoutsService', () => {
         { provide: NotificationsService, useValue: notificationsMock },
         { provide: PushService,          useValue: pushMock },
         { provide: EventEmitter2,        useValue: eventsMock },
+        { provide: AssignmentService,    useValue: assignmentMock },
       ],
     }).compile()
 
@@ -557,7 +565,7 @@ describe('CheckoutsService', () => {
       // Assert
       expect(result.cancelled).toBe(true)
       expect(prismaMock.cleaningTask.update).toHaveBeenCalledWith(
-        expect.objectContaining({ data: { status: CleaningStatus.CANCELLED } }),
+        expect.objectContaining({ data: expect.objectContaining({ status: CleaningStatus.CANCELLED }) }),
       )
       expect(prismaMock.unit.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: { status: 'OCCUPIED' } }),
@@ -582,7 +590,7 @@ describe('CheckoutsService', () => {
       // Assert — PENDING también se cancela (housekeeper no ha llegado aún)
       expect(result.cancelled).toBe(true)
       expect(prismaMock.cleaningTask.update).toHaveBeenCalledWith(
-        expect.objectContaining({ data: { status: CleaningStatus.CANCELLED } }),
+        expect.objectContaining({ data: expect.objectContaining({ status: CleaningStatus.CANCELLED }) }),
       )
     })
 
@@ -610,31 +618,19 @@ describe('CheckoutsService', () => {
       )
     })
 
-    it('alerta al supervisor si hay tareas IN_PROGRESS y no cancela automáticamente', async () => {
+    it('D11: lanza ConflictException si hay tareas IN_PROGRESS — el receptionist no puede cancelar', async () => {
       // Arrange — el housekeeper está limpiando cuando el huésped extiende
       const checkout = makeCheckout([
         { id: 'task-ip', unitId: 'bed-1', status: CleaningStatus.IN_PROGRESS, assignedToId: 'hk-1' },
       ])
-      const supervisor = { id: 'sup-1' }
-
       prismaMock.checkout.findUnique.mockResolvedValue(checkout)
-      prismaMock.checkout.update.mockResolvedValue({ ...checkout, cancelled: true })
-      prismaMock.cleaningTask.update.mockResolvedValue({})
-      prismaMock.taskLog.create.mockResolvedValue({})
-      prismaMock.unit.update.mockResolvedValue({})
-      prismaMock.housekeepingStaff.findMany.mockResolvedValue([supervisor])
 
-      // Act
-      const result = await service.cancelCheckout('checkout-1', 'property-1')
-
-      // Assert — alerta crítica al supervisor, no cancelación automática
-      expect(result.criticalTasksAlert).toBe(true)
-      expect(pushMock.sendToStaff).toHaveBeenCalledWith(
-        'sup-1',
-        expect.stringContaining('Intervención'),
-        expect.any(String),
-        expect.any(Object),
+      // Act & Assert — D11: bloqueo duro con mensaje explicativo (no cancela ni alerta)
+      await expect(service.cancelCheckout('checkout-1', 'property-1')).rejects.toThrow(
+        ConflictException,
       )
+      // No debe haber llamado a update — la operación se rechaza ANTES de tocar la BD
+      expect(prismaMock.cleaningTask.update).not.toHaveBeenCalled()
     })
 
     it('lanza ConflictException si el checkout ya fue cancelado previamente', async () => {
@@ -675,7 +671,7 @@ describe('CheckoutsService', () => {
       // Assert — solo task-1 fue cancelada
       expect(prismaMock.cleaningTask.update).toHaveBeenCalledTimes(1)
       expect(prismaMock.cleaningTask.update).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { id: 'task-1' }, data: { status: CleaningStatus.CANCELLED } }),
+        expect.objectContaining({ where: { id: 'task-1' }, data: expect.objectContaining({ status: CleaningStatus.CANCELLED }) }),
       )
       // checkout.cancelled no se marca en cancel por cama individual
       expect(prismaMock.checkout.update).not.toHaveBeenCalled()

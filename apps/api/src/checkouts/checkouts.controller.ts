@@ -51,7 +51,7 @@ export class CheckoutsController {
   @TenantResource({ model: 'checkout', paramName: 'id' })
   @Roles(HousekeepingRole.SUPERVISOR, HousekeepingRole.RECEPTIONIST)
   cancel(@Param('id') id: string, @Body() body: CancelCheckoutDto, @CurrentUser() actor: JwtPayload) {
-    return this.service.cancelCheckout(id, actor.propertyId, body.unitId)
+    return this.service.cancelCheckout(id, actor.propertyId, body.unitId, body.reason)
   }
 
   /**

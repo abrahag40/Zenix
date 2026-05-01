@@ -15,6 +15,14 @@ export class AuthService {
   async login(dto: LoginDto): Promise<AuthResponse> {
     const staff = await this.prisma.housekeepingStaff.findUnique({
       where: { email: dto.email.toLowerCase() },
+      include: {
+        // Include the property so the client knows which operational model
+        // to render (HOTEL → "habitación" everywhere; HOSTAL → mixed
+        // PRIVATE/SHARED rooms; VACATION_RENTAL → listing-driven UX).
+        // CLAUDE.md §35-D7 + RoomCategory (PRIVATE | SHARED) drive unit-
+        // level decisions; PropertyType drives property-level UX hints.
+        property: { select: { id: true, name: true, type: true } },
+      },
     })
 
     if (!staff || !staff.active) throw new UnauthorizedException('Invalid credentials')
@@ -26,6 +34,7 @@ export class AuthService {
       sub: staff.id,
       email: staff.email,
       role: staff.role as any,
+      department: staff.department as any,
       propertyId: staff.propertyId,
       organizationId: staff.organizationId ?? '',
     }
@@ -37,7 +46,10 @@ export class AuthService {
         name: staff.name,
         email: staff.email,
         role: staff.role as any,
+        department: staff.department as any,
         propertyId: staff.propertyId,
+        propertyName: staff.property?.name ?? null,
+        propertyType: (staff.property?.type as any) ?? null,
       },
     }
   }

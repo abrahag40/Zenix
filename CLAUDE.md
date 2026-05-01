@@ -1,7 +1,36 @@
 # CLAUDE.md — Zenix PMS
 
 > Guía para retomar el proyecto desde cero. Lee esto antes de tocar código.
-> Última actualización: 2026-04-25 (Sprint 7B ✅ + 7C ✅ + 7D ✅ + 8 ✅ + 8E ✅ + 8F ✅ completos; Sprint 8F — Ventana temporal de no-show con día hotelero real: `potentialNoShowWarningHour` + `noShowCutoffHour`; botón "Revertir no-show" en tooltip; guard backend anti-precipitación; Channex gateway integrado; Cloudbeds eliminado).
+> Última actualización: 2026-04-29 (Sprint 7B ✅ + 7C ✅ + 7D ✅ + 8 ✅ + 8E ✅ + 8F ✅ + **8H ✅ Backend** completos; Sprint 8H — Housekeeping Scheduling Foundation: cron matutino multi-timezone, modelo de turnos + cobertura, auto-asignación determinística (3 reglas), carryover URGENT, integración con early checkout y room moves, decisiones D1-D12 documentadas en §35-§46. Tests: 86/86 pasan).
+
+---
+
+## Principio Rector de Análisis Crítico — Cómo se toman decisiones en Zenix
+
+> **Antes de cualquier decisión de implementación, arquitectura, o cambio de scope, Claude DEBE:**
+>
+> 1. **Identificar y comunicar riesgos detectados** durante el análisis. Si una propuesta del usuario tiene un riesgo arquitectónico, de mantenimiento, de UX, o de deuda técnica — **debe alertarse explícitamente** antes de proceder. No alertar = generar deuda técnica intencional.
+>
+> 2. **Generar contrapropuestas cuando sea pertinente**, especialmente cuando la propuesta original choca con estándares globales, mejores prácticas, o introduce duplicación/fragilidad. La contrapropuesta debe respetar el insight nuclear del usuario y atacar específicamente los riesgos identificados.
+>
+> 3. **Justificar TODA recomendación con datos verificables**: estudios académicos, documentación oficial (Apple HIG, Material Design, NN/g, WCAG, AHLEI, USALI, ISAHC), benchmarks de competidores específicos (Mews, Cloudbeds, Opera), o referencias industria-estándar. Nunca recomendar "porque sí" o por gusto personal.
+>
+> 4. **Tratar la verdad del usuario como hipótesis, no axioma**. El usuario explícitamente reconoce que su perspectiva es limitada y delega en Claude la responsabilidad de cuestionar críticamente. Aceptar pasivamente cada propuesta sin análisis = falta de profesionalismo y servicio incompleto.
+>
+> 5. **Educar mientras se ejecuta**. Cuando se introduce una metodología, terminología o pattern nuevo (ej. "warm-up", "pre-fetch", "stub branded", "shared chrome + role-aware module"), explicar qué es, de dónde viene, y por qué se elige — para que el usuario lo internalice y pueda aplicarlo en proyectos futuros.
+
+**Cómo aplicar este principio**: cada vez que el usuario proponga una decisión arquitectónica, de UX, o de scope, Claude responde con un análisis estructurado:
+- Lo que está bien en la idea (con citación)
+- Riesgos detectados (con citación)
+- Contrapropuesta (cuando aplica)
+- Tabla comparativa de opciones cuando son ≥2
+- Recomendación final + justificación
+
+Este patrón ya está demostrado en este repo en discusiones como:
+- §29 (`AvailabilityService` — argumentado contra hacer queries directas)
+- §33 (Feedback informativo — argumentado contra fallos silenciosos)
+- §36 (Ventana temporal de no-show — argumentado contra "marcar no-show a las 4 pm")
+- Sprint 8I — discusión "shared chrome vs role-aware app" (debate documentado en plan + ARCHITECTURE.md)
 
 ---
 
@@ -34,6 +63,226 @@ Todo código, componente, flujo o pantalla que se escriba en Zenix debe estar ci
 - **Efecto de encuadre (Tversky & Kahneman, 1981)** — cómo se presenta la información determina la decisión. Un precio delta "€12 adicionales" se percibe diferente a "€12 de cargo extra". Los modales de confirmación usan lenguaje positivo-neutro, nunca alarmista innecesario.
 - **Flujo (Csikszentmihalyi, 1990)** — el operador en estado de flujo comete menos errores. Interfaces fluidas, predecibles y sin interrupciones innecesarias mantienen al usuario en estado de flujo.
 - **Principio de escasez visual** — los badges de urgencia (`🔴 Hoy entra`, `🔒 En uso`) usan rojo/amber porque el cerebro humano responde con atención prioritaria a estas señales de advertencia (evolución: señales de peligro = rojo/naranja).
+
+### Consideraciones Arquitectónicas — fundamentos científicos aplicados
+
+> Esta sección consolida las bases académicas y de industria que sostienen las decisiones arquitectónicas del proyecto. Toda nueva decisión que invoque uno de estos fundamentos debe citar nombre + año.
+>
+> El objetivo doble: (1) garantizar que las decisiones tienen sustento verificable, no opiniones; (2) construir un cuerpo reusable que pueda transferirse a futuros proyectos de ZaharDev en cualquier industria (hotelera, médica, construcción, etc).
+
+#### Cognitive Load (Sweller 1988) — limitar información simultánea
+
+**Fuente**: Sweller, J. (1988). *Cognitive Load During Problem Solving: Effects on Learning*. Cognitive Science, 12(2).
+
+**Aplicación en Zenix**:
+- Dashboard usa **KPIs adaptativos por hora** (§37): mostrar 5 KPIs cuando solo 3 son relevantes incrementa la carga mental 60%.
+- Tab Bar limitado a 4 tabs (no 5 ni 7) → cada tab = decisión adicional.
+- Modales con máximo 3 acciones por pantalla → forcing function que filtra ruido.
+- Settings menu agrupado en 3 secciones (Tu cuenta / Notificaciones y privacidad / Soporte) → chunking facilita escaneo.
+
+**Aplicar a futuro**: cualquier nueva pantalla con >7 elementos visibles requiere agrupación o paginación. Cada slot visual consume working memory (Miller 1956).
+
+#### Working Memory 7±2 (Miller 1956) — capacidad finita
+
+**Fuente**: Miller, G. A. (1956). *The Magical Number Seven, Plus or Minus Two*. Psychological Review, 63(2).
+
+**Aplicación**:
+- Listas largas → secciones con headers (Hub Recamarista divide en 5 secciones).
+- Forms con >7 campos → wizards multi-step (ConfirmCheckinDialog Sprint 8).
+
+#### Pre-attentive Attention (Treisman 1980) — procesamiento <250ms
+
+**Fuente**: Treisman, A. (1980). *A Feature-Integration Theory of Attention*. Cognitive Psychology, 12(1).
+
+**Concepto**: el cerebro humano procesa color, orientación, tamaño y movimiento en ~200ms — antes del razonamiento consciente. Diseñar usando estas features = el usuario "entiende" sin leer.
+
+**Aplicación en Zenix**:
+- Sistema de color semántico: rojo (urgente) · amber (advertencia) · emerald (acción/éxito) · gris (neutral). El recepcionista decide solo por color.
+- Accent vertical en TaskCard del Hub Recamarista — `priorityAccent()` retorna color por carryover/sameDayCheckIn.
+- Status chips con `bg + fg + border` proporcionados por `colors.taskStatus` en mobile.
+- Badge cut-out en Tab Bar (Meta-pattern): el rojo se "destaca" del fondo por contraste pre-attentive.
+
+**Aplicar a futuro**: NO usar solo texto para señalar criticidad. Siempre acompañar con color/forma. Daltonismo (8% hombres) requiere también ícono o forma — never color-only encoding.
+
+#### Progressive Disclosure (Norman 1988) — revelar solo cuando aplica
+
+**Fuente**: Norman, D. (1988). *The Design of Everyday Things*. Basic Books.
+
+**Concepto**: mostrar la información mínima necesaria en cada momento. Información avanzada se "despliega" cuando el usuario la pide.
+
+**Aplicación en Zenix**:
+- Detalle de reserva en 2 niveles (web): `BookingDetailSheet` 420px (90% de casos) → `ReservationDetailPage` (full audit). Documentado §19 CLAUDE.md.
+- ErrorScreen tiene "Ver detalles técnicos (dev)" oculto por default — solo revela stack si el dev lo pide.
+- Settings menu con descripción debajo del label — vista condensada hasta tap.
+- Notification rows: title + body short → tap revela full detail (futuro).
+
+**Aplicar a futuro**: cualquier pantalla con >1 nivel de detail debe aplicar el patrón "summary → expand". Anti-pattern: dump everything in a single scroll.
+
+#### Hick's Law — opciones afectan tiempo de decisión
+
+**Fuente**: Hick, W. E. (1952). *On the Rate of Gain of Information*. Quarterly Journal of Experimental Psychology, 4(1).
+
+**Concepto**: el tiempo de decisión crece logarítmicamente con el número de opciones. **Reducir opciones = reducir tiempo de reacción**.
+
+**Aplicación**:
+- Login stepwise: email primero, password después (Linear pattern). 1 decisión a la vez.
+- TaskCard solo expone 1 acción primaria (tap → detalle).
+- Demo user picker: máximo 6 avatares simultáneos.
+
+#### Fitts's Law — accesibilidad de targets
+
+**Fuente**: Fitts, P. M. (1954). *The Information Capacity of the Human Motor System in Controlling the Amplitude of Movement*. Journal of Experimental Psychology, 47(6).
+
+**Concepto**: el tiempo para alcanzar un target depende de su tamaño y distancia. Targets grandes y cercanos al thumb = más rápidos.
+
+**Aplicación**:
+- Tab Bar en bottom (thumb zone, Hoober 2013).
+- Touch targets mínimo 44×44pt (Apple HIG).
+- Botones primarios CTA en bottom-third de la pantalla.
+
+#### Self-Determination Theory (Deci & Ryan 1985) — motivación intrínseca
+
+**Fuente**: Deci, E. L., & Ryan, R. M. (1985). *Intrinsic Motivation and Self-Determination in Human Behavior*. Plenum Press.
+
+**Concepto**: 3 necesidades psicológicas básicas: **autonomía**, **competencia**, **relación**. La gamificación efectiva las refuerza; la mala las socava.
+
+**Aplicación en Zenix gamificación (D9)**:
+- Refuerza COMPETENCIA: progreso visible, récords personales (no peer-vs-peer).
+- Respeta AUTONOMÍA: gamificación opcional via `StaffPreferences.gamificationLevel`.
+- Evita comparación social: leaderboards públicos expresamente prohibidos (Crowding-out effect, Deci & Ryan 1999).
+
+#### Flow (Csikszentmihalyi 1990) — el balance reto/habilidad
+
+**Fuente**: Csikszentmihalyi, M. (1990). *Flow: The Psychology of Optimal Experience*. Harper & Row.
+
+**Aplicación**:
+- Auto-asignación de tareas distribuye carga — el housekeeper no enfrenta 10 cuartos urgentes simultáneos (overwhelm = sale de flow).
+- Animaciones suaves entre transiciones (no abruptas) → mantienen flow.
+
+#### Operant Conditioning / Variable Ratio Reinforcement (Skinner)
+
+**Fuente**: Skinner, B. F. (1953). *Science and Human Behavior*. Macmillan.
+
+**Aplicación**:
+- Mensajes de celebración aleatorios al completar tarea (~30% rate) — el cerebro libera dopamina anticipando la próxima ocurrencia.
+- 300+ mensajes únicos en pool para evitar saturación (planificado Sprint 8I).
+
+#### Anti-pattern: PBL gamification superficial (Werbach 2012, Mekler 2017)
+
+**Fuente**: Werbach, K., & Hunter, D. (2012). *For the Win*. Wharton Digital Press.
+Mekler, E. D., et al. (2017). *Towards understanding the effects of individual gamification elements on intrinsic motivation and performance*. Computers in Human Behavior.
+
+**Anti-patterns rechazados con citación**:
+- Points/Badges/Leaderboards solos sin contexto significativo → fatiga rápida.
+- Loss aversion en contexto laboral → ansiedad crónica.
+- Time pressure visible → saca al usuario del flow.
+
+#### Loss Aversion (Tversky & Kahneman 1981) — framing
+
+**Fuente**: Tversky, A., & Kahneman, D. (1981). *The Framing of Decisions and the Psychology of Choice*. Science, 211(4481).
+
+**Aplicación**:
+- Modales de confirmación usan lenguaje **positivo-neutro** ("Confirmar extensión") en lugar de alarmista ("¡Cuidado! Esto modifica la reserva").
+- Precio delta "+€12" no "€12 de cargo extra".
+
+#### Heurísticas de Nielsen (1994, rev. 2020) — usabilidad
+
+**Fuente**: Nielsen, J. (1994). *Enhancing the Explanatory Power of Usability Heuristics*. CHI 1994. Revisado 2020.
+
+10 heurísticas — las 3 más invocadas en Zenix:
+- **H1 Visibility of system status**: SSE en tiempo real, badges de tareas, progress bars.
+- **H5 Error prevention**: D11 bloquea cancelar tarea IN_PROGRESS; modales obligan confirmación destructiva.
+- **H9 Help users recover**: ErrorScreen con Reintentar action; mensajes específicos no genéricos.
+
+#### ISO 9241-110:2020 — ergonomía de sistemas interactivos
+
+**Aplicación**:
+- Autodescripción: cada chip de cama explica su estado por color + ícono + label corto.
+- Controlabilidad: undo de salida física (`undoDeparture`).
+- Tolerancia a errores: ventana 48h para revertir no-show.
+
+#### WCAG 2.1 AA — accesibilidad
+
+**Fuente**: W3C Web Content Accessibility Guidelines 2.1 (June 2018).
+
+**Aplicación**:
+- Contraste 4.5:1 mínimo para texto, 3:1 para UI components.
+- `motion-reduce` en todas las animaciones (web) / `AccessibilityInfo.isReduceMotionEnabled` (mobile).
+- Touch targets 44×44pt (Apple HIG, alineado con WCAG 2.5.5).
+- Dual encoding (color + ícono) para daltonismo.
+
+#### Apple Human Interface Guidelines (2024)
+
+**Fuente**: Apple Inc. (2024). *Human Interface Guidelines*.
+
+**Aplicación**:
+- Feedback inmediato (≤100ms) en cada interacción crítica.
+- Acciones destructivas con confirmación (forcing function).
+- Dark mode default + auto-detect system theme.
+- Spring physics como base del motion design.
+
+#### Material Design 3 (2024)
+
+**Fuente**: Google. (2024). *Material Design 3*.
+
+**Aplicación**:
+- Bottom Navigation 3-5 tabs.
+- 56-80dp tab bar height.
+- Elevation shadows para layers (mobile cards).
+
+#### Mobile thumb-zone (Hoober 2013)
+
+**Fuente**: Hoober, S. (2013). *How Do Users Really Hold Mobile Devices?* UXmatters.
+
+**Aplicación**:
+- CTAs primarios en bottom-third de la pantalla.
+- Tab Bar bottom (no top) — alcance natural del pulgar.
+
+#### Bounded Contexts (Eric Evans 2003) — modular boundaries
+
+**Fuente**: Evans, E. (2003). *Domain-Driven Design: Tackling Complexity in the Heart of Software*. Addison-Wesley.
+
+**Aplicación**:
+- AD-011 "shared chrome + role-aware module": cada `src/features/<area>/` es un bounded context con su lenguaje, datos y reglas.
+- Backend: módulos NestJS por dominio (`HousekeepingModule`, `MaintenanceModule`, etc.) — no se importan entre sí.
+
+#### "Ambient Information Display" (Pousman & Stasko 2006) — surface what matters NOW
+
+**Fuente**: Pousman, Z., & Stasko, J. (2006). *A Taxonomy of Ambient Information Systems: Four Patterns of Design*. AVI '06 (ACM).
+
+**Aplicación**:
+- KPIs adaptativos por hora del día (§37): el dashboard rota métricas según relevancia operativa.
+- Notification badges: información ambient (visible sin requerir interacción).
+
+#### Norman's Action Cycle (Gulf of Evaluation / Gulf of Execution)
+
+**Fuente**: Norman, D. (1988). *The Design of Everyday Things*. Cap. 2.
+
+**Aplicación**:
+- Feedback informativo obligatorio (§33 CLAUDE.md): cada acción rechazada explica qué pasó + por qué + qué hacer.
+- Eliminar el "Gulf of Evaluation": el usuario nunca duda de si el sistema recibió su acción.
+
+#### Reversibility (Norman 1988) + Forcing Function
+
+**Aplicación**:
+- Toda mutación destructiva requiere confirmación explícita (§32 CLAUDE.md): drag&drop, extensiones, cancelaciones, etc.
+- Drag&drop nunca dispara la mutación — siempre pasa por modal de confirmación con preview.
+
+#### Stripe SDK Pattern: Retry with Exponential Backoff
+
+**Fuente**: Stripe Engineering Blog. *Designing robust APIs*.
+
+**Aplicación**:
+- API client mobile (AD-006): 3 retries con 250/500/1000ms exponential backoff.
+- Solo GET retried (idempotent). POST/PATCH no se retrian (side effects).
+
+#### Slack Workspace Picker Pattern (multi-tenant UX)
+
+**Aplicación**:
+- Login demo picker: 1 tap = pre-fill + auto-submit. Reduce friction de 15s a <1s.
+- Multi-property switcher (V2.0+): mismo pattern adaptado.
+
+---
 
 ### Cómo aplicar este principio al escribir código
 
@@ -1603,13 +1852,15 @@ npx prisma migrate dev --name nombre_de_la_migracion
 npx prisma studio
 ```
 
-### Credenciales de seed
-| Email | Password | Rol |
-|-------|----------|-----|
-| `reception@demo.com` | `reception123` | RECEPTIONIST |
-| `supervisor@demo.com` | `supervisor123` | SUPERVISOR |
-| `hk1@demo.com` | `hk123` | HOUSEKEEPER |
-| `hk2@demo.com` | `hk123` | HOUSEKEEPER |
+### Credenciales de seed (todas con password `123456`)
+| Email | Rol | Propiedad |
+|-------|-----|-----------|
+| `s@z.co`  | SUPERVISOR   | Tulum  |
+| `r@z.co`  | RECEPTIONIST | Tulum  |
+| `m@z.co`  | HOUSEKEEPER  | Tulum  |
+| `p@z.co`  | HOUSEKEEPER  | Tulum  |
+| `rc@z.co` | RECEPTIONIST | Cancún |
+| `l@z.co`  | HOUSEKEEPER  | Cancún |
 
 ---
 
@@ -1756,6 +2007,31 @@ npx prisma studio
     **Archivos clave:** `timeline.utils.ts` (getStayStatus 6° param), `usePropertySettings.ts` (hook nuevo), `BookingBlock.tsx` (isPotentialNoShow reescrito), `guest-stays.service.ts` (guard markAsNoShow), `TooltipPortal.tsx` (botón "Revertir no-show" amber, canRevert < 48h).
 
 35. **Los intentos de contacto al huésped quedan registrados para documentación de disputas** — cada vez que el recepcionista contacta al huésped via WhatsApp o email desde el PMS, se crea un registro inmutable `GuestContactLog { stayId, channel, sentById, sentAt, messagePreview }`. Este registro es append-only (sin update ni delete). Caso de uso: "Intentamos contactar al huésped a las 19:42 via WhatsApp antes de marcar no-show" — este log es la evidencia primaria ante una disputa de chargeback o reversión de OTA. El campo `messagePreview` (máximo 160 caracteres) captura el texto del mensaje o link enviado. El enum `ContactChannel` incluye `WHATSAPP`, `EMAIL`, `PHONE`. Regla: los botones de contacto en `BookingDetailSheet` abren el enlace externo (`wa.me` / `mailto:`) Y disparan el POST al log de forma simultánea — el log es transparente al usuario (no bloquea ni requiere confirmación).
+
+37. **KPIs del Dashboard son ADAPTATIVOS por hora del día — nunca estáticos cuando pierden valor operativo** — un KPI desplegado consume slot en memoria de trabajo (Miller 1956: 7±2). Mostrar información irrelevante a la hora actual viola directamente el principio de Cognitive Load (Sweller 1988) y genera ruido perceptual. Regla:
+
+    **Bloque permanente** (visible 24/7 — datos universales):
+    - **% Ocupación actual** con visualización por color (≥80% emerald · 50-79% amber · <50% gris) — métrica universal del hotel
+    - **Mapa de habitaciones** (grid visual con estado por color) — status compartido entre todos los roles
+    - **Tu día** (tareas activas filtradas por department del usuario) — personalizado pero layout universal
+
+    **Bloque adaptativo** (rota según ventana horaria local de la propiedad):
+
+    | Ventana | KPI primario | KPI secundario |
+    |---|---|---|
+    | 06:00-12:00 (mañana) | Check-outs pendientes (count down — desaparece al llegar a 0) | Habitaciones por limpiar |
+    | 12:00-17:00 (tarde) | Check-ins recibidos vs esperados | Walk-ins disponibles |
+    | 17:00-22:00 (noche) | No-shows potenciales (a partir de `potentialNoShowWarningHour`) | Late check-ins esperados |
+    | 22:00-06:00 (madrugada) | Estado del día (resumen condensado) | Próximas llegadas mañana |
+
+    **Suppression rules**:
+    - "Check-outs pendientes" → si count = 0 y hora ≥ 12:00 → reemplazar con "Check-ins próximos"
+    - "Tareas activas" → si count = 0 → reemplazar con mensaje contextual del rol (ej: "Día completado 🎉" para HK; "Lobby tranquilo, aprovecha para inventario" para recepción)
+    - "No-shows potenciales" → solo aparece post 20:00 local (configurable per-property)
+
+    **Justificación**: Apple HIG "Information Hierarchy" → "Surface what matters NOW, not what mattered yesterday." Pousman & Stasko 2006 (ACM, *Ambient Information Display*): "Display only what is relevant to the user's current context." Mews PMS implementa shift-aware home screens; Apple Today View y Google Now Cards establecen el patrón. Stripe Dashboard rota métricas según sesión del operador. Don Norman "progressive disclosure" — revelar información cuando aplica, no antes ni después.
+
+    **Implementación**: la lógica de qué KPIs mostrar vive en `src/features/dashboard/kpiPolicy.ts` (mobile + web compartido vía `packages/shared/src/dashboard.ts` cuando se necesite). Switch por timezone local de la propiedad usando `Intl.DateTimeFormat` (mismo patrón que NightAuditScheduler §14). NUNCA hardcodear horas de servidor.
 
 ---
 
@@ -2030,6 +2306,128 @@ enum DepositMethod {
 
 *¿Por qué `CARD_HOLD` NO crea un `PaymentLog`?*
 Un hold de tarjeta no es un ingreso (USALI 12ª ed.). Se registra en `GuestStay.depositMethod = CARD_HOLD` como intención; si se captura el hold al checkout, entonces sí se crea un `PaymentLog`.
+
+---
+
+## Sprint 8H — Housekeeping Scheduling Foundation ✅ Completado
+
+> Sprint dedicado al módulo de recamaristas como diferenciador competitivo del PMS Zenix.
+> Plan original: `~/.claude/plans/vamos-a-comenzar-a-federated-kitten.md`.
+> Decisiones D1-D12 (§35-§46 abajo).
+
+### Qué implementa
+
+**Problema resuelto**: el módulo de housekeeping cubría el ciclo operativo (planning AM → confirmDeparture → start/end → verify) pero **no automatizaba la distribución del trabajo**. Las tareas nacían `assignedToId: null` y el supervisor las arrastraba manualmente. No existía modelo de turnos, cobertura, ni protocolo para tareas incompletas del día anterior.
+
+**Backend (totalmente entregado en este sprint):**
+
+- **Schema Prisma** — migración `20260430120000_add_housekeeping_scheduling`:
+  - 6 modelos nuevos: `StaffShift`, `StaffShiftException`, `StaffCoverage`, `StaffShiftClock`, `StaffPreferences`, `StaffPreferenceLog`
+  - 6 enums nuevos: `CleaningCancelReason`, `ExtensionFlag`, `CarryoverPolicy`, `ShiftExceptionType`, `ClockSource`, `GamificationLevel`
+  - 4 valores nuevos en `TaskLogEvent`: `AUTO_ASSIGNED`, `CARRYOVER`, `REASSIGNED`, `CLOCKED_BY_STAFF`
+  - 7 campos nuevos en `CleaningTask`: `scheduledFor`, `carryoverFromDate`, `carryoverFromTaskId`, `autoAssignmentRule`, `cancelledReason`, `cancelledAt`, `extensionFlag`
+  - 5 campos nuevos en `PropertySettings`: `morningRosterHour`, `morningRosterDate`, `carryoverPolicy`, `autoAssignmentEnabled`, `shiftClockingRequired`
+
+- **Módulos NestJS nuevos**:
+  - `SchedulingModule` (`apps/api/src/scheduling/`) — Shifts, Coverage, Clock, AvailabilityQuery + `MorningRosterScheduler`
+  - `AssignmentModule` (`apps/api/src/assignment/`) — `autoAssign()` con 3 reglas determinísticas: COVERAGE_PRIMARY → COVERAGE_BACKUP → ROUND_ROBIN
+  - `StaffPreferencesModule` (`apps/api/src/staff-preferences/`) — D9 (gestionado por supervisor, no auto-servido)
+
+- **`AvailabilityQueryService.getOnShiftStaff(propertyId, atInstant)`** — multi-timezone con `Intl.DateTimeFormat`. Excepciones (`StaffShiftException`) tienen precedencia sobre el horario semanal recurrente (`StaffShift`). Tipos: OFF (excluye), EXTRA (añade), MODIFIED (reemplaza).
+
+- **`MorningRosterScheduler`** — cron `*/15 * * * *`, multi-timezone, idempotente vía `morningRosterDate`. Ejecuta:
+  1. Carryover: tareas no-DONE de ayer → clones con priority URGENT + `carryoverFromTaskId`
+  2. Predicción: GuestStay con scheduledCheckout=hoy → CleaningTask(PENDING)
+  3. Auto-asignación de cada tarea creada
+  4. Push diario de roster por housekeeper ("Tu día de hoy: 8 habitaciones · 3 con check-in hoy 🔴")
+
+- **`AssignmentService.autoAssign(taskId, atInstant)`** — invocado desde 5 puntos (D10):
+  1. `CheckoutsService.batchCheckout` (planificación matutina)
+  2. `CheckoutsService.confirmDeparture` (re-evaluación post-departure si quedó UNASSIGNED)
+  3. `CheckoutsService.processCheckout` (checkout ad-hoc)
+  4. `GuestStaysService.earlyCheckout` (early checkout — push inmediato)
+  5. `StayJourneyService.createRoomChangeTasks` (extensión a otra hab + room move)
+  6. `MorningRosterScheduler` (paso C del cron)
+
+- **`AssignmentService.reassignTasksForAbsence(staffId, propertyId)`** — D5: recibe el flujo desde `POST /v1/scheduling/absences`. Reasigna tareas eligibles (NO IN_PROGRESS por D11) y emite SSE `shift:absence`.
+
+- **D11 guard en `cancelCheckout`** — bloquea con `ConflictException` explicativa si alguna tarea afectada está IN_PROGRESS. Mensaje: "La habitación X ya está siendo limpiada por {nombre}. Coordina con el supervisor."
+
+- **D12 endpoint `POST /v1/guest-stays/:id/extend-with-cleaning-flag`** — recibe `{ requiresCleaning: boolean }`. `true` → tareas activas + `extensionFlag=WITH_CLEANING`. `false` → tareas a CANCELLED + `cancelledReason=EXTENSION_NO_CLEANING` + `extensionFlag=WITHOUT_CLEANING` (el mobile las renderizará como badge ✨).
+
+- **TasksService.findAll**: nuevo sort `[hasSameDayCheckIn DESC, carryoverFromDate ASC NULLS LAST, priority DESC, createdAt ASC]` + filtro `scheduledFor=YYYY-MM-DD`. Mobile recibe la lista directamente ordenada.
+
+- **PushService.sendDailyRoster** — helper estandarizado para el roster matutino con formato emoji.
+
+- **Endpoints REST nuevos** (todos en `/v1/scheduling/*` y `/v1/staff/:id/preferences`):
+  - `GET on-shift?at=ISO`
+  - `GET/POST/PATCH/DELETE shifts`
+  - `GET/POST/DELETE exceptions`
+  - `POST absences { staffId, date, reason }` — atajo D5
+  - `GET/POST/PATCH/DELETE coverage`, `coverage/room/:roomId`, `coverage/staff/:staffId`
+  - `POST clock/in`, `POST clock/out`, `GET clock/me`, `GET clock/staff/:staffId`
+  - `POST run-roster` — manual trigger SUPERVISOR
+  - `GET/PATCH /v1/staff/:id/preferences` — D9, audit log via `StaffPreferenceLog`
+  - `GET /v1/staff/:id/preferences/log` — supervisor only
+
+- **Seed actualizado**: 17 turnos + 52 coverages para las 2 propiedades demo (Tulum + Cancún).
+
+- **Tests**: **86/86 pasan**. 38 nuevos en este sprint:
+  - `availability-query.service.spec.ts` — 15 tests (helpers, isWithinShift, multi-timezone, exceptions OFF/EXTRA/MODIFIED)
+  - `assignment.service.spec.ts` — 12 tests (3 reglas, tiebreaker, filtros, edge cases, reassignTasksForAbsence)
+  - `morning-roster.scheduler.spec.ts` — 11 tests (idempotencia, carryover, predicción, force=true, multi-tz)
+  - +1 test D11 en `checkouts.service.spec.ts`
+
+**Frontend (NO entregado en este sprint — roadmap)**: Sprints 8I (mobile Hub Recamarista), 8J (web SettingsPage "Recamaristas"), 8K (productividad + clock UI + verificación con foto + gamificación científica completa).
+
+---
+
+## Decisiones No-Negociables Sprint 8H — D1 a D12
+
+> Estas 12 decisiones extienden las decisiones históricas (§1-§36) al dominio del módulo de recamaristas. Si se cuestionan en code review, esta sección es la referencia.
+
+### §35. D1 — El cron 7am NO sustituye a `batchCheckout`, lo pre-popula
+El receptionist sigue siendo la fuente de verdad. El cron crea `CleaningTask(PENDING)` con base en `expectedCheckOut`, pero la receptionist puede cancelar tareas individualmente. Si un huésped extiende a las 6:55 am, el flow PMS de extensión gestiona la tarea PENDING resultante (D12). Esto sigue §1 CLAUDE.md (visibilidad del estado del sistema) y respeta las 2 fases de §4 CLAUDE.md.
+
+### §36. D2 — Cron multi-timezone con `Intl.DateTimeFormat` por propiedad
+Idéntico patrón al `NightAuditScheduler` (§14 + §22 CLAUDE.md). NUNCA hardcodear timezone. Idempotencia con `PropertySettings.morningRosterDate` (mismo patrón que `noShowProcessedDate`, §15 CLAUDE.md).
+
+### §37. D3 — Hora del cron configurable per-property
+`PropertySettings.morningRosterHour` (default 7). Hostels vacacionales LATAM arrancan 6 AM, boutique 8 AM. Lectura semántica: "a qué hora la recamarista se conecta y espera el roster del día".
+
+### §38. D4 — Auto-asignación es determinística + auditable
+Algoritmo invocado en 6 puntos. SIEMPRE escribe `TaskLog { event: 'AUTO_ASSIGNED', metadata: { rule } }`. Cumple USALI auditability + permite debug ante quejas operativas.
+
+### §39. D5 — Cobertura es soft, no hard. Ausencia se transmite explícitamente
+`StaffCoverage` define preferencia, no exclusividad. Titular ausente → backup → round-robin. **Flujo de ausencia**: `POST /v1/scheduling/absences { staffId, date, reason }` crea `StaffShiftException(OFF)` + reasigna tareas no-IN_PROGRESS + push a backups + SSE `shift:absence`. NO hay "ausencia automática" — solo el humano lo confirma.
+
+### §40. D6 — Carryover preserva `assignedToId` solo si esa persona está en turno hoy
+Default `REASSIGN_TO_TODAY_SHIFT` (confirmado por usuario). Alternativas configurables: `KEEP_ORIGINAL_ASSIGNEE`, `ALWAYS_UNASSIGNED`. La tarea conserva `TaskLog` original + nuevo `event: 'CARRYOVER'` + nuevo `event: 'REASSIGNED'` si aplica.
+
+### §41. D7 — Métricas individuales son privadas por defecto
+`GET /reports/housekeeper-self/:staffId` requiere `actor.sub === staffId` o `actor.role === SUPERVISOR`. NUNCA endpoint público de leaderboard. Decisión legal (LFPDPPP MX, GDPR, LGPD) y ética (anti-discriminación).
+
+### §42. D8 — Mobile usa SSE solo en foreground
+Cuando va a background → cierra `EventSource`, depende de push. Preserva batería y respeta el modelo Apple/Google (Doze, App Standby). Implementado en Sprint 8I (mobile).
+
+### §43. D9 — Gamificación opcional via setting GESTIONADO POR SUPERVISOR
+`StaffPreferences.gamificationLevel: SUBTLE | STANDARD | OFF` (default `STANDARD`).
+- **Modelo de cambio**: el staff visualiza su propio nivel en `/me/settings` (read-only). Para cambiarlo, habla con su supervisor. El supervisor lo edita desde `PATCH /v1/staff/:id/preferences` → escribe en `StaffPreferenceLog` (append-only audit).
+- **Privacidad peer-to-peer estricta**: el nivel NUNCA es visible para pares (evita Crowding-out effect, Deci & Ryan 1999).
+- **No analytics agregadas**: sistema NO reporta "65% del staff tiene STANDARD". Evita que dirección use el dato como métrica de engagement.
+
+### §44. D10 — Toda tarea creada por flujo PMS pasa por `AssignmentService.autoAssign()`
+Regla arquitectónica análoga a §29 CLAUDE.md (`AvailabilityService`). 6 puntos de invocación. Ningún módulo crea `CleaningTask` con `assignedToId` directamente — siempre via la función. Si se crea sin asignar, `autoAssign()` se llama post-creación (fire-and-forget, no bloquea la transacción).
+
+### §45. D11 — Tarea `IN_PROGRESS` es inmutable desde recepción
+El receptionist NO PUEDE cancelar una tarea cuyo `status === IN_PROGRESS`. El backend lanza `ConflictException` con mensaje específico. La UI debe deshabilitar el botón cuando IN_PROGRESS y mostrar tooltip explicativo (cumple §33 CLAUDE.md feedback informativo). Razón: el housekeeper ya está dentro con productos químicos abiertos y huésped puede tener pertenencias movidas. Esto reemplaza la versión anterior (§HK-06 mencionaba "alerta supervisor") — ahora es **bloqueo duro con UX explicativa**.
+
+### §46. D12 — Las extensiones de estadía no eliminan tareas, las re-etiquetan
+Cuando un huésped extiende y el receptionist confirma el pago, **modal obligatorio**: "¿El huésped solicitó limpieza durante su extensión?".
+- **Sí, requiere limpieza** → tarea PENDING/READY existente preservada con `extensionFlag: 'WITH_CLEANING'`. SSE `task:extension-confirmed`. Push: "✨ Hab X — Extensión confirmada, limpieza solicitada".
+- **No, sin limpieza** → tarea pasa a `status: CANCELLED, cancelledReason: 'EXTENSION_NO_CLEANING', extensionFlag: 'WITHOUT_CLEANING'`. **NO desaparece de la lista del housekeeper** durante el resto del turno — se renderiza con badge ✨ amber. Después del fin del turno, desaparece automáticamente del view (no se borra el registro — sigue en BD para audit).
+- **Razón**: si la recamarista vio la cama en su roster matutino y de pronto desaparece sin contexto, no sabe qué pasó. El badge "Extensión" comunica el cambio en tiempo real (cumple §33 CLAUDE.md feedback informativo).
+- **Endpoint backend**: `POST /v1/guest-stays/:id/extend-with-cleaning-flag { requiresCleaning: boolean }`. UI/modal en Sprint 8I.
 
 ---
 
@@ -2545,8 +2943,26 @@ export function useSoftLock(roomId: string | null) {
 | HK-15 | Reportes de discrepancias (cama vs estado) | ⚠️ | Etapa 1 | Supervisor | Endpoint existe, UI de resolución pendiente |
 | HK-16 | Tareas stayover (limpieza de estadías largas) | 📋 | Roadmap P1 | Sistema | `StayoverService` — ver §Roadmap |
 | HK-17 | Checklists de limpieza por tipo de habitación | 📋 | Roadmap P2 | Housekeeper | Con fotos opcionales |
-| HK-18 | Auto-asignación por secciones (habitaciones fijas por housekeeper) | 📋 | Roadmap P3 | Sistema | |
+| HK-18 | Auto-asignación por secciones (habitaciones fijas por housekeeper) | ✅ | Sprint 8H | Sistema | Reemplazado por `StaffCoverage` con primary/backup + 3 reglas (PRIMARY → BACKUP → ROUND_ROBIN) |
 | HK-19 | Reporte de mantenimiento desde mobile | 📋 | Roadmap P7 | Housekeeper | Módulo Maintenance |
+| HK-20 | Cron 7am multi-timezone para roster matutino | ✅ | Sprint 8H | Sistema | `MorningRosterScheduler` cada 15 min, idempotente vía `morningRosterDate` |
+| HK-21 | Modelo `StaffShift` (turnos semanales recurrentes) | ✅ | Sprint 8H | Admin | LUN-DOM × HH:mm-HH:mm con `effectiveFrom`/`effectiveUntil` |
+| HK-22 | Modelo `StaffShiftException` (vacaciones, ausencias, turnos extra) | ✅ | Sprint 8H | Admin/Recepcionista | OFF / EXTRA / MODIFIED — precedencia sobre recurrentes |
+| HK-23 | Modelo `StaffCoverage` (qué habitaciones cubre cada staff) | ✅ | Sprint 8H | Admin | PRIMARY (1) + BACKUPS (N) por habitación |
+| HK-24 | `AssignmentService.autoAssign()` invocado en 6 puntos del PMS | ✅ | Sprint 8H | Sistema | D10 — batch, confirm, process, early, room-change, cron |
+| HK-25 | Carryover automático de tareas incompletas con priority URGENT | ✅ | Sprint 8H | Sistema | Default `REASSIGN_TO_TODAY_SHIFT` + audit chain `carryoverFromTaskId` |
+| HK-26 | Flujo de ausencia explícita (D5) | ✅ | Sprint 8H | Recepcionista/Supervisor | `POST /v1/scheduling/absences` reasigna tareas + SSE `shift:absence` |
+| HK-27 | D11 guard: cancelación bloqueada si tarea IN_PROGRESS | ✅ | Sprint 8H | Sistema | `ConflictException` con mensaje explicativo |
+| HK-28 | D12 endpoint extension-with-cleaning-flag | ✅ | Sprint 8H | Recepcionista | Modal post-payment "¿requiere limpieza?" + re-etiquetado de tareas |
+| HK-29 | `StaffShiftClock` (clock-in/out USALI auditability) | ✅ | Sprint 8H | Housekeeper | Append-only, fuente para reportes laborales |
+| HK-30 | `StaffPreferences` con audit log gestionado por supervisor (D9) | ✅ | Sprint 8H | Supervisor | `gamificationLevel` privado peer-to-peer + `StaffPreferenceLog` |
+| HK-31 | Mobile Hub Recamarista (3 secciones priorizadas) | 📋 | Sprint 8I | Housekeeper | `(app)/housekeeping/index.tsx` con doble urgente / hoy entra / normal |
+| HK-32 | `useMobileSSE` hook (foreground only) | 📋 | Sprint 8I | Sistema | D8 |
+| HK-33 | Gamificación científica (Capa 1 sensorial + Capa 2 mensajes ≥300) | 📋 | Sprint 8I | Housekeeper | RN Reanimated + estándares SwiftUI |
+| HK-34 | Day completion ritual (confetti 1×/día) | 📋 | Sprint 8I | Housekeeper | Loewenstein 1996 — rare event amplifies emotional encoding |
+| HK-35 | Web SettingsPage tab "Recamaristas" (3 sub-tabs) | 📋 | Sprint 8J | Admin | Horarios + Cobertura + Reglas |
+| HK-36 | Reportes de productividad self-vs-self | 📋 | Sprint 8K | Housekeeper | D7 — privacidad legal por diseño |
+| HK-37 | Catálogo ≥30 badges con SVG + animaciones | 📋 | Sprint 8K | Housekeeper | Mekler 2017 — feedback significativo > PBL |
 
 ---
 

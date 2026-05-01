@@ -92,10 +92,30 @@ export class TasksService {
 
     if (query.roomId) where.unit = { ...where.unit, roomId: query.roomId }
 
+    // Filtro scheduledFor (Sprint 8H — mobile roster diario)
+    if (query.scheduledFor) {
+      where.scheduledFor = new Date(`${query.scheduledFor}T00:00:00.000Z`)
+    }
+
+    /**
+     * Sort prioritario (Sprint 8H — espejo del sort que el mobile aplica visualmente):
+     *   1. hasSameDayCheckIn DESC  → "Hoy entra" arriba (independiente de priority enum)
+     *   2. carryoverFromDate ASC, NULLS LAST → carryover (de ayer) primero
+     *   3. priority DESC           → URGENT > HIGH > MEDIUM > LOW
+     *   4. createdAt ASC           → orden estable, FIFO en empates
+     *
+     * Prisma no soporta nativamente "NULLS LAST" en MongoDB pero sí en PostgreSQL
+     * via raw SQL. Usamos `{ sort: 'asc', nulls: 'last' }` (Prisma 5.x+).
+     */
     return this.prisma.cleaningTask.findMany({
       where,
       include: TASK_INCLUDE,
-      orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
+      orderBy: [
+        { hasSameDayCheckIn: 'desc' },
+        { carryoverFromDate: { sort: 'asc', nulls: 'last' } },
+        { priority: 'desc' },
+        { createdAt: 'asc' },
+      ],
     })
   }
 

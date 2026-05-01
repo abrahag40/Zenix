@@ -11,6 +11,7 @@ import { eachDayOfInterval, isBefore, startOfDay, subDays } from 'date-fns'
 import { NotificationsService } from '../../notifications/notifications.service'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AvailabilityService } from '../availability/availability.service'
+import { AssignmentService } from '../../assignment/assignment.service'
 import {
   ExtendNewRoomDto,
   ExtendSameRoomDto,
@@ -37,6 +38,7 @@ export class StayJourneyService {
     private readonly events: EventEmitter2,
     private readonly notifications: NotificationsService,
     private readonly availability: AvailabilityService,
+    private readonly assignment: AssignmentService,
   ) {}
 
   async findById(journeyId: string) {
@@ -801,14 +803,30 @@ export class StayJourneyService {
 
     if (units.length === 0) return
 
-    await this.prisma.cleaningTask.createMany({
-      data: units.map((unit) => ({
-        unitId: unit.id,
-        taskType: 'CLEANING' as const,
-        status: 'PENDING' as const,
-        priority: 'MEDIUM' as const,
-      })),
-    })
+    const today = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`)
+    const newTaskIds: string[] = []
+    for (const unit of units) {
+      const task = await this.prisma.cleaningTask.create({
+        data: {
+          unitId: unit.id,
+          taskType: 'CLEANING',
+          status: 'PENDING',
+          priority: 'MEDIUM',
+          scheduledFor: today,
+        },
+      })
+      newTaskIds.push(task.id)
+      await this.prisma.taskLog.create({
+        data: { taskId: task.id, staffId: null, event: 'CREATED', note: 'room change' },
+      })
+    }
+
+    // Auto-asignación post-creación (D10) — fire-and-forget.
+    for (const taskId of newTaskIds) {
+      this.assignment.autoAssign(taskId).catch((err: Error) =>
+        this.logger.warn(`autoAssign failed (room change) task=${taskId}: ${err.message}`),
+      )
+    }
 
     this.notifications.emit(propertyId, 'task:planned', { roomId })
   }

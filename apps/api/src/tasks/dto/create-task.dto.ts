@@ -43,4 +43,9 @@ export class QueryTaskDto {
   @IsOptional()
   @IsUUID()
   roomId?: string
+
+  /** Filtra tareas con scheduledFor=YYYY-MM-DD (Sprint 8H — mobile roster del día). */
+  @IsOptional()
+  @IsString()
+  scheduledFor?: string
 }

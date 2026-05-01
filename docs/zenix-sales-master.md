@@ -209,6 +209,131 @@ La verificación es un click: la tarea pasa de "Terminada" a "Verificada". Queda
 
 ---
 
+### Cron matutino automático — el roster del día llega solo a las 7 AM
+
+> En PMS tradicionales el supervisor llega cada mañana, abre la planilla manual, y reparte habitaciones a mano. En Zenix el sistema hace ese trabajo solo, y respeta cada zona horaria.
+
+A las 7:00 AM (configurable per-property — los hostels vacacionales arrancan 6 AM, los boutique 8 AM), el sistema:
+
+1. **Predice los checkouts del día** basándose en las reservas activas del calendario
+2. **Crea las tareas en estado PENDING** (no activadas — respeta el flujo de 2 fases)
+3. **Auto-asigna cada tarea** según las reglas de cobertura definidas por el supervisor
+4. **Notifica a cada housekeeper** con un resumen tipo "☀️ Tu día de hoy: 8 habitaciones · 3 con check-in mismo día 🔴"
+
+**Multi-timezone real**: si tu cadena tiene hoteles en Cancún (UTC-5), Bogotá (UTC-5), y Madrid (UTC+1), cada uno recibe su roster a las 7 AM **locales**. No 7 AM UTC. No "7 AM del servidor". Locales reales. Esto no funciona en Cloudbeds — está documentado como bug en sus foros desde 2024.
+
+**Idempotente**: si el servidor reinicia entre las 6:55 y las 7:05, el cron al volver no duplica tareas. Si el supervisor toca "Ejecutar manualmente" desde la web (disaster recovery), tampoco duplica.
+
+---
+
+### Auto-asignación determinística — sin IA black-box
+
+> "Pero entonces no puedes saber por qué se asignó una habitación a Pedro y no a María." Falso. Toda asignación queda auditada con la regla que disparó.
+
+Zenix no usa IA opaca para asignar tareas. Usa 3 reglas en orden de precedencia:
+
+1. **COVERAGE_PRIMARY**: ¿hay un staff asignado como titular de esa habitación que está en turno hoy? → asigna a esa persona.
+2. **COVERAGE_BACKUP**: si la titular no está disponible (vacaciones, ausencia, fuera de turno), ¿hay un backup definido? → asigna al backup.
+3. **ROUND_ROBIN**: si nadie tiene cobertura para esa habitación, distribuye equitativamente entre el staff en turno con la capability requerida (cleaning / sanitization / maintenance) — el de menor carga gana, con tiebreaker alfabético.
+
+Cada asignación escribe un `TaskLog` con la regla que disparó. El supervisor puede preguntar "¿por qué se asignó esto a Pedro?" y el sistema responde "regla=COVERAGE_BACKUP, hay 0 primaries en turno". Audit trail completo.
+
+**Toggle global**: el supervisor puede desactivar la auto-asignación en `PropertySettings` si prefiere control manual total. Default: activada.
+
+---
+
+### Modelo de turnos + cobertura — la plantilla del personal vive en el sistema
+
+Antes Zenix: la lista de "quién trabaja qué día y a qué horas" vivía en una libreta del supervisor, en un grupo de WhatsApp, o peor aún, en la cabeza de la persona. Cuando faltaba alguien, todo se improvisaba.
+
+Ahora:
+
+- **`StaffShift`** — turnos semanales recurrentes. María: Lun-Vie 7-15. Pedro: Mar-Sáb 14-22. Definido una vez, válido para siempre.
+- **`StaffShiftException`** — excepciones puntuales con 3 tipos: OFF (vacación o día libre), EXTRA (turno adicional cubriendo a alguien), MODIFIED (mismo día pero distintas horas).
+- **`StaffCoverage`** — qué habitaciones cubre cada housekeeper por defecto. PRIMARY (titular) + N BACKUPS (suplentes) por habitación.
+
+**Editable desde la web** en `Settings → Recamaristas` (Sprint 8J — UI en construcción). El backend ya está listo y todos los endpoints expuestos.
+
+---
+
+### Carryover automático — la tarea de ayer no se pierde
+
+> Pasaron las 22:00, una recamarista se fue sin terminar el cuarto B3. ¿Qué hace tu PMS actual? Nada. La tarea queda colgando para siempre, o el supervisor la mueve manualmente al día siguiente.
+
+Zenix lo resuelve sin intervención humana:
+
+A las 7:00 AM del día siguiente, el cron detecta tareas que quedaron sin terminar (status NO IN [DONE, VERIFIED, CANCELLED]) y:
+
+1. **Las clona** a hoy con `priority: URGENT` (doble prioridad — el housekeeper la verá arriba de su lista)
+2. **Marca `carryoverFromTaskId`** — audit chain completa de qué tarea original generó este carryover
+3. **Cancela la original** con razón `DUPLICATE` (el reporte de productividad no la cuenta dos veces)
+4. **Auto-asigna a quien esté en turno hoy** (configurable: política `REASSIGN_TO_TODAY_SHIFT` por default)
+
+**Política configurable** por propiedad: `REASSIGN_TO_TODAY_SHIFT` (default — se asigna a quien venga hoy), `KEEP_ORIGINAL_ASSIGNEE` (la original tiene que terminarla), `ALWAYS_UNASSIGNED` (supervisor reasigna manual).
+
+**Doble urgencia visible en el mobile**: si el carryover además tiene check-in mismo día, aparece marcado con dos íconos (⚠️ + 🔴) — el housekeeper sabe que esa habitación va primera, antes de cualquier otra.
+
+---
+
+### Marcado de ausencia — un click reasigna todo el día
+
+> Recepción llamó a las 6 AM: "María no viene hoy, está enferma." En Cloudbeds: el supervisor abre tarea por tarea para reasignarlas. En Zenix: 1 click.
+
+Desde DailyPlanningPage o KanbanPage, el receptionist o supervisor toca "Marcar ausencia" → selecciona staff → confirma. El sistema:
+
+1. Crea `StaffShiftException(OFF)` para hoy
+2. Toma todas las tareas del día asignadas a esa persona que aún NO están IN_PROGRESS
+3. Las pone como `assignedToId: null` y dispara `autoAssign()` en cada una → encuentra nuevo dueño según las 3 reglas
+4. Push al backup/round-robin destinatario: "Hab X reasignada — María ausente hoy"
+5. SSE `shift:absence` → todas las pantallas se actualizan en tiempo real
+
+Las tareas IN_PROGRESS no se tocan (ver siguiente sección — D11).
+
+---
+
+### Bloqueo duro a cancelaciones operativas peligrosas
+
+> "Recepción canceló mi limpieza a media faena." Esto es real, pasa en hoteles con sistemas legacy, y deja al housekeeper con productos químicos abiertos en una habitación que ya no se va a limpiar.
+
+**En Zenix esto NO PUEDE pasar.** Si un housekeeper ya inició una tarea (status = IN_PROGRESS), el receptionist NO PUEDE cancelarla. El sistema rechaza con un mensaje específico:
+
+> "La habitación 203 ya está siendo limpiada por María. Coordina directamente con el supervisor."
+
+La UI deshabilita el botón con tooltip explicativo. Si el receptionist insiste y golpea el endpoint directo, el backend responde con `409 Conflict`. Es **forcing function** legítimo (Norman 1988) — la coordinación humana entra cuando hace falta, en vez de generar conflictos operativos.
+
+---
+
+### Manejo elegante de extensiones — la limpieza no desaparece sin contexto
+
+Un huésped extiende su estadía 1 noche más. Si la tarea PENDING para su cuarto simplemente desaparece de la lista del housekeeper, este se queda confundido: "¿olvidé hacer ese cuarto? ¿lo cancelaron por error?".
+
+Zenix lo resuelve con un **modal obligatorio post-pago**:
+
+> "El huésped Juan García extendió hasta el 5 de mayo. ¿Solicitó limpieza durante la extensión?"
+>
+> [Sí, requiere limpieza] · [No, sin limpieza]
+
+- **Si "Sí"**: la tarea se mantiene activa, el housekeeper recibe push: "✨ Hab 105 — Extensión confirmada, limpieza solicitada".
+- **Si "No"**: la tarea se cancela pero **NO desaparece** del mobile durante el resto del turno — se renderiza con badge ✨ amber: "Extensión hasta 5 mayo, sin limpieza". El housekeeper sabe exactamente qué pasó, en tiempo real.
+
+Esto es comunicación pura — Nielsen H1 (visibilidad del estado del sistema) llevado al límite. Cloudbeds y Mews no tienen este flujo. La tarea simplemente desaparece sin explicación.
+
+---
+
+### Clock-in / clock-out USALI-compliant
+
+Para hoteles que requieren auditar horas reales trabajadas (cumplimiento OSHA, ISO 45001, leyes laborales LATAM), Zenix incluye registro de clock-in / clock-out append-only:
+
+- El housekeeper toca "Iniciar turno" en su mobile cuando llega
+- Al final del turno toca "Cerrar turno"
+- El registro queda inmutable (no se edita, solo se complementa con un nuevo registro de corrección si fue mal cerrado)
+- Source: MOBILE / WEB / MANUAL_SUPERVISOR
+- Reportes de productividad usan estos timestamps reales, no horas planificadas
+
+Esto cierra el último gap fiscal-laboral del módulo. Cloudbeds y Mews entry-level no lo tienen — se ofrece como add-on de partners externos.
+
+---
+
 ## Módulo 2 — Gestión de No-Shows
 
 > Este es el módulo donde Zenix supera a todos los competidores, incluyendo Opera Cloud y Mews.

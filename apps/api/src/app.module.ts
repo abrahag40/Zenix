@@ -33,6 +33,10 @@ import { BlocksModule } from './blocks/blocks.module'
 import { PaymentsModule } from './payments/payments.module'
 import { SoftLockModule } from './soft-lock/soft-lock.module'
 import { NotificationCenterModule } from './notification-center/notification-center.module'
+// Sprint 8H — Housekeeping scheduling foundation
+import { SchedulingModule } from './scheduling/scheduling.module'
+import { AssignmentModule } from './assignment/assignment.module'
+import { StaffPreferencesModule } from './staff-preferences/staff-preferences.module'
 import { TenantContextMiddleware } from './common/tenant-context.middleware'
 import { TenantContextService } from './common/tenant-context.service'
 import { TenantGuard } from './common/guards/tenant.guard'
@@ -76,6 +80,10 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
     PaymentsModule,
     SoftLockModule,
     NotificationCenterModule,
+    // Sprint 8H — Housekeeping scheduling foundation
+    SchedulingModule,
+    AssignmentModule,
+    StaffPreferencesModule,
   ],
   providers: [
     TenantContextService,

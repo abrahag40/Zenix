@@ -21,6 +21,7 @@ import { VoidPaymentDto } from './dto/void-payment.dto'
 import { StayJourneyService } from '../stay-journeys/stay-journeys.service'
 import { ChannexGateway } from '../../integrations/channex/channex.gateway'
 import { NotificationCenterService } from '../../notification-center/notification-center.service'
+import { AssignmentService } from '../../assignment/assignment.service'
 
 /** Returns the local date string (YYYY-MM-DD) for a given UTC date in the specified IANA timezone. */
 function toLocalDate(date: Date, timezone: string): string {
@@ -55,6 +56,7 @@ export class GuestStaysService {
     private readonly journeyService: StayJourneyService,
     private readonly channex: ChannexGateway,
     private readonly notifCenter: NotificationCenterService,
+    private readonly assignment: AssignmentService,
   ) {}
 
   async create(dto: CreateGuestStayDto, actorId: string) {
@@ -441,6 +443,7 @@ export class GuestStaysService {
     }
 
     // Transacción principal: actualizar stay + crear housekeeping records
+    const newCleaningTaskIds: string[] = []
     await this.prisma.$transaction(async (tx) => {
       // 1. Marcar GuestStay como early-checkout
       await tx.guestStay.update({
@@ -474,6 +477,7 @@ export class GuestStaysService {
       // 4. Crear CleaningTask(PENDING) por cada unidad (cama) de la habitación
       //    Misma lógica que batchCheckout: PENDING porque el housekeeper aún
       //    debe confirmar salida física (Fase 2 del flujo de 2 fases).
+      const scheduledFor = new Date(`${taskCheckoutAt.toISOString().slice(0, 10)}T00:00:00.000Z`)
       for (const unit of stay.room.units) {
         const task = await tx.cleaningTask.create({
           data: {
@@ -484,6 +488,7 @@ export class GuestStaysService {
             taskType: 'CLEANING',
             priority: 'MEDIUM',
             hasSameDayCheckIn: false,
+            scheduledFor,
           },
         })
         await tx.taskLog.create({
@@ -495,6 +500,7 @@ export class GuestStaysService {
             note: `Early checkout registrado${notes ? ` — ${notes}` : ''}`,
           },
         })
+        newCleaningTaskIds.push(task.id)
       }
 
       // 5. Si hay journey activo, recortar el segmento activo a la fecha de hoy
@@ -526,6 +532,13 @@ export class GuestStaysService {
         })
       }
     })
+
+    // Post-transaction: auto-asignar tareas creadas (D10) — fire-and-forget
+    for (const taskId of newCleaningTaskIds) {
+      this.assignment.autoAssign(taskId).catch((err: Error) =>
+        this.logger.warn(`autoAssign failed (earlyCheckout) task=${taskId}: ${err.message}`),
+      )
+    }
 
     // Post-transaction: notificaciones best-effort (no revertir si fallan)
     this.events.emit('checkout.early', {
@@ -586,6 +599,134 @@ export class GuestStaysService {
       freedTo: stay.scheduledCheckout.toISOString(),
       tasksScheduledFor: localHour < HOUSEKEEPING_END_HOUR ? 'today' : 'tomorrow',
     }
+  }
+
+  /**
+   * D12 — extension confirmation handler.
+   *
+   * Cuando un huésped extiende su estadía y el receptionist confirma el pago,
+   * un modal pregunta: "¿requiere limpieza?" Esta función encarna ese flow.
+   *
+   *   requiresCleaning = true  → mantener tareas PENDING/READY ACTIVAS, marcar
+   *                              extensionFlag=WITH_CLEANING para tracking y push
+   *                              al housekeeper "Hab X — extensión confirmada,
+   *                              limpieza solicitada".
+   *
+   *   requiresCleaning = false → cancelar las tareas con cancelledReason=
+   *                              EXTENSION_NO_CLEANING + extensionFlag=WITHOUT_CLEANING.
+   *                              Mobile las renderiza como badge ✨ en vez de
+   *                              hacerlas desaparecer.
+   *
+   * Solo afecta tareas PENDING/READY/UNASSIGNED del día actual asociadas a
+   * la habitación de esta estadía. Tareas IN_PROGRESS NUNCA se tocan (D11).
+   */
+  async extendWithCleaningFlag(
+    stayId: string,
+    requiresCleaning: boolean,
+    actorId: string,
+  ) {
+    const orgId = this.tenant.getOrganizationId()
+    const stay = await this.prisma.guestStay.findUnique({
+      where: { id: stayId, organizationId: orgId },
+      include: { room: { select: { id: true, number: true, propertyId: true } } },
+    })
+    if (!stay) throw new NotFoundException()
+
+    // Tasks afectadas: solo del día actual, asociadas a la room (vía unit), no IN_PROGRESS
+    const todayUtc = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`)
+    const tasks = await this.prisma.cleaningTask.findMany({
+      where: {
+        unit: { roomId: stay.roomId },
+        scheduledFor: todayUtc,
+        status: {
+          in: ['PENDING', 'READY', 'UNASSIGNED'] as const,
+        },
+      },
+      include: {
+        assignedTo: { select: { id: true, name: true } },
+        unit: { select: { id: true } },
+      },
+    })
+
+    if (tasks.length === 0) {
+      return { affectedTasks: 0, requiresCleaning }
+    }
+
+    const updates: { id: string; assignedToId: string | null }[] = []
+
+    if (requiresCleaning) {
+      // Mantener tareas activas, marcar flag, push al housekeeper
+      await this.prisma.$transaction(async (tx) => {
+        for (const t of tasks) {
+          await tx.cleaningTask.update({
+            where: { id: t.id },
+            data: { extensionFlag: 'WITH_CLEANING' },
+          })
+          await tx.taskLog.create({
+            data: {
+              taskId: t.id,
+              staffId: actorId,
+              event: 'NOTE_ADDED',
+              note: 'Extensión confirmada con limpieza solicitada',
+            },
+          })
+          updates.push({ id: t.id, assignedToId: t.assignedToId })
+        }
+      })
+    } else {
+      // Cancelar tareas con razón EXTENSION_NO_CLEANING (mobile las renderizará como badge)
+      await this.prisma.$transaction(async (tx) => {
+        for (const t of tasks) {
+          await tx.cleaningTask.update({
+            where: { id: t.id },
+            data: {
+              status: 'CANCELLED',
+              cancelledReason: 'EXTENSION_NO_CLEANING',
+              cancelledAt: new Date(),
+              extensionFlag: 'WITHOUT_CLEANING',
+            },
+          })
+          await tx.taskLog.create({
+            data: {
+              taskId: t.id,
+              staffId: actorId,
+              event: 'CANCELLED',
+              note: 'Extensión confirmada sin limpieza',
+            },
+          })
+          // Restaurar unit a OCCUPIED (huésped sigue ahí)
+          await tx.unit.update({ where: { id: t.unitId }, data: { status: 'OCCUPIED' } })
+          updates.push({ id: t.id, assignedToId: t.assignedToId })
+        }
+      })
+    }
+
+    // SSE para que mobile/web invaliden — D12 task:extension-confirmed
+    this.events.emit('task.extension-confirmed', {
+      propertyId: stay.room.propertyId,
+      stayId,
+      roomId: stay.roomId,
+      requiresCleaning,
+      affectedTasks: updates.length,
+    })
+
+    // Push al housekeeper afectado
+    for (const u of updates) {
+      if (!u.assignedToId) continue
+      const title = requiresCleaning
+        ? '✨ Extensión con limpieza'
+        : '✨ Extensión sin limpieza'
+      const body = requiresCleaning
+        ? `Hab. ${stay.room.number} — Extensión confirmada, limpieza solicitada.`
+        : `Hab. ${stay.room.number} — Huésped extendió, NO requiere limpieza hoy.`
+      // Lazy import to avoid circular: usar EventEmitter para que push.service oiga si quiere.
+      // Pero para simplicidad y mantener consistencia con el resto del codebase,
+      // emitimos solo SSE. El push directo se queda para cuando se conecte al
+      // PushService como dependencia opcional (futuro).
+      this.logger.debug(`[D12] would push to staff=${u.assignedToId} title="${title}" body="${body}"`)
+    }
+
+    return { affectedTasks: updates.length, requiresCleaning }
   }
 
   async moveRoom(stayId: string, dto: MoveRoomDto, actorId: string) {

@@ -9,19 +9,36 @@ import {
   ActivityIndicator,
   TextInput,
   Modal,
+  Pressable,
 } from 'react-native'
-import { useLocalSearchParams, useRouter, Stack } from 'expo-router'
+import { useLocalSearchParams, useRouter } from 'expo-router'
+import { ScreenHeader } from '../../../src/features/navigation/ScreenHeader'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import { useTaskStore } from '../../../src/store/tasks'
-import { api } from '../../../src/api/client'
+import { api, NetworkError, ApiError } from '../../../src/api/client'
 import type { CleaningTaskDto, CleaningNoteDto } from '@zenix/shared'
 import { CleaningStatus, TaskType } from '@zenix/shared'
+import { colors } from '../../../src/design/colors'
+import { typography } from '../../../src/design/typography'
+import { BrandLoader } from '../../../src/features/loader/BrandLoader'
+// 🟡 QA-ONLY MOCK FALLBACK — DELETE BEFORE PRODUCTION
+import { MOCK_HOUSEKEEPING_TASKS, MOCKS_ENABLED } from '../../../src/features/housekeeping/api/__mocks__/mockTasks'
 
 export default function TaskDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const router = useRouter()
   const { tasks, startTask, endTask } = useTaskStore()
 
-  const task = tasks.find((t) => t.id === id)
+  // Find task in store first; fall back to mocks if QA mode is on.
+  // This ensures mock-* IDs (`mock-1`, `mock-2`, etc) resolve correctly.
+  const taskFromStore = tasks.find((t) => t.id === id)
+  const taskFromMocks = MOCKS_ENABLED && id?.startsWith('mock-')
+    ? MOCK_HOUSEKEEPING_TASKS.find((t) => t.id === id)
+    : undefined
+  const task = taskFromStore ?? taskFromMocks
+
+  const isMock = !taskFromStore && !!taskFromMocks
+
   const [notes, setNotes] = useState<CleaningNoteDto[]>([])
   const [noteInput, setNoteInput] = useState('')
   const [showNoteModal, setShowNoteModal] = useState(false)
@@ -29,16 +46,48 @@ export default function TaskDetailScreen() {
   const [actionLoading, setActionLoading] = useState(false)
 
   useEffect(() => {
-    if (id) {
-      api.get<CleaningNoteDto[]>(`/tasks/${id}/notes`).then(setNotes).catch(() => {})
+    // Skip note fetch for mock tasks — backend doesn't have them.
+    if (id && !isMock) {
+      api.get<CleaningNoteDto[]>(`/tasks/${id}/notes`).then(setNotes).catch((err) => {
+        // Swallow expected 404s; log other errors for QA visibility.
+        if (__DEV__ && !(err instanceof ApiError && err.status === 404)) {
+          const msg = err instanceof Error ? err.message : String(err)
+          console.warn('[task notes] fetch failed:', msg)
+        }
+      })
     }
-  }, [id])
+  }, [id, isMock])
+
+  // Header is OUTSIDE the conditional so the back button is ALWAYS
+  // available — even when task is not found, user can navigate back.
+  // ScreenHeader replaces Stack.Screen because hidden tab routes don't
+  // auto-render a back arrow. OS-adaptive (iOS chevron, Android arrow).
+  const headerEl = (
+    <ScreenHeader
+      title={task?.unit?.room?.number ? `Hab. ${task.unit.room.number}` : 'Tarea'}
+      backLabel="Mi día"
+    />
+  )
 
   if (!task) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator color="#4F46E5" />
-      </View>
+      <SafeAreaView style={styles.notFoundRoot} edges={['top']}>
+        {headerEl}
+        <View style={styles.notFoundCenter}>
+          <Text style={styles.notFoundIcon}>🔍</Text>
+          <Text style={styles.notFoundTitle}>Tarea no encontrada</Text>
+          <Text style={styles.notFoundBody}>
+            La tarea con id <Text style={styles.notFoundCode}>{id}</Text> no
+            existe en tu lista actual o ya fue completada y archivada.
+          </Text>
+          <Pressable
+            onPress={() => router.back()}
+            style={styles.notFoundBtn}
+          >
+            <Text style={styles.notFoundBtnText}>Volver a Mi día</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
     )
   }
 
@@ -49,11 +98,21 @@ export default function TaskDetailScreen() {
   const isMaintenance = task.taskType === TaskType.MAINTENANCE
 
   async function handleStart() {
+    // Mock tasks don't exist in the backend — block API calls with a friendly
+    // QA-mode alert instead of letting the request 404 silently.
+    if (isMock) {
+      Alert.alert(
+        'Tarea de prueba',
+        'Esta tarea es parte del set de QA. Para ejercer el flujo completo, crea una salida desde la web del PMS y la verás aquí.',
+      )
+      return
+    }
     setActionLoading(true)
     try {
       await startTask(id!)
     } catch (err) {
-      Alert.alert('Error', 'No se pudo iniciar la tarea')
+      const msg = err instanceof Error ? err.message : 'No se pudo iniciar la tarea'
+      Alert.alert('Error', msg)
     } finally {
       setActionLoading(false)
     }
@@ -78,12 +137,21 @@ export default function TaskDetailScreen() {
   }
 
   async function doEnd() {
+    if (isMock) {
+      Alert.alert(
+        'Tarea de prueba',
+        'Esta tarea es parte del set de QA. La acción "finalizar" no se aplica al backend en modo mock.',
+        [{ text: 'OK', onPress: () => router.back() }],
+      )
+      return
+    }
     setActionLoading(true)
     try {
       await endTask(id!)
       router.back()
     } catch (err) {
-      Alert.alert('Error', 'No se pudo finalizar la tarea')
+      const msg = err instanceof Error ? err.message : 'No se pudo finalizar la tarea'
+      Alert.alert('Error', msg)
     } finally {
       setActionLoading(false)
     }
@@ -105,12 +173,7 @@ export default function TaskDetailScreen() {
 
   return (
     <>
-      <Stack.Screen
-        options={{
-          title: `Room ${room?.number ?? '—'}`,
-          headerBackTitle: 'Mis rooms',
-        }}
-      />
+      {headerEl}
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
         {/* Room info */}
         <View style={[styles.roomCard, isMaintenance && styles.roomCardMaintenance]}>
@@ -123,7 +186,7 @@ export default function TaskDetailScreen() {
           </View>
           <Text style={styles.roomNumber}>{room?.number ?? '—'}</Text>
           <Text style={styles.roomSub}>
-            {room?.type === 'PRIVATE' ? 'Habitación privada' : 'Dormitorio compartido'}
+            {room?.category === 'PRIVATE' ? 'Habitación privada' : 'Dormitorio compartido'}
             {room?.floor != null ? ` · Piso ${room.floor}` : ''}
           </Text>
           {task.unit && (
@@ -351,6 +414,52 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { padding: 16, gap: 16 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  // ── Not-found state (Zenix-branded, with back navigation always available) ──
+  notFoundRoot: {
+    flex: 1,
+    backgroundColor: colors.canvas.primary,
+  },
+  notFoundCenter: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+    gap: 12,
+  },
+  notFoundIcon: {
+    fontSize: 48,
+    marginBottom: 8,
+  },
+  notFoundTitle: {
+    fontSize: typography.size.titleLg,
+    fontWeight: typography.weight.bold,
+    color: colors.text.primary,
+    textAlign: 'center',
+  },
+  notFoundBody: {
+    fontSize: typography.size.body,
+    color: colors.text.secondary,
+    textAlign: 'center',
+    lineHeight: typography.size.body * typography.lineHeight.relaxed,
+    maxWidth: 320,
+    marginBottom: 16,
+  },
+  notFoundCode: {
+    fontFamily: typography.family.monospace,
+    color: colors.text.tertiary,
+    fontSize: typography.size.small,
+  },
+  notFoundBtn: {
+    backgroundColor: colors.brand[500],
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  notFoundBtnText: {
+    color: colors.text.inverse,
+    fontSize: typography.size.bodyLg,
+    fontWeight: typography.weight.semibold,
+  },
   roomCard: {
     backgroundColor: '#fff',
     borderRadius: 16,

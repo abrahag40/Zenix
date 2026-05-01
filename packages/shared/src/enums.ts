@@ -23,6 +23,25 @@ export enum HousekeepingRole {
   RECEPTIONIST = 'RECEPTIONIST',
 }
 
+/**
+ * Department — operational area within a hotel (Sprint 8I AD-011).
+ * Drives the role-aware module switch in the mobile app's "Mi día" tab.
+ *
+ * Adding values requires:
+ *   1. Update this enum
+ *   2. Update Prisma schema enum + migration
+ *   3. Add `src/features/<area>/` folder with screens/Hub.tsx
+ *   4. Wire into mobile/app/(app)/trabajo.tsx switch
+ */
+export enum Department {
+  HOUSEKEEPING = 'HOUSEKEEPING',
+  MAINTENANCE  = 'MAINTENANCE',
+  LAUNDRY      = 'LAUNDRY',
+  PUBLIC_AREAS = 'PUBLIC_AREAS',
+  GARDENING    = 'GARDENING',
+  RECEPTION    = 'RECEPTION',
+}
+
 export enum RoomCategory {
   PRIVATE = 'PRIVATE',
   SHARED = 'SHARED',
@@ -60,6 +79,72 @@ export enum TaskLogEvent {
   CANCELLED = 'CANCELLED',
   REOPENED = 'REOPENED',
   NOTE_ADDED = 'NOTE_ADDED',
+  // Sprint 8H
+  AUTO_ASSIGNED = 'AUTO_ASSIGNED',
+  CARRYOVER = 'CARRYOVER',
+  REASSIGNED = 'REASSIGNED',
+  CLOCKED_BY_STAFF = 'CLOCKED_BY_STAFF',
+}
+
+// ─── Housekeeping Scheduling (Sprint 8H) ─────────────────────────────────────
+
+/**
+ * Razón de cancelación de una CleaningTask. Se usa para distinguir cancelaciones
+ * operativas legítimas (extensiones, no-shows) de errores y duplicados.
+ * D12 — `EXTENSION_*` permite que mobile renderice badge especial.
+ */
+export enum CleaningCancelReason {
+  EXTENSION_NO_CLEANING   = 'EXTENSION_NO_CLEANING',
+  EXTENSION_WITH_CLEANING = 'EXTENSION_WITH_CLEANING',
+  GUEST_NEVER_CHECKED_IN  = 'GUEST_NEVER_CHECKED_IN',
+  RECEPTIONIST_MANUAL     = 'RECEPTIONIST_MANUAL',
+  STAFF_ABSENCE_CLEANUP   = 'STAFF_ABSENCE_CLEANUP',
+  DUPLICATE               = 'DUPLICATE',
+}
+
+/**
+ * Marca que una tarea fue "tocada" por una extensión de estadía.
+ * WITH_CLEANING — sigue activa, se notificó a housekeeping.
+ * WITHOUT_CLEANING — se canceló pero queda visible en mobile (D12).
+ */
+export enum ExtensionFlag {
+  WITH_CLEANING    = 'WITH_CLEANING',
+  WITHOUT_CLEANING = 'WITHOUT_CLEANING',
+}
+
+/** Excepción puntual al horario semanal recurrente del staff. */
+export enum ShiftExceptionType {
+  OFF      = 'OFF',
+  EXTRA    = 'EXTRA',
+  MODIFIED = 'MODIFIED',
+}
+
+/** Origen de un clock-in/out (USALI auditability). */
+export enum ClockSource {
+  MOBILE             = 'MOBILE',
+  WEB                = 'WEB',
+  MANUAL_SUPERVISOR  = 'MANUAL_SUPERVISOR',
+}
+
+/** Nivel de gamificación — D9: gestionado por supervisor, no auto-servido. */
+export enum GamificationLevel {
+  OFF      = 'OFF',
+  SUBTLE   = 'SUBTLE',
+  STANDARD = 'STANDARD',
+}
+
+/** Política de carryover de tareas incompletas — confirmada `REASSIGN_TO_TODAY_SHIFT` por default. */
+export enum CarryoverPolicy {
+  REASSIGN_TO_TODAY_SHIFT = 'REASSIGN_TO_TODAY_SHIFT',
+  KEEP_ORIGINAL_ASSIGNEE  = 'KEEP_ORIGINAL_ASSIGNEE',
+  ALWAYS_UNASSIGNED       = 'ALWAYS_UNASSIGNED',
+}
+
+/** Regla que disparó la auto-asignación — para audit y debugging. */
+export enum AutoAssignmentRule {
+  COVERAGE_PRIMARY = 'COVERAGE_PRIMARY',
+  COVERAGE_BACKUP  = 'COVERAGE_BACKUP',
+  ROUND_ROBIN      = 'ROUND_ROBIN',
 }
 
 

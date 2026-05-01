@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import NetInfo from '@react-native-community/netinfo'
 import type { CleaningTaskDto, SyncOperation } from '@zenix/shared'
+import { CleaningStatus } from '@zenix/shared'
 import { api } from '../api/client'
 
 interface TaskStore {
@@ -46,7 +47,7 @@ export const useTaskStore = create<TaskStore>()(
       startTask: async (taskId) => {
         // Optimistic update
         set((s) => ({
-          tasks: applyOptimistic(s.tasks, taskId, { status: 'IN_PROGRESS', startedAt: new Date().toISOString() }),
+          tasks: applyOptimistic(s.tasks, taskId, { status: CleaningStatus.IN_PROGRESS, startedAt: new Date().toISOString() }),
         }))
 
         const netState = await NetInfo.fetch()
@@ -67,7 +68,7 @@ export const useTaskStore = create<TaskStore>()(
 
       endTask: async (taskId) => {
         set((s) => ({
-          tasks: applyOptimistic(s.tasks, taskId, { status: 'DONE', finishedAt: new Date().toISOString() }),
+          tasks: applyOptimistic(s.tasks, taskId, { status: CleaningStatus.DONE, finishedAt: new Date().toISOString() }),
         }))
 
         const netState = await NetInfo.fetch()

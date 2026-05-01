@@ -72,6 +72,40 @@ enum HousekeepingRole {
   RECEPTIONIST
 }
 
+/**
+ * Department — operational area within a hotel property.
+ *
+ * Sprint 8I "shared chrome + role-aware module" (CLAUDE.md / ARCHITECTURE.md AD-011):
+ * the mobile app shows the same chrome (tabs, dashboard, notifications, profile) for
+ * all staff, but the "Mi día" tab loads a different feature module based on this enum.
+ *
+ * Adding a value here = enabling its module slot. Adding a stub for the area follows
+ * the pattern at apps/mobile/src/features/<area>/screens/Hub.tsx.
+ *
+ * NOTE: this is the OPERATIONAL area, distinct from `role` (which is access level —
+ * HOUSEKEEPER vs SUPERVISOR vs RECEPTIONIST).
+ *
+ * Examples:
+ *   - Ana: role=SUPERVISOR, department=HOUSEKEEPING (supervisora de recamaristas)
+ *   - Carlos: role=RECEPTIONIST, department=RECEPTION
+ *   - Pedro: role=HOUSEKEEPER, department=HOUSEKEEPING
+ *   - (futuro) Ingeniero: role=SUPERVISOR, department=MAINTENANCE
+ */
+enum Department {
+  HOUSEKEEPING
+  MAINTENANCE
+  LAUNDRY
+  PUBLIC_AREAS
+  GARDENING
+  RECEPTION
+  // futuros (cuando demanda lo justifique):
+  // FOOD_AND_BEVERAGE
+  // SPA
+  // SECURITY
+  // ACTIVITIES
+  // ADMINISTRATION
+}
+
 enum RoomCategory {
   PRIVATE
   SHARED
@@ -109,6 +143,26 @@ enum TaskLogEvent {
   CANCELLED
   REOPENED
   NOTE_ADDED
+  // ── Sprint 8H — housekeeping scheduling ───────────────────────────────────
+  AUTO_ASSIGNED      // auto-asignación por AssignmentService
+  CARRYOVER          // tarea movida del día anterior por MorningRosterScheduler
+  REASSIGNED         // cambio de assignedToId post-creación (ausencia/manual)
+  CLOCKED_BY_STAFF   // clock-in del staff vinculado a esta tarea
+}
+
+// ── Sprint 8H — Cleaning task cancellation reason / extension flag (D12) ────
+enum CleaningCancelReason {
+  EXTENSION_NO_CLEANING     // huésped extendió y no pidió limpieza (queda visible en mobile como badge)
+  EXTENSION_WITH_CLEANING   // huésped extendió pero pidió limpieza (no debería aparecer cancelada — sólo si flow lo requiere)
+  GUEST_NEVER_CHECKED_IN    // no-show o cancelación
+  RECEPTIONIST_MANUAL       // cancelación operativa estándar
+  STAFF_ABSENCE_CLEANUP     // sin personal disponible al final del día
+  DUPLICATE                 // tarea duplicada por error/race condition
+}
+
+enum ExtensionFlag {
+  WITH_CLEANING             // mantener tarea activa, push al housekeeper
+  WITHOUT_CLEANING          // cancelar pero mantener visible en mobile como badge
 }
 
 enum CheckoutSource {
@@ -219,6 +273,8 @@ model Organization {
   stayJourneys       StayJourney[]
   roomBlocks         RoomBlock[]
   appNotifications   AppNotification[]
+  // ── Sprint 8H ─────────────────────────────────────────────────────────────
+  staffShifts        StaffShift[]
 
   @@map("organizations")
 }
@@ -288,6 +344,10 @@ model Property {
   userRoles    UserPropertyRole[]
   stayJourneys StayJourney[]
   appNotifications AppNotification[]
+  // ── Sprint 8H ─────────────────────────────────────────────────────────────
+  shifts          StaffShift[]
+  staffCoverages  StaffCoverage[]
+  shiftClocks     StaffShiftClock[]
 
   @@index([organizationId])
   @@map("properties")
@@ -317,6 +377,8 @@ model Room {
   readinessTasks RoomReadinessTask[]
   staySegments StaySegment[]
   blocks       RoomBlock[]
+  // ── Sprint 8H — quién cubre esta habitación por defecto ───────────────────
+  staffCoverages StaffCoverage[]
 
   @@unique([propertyId, number])
   @@index([organizationId])
@@ -354,6 +416,7 @@ model HousekeepingStaff {
   email          String           @unique
   passwordHash   String
   role           HousekeepingRole
+  department     Department       @default(HOUSEKEEPING) @map("department")
   active         Boolean          @default(true)
   capabilities   Capability[]
   deletedAt      DateTime?        @map("deleted_at")
@@ -381,6 +444,14 @@ model HousekeepingStaff {
   collectedPayments      PaymentLog[]     @relation("PaymentCollectedBy")
   approvedPayments       PaymentLog[]     @relation("PaymentApprovedBy")
   voidedPayments         PaymentLog[]     @relation("PaymentVoidedBy")
+  // ── Sprint 8H — housekeeping scheduling ─────────────────────────────────
+  shifts                 StaffShift[]
+  shiftExceptions        StaffShiftException[]            @relation("ShiftExceptionsForStaff")
+  approvedShiftExceptions StaffShiftException[]           @relation("ShiftExceptionsApprovedBy")
+  coverages              StaffCoverage[]
+  shiftClocks            StaffShiftClock[]
+  preferences            StaffPreferences?
+  preferenceChangesMade  StaffPreferenceLog[]             @relation("PreferenceChangesByStaff")
 
   @@index([organizationId])
   @@index([organizationId, propertyId])
@@ -443,6 +514,15 @@ model CleaningTask {
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
 
+  // ── Sprint 8H — housekeeping scheduling ─────────────────────────────────
+  scheduledFor         DateTime?             @db.Date @map("scheduled_for")  // fecha lógica del roster (idempotencia + queries)
+  carryoverFromDate    DateTime?             @db.Date @map("carryover_from_date")
+  carryoverFromTaskId  String?               @map("carryover_from_task_id")
+  autoAssignmentRule   String?               @map("auto_assignment_rule")    // 'COVERAGE_PRIMARY' | 'COVERAGE_BACKUP' | 'ROUND_ROBIN' | null
+  cancelledReason      CleaningCancelReason? @map("cancelled_reason")
+  cancelledAt          DateTime?             @map("cancelled_at")
+  extensionFlag        ExtensionFlag?        @map("extension_flag")          // D12 — re-etiqueta cuando extension aplica
+
   organization Organization?      @relation(fields: [organizationId], references: [id])
   unit         Unit               @relation(fields: [unitId], references: [id])
   checkout     Checkout?          @relation(fields: [checkoutId], references: [id])
@@ -452,12 +532,18 @@ model CleaningTask {
   notes        CleaningNote[]
   issues       MaintenanceIssue[]
   block        RoomBlock?         @relation("BlockTask")
+  // Self-relation for carryover audit chain (CleaningTask → original CleaningTask de ayer)
+  carryoverFromTask    CleaningTask?  @relation("TaskCarryover", fields: [carryoverFromTaskId], references: [id])
+  carryoverChildren    CleaningTask[] @relation("TaskCarryover")
 
   @@index([organizationId])
   @@index([status])
   @@index([assignedToId, status])
   @@index([unitId])
   @@index([checkoutId])
+  @@index([scheduledFor, status])
+  @@index([carryoverFromDate])
+  @@index([cancelledReason])
   @@map("cleaning_tasks")
 }
 
@@ -572,6 +658,21 @@ model PropertySettings {
   // Channex.io channel manager (Sprint 8): ID de la propiedad en Channex para push de inventario.
   // Opcional — sin él, pushInventory() es no-op (fail-soft).
   channexPropertyId             String?   @map("channex_property_id")
+  // ── Sprint 8H — Housekeeping scheduling ───────────────────────────────────
+  // Hora local (0-23) a la que el MorningRosterScheduler genera el roster del día.
+  // Default 7 = 7:00 AM. Configurable per-property porque hostels vacacionales LATAM
+  // suelen empezar 6 AM y boutique 8 AM.
+  morningRosterHour             Int       @default(7) @map("morning_roster_hour")
+  // Idempotencia del cron — fecha local del último roster procesado.
+  // Mismo patrón que noShowProcessedDate (§15 CLAUDE.md). El scheduler corre cada
+  // 15 min y solo procesa si esta fecha != localDate actual.
+  morningRosterDate             DateTime? @db.Date @map("morning_roster_date")
+  // D-decisión: política de carryover de tareas incompletas del día anterior.
+  carryoverPolicy               CarryoverPolicy @default(REASSIGN_TO_TODAY_SHIFT) @map("carryover_policy")
+  // Toggle global para auto-asignación. Si false, todas las tareas nacen UNASSIGNED.
+  autoAssignmentEnabled         Boolean   @default(true) @map("auto_assignment_enabled")
+  // Si true, mobile pide clock-in al abrir y bloquea acciones hasta marcar entrada.
+  shiftClockingRequired         Boolean   @default(false) @map("shift_clocking_required")
   deletedAt           DateTime? @map("deleted_at")
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
@@ -582,6 +683,13 @@ model PropertySettings {
   @@index([organizationId])
   @@index([organizationId, propertyId])
   @@map("property_settings")
+}
+
+// Política de carryover (D6 + decisión de usuario REASSIGN_TO_TODAY_SHIFT por default).
+enum CarryoverPolicy {
+  REASSIGN_TO_TODAY_SHIFT   // reasigna a quien esté en turno hoy (default operativo)
+  KEEP_ORIGINAL_ASSIGNEE    // preserva original (si no en turno → UNASSIGNED)
+  ALWAYS_UNASSIGNED         // estricto — supervisor reasigna manualmente
 }
 
 model UnitDiscrepancy {
@@ -1287,4 +1395,184 @@ model PaymentLog {
   @@index([organizationId, propertyId, shiftDate])
   @@index([collectedById, shiftDate])
   @@map("payment_logs")
+}
+
+// ======================= HOUSEKEEPING SCHEDULING (Sprint 8H) =======================
+//
+// Modelos que sustentan el módulo de recamaristas como diferenciador competitivo:
+//   StaffShift            — turno semanal recurrente
+//   StaffShiftException   — excepción puntual (vacación, día libre, turno extra)
+//   StaffCoverage         — cobertura habitación↔staff (primary/backup)
+//   StaffShiftClock       — clock-in/out real (USALI compliance)
+//   StaffPreferences      — preferencias del staff (gamificación gestionada por supervisor)
+//   StaffPreferenceLog    — audit append-only de cambios a preferences
+//
+// Decisiones documentadas en CLAUDE.md §35-§46 (D1-D12) y plan vamos-a-comenzar-a-federated-kitten.md.
+
+/**
+ * StaffShift — turno semanal recurrente del staff. Fuente de verdad de "quién está en turno".
+ * Las excepciones puntuales viven en StaffShiftException (D5: ausencia explícita, etc.)
+ *
+ * Ejemplo: María trabaja Lun-Vie 7-15.
+ *   { staffId: 'maria', dayOfWeek: 1, startTime: '07:00', endTime: '15:00', active: true }
+ *   { staffId: 'maria', dayOfWeek: 2, ... }
+ *   ...
+ */
+model StaffShift {
+  id              String    @id @default(uuid())
+  organizationId  String?   @map("organization_id")
+  propertyId      String    @map("property_id")
+  staffId         String    @map("staff_id")
+  dayOfWeek       Int       @map("day_of_week")        // 0 (Sun) - 6 (Sat)
+  startTime       String    @map("start_time")          // "HH:mm" — local de la propiedad
+  endTime         String    @map("end_time")            // "HH:mm" — local de la propiedad
+  effectiveFrom   DateTime  @db.Date @map("effective_from")
+  effectiveUntil  DateTime? @db.Date @map("effective_until")
+  active          Boolean   @default(true)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  organization Organization?     @relation(fields: [organizationId], references: [id])
+  property     Property          @relation(fields: [propertyId], references: [id])
+  staff        HousekeepingStaff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([propertyId, dayOfWeek, active])
+  @@index([staffId, active])
+  @@map("staff_shifts")
+}
+
+enum ShiftExceptionType {
+  OFF        // día libre solicitado / ausencia
+  EXTRA      // turno adicional cubriendo a alguien
+  MODIFIED   // misma fecha pero distintas horas
+}
+
+/**
+ * StaffShiftException — excepción puntual al horario semanal (D5).
+ * Tipo OFF se usa también para registrar AUSENCIAS marcadas por el receptionist
+ * a través del endpoint POST /v1/scheduling/absences.
+ */
+model StaffShiftException {
+  id           String             @id @default(uuid())
+  staffId      String             @map("staff_id")
+  date         DateTime           @db.Date
+  type         ShiftExceptionType
+  startTime    String?            @map("start_time")    // null si OFF
+  endTime      String?            @map("end_time")
+  reason       String?
+  approvedById String?            @map("approved_by_id")
+  createdAt    DateTime           @default(now()) @map("created_at")
+
+  staff      HousekeepingStaff  @relation("ShiftExceptionsForStaff", fields: [staffId], references: [id], onDelete: Cascade)
+  approvedBy HousekeepingStaff? @relation("ShiftExceptionsApprovedBy", fields: [approvedById], references: [id])
+
+  @@unique([staffId, date])
+  @@index([date])
+  @@map("staff_shift_exceptions")
+}
+
+/**
+ * StaffCoverage — qué habitaciones limpia esta recamarista por defecto (D5: soft, no hard).
+ * Una habitación puede tener múltiples staff cubriéndola: 1 primary + N backups.
+ *
+ * El AssignmentService prefiere primary; si no en turno, baja a backup; si nadie cubre, round-robin.
+ */
+model StaffCoverage {
+  id          String   @id @default(uuid())
+  propertyId  String   @map("property_id")
+  staffId     String   @map("staff_id")
+  roomId      String   @map("room_id")
+  isPrimary   Boolean  @default(true) @map("is_primary")
+  weight      Int      @default(1)                       // tiebreaker para round-robin secundario
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  property Property          @relation(fields: [propertyId], references: [id])
+  staff    HousekeepingStaff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  room     Room              @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  // Un staff no puede tener dos coverages para la misma room en el mismo nivel (primary vs backup).
+  @@unique([staffId, roomId, isPrimary])
+  @@index([propertyId, roomId])
+  @@index([roomId, isPrimary])
+  @@map("staff_coverages")
+}
+
+enum ClockSource {
+  MOBILE
+  WEB
+  MANUAL_SUPERVISOR
+}
+
+/**
+ * StaffShiftClock — registro real de clock-in/out (USALI auditability).
+ * Append-only: nunca se actualiza un clock-in pasado.
+ * Para correcciones, el supervisor crea un nuevo registro con source=MANUAL_SUPERVISOR.
+ */
+model StaffShiftClock {
+  id         String      @id @default(uuid())
+  staffId    String      @map("staff_id")
+  propertyId String      @map("property_id")
+  clockInAt  DateTime    @map("clock_in_at")
+  clockOutAt DateTime?   @map("clock_out_at")
+  source     ClockSource
+  notes      String?
+  createdAt  DateTime    @default(now()) @map("created_at")
+
+  staff    HousekeepingStaff @relation(fields: [staffId], references: [id])
+  property Property          @relation(fields: [propertyId], references: [id])
+
+  @@index([staffId, clockInAt])
+  @@index([propertyId, clockInAt])
+  @@map("staff_shift_clocks")
+}
+
+enum GamificationLevel {
+  OFF
+  SUBTLE
+  STANDARD
+}
+
+/**
+ * StaffPreferences — preferencias del staff. NOTA: gamificationLevel solo es
+ * editable por SUPERVISOR (D9). El staff puede leer su propio registro pero no
+ * escribirlo. hapticEnabled / soundEnabled SÍ son self-managed.
+ */
+model StaffPreferences {
+  id                String            @id @default(uuid())
+  staffId           String            @unique @map("staff_id")
+  gamificationLevel GamificationLevel @default(STANDARD) @map("gamification_level")
+  language          String            @default("es-MX")
+  hapticEnabled     Boolean           @default(true) @map("haptic_enabled")
+  soundEnabled      Boolean           @default(true) @map("sound_enabled")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+
+  staff HousekeepingStaff   @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  logs  StaffPreferenceLog[]
+
+  @@map("staff_preferences")
+}
+
+/**
+ * StaffPreferenceLog — append-only log de cambios a StaffPreferences.
+ * Cumple USALI auditability + traza decisiones laborales (quién cambió qué, cuándo, por qué).
+ * Útil para cumplir LFPDPPP MX / GDPR / LGPD si un staff cuestiona la configuración.
+ */
+model StaffPreferenceLog {
+  id            String   @id @default(uuid())
+  preferencesId String   @map("preferences_id")
+  staffId       String   @map("staff_id")          // denormalizado para queries directas
+  field         String                              // 'gamificationLevel' | 'language' | etc.
+  oldValue      String?  @map("old_value")
+  newValue      String   @map("new_value")
+  changedById   String   @map("changed_by_id")     // siempre presente — sin cambios automáticos
+  reason        String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  preferences StaffPreferences  @relation(fields: [preferencesId], references: [id], onDelete: Cascade)
+  changedBy   HousekeepingStaff @relation("PreferenceChangesByStaff", fields: [changedById], references: [id])
+
+  @@index([staffId, createdAt])
+  @@map("staff_preference_logs")
 }

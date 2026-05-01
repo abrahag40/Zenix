@@ -1,24 +1,24 @@
 {
   "expo": {
-    "name": "Housekeeping",
-    "slug": "housekeeping",
+    "name": "Zenix",
+    "slug": "zenix",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "scheme": "housekeeping",
-    "userInterfaceStyle": "light",
+    "scheme": "zenix",
+    "userInterfaceStyle": "automatic",
     "splash": {
-      "backgroundColor": "#4F46E5"
+      "backgroundColor": "#0B1020"
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.yourco.housekeeping"
+      "bundleIdentifier": "com.zenix.pms"
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#4F46E5"
+        "backgroundColor": "#0B1020"
       },
-      "package": "com.yourco.housekeeping"
+      "package": "com.zenix.pms"
     },
     "plugins": [
       "expo-router",
@@ -27,9 +27,10 @@
         "expo-notifications",
         {
           "icon": "./assets/notification-icon.png",
-          "color": "#4F46E5"
+          "color": "#10B981"
         }
-      ]
+      ],
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true

@@ -118,6 +118,24 @@ export class GuestStaysController {
     return this.service.earlyCheckout(id, actor.sub, dto.notes)
   }
 
+  /**
+   * D12 — extension cleaning flag.
+   * Después de confirmar el pago de una extensión, el receptionist responde:
+   *   { requiresCleaning: true }  → tareas existentes se marcan WITH_CLEANING + push
+   *   { requiresCleaning: false } → tareas se cancelan con EXTENSION_NO_CLEANING + badge en mobile
+   */
+  @Post(':id/extend-with-cleaning-flag')
+  extendWithCleaningFlag(
+    @Param('id') id: string,
+    @Body() dto: { requiresCleaning: boolean },
+    @CurrentUser() actor: JwtPayload,
+  ) {
+    if (typeof dto.requiresCleaning !== 'boolean') {
+      throw new BadRequestException('requiresCleaning is required (boolean)')
+    }
+    return this.service.extendWithCleaningFlag(id, dto.requiresCleaning, actor.sub)
+  }
+
   @Patch(':id/extend')
   extendStay(
     @Param('id') id: string,

@@ -15,13 +15,13 @@ import * as path from 'path'
  *      banco de pruebas para aislamiento entre propiedades. Tiene un
  *      subset curado de casos (past, in-house, arriving, extension).
  *
- * Credenciales de acceso (todas activas):
- *   supervisor@demo.com   / supervisor123   (Tulum)
- *   reception@demo.com    / reception123    (Tulum)
- *   hk1@demo.com          / housekeeper123  (Tulum)
- *   hk2@demo.com          / housekeeper123  (Tulum)
- *   reception.cun@demo.com / reception123   (Cancún)
- *   hk3@demo.com          / housekeeper123  (Cancún)
+ * Credenciales de acceso (todas activas, password '123456'):
+ *   s@z.co   (Supervisor · Tulum   · Ana García)
+ *   r@z.co   (Recepción  · Tulum   · Carlos López)
+ *   m@z.co   (Housekeeper · Tulum  · María Torres)
+ *   p@z.co   (Housekeeper · Tulum  · Pedro Ramírez)
+ *   rc@z.co  (Recepción  · Cancún  · Laura Mendez)
+ *   l@z.co   (Housekeeper · Cancún · Luis Herrera)
  */
 
 const prisma = new PrismaClient()
@@ -245,13 +245,106 @@ async function main() {
     })
   }
 
-  const supervisor  = await upsertStaff({ email: 'supervisor@demo.com',     name: 'Ana García',     password: 'supervisor123', role: 'SUPERVISOR',   propertyId: tulum.id,  capabilities: ['CLEANING', 'SANITIZATION', 'MAINTENANCE'] })
-  const reception   = await upsertStaff({ email: 'reception@demo.com',      name: 'Carlos López',   password: 'reception123',  role: 'RECEPTIONIST', propertyId: tulum.id })
-  await                   upsertStaff({ email: 'hk1@demo.com',              name: 'María Torres',   password: 'housekeeper123',role: 'HOUSEKEEPER',  propertyId: tulum.id,  capabilities: ['CLEANING', 'SANITIZATION'] })
-  await                   upsertStaff({ email: 'hk2@demo.com',              name: 'Pedro Ramírez',  password: 'housekeeper123',role: 'HOUSEKEEPER',  propertyId: tulum.id,  capabilities: ['CLEANING', 'MAINTENANCE'] })
-  const receptionC  = await upsertStaff({ email: 'reception.cun@demo.com',  name: 'Laura Mendez',   password: 'reception123',  role: 'RECEPTIONIST', propertyId: cancun.id })
-  await                   upsertStaff({ email: 'hk3@demo.com',              name: 'Luis Herrera',   password: 'housekeeper123',role: 'HOUSEKEEPER',  propertyId: cancun.id, capabilities: ['CLEANING'] })
-  console.log(`✅ Staff: 6 cuentas (4 Tulum, 2 Cancún); supervisor global = ${supervisor.email}`)
+  // Demo accounts with simplified credentials for fast testing on mobile.
+  // Email: short single-letter @ z.co (4-5 chars total, easy to type on phone keyboards).
+  // Password: '1234' for ALL demo users — uniform, memorable, demo-only.
+  // Production builds MUST replace these via property onboarding flow.
+  const DEMO_PASSWORD = '123456'
+  const supervisor  = await upsertStaff({ email: 's@z.co', name: 'Ana García',    password: DEMO_PASSWORD, role: 'SUPERVISOR',   propertyId: tulum.id,  capabilities: ['CLEANING', 'SANITIZATION', 'MAINTENANCE'] })
+  const reception   = await upsertStaff({ email: 'r@z.co', name: 'Carlos López',  password: DEMO_PASSWORD, role: 'RECEPTIONIST', propertyId: tulum.id })
+  const hk1         = await upsertStaff({ email: 'm@z.co', name: 'María Torres',  password: DEMO_PASSWORD, role: 'HOUSEKEEPER',  propertyId: tulum.id,  capabilities: ['CLEANING', 'SANITIZATION'] })
+  const hk2         = await upsertStaff({ email: 'p@z.co', name: 'Pedro Ramírez', password: DEMO_PASSWORD, role: 'HOUSEKEEPER',  propertyId: tulum.id,  capabilities: ['CLEANING', 'MAINTENANCE'] })
+  const receptionC  = await upsertStaff({ email: 'rc@z.co',name: 'Laura Mendez',  password: DEMO_PASSWORD, role: 'RECEPTIONIST', propertyId: cancun.id })
+  const hk3         = await upsertStaff({ email: 'l@z.co', name: 'Luis Herrera',  password: DEMO_PASSWORD, role: 'HOUSEKEEPER',  propertyId: cancun.id, capabilities: ['CLEANING'] })
+  console.log(`✅ Staff: 6 cuentas demo (todas con password '${DEMO_PASSWORD}')`)
+
+  // 5c. STAFF SHIFTS + COVERAGE (Sprint 8H) ──────────────────────────────────
+  // Asegura que el cron 7am de housekeeping tenga datos out-of-the-box.
+  //
+  // Turnos:
+  //   María (Tulum) — Lun-Vie 07:00-15:00 (matutino)
+  //   Pedro (Tulum) — Mar-Sáb 14:00-22:00 (vespertino, cubre split mid-day)
+  //   Luis  (Cancún) — Lun-Dom 08:00-16:00
+  //
+  // Cobertura:
+  //   Tulum (12 rooms): primarias divididas mitad/mitad entre María y Pedro;
+  //                     cada uno es backup de la otra.
+  //   Cancún (8 rooms): Luis es primario de todos (única recamarista activa).
+  const today = new Date()
+  today.setUTCHours(0, 0, 0, 0)
+
+  async function upsertShift(args: {
+    staffId: string; propertyId: string; dayOfWeek: number; startTime: string; endTime: string
+  }) {
+    // No hay unique en (staffId, dayOfWeek, propertyId), así que usamos findFirst + create
+    const existing = await prisma.staffShift.findFirst({
+      where: { staffId: args.staffId, dayOfWeek: args.dayOfWeek, propertyId: args.propertyId, active: true },
+    })
+    if (existing) {
+      return prisma.staffShift.update({
+        where: { id: existing.id },
+        data: { startTime: args.startTime, endTime: args.endTime, effectiveFrom: today, active: true },
+      })
+    }
+    return prisma.staffShift.create({
+      data: {
+        organizationId: org.id,
+        propertyId: args.propertyId,
+        staffId: args.staffId,
+        dayOfWeek: args.dayOfWeek,
+        startTime: args.startTime,
+        endTime: args.endTime,
+        effectiveFrom: today,
+        active: true,
+      },
+    })
+  }
+
+  // María: Lun-Vie 07-15
+  for (let day = 1; day <= 5; day++) {
+    await upsertShift({ staffId: hk1.id, propertyId: tulum.id, dayOfWeek: day, startTime: '07:00', endTime: '15:00' })
+  }
+  // Pedro: Mar-Sáb 14-22 (cubre check-outs tardíos)
+  for (let day = 2; day <= 6; day++) {
+    await upsertShift({ staffId: hk2.id, propertyId: tulum.id, dayOfWeek: day, startTime: '14:00', endTime: '22:00' })
+  }
+  // Luis (Cancún): Lun-Dom 08-16
+  for (let day = 0; day <= 6; day++) {
+    await upsertShift({ staffId: hk3.id, propertyId: cancun.id, dayOfWeek: day, startTime: '08:00', endTime: '16:00' })
+  }
+  console.log(`✅ Staff shifts: María Lun-Vie 7-15, Pedro Mar-Sáb 14-22, Luis Lun-Dom 8-16`)
+
+  async function upsertCoverage(args: {
+    propertyId: string; staffId: string; roomId: string; isPrimary: boolean
+  }) {
+    return prisma.staffCoverage.upsert({
+      where: {
+        staffId_roomId_isPrimary: {
+          staffId: args.staffId, roomId: args.roomId, isPrimary: args.isPrimary,
+        },
+      },
+      update: {},
+      create: args,
+    })
+  }
+
+  // Tulum coverage: María cubre primary los rooms con número par, Pedro los impares.
+  // El otro housekeeper es backup en cada uno.
+  const tulumRoomList = await prisma.room.findMany({
+    where: { propertyId: tulum.id }, orderBy: { number: 'asc' },
+  })
+  for (let i = 0; i < tulumRoomList.length; i++) {
+    const room = tulumRoomList[i]
+    const primary = i % 2 === 0 ? hk1 : hk2
+    const backup  = i % 2 === 0 ? hk2 : hk1
+    await upsertCoverage({ propertyId: tulum.id, staffId: primary.id, roomId: room.id, isPrimary: true })
+    await upsertCoverage({ propertyId: tulum.id, staffId: backup.id,  roomId: room.id, isPrimary: false })
+  }
+  // Cancún coverage: Luis primary de todos
+  for (const room of cancunRooms) {
+    await upsertCoverage({ propertyId: cancun.id, staffId: hk3.id, roomId: room.id, isPrimary: true })
+  }
+  console.log(`✅ Staff coverage: Tulum balanceada (María/Pedro), Cancún (Luis solo)`)
 
   // 5b. CLEANUP LEGACY (phase 2) ────────────────────────────────────────────
   // Now that Tulum exists and staff have been re-homed via the
@@ -316,13 +409,13 @@ async function main() {
 
 
   // ── Final summary ─────────────────────────────────────────────────────────
-  console.log('\n📋 Credenciales:')
-  console.log('  supervisor@demo.com      / supervisor123    (Supervisor · Tulum)')
-  console.log('  reception@demo.com       / reception123     (Recepción · Tulum)')
-  console.log('  hk1@demo.com             / housekeeper123   (Housekeeping · Tulum)')
-  console.log('  hk2@demo.com             / housekeeper123   (Housekeeping · Tulum)')
-  console.log('  reception.cun@demo.com   / reception123     (Recepción · Cancún)')
-  console.log('  hk3@demo.com             / housekeeper123   (Housekeeping · Cancún)')
+  console.log("\n📋 Credenciales (todas con password '123456'):")
+  console.log('  s@z.co     (Supervisor   · Tulum   · Ana García)')
+  console.log('  r@z.co     (Recepción    · Tulum   · Carlos López)')
+  console.log('  m@z.co     (Housekeeper  · Tulum   · María Torres)')
+  console.log('  p@z.co     (Housekeeper  · Tulum   · Pedro Ramírez)')
+  console.log('  rc@z.co    (Recepción    · Cancún  · Laura Mendez)')
+  console.log('  l@z.co     (Housekeeper  · Cancún  · Luis Herrera)')
   console.log('\n✨ Seed complete.')
 }
 

@@ -5,9 +5,15 @@ import {
   BlockSemantic,
   BlockStatus,
   Capability,
+  CarryoverPolicy,
+  CleaningCancelReason,
   CleaningStatus,
+  ClockSource,
+  Department,
   DiscrepancyStatus,
   DiscrepancyType,
+  ExtensionFlag,
+  GamificationLevel,
   HousekeepingRole,
   KeyDeliveryType,
   MaintenanceCategory,
@@ -16,6 +22,7 @@ import {
   PmsMode,
   Priority,
   RoomCategory,
+  ShiftExceptionType,
   TaskLogEvent,
   TaskType,
 } from './enums'
@@ -34,6 +41,9 @@ export interface JwtPayload {
   sub: string
   email: string
   role: HousekeepingRole
+  /** Operational area — drives the role-aware module switch in mobile (Sprint 8I AD-011).
+   *  Optional for backward-compat with old tokens; backfilled to HOUSEKEEPING by default. */
+  department?: Department
   propertyId: string
   organizationId: string
 }
@@ -45,7 +55,29 @@ export interface AuthResponse {
     name: string
     email: string
     role: HousekeepingRole
+    department: Department
     propertyId: string
+    /** Display name of the property the user is currently scoped to. */
+    propertyName: string | null
+    /** Drives operational UX in the mobile app:
+     *   HOTEL          → unit = room. Hide bed labels (e.g. "Cama A") everywhere.
+     *   HOSTAL         → mixed inventory: PRIVATE rooms hide bed labels;
+     *                    SHARED dorms show them. Decision per-room via
+     *                    RoomCategory enum (CLAUDE.md). Property-level type
+     *                    is a hint for default copy ("habitación" vs "cama").
+     *   BOUTIQUE       → behaves like HOTEL.
+     *   GLAMPING/ECO_LODGE → behaves like HOTEL (1 unit per "room").
+     *   VACATION_RENTAL → listing-driven; no front desk; check-in by code.
+     *                    Different dashboard set (CLAUDE.md docs/research-airbnb.md).
+     */
+    propertyType:
+      | 'HOTEL'
+      | 'HOSTAL'
+      | 'BOUTIQUE'
+      | 'GLAMPING'
+      | 'ECO_LODGE'
+      | 'VACATION_RENTAL'
+      | null
   }
 }
 
@@ -110,12 +142,21 @@ export interface CleaningTaskDto {
   taskType: TaskType
   requiredCapability: Capability
   priority: Priority
+  hasSameDayCheckIn: boolean
   startedAt: string | null
   finishedAt: string | null
   verifiedAt: string | null
   verifiedById: string | null
   createdAt: string
   updatedAt: string
+  // Sprint 8H — scheduling
+  scheduledFor: string | null
+  carryoverFromDate: string | null
+  carryoverFromTaskId: string | null
+  autoAssignmentRule: string | null
+  cancelledReason: CleaningCancelReason | null
+  cancelledAt: string | null
+  extensionFlag: ExtensionFlag | null
   unit?: UnitDto & { room?: RoomDto }
   assignedTo?: StaffDto | null
 }
@@ -406,6 +447,15 @@ export type SseEventType =
   | 'notification:new'
   // Check-in confirmation
   | 'checkin:confirmed'
+  // Sprint 8H — Housekeeping scheduling
+  | 'task:carryover'           // tarea movida del día anterior
+  | 'task:auto-assigned'       // auto-asignación visible en tiempo real al supervisor
+  | 'task:reassigned'          // reasignación post-creación (ausencia o manual)
+  | 'task:extension-confirmed' // D12 — extensión confirma o cancela limpieza
+  | 'roster:published'         // cron 7am terminó de ejecutar para esta propiedad
+  | 'shift:absence'            // recepcionista marcó ausencia de un staff
+  | 'shift:clock-in'           // staff hizo check-in al turno
+  | 'shift:clock-out'          // staff hizo check-out al turno
 
 // ─── Offline Sync (Mobile) ────────────────────────────────────────────────────
 
@@ -535,4 +585,93 @@ export interface PropertyDto {
   type?: string
   region?: string | null
   city?: string | null
+}
+
+// ─── Housekeeping Scheduling (Sprint 8H) ─────────────────────────────────────
+
+export interface StaffShiftDto {
+  id: string
+  staffId: string
+  propertyId: string
+  dayOfWeek: number       // 0 (Sun) - 6 (Sat)
+  startTime: string       // "HH:mm" local
+  endTime: string         // "HH:mm" local
+  effectiveFrom: string   // ISO date
+  effectiveUntil: string | null
+  active: boolean
+  createdAt: string
+}
+
+export interface StaffShiftExceptionDto {
+  id: string
+  staffId: string
+  date: string                          // ISO date
+  type: ShiftExceptionType
+  startTime: string | null
+  endTime: string | null
+  reason: string | null
+  approvedById: string | null
+  createdAt: string
+}
+
+export interface StaffCoverageDto {
+  id: string
+  propertyId: string
+  staffId: string
+  roomId: string
+  isPrimary: boolean
+  weight: number
+  createdAt: string
+  staff?: Pick<StaffDto, 'id' | 'name'>
+  room?: Pick<RoomDto, 'id' | 'number'>
+}
+
+export interface StaffShiftClockDto {
+  id: string
+  staffId: string
+  propertyId: string
+  clockInAt: string
+  clockOutAt: string | null
+  source: ClockSource
+  notes: string | null
+  createdAt: string
+}
+
+export interface StaffPreferencesDto {
+  id: string
+  staffId: string
+  gamificationLevel: GamificationLevel
+  language: string
+  hapticEnabled: boolean
+  soundEnabled: boolean
+  updatedAt: string
+}
+
+/** On-shift staff snapshot returned by AvailabilityQueryService. */
+export interface OnShiftStaffDto {
+  staffId: string
+  name: string
+  role: HousekeepingRole
+  capabilities: Capability[]
+  shiftStart: string   // "HH:mm"
+  shiftEnd: string     // "HH:mm"
+  source: 'RECURRING' | 'EXTRA' | 'MODIFIED'
+}
+
+/** Result of an autoAssign() call. */
+export interface AutoAssignmentResult {
+  assigned: boolean
+  staffId: string | null
+  rule: 'COVERAGE_PRIMARY' | 'COVERAGE_BACKUP' | 'ROUND_ROBIN' | null
+  reason: string | null  // explicación si NO se asignó
+}
+
+/** Daily roster summary pushed to each housekeeper at 7am. */
+export interface DailyRosterSummaryDto {
+  date: string                  // ISO local date YYYY-MM-DD
+  staffId: string
+  totalTasks: number
+  sameDayCheckInTasks: number
+  carryoverTasks: number
+  doubleUrgentTasks: number     // carryover && hasSameDayCheckIn
 }
