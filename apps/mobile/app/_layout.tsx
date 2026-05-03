@@ -7,7 +7,8 @@ import { useAuthStore } from '../src/store/auth'
 import { requestNotificationPermissions, registerForPushNotificationsAsync, setupNotificationListeners } from '../src/notifications'
 import { startSyncManager, stopSyncManager } from '../src/syncManager'
 import { useGlobalSSEListener } from '../src/api/useGlobalSSEListener'
-import { IncomingTaskAlarmHost } from '../src/features/housekeeping/alarm/IncomingTaskAlarmHost'
+import { AlarmHost } from '../src/notifications/AlarmHost'
+import { useHousekeepingAlarmConsumer } from '../src/features/housekeeping/alarm/useHousekeepingAlarmConsumer'
 import { colors } from '../src/design/colors'
 import { ErrorBoundary } from '../src/features/errors/ErrorBoundary'
 import { installGlobalErrorHandler } from '../src/features/errors/globalErrorHandler'
@@ -129,6 +130,11 @@ export default function RootLayout() {
   // mobile reflects it within ~250ms.
   useGlobalSSEListener()
 
+  // Module-specific alarm consumers. Each hook translates SSE events
+  // for its module into an AlarmPayload and delegates to alarmService.
+  // Add new modules here (maintenance, etc.) — never in child screens.
+  useHousekeepingAlarmConsumer()
+
   // logout escape exposed to the ErrorBoundary fallback.
   const logout = useAuthStore((s) => s.logout)
 
@@ -150,12 +156,12 @@ export default function RootLayout() {
               contentStyle: { backgroundColor: colors.canvas.primary },
             }}
           />
-          {/* Incoming task alarm — listens for SSE 'task:ready' events
-              addressed to the current user (HOUSEKEEPER only) and
-              shows a full-screen vibrating overlay that requires a
-              slide-to-silence gesture. After silence, navigates to
-              "Mi día". Mounted at root so it appears above any tab. */}
-          <IncomingTaskAlarmHost />
+          {/* AlarmHost — subscribes to alarmService and renders the
+              full-screen overlay for any module (housekeeping,
+              maintenance, …). Mounted at root so alarms appear above
+              any screen. Module consumers register via their own
+              use<Module>AlarmConsumer() hooks above. */}
+          <AlarmHost />
         </ErrorBoundary>
         {/* Status bar matches dark canvas — light icons. */}
         <StatusBar style="light" />

@@ -114,8 +114,13 @@ export function HousekeepingHub() {
   }, [groups])
 
   // Card press: navigate freely to the in-progress task; block other cards.
+  // Completed/cancelled tasks are always navigable — no blocking.
   function handleCardPress(task: CleaningTaskDto) {
-    if (inProgressTask && task.id !== inProgressTask.id) {
+    const isCompleted =
+      task.status === CleaningStatus.DONE ||
+      task.status === CleaningStatus.VERIFIED ||
+      task.status === CleaningStatus.CANCELLED
+    if (inProgressTask && task.id !== inProgressTask.id && !isCompleted) {
       const roomNum = inProgressTask.unit?.room?.number ?? '?'
       Alert.alert(
         'Tarea en curso',
@@ -285,7 +290,13 @@ export function HousekeepingHub() {
               <View style={styles.cardWrapper}>
                 <TaskCard
                   task={item.task}
-                  isLocked={!!inProgressTask && item.task.id !== inProgressTask.id}
+                  isLocked={
+                    !!inProgressTask &&
+                    item.task.id !== inProgressTask.id &&
+                    item.task.status !== CleaningStatus.DONE &&
+                    item.task.status !== CleaningStatus.VERIFIED &&
+                    item.task.status !== CleaningStatus.CANCELLED
+                  }
                   onPress={() => handleCardPress(item.task)}
                 />
               </View>

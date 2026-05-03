@@ -21,18 +21,27 @@ import { api } from './api/client'
 const IS_EXPO_GO = Constants.appOwnership === 'expo'
 const EAS_PROJECT_ID = Constants.expoConfig?.extra?.eas?.projectId as string | undefined
 
-// Notification handler — Expo SDK 54 changed the shape (shouldShowAlert deprecated).
-// shouldShowBanner = floating banner (top of screen, iOS Notification Center style).
-// shouldShowList = persists in OS notification list (Android tray, iOS lock screen).
-// Both default to the legacy shouldShowAlert behavior. Apple HIG recommends both
-// for tasks the user must act on quickly (housekeeper roster).
+// Notification handler — controls presentation while the app is in the FOREGROUND.
+// When the phone is locked the OS ignores this handler entirely and always shows
+// the notification — so shouldShowList:true is enough to guarantee lock-screen delivery.
+//
+// task:ready alarms: suppress the foreground banner so it doesn't overlay the
+// in-app alarm screen and block the slide-to-dismiss gesture. The in-app overlay
+// handles everything when the app is active. shouldShowList:true keeps the
+// notification in the tray so the user sees it if they pull down the shade.
+//
+// All other notifications: show banner normally (Apple HIG — urgent tasks).
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
+  handleNotification: async (notification) => {
+    const isAlarm = notification.request.content.data?.alarm === true
+    const showBanner = !isAlarm
+    return {
+      shouldShowBanner: showBanner,
+      shouldShowList: true,
+      shouldPlaySound: showBanner,
+      shouldSetBadge: true,
+    }
+  },
 })
 
 /**

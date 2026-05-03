@@ -87,9 +87,18 @@ import { IconPencil, IconAlertTriangle, IconPause } from '../../../src/design/ic
 export default function TaskDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const router = useRouter()
-  const { tasks, startTask, pauseTask, resumeTask, endTask, fetchTasks } = useTaskStore()
+  const { tasks, loading, startTask, pauseTask, resumeTask, endTask, fetchTasks } = useTaskStore()
 
   const task = tasks.find((t) => t.id === id)
+
+  // If the store is empty (arrived via notification tap or deep link before the
+  // Hub screen populated the store), fetch once so the task detail renders.
+  useEffect(() => {
+    if (!task && !loading) {
+      fetchTasks()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id])
 
   const scrollRef = useRef<ScrollView>(null)
   const checklistRef = useRef<CleaningChecklistRef>(null)
@@ -172,15 +181,24 @@ export default function TaskDetailScreen() {
       <SafeAreaView style={styles.notFoundRoot} edges={['top']}>
         {headerEl}
         <View style={styles.notFoundCenter}>
-          <Text style={styles.notFoundIcon}>🔍</Text>
-          <Text style={styles.notFoundTitle}>Tarea no encontrada</Text>
-          <Text style={styles.notFoundBody}>
-            La tarea con id <Text style={styles.notFoundCode}>{id}</Text> no
-            existe en tu lista o ya fue completada.
-          </Text>
-          <Pressable onPress={() => router.replace('/(app)/trabajo')} style={styles.notFoundBtn}>
-            <Text style={styles.notFoundBtnText}>Volver a Mi día</Text>
-          </Pressable>
+          {loading ? (
+            <>
+              <ActivityIndicator size="large" color={colors.brand[500]} style={{ marginBottom: 16 }} />
+              <Text style={styles.notFoundBody}>Cargando tarea…</Text>
+            </>
+          ) : (
+            <>
+              <Text style={styles.notFoundIcon}>🔍</Text>
+              <Text style={styles.notFoundTitle}>Tarea no encontrada</Text>
+              <Text style={styles.notFoundBody}>
+                La tarea con id <Text style={styles.notFoundCode}>{id}</Text> no
+                existe en tu lista o ya fue completada.
+              </Text>
+              <Pressable onPress={() => router.replace('/(app)/trabajo')} style={styles.notFoundBtn}>
+                <Text style={styles.notFoundBtnText}>Volver a Mi día</Text>
+              </Pressable>
+            </>
+          )}
         </View>
       </SafeAreaView>
     )
