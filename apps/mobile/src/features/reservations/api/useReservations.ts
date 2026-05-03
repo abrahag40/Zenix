@@ -1,13 +1,9 @@
 /**
  * useReservations — list + filter hook.
  *
- * Sprint 8I: returns mock data when EXPO_PUBLIC_USE_MOCKS=true.
- * Sprint 9: replace `dataSource` with a useQuery against
- *   `GET /v1/guest-stays/mobile/list?from=&to=&search=`
- *
- * Filter logic runs client-side over the mock array. When the API
- * is wired, the same filter shape is sent as query params and the
- * server does the heavy lifting (search via Postgres trgm index).
+ * Fetches from GET /v1/guest-stays/mobile/list with server-side filtering
+ * (search, statusFilter, dateFilter). Falls back to mock data when
+ * EXPO_PUBLIC_USE_MOCKS=true and the API returns nothing.
  *
  * Section grouping for the list UI:
  *   - "Llegan hoy"  — UNCONFIRMED + arrivesToday == true
@@ -17,12 +13,13 @@
  *   - "No-shows"    — NO_SHOW (visible per CLAUDE.md §34)
  */
 
-import { useMemo } from 'react'
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react'
+import { api } from '../../../api/client'
 import {
   MOCK_RESERVATIONS_LIST,
   MOCKS_RES_ENABLED,
 } from '../__mocks__/mockReservations'
-import type { ReservationListItem, ReservationStatus } from '../types'
+import type { ReservationListItem, ReservationDetail, ReservationStatus } from '../types'
 
 export type DateFilter = 'today' | 'tomorrow' | 'dayAfter' | 'all'
 
@@ -51,49 +48,16 @@ const SECTION_ORDER: { status: ReservationStatus; title: string; emoji: string }
   { status: 'UPCOMING',    title: 'Próximas',    emoji: '⚪' },
 ]
 
-function isSameLocalDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  )
-}
-
-function matchesDateFilter(item: ReservationListItem, filter: DateFilter): boolean {
-  switch (filter) {
-    case 'today':
-      return item.arrivesToday || item.departsToday || item.status === 'IN_HOUSE' || item.status === 'NO_SHOW'
-    case 'tomorrow': {
-      const tomorrow = new Date()
-      tomorrow.setDate(tomorrow.getDate() + 1)
-      const checkin = new Date(item.checkinAt)
-      return isSameLocalDay(checkin, tomorrow)
-    }
-    case 'dayAfter': {
-      const dayAfter = new Date()
-      dayAfter.setDate(dayAfter.getDate() + 2)
-      const checkin = new Date(item.checkinAt)
-      return isSameLocalDay(checkin, dayAfter)
-    }
-    case 'all':
-    default:
-      return true
+/** Build the query string for the mobile/list endpoint. */
+function buildListPath(query: ReservationsQuery): string {
+  const params = new URLSearchParams()
+  if (query.search?.trim())       params.set('search', query.search.trim())
+  if (query.dateFilter !== 'all') params.set('dateFilter', query.dateFilter)
+  if (query.statusFilter?.length) {
+    for (const s of query.statusFilter) params.append('statusFilter', s)
   }
-}
-
-function matchesStatusFilter(item: ReservationListItem, filter?: ReservationStatus[]): boolean {
-  if (!filter || filter.length === 0) return true
-  return filter.includes(item.status)
-}
-
-function matchesSearch(item: ReservationListItem, q: string): boolean {
-  if (!q.trim()) return true
-  const needle = q.trim().toLowerCase()
-  return (
-    item.guestName.toLowerCase().includes(needle) ||
-    (item.roomNumber ?? '').toLowerCase().includes(needle) ||
-    item.id.toLowerCase().includes(needle)
-  )
+  const qs = params.toString()
+  return `/v1/guest-stays/mobile/list${qs ? `?${qs}` : ''}`
 }
 
 export function useReservations(query: ReservationsQuery): {
@@ -102,54 +66,102 @@ export function useReservations(query: ReservationsQuery): {
   total: number
   sections: ReservationSection[]
 } {
-  // For Sprint 8I we synchronously use the mocks. Sprint 9 swaps for useQuery.
-  const dataSource = MOCKS_RES_ENABLED ? MOCK_RESERVATIONS_LIST : []
+  const [data, setData] = useState<ReservationListItem[] | null>(null)
+  const [isLoading, setLoading] = useState(true)
+  const [isError, setError] = useState(false)
+  const mountedRef = useRef(true)
 
-  const filtered = useMemo(
-    () =>
-      dataSource.filter(
-        (item) =>
-          matchesSearch(item, query.search) &&
-          matchesDateFilter(item, query.dateFilter) &&
-          matchesStatusFilter(item, query.statusFilter),
-      ),
-    [dataSource, query.search, query.dateFilter, query.statusFilter],
-  )
+  const path = buildListPath(query)
+
+  const fetchList = useCallback(async () => {
+    setLoading(true)
+    setError(false)
+    try {
+      const result = await api.get<ReservationListItem[]>(path)
+      if (!mountedRef.current) return
+      setData(result)
+    } catch {
+      if (!mountedRef.current) return
+      setError(true)
+      // Keep stale data on error rather than blanking the screen
+    } finally {
+      if (mountedRef.current) setLoading(false)
+    }
+  }, [path])
+
+  useEffect(() => {
+    mountedRef.current = true
+    fetchList()
+    return () => { mountedRef.current = false }
+  }, [fetchList])
+
+  // Fall back to mocks when API returned nothing (or hasn't loaded yet)
+  const dataSource: ReservationListItem[] =
+    data ?? (MOCKS_RES_ENABLED ? MOCK_RESERVATIONS_LIST : [])
 
   const sections = useMemo<ReservationSection[]>(() => {
     return SECTION_ORDER.map((s) => ({
       key: s.status,
       title: s.title,
       emoji: s.emoji,
-      data: filtered.filter((item) => item.status === s.status),
+      data: dataSource.filter((item) => item.status === s.status),
     })).filter((s) => s.data.length > 0)
-  }, [filtered])
+  }, [dataSource])
 
   return {
-    isLoading: false,
-    isError: false,
-    total: filtered.length,
+    isLoading,
+    isError,
+    total: dataSource.length,
     sections,
   }
 }
 
 /**
  * Single-reservation lookup for the detail screen.
- * Sprint 9: useQuery against `GET /v1/guest-stays/mobile/:id`.
+ * Fetches from GET /v1/guest-stays/mobile/:id with mock fallback.
  */
-export function useReservationDetail(id: string | undefined) {
-  const dataSource = MOCKS_RES_ENABLED
-    ? // Lazy import via require to avoid circular deps
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      (require('../__mocks__/mockReservations') as typeof import('../__mocks__/mockReservations')).MOCK_RESERVATIONS_BY_ID
-    : ({} as Record<string, never>)
+export function useReservationDetail(id: string | undefined): {
+  isLoading: boolean
+  isError: boolean
+  data: ReservationDetail | null
+} {
+  const [data, setData] = useState<ReservationDetail | null>(null)
+  const [isLoading, setLoading] = useState(!!id)
+  const [isError, setError] = useState(false)
+  const mountedRef = useRef(true)
 
-  if (!id) return { isLoading: false, isError: false, data: null }
+  useEffect(() => {
+    mountedRef.current = true
+    if (!id) {
+      setData(null)
+      setLoading(false)
+      return
+    }
 
-  const data = dataSource[id] ?? null
-  return {
-    isLoading: false,
-    isError: false,
-    data,
-  }
+    setLoading(true)
+    setError(false)
+
+    api.get<ReservationDetail>(`/v1/guest-stays/mobile/${id}`)
+      .then((result) => {
+        if (!mountedRef.current) return
+        setData(result)
+      })
+      .catch(() => {
+        if (!mountedRef.current) return
+        setError(true)
+        // Fall back to mock if available
+        if (MOCKS_RES_ENABLED) {
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
+          const mocks = require('../__mocks__/mockReservations') as typeof import('../__mocks__/mockReservations')
+          setData(mocks.MOCK_RESERVATIONS_BY_ID[id] ?? null)
+        }
+      })
+      .finally(() => {
+        if (mountedRef.current) setLoading(false)
+      })
+
+    return () => { mountedRef.current = false }
+  }, [id])
+
+  return { isLoading, isError, data }
 }

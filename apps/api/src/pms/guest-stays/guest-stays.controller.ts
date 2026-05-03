@@ -86,6 +86,42 @@ export class GuestStaysController {
     return this.service.checkAvailability(roomId, ciDate, coDate)
   }
 
+  /**
+   * GET /v1/guest-stays/mobile/list
+   * Mobile-shaped reservation list for the Reservas tab.
+   * Computes status, arrivesToday, departsToday, dateRangeLabel server-side
+   * for timezone correctness. Declared before :id to avoid route shadowing.
+   */
+  @Get('mobile/list')
+  getMobileList(
+    @Query('search')       search?: string,
+    @Query('statusFilter') statusFilter?: string | string[],
+    @Query('dateFilter')   dateFilter?: string,
+    @CurrentUser()         actor?: JwtPayload,
+  ) {
+    if (!actor) throw new BadRequestException('No actor')
+    const statusArray = statusFilter
+      ? Array.isArray(statusFilter) ? statusFilter : [statusFilter]
+      : []
+    return this.service.getMobileList(actor.propertyId, actor.role, {
+      search, statusFilter: statusArray, dateFilter,
+    })
+  }
+
+  /**
+   * GET /v1/guest-stays/mobile/:id
+   * Full reservation detail for the mobile detail screen.
+   * Includes payments and journey audit trail.
+   * Declared before :id to avoid route shadowing.
+   */
+  @Get('mobile/:id')
+  getMobileDetail(
+    @Param('id')   id: string,
+    @CurrentUser() actor: JwtPayload,
+  ) {
+    return this.service.getMobileDetail(id, actor.role)
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.service.findOne(id)

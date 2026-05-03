@@ -146,6 +146,67 @@ export function fmtLocalTime(d: Date, timezone: string): string {
 }
 
 /**
+ * Format a relative timestamp label in Spanish.
+ * Used in history events: "hace 2h", "ayer", "hace 3 días".
+ */
+export function fmtRelativeLabel(d: Date): string {
+  const diffMs = Date.now() - d.getTime()
+  const diffMin = Math.floor(diffMs / 60_000)
+  const diffH = Math.floor(diffMs / 3_600_000)
+  const diffDays = Math.floor(diffMs / 86_400_000)
+  if (diffMin < 1)  return 'ahora'
+  if (diffMin < 60) return `hace ${diffMin}min`
+  if (diffH  < 24)  return `hace ${diffH}h`
+  if (diffDays === 1) return 'ayer'
+  return `hace ${diffDays} días`
+}
+
+/**
+ * Format an absolute timestamp label in Spanish ("26 abr 21:42").
+ * Used alongside fmtRelativeLabel in history events.
+ */
+export function fmtAbsoluteLabel(d: Date, timezone: string): string {
+  const datePart = new Intl.DateTimeFormat('es-MX', {
+    timeZone: timezone, day: '2-digit', month: 'short',
+  }).format(d)
+  const timePart = fmtLocalTime(d, timezone)
+  return `${datePart} ${timePart}`
+}
+
+/**
+ * Format a reservation date-range label for the mobile list card.
+ * Examples: "Hoy 15:00 → Mañana 12:00", "25 abr 14:00 → 28 abr 11:00 · 3 noches".
+ */
+export function fmtReservationDateRange(
+  checkinAt: Date,
+  scheduledCheckout: Date,
+  timezone: string,
+): string {
+  const today    = localYMD(new Date(), timezone)
+  const tomorrow = localYMD(addDays(new Date(), 1), timezone)
+  const checkinDay  = localYMD(checkinAt, timezone)
+  const checkoutDay = localYMD(scheduledCheckout, timezone)
+  const checkinTime  = fmtLocalTime(checkinAt, timezone)
+  const checkoutTime = fmtLocalTime(scheduledCheckout, timezone)
+  const nights = Math.max(
+    1,
+    Math.round((scheduledCheckout.getTime() - checkinAt.getTime()) / 86_400_000),
+  )
+  const shortFmt = new Intl.DateTimeFormat('es-MX', {
+    timeZone: timezone, day: '2-digit', month: 'short',
+  })
+  const startLabel =
+    checkinDay === today    ? `Hoy ${checkinTime}` :
+    checkinDay === tomorrow ? `Mañana ${checkinTime}` :
+                              `${shortFmt.format(checkinAt)} ${checkinTime}`
+  const endLabel =
+    checkoutDay === today    ? `Hoy ${checkoutTime}` :
+    checkoutDay === tomorrow ? `Mañana ${checkoutTime}` :
+                               `${shortFmt.format(scheduledCheckout)} ${checkoutTime}`
+  return `${startLabel} → ${endLabel} · ${nights} noche${nights !== 1 ? 's' : ''}`
+}
+
+/**
  * Format a flair tag for in-house rooms (VIP / Late ck / etc.).
  * For Sprint 9 we surface "VIP" if guestStay.notes contains the literal,
  * "Late ck" if scheduled checkout is later than property's defaultCheckoutTime,

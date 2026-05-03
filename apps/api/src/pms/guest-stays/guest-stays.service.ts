@@ -13,7 +13,14 @@ import { EmailService } from '../../common/email/email.service'
 import { CreateGuestStayDto } from './dto/create-guest-stay.dto'
 import { MoveRoomDto } from './dto/move-room.dto'
 import type { AvailabilityConflict, RoomAvailabilityResult } from '@zenix/shared'
-import { PaymentMethod } from '@zenix/shared'
+import { PaymentMethod, HousekeepingRole } from '@zenix/shared'
+import {
+  addDays,
+  localYMD,
+  fmtRelativeLabel,
+  fmtAbsoluteLabel,
+  fmtReservationDateRange,
+} from '../../dashboard-reports/format.helpers'
 import { Prisma } from '@prisma/client'
 import { ConfirmCheckinDto } from './dto/confirm-checkin.dto'
 import { RegisterPaymentDto } from './dto/register-payment.dto'
@@ -1577,6 +1584,289 @@ export class GuestStaysService {
         count:         v.count,
       })),
     }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Mobile-specific endpoints — Sprint 9 wiring
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /**
+   * GET /v1/guest-stays/mobile/list
+   * Returns a filtered list of reservations pre-shaped for the mobile card.
+   * All derived fields (status, arrivesToday, dateRangeLabel, etc.) are
+   * computed server-side to guarantee timezone correctness.
+   */
+  async getMobileList(
+    propertyId: string,
+    actorRole: HousekeepingRole,
+    query: {
+      search?: string
+      statusFilter?: string[]
+      dateFilter?: string
+    },
+  ) {
+    const settings = await this.prisma.propertySettings.findUnique({
+      where: { propertyId },
+      select: { timezone: true },
+    })
+    const tz = settings?.timezone ?? 'America/Mexico_City'
+    const now = new Date()
+    const todayLocal    = localYMD(now, tz)
+    const tomorrowLocal = localYMD(addDays(now, 1), tz)
+    const dayAfterLocal = localYMD(addDays(now, 2), tz)
+
+    // Window: last 7 days (recent no-shows/departures) + next 60 days
+    const windowEnd = addDays(now, 60)
+    const windowStart = addDays(now, -7)
+
+    const stays = await this.prisma.guestStay.findMany({
+      where: {
+        propertyId,
+        deletedAt: null,
+        checkinAt: { lte: windowEnd },
+        OR: [
+          { actualCheckout: null },
+          { actualCheckout: { gte: windowStart } },
+          { noShowAt: { gte: windowStart } },
+        ],
+      },
+      include: { room: { select: { number: true } } },
+      orderBy: { checkinAt: 'asc' },
+    })
+
+    const items = stays.map((stay) => {
+      const checkinDay  = localYMD(stay.checkinAt, tz)
+      const checkoutDay = localYMD(stay.scheduledCheckout, tz)
+      const arrivesToday = checkinDay === todayLocal
+      const departsToday = checkoutDay === todayLocal
+      const isNoShow    = stay.noShowAt != null
+      const isDeparted  = stay.actualCheckout != null
+      const isConfirmed = stay.actualCheckin != null
+
+      let status: string
+      if (isNoShow)              status = 'NO_SHOW'
+      else if (isDeparted)       status = 'DEPARTED'
+      else if (departsToday)     status = 'DEPARTING'
+      else if (isConfirmed)      status = 'IN_HOUSE'
+      else if (arrivesToday)     status = 'UNCONFIRMED'
+      else                       status = 'UPCOMING'
+
+      const isRedacted = actorRole === HousekeepingRole.HOUSEKEEPER
+      return {
+        id: stay.id,
+        guestName: isRedacted ? `Hab. ${stay.room.number}` : stay.guestName,
+        isRedacted,
+        roomNumber: stay.room.number,
+        unitLabel: null,
+        status,
+        source: this.mapReservationSource(stay.source),
+        paxCount: stay.paxCount,
+        checkinAt: stay.checkinAt.toISOString(),
+        scheduledCheckout: stay.scheduledCheckout.toISOString(),
+        arrivesToday,
+        departsToday,
+        isNoShow,
+        dateRangeLabel: fmtReservationDateRange(stay.checkinAt, stay.scheduledCheckout, tz),
+      }
+    })
+
+    // Apply filters in memory (status is derived, not stored)
+    let result = items
+
+    if (query.search?.trim()) {
+      const needle = query.search.trim().toLowerCase()
+      result = result.filter(
+        (item) =>
+          item.guestName.toLowerCase().includes(needle) ||
+          (item.roomNumber ?? '').toLowerCase().includes(needle) ||
+          item.id.toLowerCase().includes(needle),
+      )
+    }
+
+    if (query.dateFilter && query.dateFilter !== 'all') {
+      const df = query.dateFilter
+      result = result.filter((item) => {
+        if (df === 'today') {
+          return (
+            item.arrivesToday ||
+            item.departsToday ||
+            item.status === 'IN_HOUSE' ||
+            item.status === 'NO_SHOW'
+          )
+        }
+        const day = localYMD(new Date(item.checkinAt), tz)
+        if (df === 'tomorrow')  return day === tomorrowLocal
+        if (df === 'dayAfter')  return day === dayAfterLocal
+        return true
+      })
+    }
+
+    if (query.statusFilter?.length) {
+      result = result.filter((item) => query.statusFilter!.includes(item.status))
+    }
+
+    return result
+  }
+
+  /**
+   * GET /v1/guest-stays/mobile/:id
+   * Full detail payload for the reservation detail screen.
+   * Includes payments history and journey audit trail.
+   * PII is redacted for HOUSEKEEPER role.
+   */
+  async getMobileDetail(stayId: string, actorRole: HousekeepingRole) {
+    const stay = await this.prisma.guestStay.findUnique({
+      where: { id: stayId },
+      include: {
+        room: { select: { number: true } },
+        paymentLogs: {
+          include: { collectedBy: { select: { name: true } } },
+          orderBy: { createdAt: 'asc' },
+        },
+        stayJourney: {
+          include: { events: { orderBy: { occurredAt: 'desc' } } },
+        },
+      },
+    })
+    if (!stay) throw new NotFoundException('Reserva no encontrada')
+
+    const settings = await this.prisma.propertySettings.findUnique({
+      where: { propertyId: stay.propertyId },
+      select: { timezone: true },
+    })
+    const tz = settings?.timezone ?? 'America/Mexico_City'
+    const now = new Date()
+    const todayLocal = localYMD(now, tz)
+    const checkinDay  = localYMD(stay.checkinAt, tz)
+    const checkoutDay = localYMD(stay.scheduledCheckout, tz)
+    const arrivesToday = checkinDay === todayLocal
+    const departsToday = checkoutDay === todayLocal
+    const isNoShow    = stay.noShowAt != null
+    const isDeparted  = stay.actualCheckout != null
+    const isConfirmed = stay.actualCheckin != null
+
+    let status: string
+    if (isNoShow)          status = 'NO_SHOW'
+    else if (isDeparted)   status = 'DEPARTED'
+    else if (departsToday) status = 'DEPARTING'
+    else if (isConfirmed)  status = 'IN_HOUSE'
+    else if (arrivesToday) status = 'UNCONFIRMED'
+    else                   status = 'UPCOMING'
+
+    const isRedacted = actorRole === HousekeepingRole.HOUSEKEEPER
+
+    // Resolve actor names for history events
+    const actorIds = [
+      ...new Set(
+        (stay.stayJourney?.events ?? [])
+          .filter((e) => e.actorId)
+          .map((e) => e.actorId!),
+      ),
+    ]
+    const actorNames = new Map<string, string>()
+    if (actorIds.length > 0) {
+      const actors = await this.prisma.housekeepingStaff.findMany({
+        where: { id: { in: actorIds } },
+        select: { id: true, name: true },
+      })
+      for (const a of actors) actorNames.set(a.id, a.name)
+    }
+
+    // Mask document number — keep only last 4 chars for privacy
+    const docNum = stay.documentNumber
+    const documentNumberMasked =
+      docNum && docNum.length >= 4 ? `***${docNum.slice(-4)}` : docNum ? '***' : null
+
+    const payments = stay.paymentLogs.map((p) => ({
+      id: p.id,
+      method: p.method as string,
+      amount: p.amount.toString(),
+      currency: p.currency,
+      collectedAt: p.createdAt.toISOString(),
+      collectedByName: p.collectedBy.name ?? null,
+      isVoid: p.isVoid,
+      reference: p.reference ?? null,
+    }))
+
+    const ICON_MAP: Record<string, string> = {
+      JOURNEY_CREATED: 'system',   SEGMENT_ADDED: 'system',
+      SEGMENT_LOCKED: 'edit',      ROOM_MOVE_EXECUTED: 'edit',
+      EXTENSION_APPROVED: 'edit',  JOURNEY_SPLIT: 'edit',
+      CHECKED_IN: 'arrival',       CHECKED_OUT: 'departure',
+      NO_SHOW_MARKED: 'noshow',    NO_SHOW_REVERTED: 'noshow',
+      CANCELLED: 'system',
+    }
+    const DESC_MAP: Record<string, string> = {
+      JOURNEY_CREATED: 'Reserva registrada',
+      SEGMENT_ADDED: 'Segmento añadido',
+      SEGMENT_LOCKED: 'Segmento confirmado',
+      ROOM_MOVE_EXECUTED: 'Traslado de habitación',
+      EXTENSION_APPROVED: 'Extensión aprobada',
+      JOURNEY_SPLIT: 'Estadía dividida',
+      CHECKED_IN: 'Check-in confirmado',
+      CHECKED_OUT: 'Check-out registrado',
+      NO_SHOW_MARKED: 'Marcado como no-show',
+      NO_SHOW_REVERTED: 'No-show revertido',
+      CANCELLED: 'Cancelado',
+    }
+
+    const history = (stay.stayJourney?.events ?? []).map((e) => ({
+      id: e.id,
+      whenLabel: fmtRelativeLabel(e.occurredAt),
+      absoluteLabel: fmtAbsoluteLabel(e.occurredAt, tz),
+      description: DESC_MAP[e.eventType] ?? String(e.eventType),
+      actorName: e.actorId ? (actorNames.get(e.actorId) ?? null) : null,
+      iconKey: ICON_MAP[e.eventType] ?? 'system',
+    }))
+
+    // Map PaymentStatus schema enum → mobile type
+    const paymentStatusMap: Record<string, string> = {
+      PENDING: 'UNPAID', PARTIAL: 'PARTIAL',
+      PAID: 'PAID',       CREDIT: 'REFUNDED',
+      OVERDUE: 'UNPAID',
+    }
+
+    return {
+      // List fields
+      id: stay.id,
+      guestName: isRedacted ? `Hab. ${stay.room.number}` : stay.guestName,
+      isRedacted,
+      roomNumber: stay.room.number,
+      unitLabel: null,
+      status,
+      source: this.mapReservationSource(stay.source),
+      paxCount: stay.paxCount,
+      checkinAt: stay.checkinAt.toISOString(),
+      scheduledCheckout: stay.scheduledCheckout.toISOString(),
+      arrivesToday,
+      departsToday,
+      isNoShow,
+      dateRangeLabel: fmtReservationDateRange(stay.checkinAt, stay.scheduledCheckout, tz),
+      // Detail fields
+      guestEmail:            isRedacted ? null : (stay.guestEmail ?? null),
+      guestPhone:            isRedacted ? null : (stay.guestPhone ?? null),
+      nationality:           isRedacted ? null : (stay.nationality ?? null),
+      documentType:          isRedacted ? null : (stay.documentType ?? null),
+      documentNumberMasked:  isRedacted ? null : documentNumberMasked,
+      ratePerNight:          stay.ratePerNight.toString(),
+      currency:              stay.currency,
+      totalAmount:           stay.totalAmount.toString(),
+      amountPaid:            stay.amountPaid.toString(),
+      paymentStatus:         paymentStatusMap[stay.paymentStatus] ?? 'UNPAID',
+      notes:                 stay.notes ?? null,
+      arrivalNotes:          stay.arrivalNotes ?? null,
+      keyType:               stay.keyType ?? null,
+      noShowAt:              stay.noShowAt?.toISOString() ?? null,
+      noShowReason:          stay.noShowReason ?? null,
+      payments,
+      history,
+    }
+  }
+
+  private mapReservationSource(source: string | null): string | null {
+    const known = ['DIRECT', 'BOOKING', 'AIRBNB', 'EXPEDIA', 'HOSTELWORLD', 'WALK_IN']
+    if (!source) return null
+    return known.includes(source) ? source : 'OTHER'
   }
 
   /**
