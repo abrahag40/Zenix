@@ -54,6 +54,10 @@ import { FxRateCard } from '../../src/features/dashboard/components/FxRateCard'
 import { PendingTasksCard } from '../../src/features/dashboard/components/PendingTasksCard'
 import { RevenueCarouselCard } from '../../src/features/dashboard/components/RevenueCarouselCard'
 import { MovementsCard } from '../../src/features/dashboard/components/MovementsCard'
+import {
+  useDashboardOverview,
+  useRevenueSnapshot,
+} from '../../src/features/dashboard/api/useDashboard'
 // SpecialRequestsCard + PendingApprovalsCard intentionally not imported
 // here — deferred to a non-essential sprint per user feedback. The
 // components still exist in src/features/dashboard/components/ for
@@ -143,27 +147,42 @@ export default function DashboardScreen() {
     opacity: cardsOpacity.value,
   }))
 
-  // ── Resolve data sources (mock or null) ──────────────────────────
-  // In Sprint 9 these will become useQuery hooks. For now, mocks
-  // when the env flag is on, null/undefined otherwise — every card
-  // already handles the empty state gracefully.
-  const occupancyDonut  = MOCKS_DASHBOARD_ENABLED ? MOCK_OCCUPANCY_DONUT : null
-  const roomsGrid       = MOCKS_DASHBOARD_ENABLED ? MOCK_ROOMS_GRID : []
-  const inHouse         = MOCKS_DASHBOARD_ENABLED ? MOCK_IN_HOUSE : { guestCount: null, roomsOccupied: null, arrivalsToday: null, departuresToday: null }
-  const inHouseRooms    = MOCKS_DASHBOARD_ENABLED ? MOCK_IN_HOUSE_ROOMS : []
-  const noShows         = MOCKS_DASHBOARD_ENABLED ? MOCK_NO_SHOWS : []
-  const fxRates         = MOCKS_DASHBOARD_ENABLED ? MOCK_FX_RATES : []
-  const blockedRooms    = MOCKS_DASHBOARD_ENABLED ? MOCK_BLOCKED_ROOMS : []
-  const tickerInsights  = MOCKS_DASHBOARD_ENABLED ? MOCK_TICKER_INSIGHTS : []
-  const pendingTasks    = MOCKS_DASHBOARD_ENABLED ? MOCK_PENDING_TASKS : null
-  const revenueFrames   = MOCKS_DASHBOARD_ENABLED ? MOCK_REVENUE_FRAMES : []
-  const todayArrivals   = MOCKS_DASHBOARD_ENABLED ? MOCK_TODAY_ARRIVALS : []
-  const todayDepartures = MOCKS_DASHBOARD_ENABLED ? MOCK_TODAY_DEPARTURES : []
-
   // Reception/Supervisor/Admin can access the calendar shortcut + reservation
   // search. Housekeeping doesn't need them.
   const canAccessReservations =
     user?.role === 'RECEPTIONIST' || user?.role === 'SUPERVISOR'
+
+  // ── Live data — Sprint 9 endpoints ──────────────────────────────
+  // The two hooks below replace the old `MOCK_*` direct imports.
+  // Each card falls back to its mock when the live request hasn't
+  // resolved yet (keeps QA preview unbroken). When the API succeeds,
+  // mocks are silently superseded.
+  const overviewQ = useDashboardOverview()
+  const revenueQ = useRevenueSnapshot({ enabled: canAccessReservations })
+
+  const overview = overviewQ.data
+  const occupancyDonut = overview?.occupancy
+    ?? (MOCKS_DASHBOARD_ENABLED ? MOCK_OCCUPANCY_DONUT : null)
+  const inHouse = overview?.inHouse
+    ?? (MOCKS_DASHBOARD_ENABLED ? MOCK_IN_HOUSE : { guestCount: null, roomsOccupied: null, arrivalsToday: null, departuresToday: null })
+  const inHouseRooms = overview?.inHouseRooms
+    ?? (MOCKS_DASHBOARD_ENABLED ? MOCK_IN_HOUSE_ROOMS : [])
+  const blockedRooms = overview?.blockedRooms
+    ?? (MOCKS_DASHBOARD_ENABLED ? MOCK_BLOCKED_ROOMS : [])
+  const pendingTasks = overview?.pendingTasks
+    ?? (MOCKS_DASHBOARD_ENABLED ? MOCK_PENDING_TASKS : null)
+  const todayArrivals = overview?.arrivals
+    ?? (MOCKS_DASHBOARD_ENABLED ? MOCK_TODAY_ARRIVALS : [])
+  const todayDepartures = overview?.departures
+    ?? (MOCKS_DASHBOARD_ENABLED ? MOCK_TODAY_DEPARTURES : [])
+  const revenueFrames = revenueQ.data?.frames
+    ?? (MOCKS_DASHBOARD_ENABLED ? MOCK_REVENUE_FRAMES : [])
+
+  // Cards still on mock-only (Sprint 9+ extends backend):
+  const roomsGrid       = MOCKS_DASHBOARD_ENABLED ? MOCK_ROOMS_GRID : []
+  const noShows         = MOCKS_DASHBOARD_ENABLED ? MOCK_NO_SHOWS : []
+  const fxRates         = MOCKS_DASHBOARD_ENABLED ? MOCK_FX_RATES : []
+  const tickerInsights  = MOCKS_DASHBOARD_ENABLED ? MOCK_TICKER_INSIGHTS : []
 
   // Helpers for active-set lookups
   const activeKeys = new Set(kpis.map((k) => k.key))

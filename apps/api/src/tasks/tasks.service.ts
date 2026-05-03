@@ -9,7 +9,8 @@ import { PrismaService } from '../prisma/prisma.service'
 import { TenantContextService } from '../common/tenant-context.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import { PushService } from '../notifications/push.service'
-import { CreateTaskDto, AssignTaskDto, QueryTaskDto } from './dto/create-task.dto'
+import { CreateTaskDto, AssignTaskDto, EndTaskDto, QueryTaskDto } from './dto/create-task.dto'
+import { StaffGamificationService } from '../staff-gamification/staff-gamification.service'
 
 const TASK_INCLUDE = {
   unit: { include: { room: true } },
@@ -24,6 +25,7 @@ export class TasksService {
     private tenant: TenantContextService,
     private notifications: NotificationsService,
     private push: PushService,
+    private gamification: StaffGamificationService,
   ) {}
 
   async create(dto: CreateTaskDto, actor: JwtPayload) {
@@ -190,7 +192,7 @@ export class TasksService {
     return updated
   }
 
-  async endTask(taskId: string, actor: JwtPayload) {
+  async endTask(taskId: string, actor: JwtPayload, dto?: EndTaskDto) {
     const orgId = this.tenant.getOrganizationId()
     const task = await this.prisma.cleaningTask.findUnique({
       where: { id: taskId, organizationId: orgId },
@@ -216,8 +218,21 @@ export class TasksService {
         include: TASK_INCLUDE,
       })
 
+      // Persistencia del checklist snapshot al cerrar la tarea.
+      // Si el cliente no envía nada, queda metadata: null (compatible con
+      // tareas viejas sin checklist o con clientes que aún no envíen).
+      const checklistMeta =
+        dto?.checklist && dto.checklist.length > 0
+          ? { checklist: dto.checklist }
+          : undefined
+
       await tx.taskLog.create({
-        data: { taskId, staffId: actor.sub, event: TaskLogEvent.COMPLETED },
+        data: {
+          taskId,
+          staffId: actor.sub,
+          event: TaskLogEvent.COMPLETED,
+          metadata: checklistMeta as any,
+        },
       })
 
       // Unit is now AVAILABLE (clean)
@@ -237,6 +252,34 @@ export class TasksService {
       hasNotes: task.notes.length > 0,
     })
 
+    // Gamification — fire-and-forget. NEVER block the task transaction
+    // (it already commited). If the streak update fails, the task is
+    // still done. Logs internal warning for ops.
+    if (task.assignedToId && task.startedAt) {
+      const cleaningMinutes = Math.max(
+        1,
+        Math.round(
+          (Date.now() - new Date(task.startedAt).getTime()) / 60_000,
+        ),
+      )
+      const roomCategory = task.unit.room.category ?? 'PRIVATE'
+      const workDate = new Date().toISOString().slice(0, 10)
+      void this.gamification
+        .onTaskCompleted({
+          staffId: task.assignedToId,
+          taskId,
+          cleaningMinutes,
+          roomCategory,
+          workDate,
+        })
+        .catch((e) => {
+          // Internal log only — gamification failures must NEVER bubble
+          // up to break the operational flow (CLAUDE.md §32 — fail-soft).
+          // eslint-disable-next-line no-console
+          console.warn('[gamification.onTaskCompleted] non-fatal:', e?.message ?? e)
+        })
+    }
+
     return updated
   }
 
@@ -244,6 +287,7 @@ export class TasksService {
     const orgId = this.tenant.getOrganizationId()
     const task = await this.prisma.cleaningTask.findUnique({
       where: { id: taskId, organizationId: orgId },
+      include: { unit: { include: { room: { include: { property: true } } } } },
     })
     if (!task) throw new NotFoundException('Task not found')
     if (task.status !== CleaningStatus.IN_PROGRESS) {
@@ -253,7 +297,7 @@ export class TasksService {
       throw new ForbiddenException('You are not assigned to this task')
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const updated = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.cleaningTask.update({
         where: { id: taskId },
         data: { status: CleaningStatus.PAUSED },
@@ -262,12 +306,24 @@ export class TasksService {
       await tx.taskLog.create({ data: { taskId, staffId: actor.sub, event: TaskLogEvent.PAUSED } })
       return updated
     })
+
+    // SSE — broadcast to all clients in the property so the web calendar
+    // and other supervisors see the pause in real-time.
+    this.notifications.emit(task.unit.room.property.id, 'task:paused', {
+      taskId,
+      unitId: task.unitId,
+      roomId: task.unit.roomId,
+      roomNumber: task.unit.room.number,
+      assignedToId: actor.sub,
+    })
+    return updated
   }
 
   async resumeTask(taskId: string, actor: JwtPayload) {
     const orgId = this.tenant.getOrganizationId()
     const task = await this.prisma.cleaningTask.findUnique({
       where: { id: taskId, organizationId: orgId },
+      include: { unit: { include: { room: { include: { property: true } } } } },
     })
     if (!task) throw new NotFoundException('Task not found')
     if (task.status !== CleaningStatus.PAUSED) {
@@ -277,7 +333,19 @@ export class TasksService {
       throw new ForbiddenException('You are not assigned to this task')
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    // Same guard as startTask: a housekeeper cannot have two IN_PROGRESS tasks.
+    // Resuming a PAUSED task moves it to IN_PROGRESS, which would violate the
+    // single-active-task invariant if another task is already in progress.
+    if (actor.role === HousekeepingRole.HOUSEKEEPER) {
+      const activeTask = await this.prisma.cleaningTask.findFirst({
+        where: { assignedToId: actor.sub, status: CleaningStatus.IN_PROGRESS, organizationId: orgId },
+      })
+      if (activeTask) {
+        throw new ConflictException('You already have an active task in progress')
+      }
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.cleaningTask.update({
         where: { id: taskId },
         data: { status: CleaningStatus.IN_PROGRESS },
@@ -286,6 +354,15 @@ export class TasksService {
       await tx.taskLog.create({ data: { taskId, staffId: actor.sub, event: TaskLogEvent.RESUMED } })
       return updated
     })
+
+    this.notifications.emit(task.unit.room.property.id, 'task:resumed', {
+      taskId,
+      unitId: task.unitId,
+      roomId: task.unit.roomId,
+      roomNumber: task.unit.room.number,
+      assignedToId: actor.sub,
+    })
+    return updated
   }
 
   async verifyTask(taskId: string, actor: JwtPayload) {
@@ -299,7 +376,7 @@ export class TasksService {
       throw new ConflictException('Task must be DONE before verification')
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.cleaningTask.update({
         where: { id: taskId },
         data: { status: CleaningStatus.VERIFIED, verifiedAt: new Date(), verifiedById: actor.sub },
@@ -308,6 +385,29 @@ export class TasksService {
       await tx.taskLog.create({ data: { taskId, staffId: actor.sub, event: TaskLogEvent.VERIFIED } })
       return updated
     })
+
+    // SSE — supervisor verification visible to all clients
+    this.notifications.emit(task.unit.room.property.id, 'task:verified', {
+      taskId,
+      unitId: task.unitId,
+      roomId: task.unit.roomId,
+      roomNumber: task.unit.room.number,
+      assignedToId: task.assignedToId,
+      verifiedById: actor.sub,
+    })
+
+    // Gamification — fire-and-forget ring 3 increment.
+    if (task.assignedToId) {
+      const workDate = new Date().toISOString().slice(0, 10)
+      void this.gamification
+        .onTaskVerified({ staffId: task.assignedToId, workDate })
+        .catch((e) => {
+          // eslint-disable-next-line no-console
+          console.warn('[gamification.onTaskVerified] non-fatal:', e?.message ?? e)
+        })
+    }
+
+    return result
   }
 
   async assignTask(taskId: string, dto: AssignTaskDto, actor: JwtPayload) {

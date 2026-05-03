@@ -27,6 +27,12 @@ import { usePropertyType, shouldShowBedLabel } from '../../property/usePropertyT
 interface TaskCardProps {
   task: CleaningTaskDto
   onPress: () => void
+  /** When true, another task is IN_PROGRESS so this card is "soft-locked".
+   *  Visual: dimmed + "En espera" badge. Tap still calls onPress (Hub
+   *  shows the explanatory Alert) — we never silently swallow input
+   *  (CLAUDE.md §33 feedback informativo). The visual signal eliminates
+   *  the false affordance: user sees the card is locked BEFORE tapping. */
+  isLocked?: boolean
 }
 
 const STATUS_LABEL: Record<CleaningStatus, string> = {
@@ -60,7 +66,7 @@ function priorityAccent(task: CleaningTaskDto): string {
   return colors.brand[500]
 }
 
-export function TaskCard({ task, onPress }: TaskCardProps) {
+export function TaskCard({ task, onPress, isLocked = false }: TaskCardProps) {
   const scale = useSharedValue(1)
   const animStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -84,7 +90,7 @@ export function TaskCard({ task, onPress }: TaskCardProps) {
         onPress()
       }}
     >
-      <Animated.View style={[styles.card, animStyle]}>
+      <Animated.View style={[styles.card, isLocked && styles.cardLocked, animStyle]}>
         {/* Left accent bar */}
         <View style={[styles.accent, { backgroundColor: accent }]} />
 
@@ -112,11 +118,17 @@ export function TaskCard({ task, onPress }: TaskCardProps) {
               )}
             </View>
 
-            <View style={[styles.statusChip, { backgroundColor: status.bg, borderColor: status.border }]}>
-              <Text style={[styles.statusLabel, { color: status.fg }]} numberOfLines={1}>
-                {STATUS_LABEL[task.status]}
-              </Text>
-            </View>
+            {isLocked ? (
+              <View style={styles.lockedChip}>
+                <Text style={styles.lockedChipText} numberOfLines={1}>En espera</Text>
+              </View>
+            ) : (
+              <View style={[styles.statusChip, { backgroundColor: status.bg, borderColor: status.border }]}>
+                <Text style={[styles.statusLabel, { color: status.fg }]} numberOfLines={1}>
+                  {STATUS_LABEL[task.status]}
+                </Text>
+              </View>
+            )}
           </View>
 
           {/* Sub-info */}
@@ -153,6 +165,27 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border.subtle,
     minHeight: 76,
+  },
+  // Locked = another task is IN_PROGRESS. Dim opacity reads as "soft-disabled"
+  // (Apple HIG: secondary state, not destructive). User still can tap; the
+  // Hub shows the explanatory Alert. Avoiding `pointerEvents="none"` keeps
+  // the action intentional rather than swallowed (CLAUDE.md §33).
+  cardLocked: {
+    opacity: 0.45,
+  },
+  lockedChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  lockedChipText: {
+    fontSize: 11,
+    color: colors.text.tertiary,
+    fontWeight: typography.weight.semibold,
+    letterSpacing: 0.3,
   },
   accent: {
     width: 4,

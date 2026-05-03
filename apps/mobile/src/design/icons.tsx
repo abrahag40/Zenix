@@ -145,11 +145,135 @@ export function IconSparkles({ size = 20, color = '#9CA3AF' }: { size?: number; 
   )
 }
 
+// ─── Pencil (square-pen) — Add note (advisory action) ─────────────────────
+export function IconPencil({ size = 22, color = '#FBBF24' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" {...pathProps(color, false)} />
+      <Path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" {...pathProps(color, false)} />
+    </Svg>
+  )
+}
+
+// ─── AlertTriangle — Report issue (warning, needs attention) ──────────────
+export function IconAlertTriangle({ size = 22, color = '#F87171' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01" {...pathProps(color, false)} />
+    </Svg>
+  )
+}
+
+// ─── Pause (two pillars) — Pause active task ──────────────────────────────
+// Filled rectangles (not stroke) — matches Spotify, Apple Music, Strava
+// pause-glyph convention. Higher visual weight = clearer affordance.
+export function IconPause({ size = 18, color = '#9CA3AF' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path d="M8 5h3v14H8zM13 5h3v14h-3z" fill={color} />
+    </Svg>
+  )
+}
+
+// ─── ChevronDown — Scroll affordance ──────────────────────────────────────
+export function IconChevronDown({ size = 16, color = '#9CA3AF' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path d="M6 9l6 6 6-6" {...pathProps(color, false)} />
+    </Svg>
+  )
+}
+
 // ─── Sun (greeting / morning) ──────────────────────────────────────────────
 export function IconSun({ size = 20, color = '#FBBF24' }: { size?: number; color?: string }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <Path d="M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM12 1v3M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h3M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" {...pathProps(color, false)} />
+    </Svg>
+  )
+}
+
+// ─── Zap (lightning bolt) — critical/double-urgent sections ────────────────
+export function IconZap({ size = 20, color = '#9CA3AF' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" {...pathProps(color, false)} />
+    </Svg>
+  )
+}
+
+// ─── LogIn (entering arrow) — "Hoy entra" / same-day check-in ──────────────
+export function IconLogIn({ size = 20, color = '#9CA3AF' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3" {...pathProps(color, false)} />
+    </Svg>
+  )
+}
+
+// ─── RotateCcw — carryover / "De ayer" (task from previous day) ────────────
+export function IconRotateCcw({ size = 20, color = '#9CA3AF' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5" {...pathProps(color, false)} />
+    </Svg>
+  )
+}
+
+// ─── List — normal tasks queue ─────────────────────────────────────────────
+export function IconListTask({ size = 20, color = '#9CA3AF' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" {...pathProps(color, false)} />
+    </Svg>
+  )
+}
+
+// ─── CheckCircle — completed tasks / done section ──────────────────────────
+export function IconCheckCircle({ size = 20, color = '#9CA3AF' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path d="M22 11.08V12a10 10 0 1 1-5.93-9.14M22 4 12 14.01l-3-3" {...pathProps(color, false)} />
+    </Svg>
+  )
+}
+
+// ─── Leaf — streak indicator (growing, organic progress) ───────────────────
+export function IconLeaf({ size = 20, color = '#9CA3AF' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10zM2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" {...pathProps(color, false)} />
+    </Svg>
+  )
+}
+
+// ─── Star — personal record / streak PR ────────────────────────────────────
+// `filled` makes the star solid (full fillOpacity) — used for PR state.
+export function IconStar({
+  size = 20,
+  color = '#9CA3AF',
+  filled = false,
+}: { size?: number; color?: string; filled?: boolean }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path
+        d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
+        stroke={color}
+        strokeWidth={STROKE_WIDTH}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill={filled ? color : 'none'}
+        fillOpacity={filled ? 0.9 : 0}
+      />
+    </Svg>
+  )
+}
+
+// ─── Check — large checkmark (all-done state in progress counter) ───────────
+export function IconCheck({ size = 20, color = '#9CA3AF' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path d="M20 6 9 17l-5-5" {...pathProps(color, false)} />
     </Svg>
   )
 }

@@ -167,6 +167,9 @@ export interface TaskLogDto {
   staffId: string | null   // Nullable: system-generated events have no associated staff
   event: TaskLogEvent
   note: string | null
+  /** Snapshot opcional del evento. Caso principal:
+   *  COMPLETED { checklist: [{ id, label, completed }] }  (Sprint 8K reports). */
+  metadata: Record<string, unknown> | null
   createdAt: string
 }
 
@@ -410,13 +413,170 @@ export interface StaffPerformanceDto {
   avgMinutesToComplete: number | null
 }
 
+// ─── Sprint 9 — Mobile Dashboard Reports ─────────────────────────────────────
+// Contracts consumed by the mobile dashboard cards. Each is a "view model"
+// pre-formatted for direct render — the mobile layer does NOT compute money,
+// percentages, or strings. CLAUDE.md §14 timezone discipline applies.
+
+/** OccupancyDonutCard payload. */
+export interface OccupancyDonutDto {
+  /** 0-100 (already rounded). */
+  percentage: number
+  occupied: number
+  arrivingToday: number
+  empty: number
+  /** Yesterday's value for delta display. null if no historic data. */
+  yesterdayPercentage: number | null
+  /** Property's target (PropertySettings — future). Default 80. */
+  targetPercentage: number
+}
+
+/** InHouseCard summary + expanded list payload. */
+export interface InHouseSummaryDto {
+  guestCount: number
+  roomsOccupied: number
+  arrivalsToday: number
+  departuresToday: number
+}
+
+export interface InHouseRoomDto {
+  id: string
+  roomNumber: string
+  /** Backend-redacted by role: null for HOUSEKEEPER. */
+  guestName: string | null
+  /** Pre-formatted "sale mañana 12:00 · 2 pax". */
+  metaLabel: string
+  flair: string | null
+}
+
+/** PendingTasksCard payload. */
+export interface PendingTasksDto {
+  housekeepingPending: number
+  maintenanceCritical: number
+  unpaidFolios: number
+  /** Pre-formatted "$2,140 MXN" — null when unpaidFolios=0 or HK redacts. */
+  unpaidAmountLabel: string | null
+}
+
+/** BlockedRoomsCard preview row (full detail in /v1/blocked-rooms/:id). */
+export interface BlockedRoomDto {
+  id: string
+  roomNumber: string
+  reason: string
+  category: 'MAINTENANCE' | 'RENOVATION' | 'ADMIN' | 'OTHER'
+  startsAt: string
+  endsAt: string | null
+  /** Pre-formatted "23 abr → 26 abr · 3 días". */
+  rangeLabel: string
+  requestedByName: string | null
+  approvedByName: string | null
+  ticketId: string | null
+}
+
+/** MovementsCard row — same shape for arrivals + departures. */
+export interface MovementItemDto {
+  stayId: string
+  guestName: string | null
+  roomNumber: string | null
+  paxCount: number
+  source: string | null
+  flair: string | null
+}
+
+/** Full payload of GET /v1/reports/dashboard-overview. */
+export interface DashboardOverviewDto {
+  /** ISO timestamp of when the snapshot was computed. */
+  computedAt: string
+  occupancy: OccupancyDonutDto
+  inHouse: InHouseSummaryDto
+  /** Top N in-house rooms (sorted by checkout-soonest first). */
+  inHouseRooms: InHouseRoomDto[]
+  pendingTasks: PendingTasksDto
+  blockedRooms: BlockedRoomDto[]
+  arrivals: MovementItemDto[]
+  departures: MovementItemDto[]
+}
+
+// ─── Revenue Carousel (Sprint 9) ─────────────────────────────────────────────
+// CLAUDE.md §17 — money arithmetic uses Decimal end-to-end. Strings here
+// are pre-formatted by the server for display only.
+
+export interface RevenueBreakdownRowDto {
+  label: string
+  /** Pre-formatted "$38,200 MXN". */
+  amount: string
+  /** Pre-formatted "90%" / "3 folios" / "↑ +8%". */
+  meta: string
+  /** 0-100. Optional progress bar. */
+  progressPct: number | null
+  /** Optional hex color override for this row's bar. */
+  color: string | null
+}
+
+export interface RevenueFrameDto {
+  /** Stable id used as React key + analytics tag. */
+  id: 'today' | 'adr' | 'revpar' | 'topChannel' | 'commissions' | 'cashOnHand' | 'forecastWeek'
+  /** Card label (top L2): "INGRESOS HOY", "ADR HOY", … */
+  label: string
+  /** Primary numeric, pre-formatted ("$42,180" / "Booking" / "$1,540"). */
+  primaryWhole: string
+  /** Currency or unit suffix ("MXN", "MXN/hab", ""). */
+  primarySuffix: string
+  /** Caption underneath the number, pre-formatted with delta. */
+  caption: string
+  captionTone: 'positive' | 'negative' | 'neutral' | 'warning'
+  breakdown: RevenueBreakdownRowDto[]
+}
+
+export interface RevenueSnapshotDto {
+  computedAt: string
+  /** Property currency (ISO 4217). */
+  currency: string
+  /** Ordered frames; mobile rotates through them. */
+  frames: RevenueFrameDto[]
+}
+
+// ─── Sprint 8I-J — Hub Recamarista Gamification ──────────────────────────────
+// Privacy-first: every payload below is private to the staff member (and
+// their supervisor for coaching). Peer-to-peer access is forbidden (D9).
+
+export interface StaffStreakDto {
+  currentDays: number
+  longestDays: number
+  freezesAvailable: number
+  freezesTotal: number
+  /** ISO YMD or null if never worked. */
+  lastWorkDate: string | null
+  /** True when today is not the lastWorkDate — visual cue (not a threat). */
+  isAtRisk: boolean
+}
+
+export interface StaffPersonalRecordDto {
+  roomCategory: string
+  /** Pre-formatted "22 min". */
+  bestLabel: string
+  bestMinutes: number
+  achievedAt: string
+}
+
+export interface DailyRingsDto {
+  date: string
+  tasksRing: { value: number; target: number; pct: number }
+  minutesRing: { value: number; target: number; pct: number }
+  verifiedRing: { value: number; target: number; pct: number }
+  ringsCompleted: boolean
+}
+
 // ─── SSE Events (extended) ───────────────────────────────────────────────────
 
 export type SseEventType =
   | 'task:planned'
   | 'task:ready'
   | 'task:started'
+  | 'task:paused'      // Sprint 8K — emitted on pauseTask
+  | 'task:resumed'     // Sprint 8K — emitted on resumeTask
   | 'task:done'
+  | 'task:verified'    // Sprint 8K — supervisor approved cleaning
   | 'task:unassigned'
   | 'task:cancelled'
   | 'maintenance:reported'
@@ -459,7 +619,7 @@ export type SseEventType =
 
 // ─── Offline Sync (Mobile) ────────────────────────────────────────────────────
 
-export type SyncOperationType = 'START_TASK' | 'END_TASK'
+export type SyncOperationType = 'START_TASK' | 'END_TASK' | 'PAUSE_TASK' | 'RESUME_TASK'
 
 export interface SyncOperation {
   id: string

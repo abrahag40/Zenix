@@ -25,6 +25,7 @@ import { Capability, CleaningStatus, AutoAssignmentRule, TaskLogEvent } from '@z
 import { PrismaService } from '../prisma/prisma.service'
 import { AvailabilityQueryService } from '../scheduling/availability-query.service'
 import { NotificationsService } from '../notifications/notifications.service'
+import { PushService } from '../notifications/push.service'
 
 export interface AssignmentDecision {
   assigned: boolean
@@ -41,6 +42,7 @@ export class AssignmentService {
     private prisma: PrismaService,
     private availability: AvailabilityQueryService,
     private notifications: NotificationsService,
+    private push: PushService,
   ) {}
 
   /**
@@ -96,6 +98,7 @@ export class AssignmentService {
     }
 
     // Persist assignment
+    const transitionedToReady = task.status === CleaningStatus.UNASSIGNED
     await this.prisma.$transaction(async (tx) => {
       await tx.cleaningTask.update({
         where: { id: taskId },
@@ -104,7 +107,7 @@ export class AssignmentService {
           autoAssignmentRule: decision.rule,
           // Si la tarea estaba UNASSIGNED, transicionar a READY (cuando ya está activa post-checkout)
           // Si estaba PENDING, dejarla PENDING (espera salida física)
-          status: task.status === CleaningStatus.UNASSIGNED ? CleaningStatus.READY : task.status,
+          status: transitionedToReady ? CleaningStatus.READY : task.status,
         },
       })
       await tx.taskLog.create({
@@ -124,6 +127,37 @@ export class AssignmentService {
       rule: decision.rule,
       roomNumber: task.unit.room.number,
     })
+
+    // FIX gap auditado en docs/alarm-flow-audit.md §4:
+    // Cuando UNASSIGNED→READY, el housekeeper asignado debe recibir el
+    // mismo trato que recibe en confirmDeparture: SSE task:ready (alarma
+    // en mobile) + push notification para background. Sin esto, el
+    // alarm host del mobile no dispara en este sub-flujo.
+    if (transitionedToReady) {
+      this.notifications.emit(propertyId, 'task:ready', {
+        taskId,
+        unitId: task.unitId,
+        roomId: task.unit.room.id,
+        roomNumber: task.unit.room.number,
+        bedId: undefined as string | undefined,
+        assignedToId: decision.staffId,
+        hasSameDayCheckIn: task.hasSameDayCheckIn,
+      })
+
+      // Push best-effort — no bloquear la transacción si Expo Push falla.
+      void this.push
+        .sendToStaff(
+          decision.staffId,
+          '🛏️ Nueva tarea asignada',
+          `Hab. ${task.unit.room.number} — Lista para limpiar`,
+          { type: 'task:ready', taskId },
+        )
+        .catch((e) =>
+          this.logger.warn(
+            `[autoAssign push] non-fatal: ${e instanceof Error ? e.message : e}`,
+          ),
+        )
+    }
 
     this.logger.debug(
       `[autoAssign] task=${taskId} → staff=${decision.staffId} rule=${decision.rule}`,

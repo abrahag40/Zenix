@@ -3,7 +3,7 @@
 > **Para uso interno del equipo comercial.**
 > Este documento es el mapa completo de funcionalidades de Zenix PMS. Su propósito es que nunca olvides qué tiene el sistema, qué problema resuelve cada cosa, y por qué somos mejores que la competencia. No es técnico — es la fuente de tu speech.
 >
-> Última actualización: 2026-04-25 — Sprint 8F completado (Ventana temporal de no-show con día hotelero real)
+> Última actualización: 2026-05-01 — Sprint 8I/J completado (Hub Recamarista profundo · gamificación psico-neuroquímica privacy-first)
 
 ---
 
@@ -334,6 +334,152 @@ Esto cierra el último gap fiscal-laboral del módulo. Cloudbeds y Mews entry-le
 
 ---
 
+### Hub Recamarista profundo — gamificación con base científica
+
+> Este es el diferenciador más subestimado del producto. Mientras la competencia "gamifica" su app pegándole estrellitas e iconos de monedas, Zenix construyó un sistema de motivación con base académica real. Cada decisión está anclada a literatura psicológica, neurociencia y voz literal del usuario. Documento completo: `docs/research-housekeeping-hub.md` (245 reviews analizadas, 18 referencias).
+
+#### El problema con la gamificación de la competencia
+
+Salesforce, Workday y los PMS legacy intentaron gamificar el trabajo de recamaristas con leaderboards, badges genéricos y avatares cartoon. Resultado documentado:
+
+- 33× quejas en G2 sobre **comparación con compañeras** ("Sé que María es más rápida — no necesito que la app me lo recuerde")
+- 41× quejas sobre **cronómetros con presión visible** ("Verme cronometrada me pone tensa, hago peor mi trabajo")
+- 22× quejas sobre **avatares cartoon** ("No soy un personaje de videojuego")
+
+Esto no es gamificación — es vigilancia disfrazada. Genera cortisol crónico, fatiga el cerebro a las 6-12 semanas, y produce el efecto opuesto al deseado: la persona trabaja peor y termina renunciando. El estudio académico de Deci & Ryan (1999, *crowding-out effect*) lo demostró: las recompensas extrínsecas mal diseñadas **destruyen la motivación intrínseca**.
+
+#### Cómo lo resuelve Zenix — los cuatro neurotransmisores aplicados con propósito
+
+El Hub Recamarista no usa gamificación como decoración. La trata como una herramienta neurológica, dosificada con guard-rails. Cada feature dispara dopamina, serotonina, oxitocina o endorfinas en el momento correcto, evitando la liberación de cortisol y adrenalina sostenida.
+
+| Neurotransmisor | Para qué sirve | Cómo se dispara en Zenix | Cap de seguridad |
+|-----------------|----------------|---------------------------|-------------------|
+| **Dopamina** | Anticipación + recompensa de logro | Variable Reward al completar tarea (~30% de probabilidad, 60+ mensajes únicos rotativos) | Máximo 3 mensajes/día — anti-saturación (Mekler 2017) |
+| **Serotonina** | Sentido de status y logro | Personal Records (PR) por tipo de habitación, **self-vs-self exclusivamente** | Sin comparación peer — privacy estricta |
+| **Oxitocina** | Vínculo social, gratitud | Push del supervisor: "Gracias María, hab. 203 quedó perfecta" — el reconocimiento humano tiene 27× más impacto que cualquier badge | Solo gestos genuinos, no automatizados |
+| **Endorfinas** | Flow + satisfacción | Auto-asignación que respeta capacidad, modo silencioso durante limpieza | — |
+
+**Lo que activamente se evita:**
+- **Cortisol** (estrés crónico → quemado en 6-12 semanas) — sin time pressure visible, sin leaderboards
+- **Adrenalina sostenida** (fatiga + lesiones) — sin cronómetros con cuenta atrás
+
+#### Self-Determination Theory (Deci & Ryan 1985) — los tres pilares aplicados
+
+Zenix es el único PMS construido pasando todas las features por el test SDT:
+
+**Autonomía** — *"Tú decides cómo trabajas, no te controlan"*
+- `gamificationLevel: SUBTLE | STANDARD | OFF` configurable per-staff
+- 2 "freezes" mensuales para vacaciones que no rompen tu racha
+- Mensajes celebratorios silenciables desde settings
+- El nivel lo gestiona el supervisor (D9) — no se auto-servicia, no es opt-in forzado
+
+**Competencia** — *"Tu habilidad mejora y se reconoce"*
+- Personal Records visibles ("Tu mejor tiempo en Suite: 22 min")
+- Streak counter discreto ("7 días seguidos · récord 21")
+- Mastery badges desbloqueables — **nunca comprados, nunca random gacha**
+- 3 Activity Rings inspirados en Apple Fitness (Tareas / Tiempo / Verificadas)
+
+**Relación** — *"Perteneces y aportas a algo más grande"*
+- Slot dedicado para gratitud del supervisor en el Hub
+- Team goals opcionales sin desglose individual ("entre todos hicimos 47 hab. esta semana")
+- Cero ranking visible entre compañeras (D9 — privacy peer-to-peer estricta)
+
+#### Variable Ratio Reinforcement (Skinner 1953) — pero con freno
+
+Skinner demostró que el refuerzo de razón variable produce el comportamiento más resistente a la extinción. Es lo que usan las máquinas tragamonedas y las redes sociales para crear adicción. **Zenix lo usa con propósito ético**: el "premio" es reconocer trabajo real (la habitación SÍ necesita limpieza), no un disparador artificial para vender atención.
+
+Cómo se dosifica:
+
+| Schedule | Aplicación | Ratio |
+|----------|-----------|-------|
+| Continuous (CRF) | Cada tarea = ✓ + haptic | 1:1 — feedback básico siempre |
+| Variable Ratio | Mensaje celebratorio aleatorio | ~30% (3 de cada 10) |
+| Fixed Interval | Day Completion Ritual | Exactamente 1×/día |
+| Variable Interval | Push de gracias del supervisor | Irregular — relación humana |
+
+**Cap absoluto: 3 mensajes "wow" por día.** Sin esta cota, la dopamina se desensibiliza a las 2 semanas y el sistema deja de motivar (validado por Mekler et al. 2017).
+
+#### Hook Model (Eyal 2014) — adaptado éticamente
+
+Eyal propuso 4 etapas para crear "habit-forming products". Las usamos con la salvaguarda de SDT:
+
+```
+1. TRIGGER     →  Push: "Hab. 105 lista" (notificación útil, no manipulativa)
+2. ACTION      →  Tap → app abre → tarea visible (1 click)
+3. VAR. REWARD →  70% ✓ estándar + 30% mensaje celebratorio variable
+4. INVESTMENT  →  Notas operativas, fotos, build-up de streak
+```
+
+La diferencia con apps adictivas: nuestro Trigger es un **evento operativo real**. Esa es la línea que separa gamificación ética de manipulación dark-pattern. Es la diferencia entre un sistema que ayuda al trabajador y uno que lo explota.
+
+#### Tres niveles de intensidad (autonomía SDT)
+
+```
+SUBTLE    │ Streak counter discreto + ✓ + ritual diario
+STANDARD  │ + Activity Rings + variable celebrations + PR card  ← default
+OFF       │ Solo lista + checkmark, sin streaks ni celebraciones
+```
+
+Default = `STANDARD`. El nivel lo cambia el supervisor (no el staff) para evitar que un mal día provoque un opt-out impulsivo. Audit trail completo en `StaffPreferenceLog`.
+
+#### Tono del producto — adulto profesional, nunca infantil
+
+La voz literal del usuario en reviews fue contundente:
+
+> *"Los badges de Workday me hacen sentir como un niño. Tengo 45 años, soy supervisora de housekeeping. No necesito una 'Estrella de Bronce' por venir a trabajar."* — G2, 2024
+
+Por eso en Zenix:
+- **Sin owl mascota** (Duolingo lo usa, pero infantiliza al adulto laboral)
+- **Sin avatares cartoon**
+- **Sin coins/tokens virtuales** (Mekler 2017 — sin significado real, fatiga rápida)
+- **Sin "Daily challenges" forzados** (viola autonomía SDT)
+- **Sin shame al romper streak** ("Volviste — empezamos limpio" en lugar de "¡Perdiste tu racha!")
+
+Los mensajes celebratorios son **profesionales y cálidos a la vez**: "Otra habitación lista, gracias.", "Récord personal — superaste tu propio tiempo.", "Día cerrado. Buena tarde."
+
+#### Privacy peer-to-peer estricta — un diferenciador legal
+
+Optii, Flexkeeping y otros PMS exponen métricas individuales entre pares ("María limpió 12 hab., tú 8"). Esto:
+
+- Genera ansiedad documentada (33× quejas)
+- Viola **LFPDPPP México**, **GDPR** UE, **LGPD** Brasil cuando incluye datos personales
+- Crea ambiente tóxico de competencia interna
+
+Zenix garantiza por diseño:
+
+- Métricas individuales son **privadas al staff y su supervisor** (audit trail D7)
+- Endpoint backend `assertOwnerOrSupervisor` rechaza cualquier acceso peer
+- Reportes agregados nunca exponen el desglose por persona a otros
+- El supervisor las usa para **coaching**, no para shame público
+
+**Esto es un argumento de venta legal**, no solo de UX. En LATAM, donde las leyes de privacidad están endureciéndose post-2024, importa.
+
+#### Métricas de éxito que esperamos en 60 días
+
+Si el diseño funciona (y la literatura lo respalda), estos números deberían moverse:
+
+| Métrica | Baseline | Objetivo 60d |
+|---------|----------|--------------|
+| Quejas internas sobre presión | medir | -50% |
+| `gamificationLevel = OFF` | medir | <5% (señal de buen diseño = mayoría lo deja STANDARD) |
+| Tiempo promedio de limpieza | medir | -3-5% (no presión, sí flow) |
+| Tasks completadas por turno | medir | +5-10% |
+| Errores reportados | medir | sin cambio o leve mejora |
+
+**Criterio de fracaso autoimpuesto:** si las reviews internas a 60 días contienen >2 menciones de "presión" o "cronómetro", regresamos a SUBTLE como default. Tenemos un mecanismo de retroceso explícito — la mayoría de competidores no lo tiene.
+
+#### Para el speech de ventas — cómo decirlo
+
+> *"La diferencia entre la gamificación de Zenix y la de cualquier otro PMS es esta: nosotros no usamos psicología para que tu personal trabaje más. La usamos para que tu personal trabaje **mejor — y siga ahí en seis meses**.*
+>
+> *Optii y Workday gamifican poniendo leaderboards. Eso genera cortisol, ansiedad, y rotación. Está documentado en sus propias reviews — 33 menciones negativas sobre 'comparación con compañeras' en los últimos doce meses.*
+>
+> *Zenix construyó un sistema con base académica real: 18 referencias citadas, 245 reviews de la industria analizadas, principios de Self-Determination Theory aplicados a cada feature. Tres niveles de intensidad — el supervisor decide cuál usa cada miembro de su equipo. Cero comparación entre pares por diseño. Cero shame cuando algo sale mal.*
+>
+> *Y respeta la ley: privacidad peer-to-peer estricta para cumplir LFPDPPP, GDPR y LGPD. La competencia te expone a multas. Nosotros te protegemos."*
+
+---
+
 ## Módulo 2 — Gestión de No-Shows
 
 > Este es el módulo donde Zenix supera a todos los competidores, incluyendo Opera Cloud y Mews.
@@ -582,6 +728,10 @@ El resultado: cero incidencias de mantenimiento que caen en el olvido. Un regist
 
 > "¿Tu PMS actual corre el cierre nocturno a la misma hora para el hotel en Cancún y el de Madrid? Porque si es así, uno de los dos está cortando en horario operativo. Zenix usa la zona horaria real de cada propiedad — el corte ocurre a las 2 AM de cada ciudad, de forma independiente."
 
+### Para hoteles con alta rotación de housekeeping (la pelea por retener personal)
+
+> "La rotación de recamaristas en LATAM es del 60-80% anual en muchos hoteles. Cada salida cuesta 2-4 semanas de productividad nueva. La causa #1 documentada en encuestas: ambiente laboral tóxico — específicamente vigilancia y comparación con compañeras. Optii y Workday gamifican poniendo leaderboards públicos, lo cual empeora exactamente este problema. Zenix construyó su Hub Recamarista con base académica real (Self-Determination Theory, 18 referencias citadas) y privacy peer-to-peer estricta: cero comparación entre pares por diseño, tres niveles de intensidad de gamificación que el supervisor configura, sin shame cuando algo sale mal. No es que sea más bonito — es que está diseñado para que tu personal **se quede**. La cuenta es directa: si retienes 2 recamaristas más al año, ya pagaste el sistema completo."
+
 ---
 
 ## Resumen ejecutivo
@@ -596,6 +746,7 @@ El resultado: cero incidencias de mantenimiento que caen en el olvido. Un regist
 | Operar hoteles en múltiples países | Night audit multi-timezone por propiedad (hora local real) |
 | Cumplimiento fiscal en LATAM | Registros inmutables + CFDI-ready + moneda ISO |
 | Cero overbooking con OTAs | Hard block transaccional + Channex.io (mismo estándar Opera/Mews) |
+| Retener al personal de housekeeping | Hub Recamarista con base SDT — privacidad peer-to-peer + 3 niveles de gamificación · sin shame · sin comparación |
 | Trazabilidad ante disputas | Audit trail con actor, timestamp y razón en cada operación |
 | Un sistema que los housekeepers realmente usen | App diseñada para uso con una mano, en movimiento, sin capacitación |
 | Confirmar que el huésped realmente llegó | Badge "Sin confirmar" en calendario + wizard de check-in de 4 pasos |

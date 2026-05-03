@@ -1,5 +1,29 @@
-import { IsEnum, IsOptional, IsString, IsUUID } from 'class-validator'
+import { IsArray, IsBoolean, IsEnum, IsOptional, IsString, IsUUID, ValidateNested } from 'class-validator'
+import { Type } from 'class-transformer'
 import { Capability, Priority, TaskType } from '@zenix/shared'
+
+/**
+ * EndTaskDto — snapshot opcional del checklist al finalizar.
+ * Se persiste en TaskLog.metadata para queries de reportes.
+ */
+export class ChecklistItemSnapshotDto {
+  @IsString()
+  id: string
+
+  @IsString()
+  label: string
+
+  @IsBoolean()
+  completed: boolean
+}
+
+export class EndTaskDto {
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ChecklistItemSnapshotDto)
+  checklist?: ChecklistItemSnapshotDto[]
+}
 
 export class CreateTaskDto {
   @IsUUID()

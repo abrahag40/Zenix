@@ -55,6 +55,12 @@ import { Platform } from 'react-native'
  *
  * Reference: https://docs.expo.dev/versions/latest/sdk/constants/#expogoconfig
  */
+/** Public re-export so other modules (SSE, file-upload, etc.) can derive
+ *  URLs that share the same auto-detection logic. */
+export function resolveApiBaseUrl(): string {
+  return resolveBaseUrl()
+}
+
 function resolveBaseUrl(): string {
   // 1. Production / staging override
   const explicitConfig = Constants.expoConfig?.extra?.apiUrl as string | undefined

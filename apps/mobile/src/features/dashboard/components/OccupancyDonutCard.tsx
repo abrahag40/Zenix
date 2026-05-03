@@ -87,41 +87,24 @@ const SEGMENT_COLORS = {
 // when one form (the number) is unambiguous.
 
 export function OccupancyDonutCard({ data, tickerInsights }: OccupancyDonutCardProps) {
-  if (!data) {
-    return (
-      <View style={styles.card}>
-        <View style={styles.header}>
-          <Text style={styles.label}>OCUPACIÓN HOY</Text>
-        </View>
-        <Text style={styles.emptyText}>—</Text>
-      </View>
-    )
-  }
+  // All hooks must be called unconditionally (React rules of hooks).
+  // The early-return for null data comes AFTER all hook declarations.
+  const total = Math.max((data?.occupied ?? 0) + (data?.arrivingToday ?? 0) + (data?.empty ?? 0), 1)
+  const pctOccupied = (data?.occupied ?? 0) / total
+  const pctArriving = (data?.arrivingToday ?? 0) / total
 
-  const total = Math.max(data.occupied + data.arrivingToday + data.empty, 1)
-  const pctOccupied = data.occupied / total
-  const pctArriving = data.arrivingToday / total
-
-  // Stroke-dash trick: each segment is an arc colored a portion of the
-  // circumference. We rotate by -90° so the start is at 12-o'clock.
   const occLen = pctOccupied * CIRCUMFERENCE
   const arrLen = pctArriving * CIRCUMFERENCE
   const empLen = CIRCUMFERENCE - occLen - arrLen
 
-  // ── Mount animation — arcs draw in from 0% to their target length.
-  // Pattern: Apple Health rings, Stripe billing donut. The progress
-  // value goes from 0 → 1 over ~900ms with cubic ease-out (the visual
-  // "arrives smoothly" curve, no overshoot).
   const progress = useSharedValue(0)
   useEffect(() => {
+    if (!data) return
     progress.value = 0
     progress.value = withTiming(1, {
       duration: 900,
       easing: Easing.out(Easing.cubic),
     })
-  // Re-trigger when the underlying numbers change so the user sees the
-  // re-animation on data refresh — confirms "system updated" affordance
-  // (Norman 1988 — feedback principle).
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data?.percentage, data?.occupied, data?.arrivingToday, data?.empty])
 
@@ -135,14 +118,12 @@ export function OccupancyDonutCard({ data, tickerInsights }: OccupancyDonutCardP
     strokeDasharray: [empLen * progress.value, CIRCUMFERENCE - empLen * progress.value] as any,
   }))
 
-  const target = data.targetPercentage ?? 80
+  const target = data?.targetPercentage ?? 80
   const delta =
-    data.yesterdayPercentage != null
-      ? Math.round(data.percentage - data.yesterdayPercentage)
+    data?.yesterdayPercentage != null
+      ? Math.round((data?.percentage ?? 0) - data.yesterdayPercentage)
       : null
 
-  // Build the ticker insight set: start with the delta-vs-ayer insight
-  // (always relevant) and append any caller-provided operational metrics.
   const insights = useMemo<TickerInsight[]>(() => {
     const base: TickerInsight[] = []
     if (delta != null) {
@@ -155,6 +136,18 @@ export function OccupancyDonutCard({ data, tickerInsights }: OccupancyDonutCardP
     }
     return [...base, ...(tickerInsights ?? [])]
   }, [delta, target, tickerInsights])
+
+  // Early return for null data — AFTER all hooks
+  if (!data) {
+    return (
+      <View style={styles.card}>
+        <View style={styles.header}>
+          <Text style={styles.label}>OCUPACIÓN HOY</Text>
+        </View>
+        <Text style={styles.emptyText}>—</Text>
+      </View>
+    )
+  }
 
   return (
     <View style={styles.card}>

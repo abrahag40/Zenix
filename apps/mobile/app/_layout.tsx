@@ -4,8 +4,10 @@ import { StatusBar } from 'expo-status-bar'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { useAuthStore } from '../src/store/auth'
-import { registerForPushNotificationsAsync, setupNotificationListeners } from '../src/notifications'
+import { requestNotificationPermissions, registerForPushNotificationsAsync, setupNotificationListeners } from '../src/notifications'
 import { startSyncManager, stopSyncManager } from '../src/syncManager'
+import { useGlobalSSEListener } from '../src/api/useGlobalSSEListener'
+import { IncomingTaskAlarmHost } from '../src/features/housekeeping/alarm/IncomingTaskAlarmHost'
 import { colors } from '../src/design/colors'
 import { ErrorBoundary } from '../src/features/errors/ErrorBoundary'
 import { installGlobalErrorHandler } from '../src/features/errors/globalErrorHandler'
@@ -105,6 +107,11 @@ export default function RootLayout() {
   // a push-token failure can never break the auth flow.
   useEffect(() => {
     if (!token) return
+    // Request local notification permissions first — needed for alarm
+    // notifications (scheduleNotificationAsync) even in Expo Go where
+    // push token registration is skipped.
+    requestNotificationPermissions().catch(() => undefined)
+    // Push token registration — skipped automatically in Expo Go.
     registerForPushNotificationsAsync().catch(() => undefined)
     startSyncManager()
     const cleanup = setupNotificationListeners(({ taskId }) => {
@@ -115,6 +122,12 @@ export default function RootLayout() {
       stopSyncManager()
     }
   }, [token])
+
+  // Real-time SSE listener — single connection at the root. Fans out
+  // task:* events to the task store, gamification rings, etc. When the
+  // recepcionista activates a checkout from web, the housekeeper's
+  // mobile reflects it within ~250ms.
+  useGlobalSSEListener()
 
   // logout escape exposed to the ErrorBoundary fallback.
   const logout = useAuthStore((s) => s.logout)
@@ -137,6 +150,12 @@ export default function RootLayout() {
               contentStyle: { backgroundColor: colors.canvas.primary },
             }}
           />
+          {/* Incoming task alarm — listens for SSE 'task:ready' events
+              addressed to the current user (HOUSEKEEPER only) and
+              shows a full-screen vibrating overlay that requires a
+              slide-to-silence gesture. After silence, navigates to
+              "Mi día". Mounted at root so it appears above any tab. */}
+          <IncomingTaskAlarmHost />
         </ErrorBoundary>
         {/* Status bar matches dark canvas — light icons. */}
         <StatusBar style="light" />

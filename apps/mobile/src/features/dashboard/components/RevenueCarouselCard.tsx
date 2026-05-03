@@ -50,9 +50,11 @@ export interface RevenueBreakdown {
   amount: string
   meta: string
   /** 0-100. Renders a thin progress bar below the row. Optional. */
-  progressPct?: number
+  /** 0-100. Server uses null when no progress bar applies; we accept both
+   *  null and undefined for resilience. */
+  progressPct?: number | null
   /** Color for the progress bar (and meta tint). */
-  color?: string
+  color?: string | null
 }
 
 export interface RevenueFrame {
@@ -97,12 +99,11 @@ export function RevenueCarouselCard({
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pausedRef = useRef(false)
 
-  // Defensive: HK never sees this card.
-  if (isHK || frames.length === 0) return null
-
+  // advance must be defined before useEffect to satisfy hooks ordering rules.
+  // (Early return was here before — moved after all hooks to avoid React's
+  // "Rendered more hooks than during the previous render" error.)
   const advance = (manual = false) => {
     if (manual) Haptics.selectionAsync()
-    // Cross-fade: out 200ms → swap → in 200ms.
     opacity.value = withTiming(0, { duration: 200, easing: Easing.out(Easing.quad) })
     setTimeout(() => {
       setIndex((i) => (i + 1) % frames.length)
@@ -110,9 +111,9 @@ export function RevenueCarouselCard({
     }, 200)
   }
 
-  // Auto-rotate
+  // Auto-rotate — guard inside, not an early return before this hook.
   useEffect(() => {
-    if (frames.length <= 1) return
+    if (isHK || frames.length <= 1) return
     const tick = () => {
       if (!pausedRef.current) advance()
       timerRef.current = setTimeout(tick, intervalMs)
@@ -122,11 +123,14 @@ export function RevenueCarouselCard({
       if (timerRef.current) clearTimeout(timerRef.current)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [frames.length, intervalMs])
+  }, [isHK, frames.length, intervalMs])
 
   const animStyle = useAnimatedStyle(() => ({
     opacity: opacity.value,
   }))
+
+  // Safe to early-return here — all hooks have been called unconditionally above.
+  if (isHK || frames.length === 0) return null
 
   const current = frames[index]
   const captionColor = TONE_COLOR[current.captionTone ?? 'neutral']

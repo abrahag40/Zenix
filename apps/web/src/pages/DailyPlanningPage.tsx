@@ -303,7 +303,15 @@ export function DailyPlanningPage() {
    */
   const handleSSE = useCallback(
     (event: SseEvent) => {
-      const taskEvents = ['task:planned', 'task:ready', 'task:started', 'task:done', 'task:unassigned', 'task:cancelled']
+      // Sprint 8K: extended task events — recepcionista now sees in real-time
+      // when housekeeper pauses/resumes/finishes from mobile, plus supervisor
+      // verification.
+      const taskEvents = [
+        'task:planned', 'task:ready', 'task:started',
+        'task:paused', 'task:resumed',
+        'task:done', 'task:verified',
+        'task:unassigned', 'task:cancelled',
+      ]
       if (taskEvents.includes(event.type)) {
         qc.invalidateQueries({ queryKey: ['daily-grid', TODAY] })
         if (event.type === 'task:done') {

@@ -4,7 +4,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
 import { TenantResource } from '../common/guards/tenant.guard'
 import { TasksService } from './tasks.service'
-import { AssignTaskDto, CreateTaskDto, QueryTaskDto } from './dto/create-task.dto'
+import { AssignTaskDto, CreateTaskDto, EndTaskDto, QueryTaskDto } from './dto/create-task.dto'
 
 @Controller('tasks')
 export class TasksController {
@@ -35,8 +35,12 @@ export class TasksController {
 
   @Patch(':id/end')
   @TenantResource({ model: 'cleaningTask', paramName: 'id' })
-  end(@Param('id') id: string, @CurrentUser() actor: JwtPayload) {
-    return this.service.endTask(id, actor)
+  end(
+    @Param('id') id: string,
+    @Body() dto: EndTaskDto,
+    @CurrentUser() actor: JwtPayload,
+  ) {
+    return this.service.endTask(id, actor, dto)
   }
 
   @Patch(':id/pause')

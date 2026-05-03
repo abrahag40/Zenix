@@ -19,12 +19,13 @@ import { SettingsScopeBanner } from '../components/SettingsScopeBanner'
 import type { UnitDto, PropertySettingsDto, RoomDto, StaffDto } from '@zenix/shared'
 import { Capability, HousekeepingRole, RoomCategory } from '@zenix/shared'
 
-type Section = 'rooms' | 'staff' | 'property'
+type Section = 'rooms' | 'staff' | 'property' | 'support'
 
 const TABS: { key: Section; label: string; icon: string }[] = [
   { key: 'rooms',    label: 'Habitaciones', icon: '🛏️' },
   { key: 'staff',    label: 'Personal',     icon: '👥' },
   { key: 'property', label: 'Propiedad',    icon: '⚙️' },
+  { key: 'support',  label: 'Soporte',      icon: '🛟' },
 ]
 
 export function SettingsPage() {
@@ -70,6 +71,7 @@ export function SettingsPage() {
       {section === 'rooms'    && <RoomsSection isSupervisor={isSupervisor} />}
       {section === 'staff'    && <StaffSection isSupervisor={isSupervisor} />}
       {section === 'property' && <PropertySection isSupervisor={isSupervisor} />}
+      {section === 'support'  && <SupportSection isSupervisor={isSupervisor} />}
     </div>
   )
 }
@@ -906,6 +908,366 @@ function PropertySection({ isSupervisor }: { isSupervisor: boolean }) {
             : 'Checkouts registrados manualmente desde Planificación o Habitaciones.'}
         </p>
       </div>
+    </div>
+  )
+}
+
+// ─── Soporte ──────────────────────────────────────────────────────────────────
+//
+// Sub-tabs:
+//   · Testing — toggles persistentes para QA. Cada toggle = un FeatureFlag
+//                 server-side con audit trail.
+//
+// Futuro: "Diagnóstico" (logs runtime), "Documentación" (manuales).
+
+type SupportTab = 'testing'
+
+const SUPPORT_TABS: { key: SupportTab; label: string }[] = [
+  { key: 'testing', label: 'Testing' },
+]
+
+function SupportSection({ isSupervisor }: { isSupervisor: boolean }) {
+  const [tab, setTab] = useState<SupportTab>('testing')
+
+  if (!isSupervisor) {
+    return (
+      <EmptyState text="La sección de Soporte está disponible solo para supervisores." />
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex border-b border-gray-200 gap-0">
+        {SUPPORT_TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`px-3 py-2 text-sm border-b-2 transition-colors ${
+              tab === t.key
+                ? 'border-indigo-600 text-indigo-700 font-medium'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'testing' && <TestingPanel />}
+    </div>
+  )
+}
+
+/**
+ * TestingPanel — control de entornos de prueba.
+ *
+ * Diseño UX:
+ *  - Cada flag tiene: switch (on/off), config inline, y descripción 1 línea.
+ *  - Banner amarillo si hay >0 flags activos (forcing function — operadores
+ *    deben recordar que están en modo testing antes de irse a casa).
+ *  - Audit visible debajo de cada flag (último cambio + actor).
+ *  - SUPERVISOR-only — el endpoint también lo gatea, esta es defensa UI.
+ */
+type FeatureFlag = {
+  id: string
+  key: string
+  enabled: boolean
+  config: Record<string, unknown> | null
+  description: string | null
+  updatedAt: string
+  updatedBy: { id: string; name: string } | null
+}
+
+/** Catálogo de flags testing conocidos (whitelist).
+ *  Solo los que están aquí aparecen en la UI. Esto previene que un
+ *  flag huérfano desconocido aparezca en el panel. */
+type TestingConfigField = {
+  name: string
+  label: string
+  placeholder?: string
+  type?: 'text' | 'email' | 'staff-picker'
+  /** For staff-picker: filtra por rol(es). */
+  roleFilter?: string[]
+}
+
+const TESTING_FLAGS: Array<{
+  key: string
+  title: string
+  description: string
+  configFields?: TestingConfigField[]
+}> = [
+  {
+    key: 'test.alarm',
+    title: 'Alarma de tarea (cada 5 min)',
+    description:
+      'Reemite SSE task:ready + push notification al housekeeper seleccionado cada 5 min para validar el flujo de alarma de extremo a extremo.',
+    configFields: [
+      {
+        name: 'staffEmail',
+        label: 'Housekeeper objetivo',
+        type: 'staff-picker',
+        roleFilter: ['HOUSEKEEPER'],
+      },
+    ],
+  },
+]
+
+interface StaffOption {
+  id: string
+  name: string
+  email: string
+  role: string
+}
+
+function TestingPanel() {
+  const qc = useQueryClient()
+  const { data: flags = [], isLoading } = useQuery<FeatureFlag[]>({
+    queryKey: ['feature-flags'],
+    queryFn: () => api.get('/v1/feature-flags'),
+  })
+
+  // Lista de staff de la propiedad (reusa el endpoint existente).
+  const { data: staffOptions = [] } = useQuery<StaffOption[]>({
+    queryKey: ['staff-list-for-testing'],
+    queryFn: () => api.get('/staff'),
+  })
+
+  const upsert = useMutation({
+    mutationFn: (payload: {
+      key: string
+      enabled: boolean
+      config?: Record<string, unknown>
+      description?: string
+    }) => api.patch('/v1/feature-flags', payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['feature-flags'] })
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error guardando flag'),
+  })
+
+  const flagByKey = (key: string) => flags.find((f) => f.key === key)
+  const activeCount = flags.filter((f) => f.enabled && f.key.startsWith('test.')).length
+
+  if (isLoading) return <Spinner />
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-base font-semibold text-gray-900">Entornos de prueba</h2>
+        <p className="text-xs text-gray-500 mt-1">
+          Toggles persistentes server-side para validar flujos end-to-end. Cambios
+          quedan registrados con quien los activó y cuándo.
+        </p>
+      </div>
+
+      {/* Banner de alerta cuando hay flags activos — Norman 1988 forcing
+          function. Evita que pruebas queden corriendo en producción
+          olvidadas. Visibility of system status (Nielsen H1). */}
+      {activeCount > 0 && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 flex items-start gap-2">
+          <span aria-hidden>⚠️</span>
+          <div>
+            <p className="font-medium">
+              {activeCount} entorno{activeCount > 1 ? 's' : ''} de prueba activo
+              {activeCount > 1 ? 's' : ''}.
+            </p>
+            <p className="text-xs mt-0.5">
+              Recuerda apagarlo{activeCount > 1 ? 's' : ''} cuando termines la
+              validación — los flujos de testing pueden interferir con la operación
+              real.
+            </p>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {TESTING_FLAGS.map((spec) => {
+          const flag = flagByKey(spec.key)
+          return (
+            <FlagCard
+              key={spec.key}
+              spec={spec}
+              flag={flag ?? null}
+              staffOptions={staffOptions}
+              onToggle={(enabled, config) =>
+                upsert.mutate({
+                  key: spec.key,
+                  enabled,
+                  config: config ?? (flag?.config as Record<string, unknown> | undefined) ?? undefined,
+                  description: spec.description,
+                })
+              }
+              isSubmitting={upsert.isPending}
+            />
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function FlagCard({
+  spec,
+  flag,
+  staffOptions,
+  onToggle,
+  isSubmitting,
+}: {
+  spec: (typeof TESTING_FLAGS)[number]
+  flag: FeatureFlag | null
+  staffOptions: StaffOption[]
+  onToggle: (enabled: boolean, config?: Record<string, unknown>) => void
+  isSubmitting: boolean
+}) {
+  const enabled = flag?.enabled ?? false
+  const [localConfig, setLocalConfig] = useState<Record<string, string>>(() => {
+    const c = (flag?.config ?? {}) as Record<string, unknown>
+    const out: Record<string, string> = {}
+    for (const f of spec.configFields ?? []) {
+      out[f.name] = (c[f.name] as string) ?? ''
+    }
+    return out
+  })
+
+  // Resync if server data updates (e.g. another supervisor toggles concurrently).
+  useEffect(() => {
+    if (!flag?.config) return
+    const c = flag.config as Record<string, unknown>
+    setLocalConfig((prev) => {
+      const next = { ...prev }
+      for (const f of spec.configFields ?? []) {
+        if (c[f.name] !== undefined) next[f.name] = String(c[f.name])
+      }
+      return next
+    })
+  }, [flag?.config, spec.configFields])
+
+  const requiredFieldsFilled = (spec.configFields ?? []).every(
+    (f) => (localConfig[f.name] ?? '').trim().length > 0,
+  )
+
+  const handleToggle = () => {
+    // Para activar, exigir config completa. Para desactivar, no.
+    if (!enabled && !requiredFieldsFilled) {
+      toast.error('Completa la configuración antes de activar')
+      return
+    }
+    onToggle(!enabled, localConfig)
+  }
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-3 space-y-2">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-gray-900">{spec.title}</h3>
+          <p className="text-xs text-gray-500 mt-0.5">{spec.description}</p>
+        </div>
+        {/* Toggle */}
+        <button
+          type="button"
+          onClick={handleToggle}
+          disabled={isSubmitting}
+          className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors ${
+            enabled ? 'bg-emerald-500' : 'bg-gray-300'
+          } ${isSubmitting ? 'opacity-50 cursor-wait' : 'cursor-pointer'}`}
+          aria-pressed={enabled}
+          aria-label={enabled ? 'Desactivar' : 'Activar'}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform mt-0.5 ${
+              enabled ? 'translate-x-4.5' : 'translate-x-0.5'
+            }`}
+          />
+        </button>
+      </div>
+
+      {/* Config fields */}
+      {(spec.configFields ?? []).length > 0 && (
+        <div className="grid grid-cols-1 gap-2 pt-1">
+          {spec.configFields!.map((f) => {
+            if (f.type === 'staff-picker') {
+              const filtered = f.roleFilter
+                ? staffOptions.filter((s) => f.roleFilter!.includes(s.role))
+                : staffOptions
+              const selectedEmail = localConfig[f.name] ?? ''
+              return (
+                <div key={f.name}>
+                  <span className="text-xs font-medium text-gray-600 block mb-1">{f.label}</span>
+                  {filtered.length === 0 ? (
+                    <p className="text-xs text-gray-400 italic">
+                      No hay housekeepers en esta propiedad.
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {filtered.map((s) => {
+                        const isSelected = selectedEmail === s.email
+                        return (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => {
+                              if (enabled) return
+                              setLocalConfig((prev) => ({ ...prev, [f.name]: s.email }))
+                            }}
+                            disabled={enabled}
+                            className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs border transition-colors ${
+                              isSelected
+                                ? 'bg-emerald-50 border-emerald-400 text-emerald-700 font-semibold'
+                                : 'bg-white border-gray-300 text-gray-700 hover:border-gray-400'
+                            } ${enabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                          >
+                            <span
+                              className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${
+                                isSelected ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-600'
+                              }`}
+                            >
+                              {s.name?.[0]?.toUpperCase() ?? '?'}
+                            </span>
+                            <span>{s.name}</span>
+                            {isSelected && <span className="text-emerald-600">✓</span>}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            }
+            return (
+              <label key={f.name} className="block">
+                <span className="text-xs font-medium text-gray-600">{f.label}</span>
+                <input
+                  type={f.type ?? 'text'}
+                  value={localConfig[f.name] ?? ''}
+                  onChange={(e) =>
+                    setLocalConfig((prev) => ({ ...prev, [f.name]: e.target.value }))
+                  }
+                  placeholder={f.placeholder}
+                  disabled={enabled}
+                  className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-sm disabled:bg-gray-50 disabled:text-gray-500"
+                />
+              </label>
+            )
+          })}
+          {enabled && (
+            <p className="text-xs text-gray-400 italic">
+              Apaga el flag para cambiar la selección.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Audit footer */}
+      {flag && (
+        <div className="text-xs text-gray-400 pt-1 border-t border-gray-100">
+          Último cambio:{' '}
+          {flag.updatedBy?.name ?? 'sistema'} ·{' '}
+          {new Date(flag.updatedAt).toLocaleString('es-MX', {
+            dateStyle: 'short',
+            timeStyle: 'short',
+          })}
+        </div>
+      )}
     </div>
   )
 }

@@ -275,6 +275,8 @@ model Organization {
   appNotifications   AppNotification[]
   // ── Sprint 8H ─────────────────────────────────────────────────────────────
   staffShifts        StaffShift[]
+  // ── Sprint 9 ──────────────────────────────────────────────────────────────
+  channelCommissions ChannelCommission[]
 
   @@map("organizations")
 }
@@ -348,6 +350,13 @@ model Property {
   shifts          StaffShift[]
   staffCoverages  StaffCoverage[]
   shiftClocks     StaffShiftClock[]
+  // ── Sprint 9 — Reports / Channel Manager ──────────────────────────────────
+  channelCommissions ChannelCommission[]
+  // ── Feature flags / testing toggles ───────────────────────────────────────
+  featureFlags    FeatureFlag[]
+  // ── Reports — pre-computed aggregations (Sprint 9 research) ──────────────
+  dailyMetrics       DailyPropertyMetrics[]
+  channelProduction  ChannelProductionDaily[]
 
   @@index([organizationId])
   @@map("properties")
@@ -452,6 +461,13 @@ model HousekeepingStaff {
   shiftClocks            StaffShiftClock[]
   preferences            StaffPreferences?
   preferenceChangesMade  StaffPreferenceLog[]             @relation("PreferenceChangesByStaff")
+  // ── Sprint 8I-J — Hub Recamarista gamificación (privacy-respecting) ─────
+  streak                 StaffStreak?
+  personalRecords        StaffPersonalRecord[]
+  dailyActivity          StaffDailyActivity[]
+  // ── Feature flags audit trail ────────────────────────────────────────────
+  featureFlagsUpdated    FeatureFlag[]
+  featureFlagAudits      FeatureFlagAuditLog[]
 
   @@index([organizationId])
   @@index([organizationId, propertyId])
@@ -554,6 +570,11 @@ model TaskLog {
   staffId        String?
   event          TaskLogEvent
   note           String?
+  // metadata: snapshot opcional del evento. Caso principal:
+  //   COMPLETED { checklist: [{ id, label, completed }] }  → para reportes
+  //   PAUSED    { reason: '...' }                         → opcional
+  // Queryable con operadores JSONB de Postgres en reports.
+  metadata       Json?
   createdAt      DateTime     @default(now())
 
   organization Organization?      @relation(fields: [organizationId], references: [id])
@@ -673,6 +694,14 @@ model PropertySettings {
   autoAssignmentEnabled         Boolean   @default(true) @map("auto_assignment_enabled")
   // Si true, mobile pide clock-in al abrir y bloquea acciones hasta marcar entrada.
   shiftClockingRequired         Boolean   @default(false) @map("shift_clocking_required")
+  // ── Sprint 9 — Reports / Revenue ──────────────────────────────────────────
+  // Meta semanal de revenue para el frame "FORECAST SEMANA" del Revenue
+  // Carousel mobile. Editable por admin desde Settings. Null = sin meta;
+  // el frame se computa como porcentaje contra null hasta configurarse.
+  weeklyRevenueTarget Decimal?  @db.Decimal(12, 2) @map("weekly_revenue_target")
+  // Currency por defecto para revenue reports (no para folios — esos vienen
+  // de la reserva). Default MXN. ISO 4217.
+  reportCurrency      String    @default("MXN") @map("report_currency")
   deletedAt           DateTime? @map("deleted_at")
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
@@ -786,6 +815,11 @@ model GuestStay {
   // ── Check-in extended fields (Sprint 9) ─────────────────────────────────
   arrivalNotes  String?          @map("arrival_notes")
   keyType       KeyDeliveryType? @map("key_type")
+  // ── Reports — pace/lead-time analytics (Sprint 9 research recommendation) ─
+  // Días entre creación de la reserva y check-in. Calculado al crear.
+  // Habilita pace/lead-time analysis (top wanted report en cross-research)
+  // sin recomputar `differenceInDays` en cada query agregada. Trivial cost.
+  bookingLeadDays   Int?              @map("booking_lead_days")
   // ── Stripe card-on-file (Sprint 8) ───────────────────────────────────────
   // Guardados al hacer check-in via SetupIntent (usage: 'off_session').
   // stripePaymentIntentId se genera al procesar el cargo de no-show.
@@ -1575,4 +1609,337 @@ model StaffPreferenceLog {
 
   @@index([staffId, createdAt])
   @@map("staff_preference_logs")
+}
+
+// ============================================================================
+// SPRINT 9 — REPORTS / CHANNEL COMMISSIONS
+// ============================================================================
+
+/**
+ * ChannelCommission — comisión que cada OTA cobra por reserva.
+ *
+ * Justificación (CLAUDE.md §29 + revenue-data-mapping.md):
+ *   - Booking típicamente 15%, Airbnb 14-16%, Expedia 18-22%
+ *   - El % varía por contrato y temporada — no es constante
+ *   - Necesario para el frame "COMISIONES OTA HOY" del Revenue Carousel
+ *   - Histórico relevante (effectiveFrom/effectiveUntil) para reportes
+ *     fiscales correctos cuando un cliente revisa períodos pasados
+ *
+ * Source uses the same string values as GuestStay.source.
+ * Sprint 9+ podríamos migrar a un enum BookingSource compartido.
+ *
+ * Lookup pattern:
+ *   const rate = await prisma.channelCommission.findFirst({
+ *     where: {
+ *       propertyId,
+ *       source: 'BOOKING',
+ *       effectiveFrom: { lte: targetDate },
+ *       OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: targetDate } }],
+ *     },
+ *     orderBy: { effectiveFrom: 'desc' },
+ *   })
+ */
+model ChannelCommission {
+  id             String    @id @default(uuid())
+  organizationId String?   @map("organization_id")
+  propertyId     String    @map("property_id")
+  /** Channel source (matches GuestStay.source string values). */
+  source         String    // 'BOOKING' | 'AIRBNB' | 'EXPEDIA' | 'HOSTELWORLD' | etc.
+  /** Commission rate as percent (e.g., 15.00 for 15%). Stored as Decimal
+   *  for exact arithmetic (CLAUDE.md §17 — no float for money). */
+  ratePercent    Decimal   @db.Decimal(5, 2) @map("rate_percent")
+  /** Effective period — supports historical lookups for past reports. */
+  effectiveFrom  DateTime  @map("effective_from") @db.Date
+  effectiveUntil DateTime? @map("effective_until") @db.Date
+  notes          String?
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization Organization? @relation(fields: [organizationId], references: [id])
+  property     Property      @relation(fields: [propertyId], references: [id])
+
+  @@index([propertyId, source, effectiveFrom])
+  @@map("channel_commissions")
+}
+
+// ============================================================================
+// SPRINT 8I-J — HUB RECAMARISTA · GAMIFICACIÓN (privacy-respecting)
+// ============================================================================
+//
+// Anclado a docs/research-housekeeping-hub.md.
+// Principios SDT (Deci & Ryan 1985) + privacy peer-to-peer estricta (D9).
+//
+// NUNCA expuestos a pares ni listados públicamente. Solo:
+//   - El propio staff (en su Hub)
+//   - Su supervisor (audit trail / coaching)
+
+/**
+ * StaffStreak — racha diaria estilo Duolingo, sin shame al romperse.
+ *
+ * Loss aversion suave (Tversky-Kahneman 1979): el usuario no quiere
+ * romper su racha. Pero usamos `freezesTotal` (2/mes) para vacaciones
+ * o ausencias justificadas — autonomía SDT preservada.
+ */
+model StaffStreak {
+  id              String    @id @default(uuid())
+  staffId         String    @unique @map("staff_id")
+  /** Días consecutivos con al menos 1 tarea completada (o freeze activo). */
+  currentDays     Int       @default(0) @map("current_days")
+  /** Récord histórico — para celebrar al superarlo (Strava-style). */
+  longestDays     Int       @default(0) @map("longest_days")
+  /** Última fecha (DATE local) en que el staff trabajó tareas. */
+  lastWorkDate    DateTime? @db.Date @map("last_work_date")
+  /** Freezes usados este mes — ausencias que no rompen la racha. */
+  freezesUsed     Int       @default(0) @map("freezes_used")
+  /** Budget mensual de freezes. Default 2 — generoso pero acotado. */
+  freezesTotal    Int       @default(2) @map("freezes_total")
+  /** Reset mensual del contador de freezes (1° del mes). */
+  freezesResetAt  DateTime? @db.Date @map("freezes_reset_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  staff           HousekeepingStaff @relation(fields: [staffId], references: [id])
+
+  @@map("staff_streaks")
+}
+
+/**
+ * StaffPersonalRecord — récord personal por categoría de habitación.
+ *
+ * Strava PR pattern. Self-vs-self. No es ranking ni comparación peer.
+ * Una row por staff por categoría — siempre el mejor tiempo histórico.
+ *
+ * `roomCategory` usa los valores de `RoomCategory` (PRIVATE | SHARED) o
+ * un id de RoomType cuando exista (Sprint 9+).
+ */
+model StaffPersonalRecord {
+  id            String   @id @default(uuid())
+  staffId       String   @map("staff_id")
+  /** Bucketing key. */
+  roomCategory  String   @map("room_category")
+  /** Best cleaning duration in minutes. */
+  bestMinutes   Int      @map("best_minutes")
+  /** When the PR was set. */
+  achievedAt    DateTime @map("achieved_at")
+  /** Reference to the task that set the record (audit trail). */
+  taskId        String   @map("task_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  staff         HousekeepingStaff @relation(fields: [staffId], references: [id])
+
+  @@unique([staffId, roomCategory])
+  @@map("staff_personal_records")
+}
+
+/**
+ * StaffDailyActivity — granular día-a-día por staff para Activity Rings.
+ *
+ * Apple Fitness pattern: 3 rings = (tareas, tiempo eficiente,
+ * verificaciones positivas). Una row por staff por día. Permite
+ * GitHub-style contribution graph en /me sin re-computar.
+ */
+model StaffDailyActivity {
+  id                    String   @id @default(uuid())
+  staffId               String   @map("staff_id")
+  date                  DateTime @db.Date
+  tasksCompleted        Int      @default(0) @map("tasks_completed")
+  tasksVerified         Int      @default(0) @map("tasks_verified")
+  totalCleaningMinutes  Int      @default(0) @map("total_cleaning_minutes")
+  /** Whether the user closed all 3 rings this day (Day Completion Ritual). */
+  ringsCompleted        Boolean  @default(false) @map("rings_completed")
+  /** Cached daily target for ring 1 (tasks). Derived at roster time. */
+  tasksTarget           Int      @default(0) @map("tasks_target")
+  /** Cached daily target for ring 2 (efficient minutes). */
+  minutesTarget         Int      @default(0) @map("minutes_target")
+  /** Cached daily target for ring 3 (verified count). */
+  verifiedTarget        Int      @default(0) @map("verified_target")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  staff                 HousekeepingStaff @relation(fields: [staffId], references: [id])
+
+  @@unique([staffId, date])
+  @@index([staffId, date])
+  @@map("staff_daily_activity")
+}
+
+/**
+ * FeatureFlag — toggles persistentes server-side para testing y rollouts.
+ *
+ * Por qué server-side y no localStorage:
+ *   - Multi-device coherence: un admin que activa "test.alarm" desde web
+ *     debe afectar al backend (cron) y a todos los clientes mobile/web
+ *     simultáneamente. localStorage solo afecta al navegador del actor.
+ *   - Audit fiscal-grade: registro de quién encendió qué cuándo (ver
+ *     FeatureFlagAuditLog). Esto es trazabilidad de operación, no de UI.
+ *
+ * Naming convention:
+ *   - test.*    → entornos/flujos de prueba (test.alarm, test.no_show, ...)
+ *   - feature.* → feature flags futuros con rollout gradual
+ *   - debug.*   → logs/diagnostics que en prod están off por defecto
+ *
+ * Kill-switch de seguridad:
+ *   - Las variables de entorno SIEMPRE ganan sobre el DB flag.
+ *     Si `TEST_ALARM_ENABLED=false` por env, el cron NO se activa
+ *     aunque el flag esté ON en BD. Esto permite a ops apagar
+ *     un flag inmediatamente sin acceso a la base.
+ *
+ * Scope:
+ *   - propertyId nullable: flag global a toda la organización si null,
+ *     o restringido a una propiedad si está seteado.
+ *
+ * Solo SUPERVISOR puede crear/editar (Roles guard en el controller).
+ *
+ * Referencia: Martin Fowler — *Feature Toggles* (2017),
+ * https://martinfowler.com/articles/feature-toggles.html
+ */
+model FeatureFlag {
+  id          String   @id @default(uuid())
+  /** Identificador único del flag (e.g. "test.alarm", "feature.x"). */
+  key         String   @unique
+  enabled     Boolean  @default(false)
+  /** Restringir el flag a una propiedad específica. null = global. */
+  propertyId  String?  @map("property_id")
+  /** Configuración libre por flag (e.g. { intervalMin: 5, staffEmail: "m@z.co" }). */
+  config      Json?
+  /** Texto humano para que admin recuerde qué hace este flag. */
+  description String?
+  updatedById String?  @map("updated_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  property    Property?          @relation(fields: [propertyId], references: [id])
+  updatedBy   HousekeepingStaff? @relation(fields: [updatedById], references: [id])
+  auditLogs   FeatureFlagAuditLog[]
+
+  @@index([key])
+  @@index([propertyId])
+  @@map("feature_flags")
+}
+
+/**
+ * FeatureFlagAuditLog — append-only audit trail de cambios.
+ * Append-only: nunca se borra ni edita. Cumple con §11 (registros
+ * inmutables). Permite responder "¿quién dejó test.alarm encendido en
+ * producción 3 horas?" en cualquier postmortem.
+ */
+model FeatureFlagAuditLog {
+  id          String   @id @default(uuid())
+  flagId      String   @map("flag_id")
+  flagKey     String   @map("flag_key")  // duplicado para queries sin join
+  action      String   // 'CREATED' | 'ENABLED' | 'DISABLED' | 'CONFIG_UPDATED'
+  previousValue Json?  @map("previous_value")
+  newValue    Json?    @map("new_value")
+  actorId     String?  @map("actor_id")
+  actorRole   String?  @map("actor_role")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  flag        FeatureFlag        @relation(fields: [flagId], references: [id])
+  actor       HousekeepingStaff? @relation(fields: [actorId], references: [id])
+
+  @@index([flagKey, createdAt])
+  @@index([actorId])
+  @@map("feature_flag_audit_logs")
+}
+
+/**
+ * DailyPropertyMetrics — snapshot diario inmutable de KPIs operativos.
+ *
+ * Recomendación basada en investigación cross-referencia (Sprint 9):
+ * Mews/Cloudbeds engineering blogs + STR + USALI 12th + reviews G2/Capterra.
+ * El "Manager Report" (Occ + ADR + RevPAR) es el report #4 más usado en la
+ * industria. Recomputarlo desde GuestStay + StaySegment + PaymentLog no
+ * escala más allá de ~30 días. Snapshot append-only por propiedad por
+ * fecha local.
+ *
+ * Refresh trigger: `NightAuditScheduler` corre per-property en local TZ
+ * (CLAUDE.md §14). Añadir paso `computeDailyMetrics(propertyId, localDate)`
+ * tras procesar no-shows.
+ *
+ * Tamaño: 1 row/property/day = ~365 rows/año/propiedad. 50 propiedades
+ * × 5 años = 91k rows. Trivial para Postgres con índice (propertyId, date).
+ *
+ * NO denormaliza datos derivables on-the-fly (ARRIVAL_LIST, IN_HOUSE) —
+ * eso es projection sobre GuestStay con índices, no aggregation table.
+ */
+model DailyPropertyMetrics {
+  id                String   @id @default(uuid())
+  propertyId        String   @map("property_id")
+  /** Fecha local de la propiedad (timezone IANA aplicado). NO UTC. */
+  date              DateTime @db.Date
+  /** Inventario base — habitaciones disponibles para vender ese día. */
+  roomsAvailable    Int      @map("rooms_available")
+  /** Habitaciones vendidas (con stay activo cubriendo la noche). */
+  roomsSold         Int      @map("rooms_sold")
+  /** Habitaciones bloqueadas (mantenimiento, OOS). */
+  roomsOOO          Int      @map("rooms_ooo")
+  /** Revenue de habitaciones (sin F&B, sin extras). */
+  roomRevenue       Decimal  @map("room_revenue") @db.Decimal(12, 2)
+  /** Revenue total (incluye otros departamentos cuando los haya). */
+  totalRevenue      Decimal  @map("total_revenue") @db.Decimal(12, 2)
+  /** ADR = roomRevenue / roomsSold. Snapshot — no se recalcula. */
+  adr               Decimal  @map("adr") @db.Decimal(10, 2)
+  /** Occupancy = roomsSold / roomsAvailable. */
+  occupancy         Decimal  @db.Decimal(5, 4)
+  /** RevPAR = roomRevenue / roomsAvailable. */
+  revpar            Decimal  @db.Decimal(10, 2)
+  /** Eventos del día — counters para reportes diarios. */
+  arrivalCount      Int      @default(0) @map("arrival_count")
+  departureCount    Int      @default(0) @map("departure_count")
+  noShowCount       Int      @default(0) @map("no_show_count")
+  cancellationCount Int      @default(0) @map("cancellation_count")
+  walkInCount       Int      @default(0) @map("walk_in_count")
+  /** Currency snapshot (importante en LATAM con multi-property multi-divisa). */
+  currency          String   @default("MXN")
+  computedAt        DateTime @default(now()) @map("computed_at")
+
+  property          Property @relation(fields: [propertyId], references: [id])
+
+  @@unique([propertyId, date])
+  @@index([propertyId, date])
+  @@map("daily_property_metrics")
+}
+
+/**
+ * ChannelProductionDaily — agregación diaria por canal de venta.
+ *
+ * El "Channel Production Report" es report #9 en uso real (cross-research)
+ * y crítico para evaluar comisiones OTA vs revenue directo. Recomputarlo
+ * por fecha exige scan completo de GuestStay para rangos largos.
+ *
+ * Granularidad: 1 row/property/date/source. 5 sources típicos
+ * (Booking, Expedia, Direct, Airbnb, Walk-in) × 365 días × 50 propiedades
+ * = 91k rows/año.
+ *
+ * Top wanted report cross-research: "cancellation rate by channel +
+ * lead-time-to-cancel" — los counters aquí agregados habilitan ese
+ * análisis sin scan adicional.
+ */
+model ChannelProductionDaily {
+  id            String   @id @default(uuid())
+  propertyId    String   @map("property_id")
+  date          DateTime @db.Date
+  /** Identificador de canal: 'BOOKING' | 'EXPEDIA' | 'DIRECT' | 'WALK_IN' | 'AIRBNB' | etc. */
+  source        String
+  /** Reservas creadas en ese día/canal (no necesariamente con check-in ese día). */
+  bookings      Int      @default(0)
+  /** Reservas canceladas con fecha de cancelación en ese día. */
+  cancellations Int      @default(0)
+  /** No-shows: GuestStay con noShowAt cayendo en este día/canal. */
+  noShows       Int      @default(0) @map("no_shows")
+  /** Revenue neto del canal en ese día (post-comisión cuando aplique). */
+  netRevenue    Decimal  @default(0) @map("net_revenue") @db.Decimal(12, 2)
+  /** Comisión cobrada por el canal (0 para DIRECT/WALK_IN). */
+  commission    Decimal  @default(0) @db.Decimal(12, 2)
+  /** Lead time promedio en días — habilita análisis de patrones de booking. */
+  avgLeadDays   Int?     @map("avg_lead_days")
+  currency      String   @default("MXN")
+  computedAt    DateTime @default(now()) @map("computed_at")
+
+  property      Property @relation(fields: [propertyId], references: [id])
+
+  @@unique([propertyId, date, source])
+  @@index([propertyId, date])
+  @@index([source, date])
+  @@map("channel_production_daily")
 }

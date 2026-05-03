@@ -36,14 +36,16 @@ export const SOURCE_BRAND: Record<
 }
 
 interface SourceBadgeProps {
-  source: ReservationSource | null
+  /** Accepts the strict enum or any free-form string from the server.
+   *  Unknown values fall back to OTHER tinting. */
+  source: ReservationSource | string | null
   /** Compact (no label) for dense layouts. */
   compact?: boolean
 }
 
 export function SourceBadge({ source, compact }: SourceBadgeProps) {
   if (!source) return null
-  const cfg = SOURCE_BRAND[source]
+  const cfg = SOURCE_BRAND[source as ReservationSource] ?? SOURCE_BRAND.OTHER
   return (
     <View style={[styles.chip, { backgroundColor: cfg.bg }, compact && styles.chipCompact]}>
       <View style={[styles.dot, { backgroundColor: cfg.fg }]} />

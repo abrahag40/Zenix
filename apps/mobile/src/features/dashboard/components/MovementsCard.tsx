@@ -35,6 +35,9 @@ import { colors } from '../../../design/colors'
 import { typography } from '../../../design/typography'
 import type { ReservationSource } from '../../reservations/types'
 
+// Source is the OTA channel string. We accept the broader `string`
+// from the server DTO and let SourceBadge handle unknown values.
+
 type MovementMode = 'arrivals' | 'departures'
 
 export interface MovementItem {
@@ -43,7 +46,9 @@ export interface MovementItem {
   guestName: string | null
   roomNumber: string | null
   paxCount: number
-  source: ReservationSource | null
+  /** Server returns the channel as a free string (BookingSource enum
+   *  not enforced yet). SourceBadge handles unknown values gracefully. */
+  source: ReservationSource | string | null
   /** Optional flair: VIP, Late checkout, etc. */
   flair?: string | null
 }

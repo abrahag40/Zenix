@@ -35,19 +35,18 @@ Notifications.setNotificationHandler({
   }),
 })
 
-export async function registerForPushNotificationsAsync(): Promise<void> {
-  if (!Device.isDevice) return
-
-  // Skip push token registration in Expo Go — it requires an EAS projectId
-  // which only standalone builds carry. Without this guard, the call
-  // throws "No projectId found" and the unhandled rejection breaks the
-  // auth flow on the very first login.
-  if (IS_EXPO_GO && !EAS_PROJECT_ID) {
-    if (__DEV__) {
-      console.log('[push] Skipping registration in Expo Go (no EAS projectId).')
-    }
-    return
-  }
+/**
+ * Request notification permissions and configure Android channels.
+ *
+ * This is intentionally separate from push-token registration:
+ *   - Works in Expo Go (no EAS projectId needed for local notifications)
+ *   - Must be called before scheduling any local alarm notifications
+ *   - Safe to call multiple times (getPermissionsAsync guards double-prompt)
+ *
+ * Returns true if permissions were granted.
+ */
+export async function requestNotificationPermissions(): Promise<boolean> {
+  if (!Device.isDevice) return false
 
   try {
     const { status: existingStatus } = await Notifications.getPermissionsAsync()
@@ -58,15 +57,58 @@ export async function registerForPushNotificationsAsync(): Promise<void> {
       finalStatus = status
     }
 
-    if (finalStatus !== 'granted') return
+    if (finalStatus !== 'granted') return false
 
     if (Platform.OS === 'android') {
+      // Default channel — general notifications
       await Notifications.setNotificationChannelAsync('default', {
-        name: 'default',
+        name: 'Notificaciones',
         importance: Notifications.AndroidImportance.MAX,
         vibrationPattern: [0, 250, 250, 250],
       })
+      // High-priority alarm channel for task:ready events.
+      // bypassDnd: true ensures the alarm rings even in Do Not Disturb mode
+      // (same behavior as alarm clock apps — critical for housekeeping ops).
+      await Notifications.setNotificationChannelAsync('task-alarm', {
+        name: 'Alarma de tarea',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 500, 300, 500, 300, 500],
+        enableVibrate: true,
+        bypassDnd: true,
+      })
     }
+
+    return true
+  } catch (err) {
+    if (__DEV__) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.warn('[notifications] Permission request failed:', msg)
+    }
+    return false
+  }
+}
+
+export async function registerForPushNotificationsAsync(): Promise<void> {
+  if (!Device.isDevice) return
+
+  // Skip push token registration in Expo Go — it requires an EAS projectId
+  // which only standalone builds carry. Without this guard, the call
+  // throws "No projectId found" and the unhandled rejection breaks the
+  // auth flow on the very first login.
+  // Note: local alarm notifications still work in Expo Go via
+  // requestNotificationPermissions() above.
+  if (IS_EXPO_GO && !EAS_PROJECT_ID) {
+    if (__DEV__) {
+      console.log('[push] Skipping push registration in Expo Go (no EAS projectId).')
+    }
+    return
+  }
+
+  try {
+    // Permissions and channels are handled by requestNotificationPermissions().
+    // Verify grant before attempting token fetch.
+    const { status } = await Notifications.getPermissionsAsync()
+    if (status !== 'granted') return
 
     // Pass projectId explicitly — required in SDK 54+ (per Expo docs).
     const tokenResponse = await Notifications.getExpoPushTokenAsync(

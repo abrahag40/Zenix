@@ -140,6 +140,16 @@ export default function YoScreen() {
             description="Tutoriales, FAQs"
             onPress={() => Alert.alert('Próximamente', 'Centro de ayuda en construcción.')}
           />
+          {/* Testing — supervisor-only. Misma protección que en web
+              (FeatureFlagsController @Roles SUPERVISOR). */}
+          {user?.role === 'SUPERVISOR' && (
+            <SettingsRow
+              Icon={IconSettings}
+              label="Testing"
+              description="Activar/desactivar entornos de prueba"
+              onPress={() => router.push('/testing')}
+            />
+          )}
         </SettingsGroup>
 
         {/* ── Logout (destructive, separated) ───────────────────── */}

@@ -293,7 +293,7 @@ export const MOCK_REVENUE_INSIGHTS: TickerInsight[] = [
     tone: 'neutral',
   },
   {
-    id: 'top-channel',
+    id: 'topChannel',
     icon: '🥇',
     label: 'Canal top hoy: Booking',
     caption: '$18,400 · 43% del revenue',
@@ -307,14 +307,14 @@ export const MOCK_REVENUE_INSIGHTS: TickerInsight[] = [
     tone: 'positive',
   },
   {
-    id: 'cash-on-hand',
+    id: 'cashOnHand',
     icon: '💵',
     label: 'Caja recepción: $4,250 MXN',
     caption: '8 movimientos en turno · sin diferencias',
     tone: 'positive',
   },
   {
-    id: 'forecast-week',
+    id: 'forecastWeek',
     icon: '🗓',
     label: 'Forecast semana: $312K MXN',
     caption: 'al 78% de meta semanal',
@@ -363,7 +363,7 @@ export const MOCK_REVENUE_FRAMES: RevenueFrame[] = [
     ],
   },
   {
-    id: 'top-channel',
+    id: 'topChannel',
     label: 'CANAL TOP HOY',
     primaryWhole: 'Booking',
     primarySuffix: '',
@@ -390,7 +390,7 @@ export const MOCK_REVENUE_FRAMES: RevenueFrame[] = [
     ],
   },
   {
-    id: 'cash-on-hand',
+    id: 'cashOnHand',
     label: 'CAJA RECEPCIÓN',
     primaryWhole: '$4,250',
     primarySuffix: 'MXN',
@@ -403,7 +403,7 @@ export const MOCK_REVENUE_FRAMES: RevenueFrame[] = [
     ],
   },
   {
-    id: 'forecast-week',
+    id: 'forecastWeek',
     label: 'FORECAST SEMANA',
     primaryWhole: '$312K',
     primarySuffix: 'MXN',
