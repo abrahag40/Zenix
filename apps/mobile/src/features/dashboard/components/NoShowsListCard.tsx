@@ -34,7 +34,7 @@ import { typography } from '../../../design/typography'
 
 export interface NoShowItem {
   stayId: string
-  guestName: string
+  guestName: string | null  // null for HOUSEKEEPER role
   roomNumber: string | null
   expectedCheckInLabel: string  // pre-formatted by API ("15:00", "ayer 14:00")
   hoursOverdue: number          // for tint intensity
@@ -91,7 +91,7 @@ export function NoShowsListCard({ items, onPressItem }: NoShowsListCardProps) {
               <View style={styles.rowBody}>
                 <View style={styles.rowTop}>
                   <Text style={styles.guestName} numberOfLines={1}>
-                    {item.guestName}
+                    {item.guestName ?? '—'}
                   </Text>
                   {item.roomNumber && (
                     <Text style={styles.roomChip}>Hab. {item.roomNumber}</Text>

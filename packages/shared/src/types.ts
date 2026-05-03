@@ -483,6 +483,70 @@ export interface MovementItemDto {
   flair: string | null
 }
 
+// ─── Rooms Grid ──────────────────────────────────────────────────────────────
+
+export type RoomDisplayStatus = 'CLEAN' | 'DIRTY' | 'CLEANING' | 'OCCUPIED' | 'BLOCKED' | 'UNKNOWN'
+
+export interface BedInRoomDto {
+  id: string
+  label: string
+  status: RoomDisplayStatus
+  scheduleLabel: string | null
+  /** null for HOUSEKEEPER role. */
+  guestName: string | null
+}
+
+export interface RoomGridItemDto {
+  id: string
+  number: string
+  status: RoomDisplayStatus
+  section: string | null
+  floor: number | null
+  category: 'PRIVATE' | 'SHARED'
+  /** Populated only for SHARED rooms. */
+  beds: BedInRoomDto[]
+  operationalNotes: string | null
+  /** Pre-formatted e.g. "sale mañana 12:00". */
+  scheduleLabel: string | null
+  /** null for HOUSEKEEPER role. */
+  guestName: string | null
+  paxCount: number | null
+}
+
+// ─── No-shows list (dashboard card — distinct from NoShowItemDto in reports) ──
+// The report NoShowItemDto (line ~353) represents confirmed no-shows with full
+// fiscal data. This DTO represents *potential* no-shows: arrivals today whose
+// check-in has not yet been confirmed. Different shape, different purpose.
+
+export interface DashboardNoShowItemDto {
+  stayId: string
+  /** null for HOUSEKEEPER role. */
+  guestName: string | null
+  roomNumber: string | null
+  /** Pre-formatted "15:00", "ayer 14:00". */
+  expectedCheckInLabel: string
+  hoursOverdue: number
+}
+
+// ─── FX Rates ─────────────────────────────────────────────────────────────────
+
+export interface FxRateRowDto {
+  currency: string
+  rate: number
+  delta: number | null
+  localCurrency: string
+}
+
+// ─── Ticker insights (rotating footer in OccupancyDonut) ──────────────────────
+
+export interface TickerInsightDto {
+  id: string
+  icon?: string
+  label: string
+  caption?: string
+  tone: 'positive' | 'negative' | 'neutral' | 'warning'
+}
+
 /** Full payload of GET /v1/reports/dashboard-overview. */
 export interface DashboardOverviewDto {
   /** ISO timestamp of when the snapshot was computed. */
@@ -495,6 +559,14 @@ export interface DashboardOverviewDto {
   blockedRooms: BlockedRoomDto[]
   arrivals: MovementItemDto[]
   departures: MovementItemDto[]
+  /** Visual room-status grid (all rooms in property). */
+  roomsGrid: RoomGridItemDto[]
+  /** Potential no-shows: today's arrivals without confirmed check-in, past warning hour. */
+  noShows: DashboardNoShowItemDto[]
+  /** FX rates for the morning window. Empty when no rates configured. */
+  fxRates: FxRateRowDto[]
+  /** Rotating operational insights displayed in the OccupancyDonut footer. */
+  tickerInsights: TickerInsightDto[]
 }
 
 // ─── Revenue Carousel (Sprint 9) ─────────────────────────────────────────────

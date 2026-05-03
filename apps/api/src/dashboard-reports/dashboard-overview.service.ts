@@ -31,6 +31,12 @@ import type {
   PendingTasksDto,
   BlockedRoomDto,
   MovementItemDto,
+  RoomGridItemDto,
+  BedInRoomDto,
+  RoomDisplayStatus,
+  DashboardNoShowItemDto,
+  FxRateRowDto,
+  TickerInsightDto,
   HousekeepingRole,
 } from '@zenix/shared'
 import {
@@ -40,6 +46,7 @@ import {
   fmtDateRange,
   fmtAmountWhole,
   deriveFlair,
+  fmtLocalTime,
 } from './format.helpers'
 
 const IN_HOUSE_ROWS_CAP = 12   // mobile expand fits ~5; we send 12 for "Ver todas"
@@ -90,6 +97,7 @@ export class DashboardOverviewService {
         id: true,
         roomId: true,
         guestName: true,
+        checkinAt: true,
         scheduledCheckout: true,
         paxCount: true,
         actualCheckin: true,
@@ -293,6 +301,160 @@ export class DashboardOverviewService {
       todayEnd,
     )
 
+    // ── 6. Rooms grid ───────────────────────────────────────────────
+    // Full visual map: every active room with per-unit status.
+    // GuestStay links to roomId (not unitId), so per-bed guest names are
+    // only available for PRIVATE rooms (1 bed → 1 guest). SHARED dorm
+    // beds always receive guestName:null (CLAUDE.md TODO hotel-room-granularity).
+    const allRooms = await this.prisma.room.findMany({
+      where: { propertyId, deletedAt: null },
+      include: {
+        units: {
+          where: { deletedAt: null },
+          orderBy: { label: 'asc' },
+        },
+      },
+      orderBy: [{ floor: 'asc' }, { number: 'asc' }],
+    })
+
+    // Index in-house stays by roomId for O(1) lookups below.
+    const stayByRoom = new Map<string, typeof inHouseStays[number]>()
+    for (const s of inHouseStays) {
+      stayByRoom.set(s.roomId, s)
+    }
+
+    const roomsGrid: RoomGridItemDto[] = allRooms.map((room) => {
+      const stay = stayByRoom.get(room.id)
+      const isShared = room.category === 'SHARED'
+
+      // Room-level status: derive from unit statuses (worst-case wins).
+      // Priority: CLEANING > DIRTY > BLOCKED > OCCUPIED > AVAILABLE.
+      const unitStatuses = room.units.map((u) => u.status)
+      const roomStatus = this.deriveRoomStatus(unitStatuses)
+
+      const beds: BedInRoomDto[] = room.units.map((unit) => ({
+        id:            unit.id,
+        label:         unit.label,
+        status:        this.mapUnitStatus(unit.status),
+        scheduleLabel: stay
+          ? fmtScheduleLabel(stay.scheduledCheckout, stay.paxCount ?? 1, tz)
+          : null,
+        // SHARED dorms: no per-bed guest — GuestStay is room-level only.
+        guestName: isShared
+          ? null
+          : this.redactGuestName(stay?.guestName ?? null, actorRole),
+      }))
+
+      return {
+        id:               room.id,
+        number:           room.number,
+        status:           roomStatus,
+        section:          null,
+        floor:            room.floor,
+        category:         isShared ? 'SHARED' : 'PRIVATE',
+        beds:             isShared ? beds : [],
+        operationalNotes: room.notes ?? null,
+        scheduleLabel:    stay
+          ? fmtScheduleLabel(stay.scheduledCheckout, stay.paxCount ?? 1, tz)
+          : null,
+        guestName: isShared
+          ? null
+          : this.redactGuestName(stay?.guestName ?? null, actorRole),
+        paxCount: stay?.paxCount ?? null,
+      }
+    })
+
+    // ── 7. No-shows (arrivals today without actualCheckin) ───────────
+    // Arrivals expected today that have not been confirmed by a receptionist.
+    // hoursOverdue = hours elapsed since scheduled check-in start of day.
+    const potentialNoShows = inHouseStays.filter(
+      (s) => s.actualCheckin == null,
+    )
+
+    // We need roomNumbers for no-show items — fetch from the allRooms map.
+    const roomNumberById = new Map(allRooms.map((r) => [r.id, r.number]))
+
+    const noShows: DashboardNoShowItemDto[] = potentialNoShows.map((s) => {
+      const hoursOverdue = Math.floor(
+        (now.getTime() - new Date(s.checkinAt).getTime()) / 3_600_000,
+      )
+      return {
+        stayId:                s.id,
+        guestName:             this.redactGuestName(s.guestName, actorRole),
+        roomNumber:            roomNumberById.get(s.roomId) ?? null,
+        expectedCheckInLabel:  fmtLocalTime(new Date(s.checkinAt), tz),
+        hoursOverdue:          Math.max(0, hoursOverdue),
+      }
+    })
+
+    // ── 8. Ticker insights ───────────────────────────────────────────
+    // Rotating operational signals. Built from already-computed values —
+    // zero additional DB queries. HOUSEKEEPER sees only task-related
+    // insights; RECEPTIONIST/SUPERVISOR see the full set.
+    const tickerInsights: TickerInsightDto[] = []
+
+    // Arriving today (not yet confirmed)
+    if (arrivingToday > 0) {
+      tickerInsights.push({
+        id:      'arrivals-today',
+        icon:    '🛎',
+        label:   `${arrivingToday} llegada${arrivingToday !== 1 ? 's' : ''} hoy`,
+        caption: arrivingToday > 1 ? 'Check-ins esperados' : 'Check-in esperado',
+        tone:    'neutral',
+      })
+    }
+
+    // Housekeeping pending — universal signal
+    if (hkPending > 0) {
+      tickerInsights.push({
+        id:      'hk-pending',
+        icon:    '🧹',
+        label:   `${hkPending} tarea${hkPending !== 1 ? 's' : ''} pendiente${hkPending !== 1 ? 's' : ''}`,
+        caption: 'Limpieza por atender',
+        tone:    hkPending >= 5 ? 'warning' : 'neutral',
+      })
+    }
+
+    // Maintenance blocks (critical signal for all roles)
+    if (mttoCritical > 0) {
+      tickerInsights.push({
+        id:      'mtto-critical',
+        icon:    '🔧',
+        label:   `${mttoCritical} hab. bloqueada${mttoCritical !== 1 ? 's' : ''}`,
+        caption: 'Mantenimiento activo',
+        tone:    'warning',
+      })
+    }
+
+    // Unpaid folios — only for non-HK roles
+    if (actorRole !== 'HOUSEKEEPER' && unpaidFolios > 0) {
+      tickerInsights.push({
+        id:      'unpaid-folios',
+        icon:    '💳',
+        label:   `${unpaidFolios} folio${unpaidFolios !== 1 ? 's' : ''} pendiente${unpaidFolios !== 1 ? 's' : ''}`,
+        caption: pendingTasks.unpaidAmountLabel ?? 'Pendiente de cobro',
+        tone:    'warning',
+      })
+    }
+
+    // Departures today (all done = positive signal for RECEPTIONIST)
+    if (actorRole !== 'HOUSEKEEPER') {
+      if (departedToday > 0 && inHouseStays.filter((s) => s.actualCheckin == null).length === 0) {
+        tickerInsights.push({
+          id:      'all-checkins-done',
+          icon:    '✅',
+          label:   'Todos los check-ins confirmados',
+          caption: `${departedToday} salida${departedToday !== 1 ? 's' : ''} hoy`,
+          tone:    'positive',
+        })
+      }
+    }
+
+    // ── 9. FX rates ──────────────────────────────────────────────────
+    // No external FX provider wired yet. Return empty — the mobile FxRateCard
+    // shows a "próximamente" state when the array is empty (Sprint 9+).
+    const fxRates: FxRateRowDto[] = []
+
     return {
       computedAt: now.toISOString(),
       occupancy,
@@ -302,10 +464,44 @@ export class DashboardOverviewService {
       blockedRooms,
       arrivals,
       departures,
+      roomsGrid,
+      noShows,
+      fxRates,
+      tickerInsights,
     }
   }
 
   // ── Private helpers ──────────────────────────────────────────────
+
+  /**
+   * Map a Prisma `UnitStatus` enum to the mobile `RoomDisplayStatus`.
+   * UnitStatus is the source of truth for individual bed/unit state.
+   */
+  private mapUnitStatus(s: string): RoomDisplayStatus {
+    switch (s) {
+      case 'AVAILABLE': return 'CLEAN'
+      case 'OCCUPIED':  return 'OCCUPIED'
+      case 'DIRTY':     return 'DIRTY'
+      case 'CLEANING':  return 'CLEANING'
+      case 'BLOCKED':   return 'BLOCKED'
+      default:          return 'UNKNOWN'
+    }
+  }
+
+  /**
+   * Derive the aggregate room-level display status from the set of unit
+   * statuses. Priority: CLEANING > DIRTY > BLOCKED > OCCUPIED > CLEAN.
+   * An empty unit list falls back to UNKNOWN.
+   */
+  private deriveRoomStatus(unitStatuses: string[]): RoomDisplayStatus {
+    if (unitStatuses.length === 0) return 'UNKNOWN'
+    const mapped = unitStatuses.map((s) => this.mapUnitStatus(s))
+    const priority: RoomDisplayStatus[] = ['CLEANING', 'DIRTY', 'BLOCKED', 'OCCUPIED', 'CLEAN']
+    for (const p of priority) {
+      if (mapped.includes(p)) return p
+    }
+    return 'UNKNOWN'
+  }
 
   private redactGuestName(
     name: string | null,

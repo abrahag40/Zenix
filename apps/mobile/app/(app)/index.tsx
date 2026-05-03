@@ -178,11 +178,14 @@ export default function DashboardScreen() {
   const revenueFrames = revenueQ.data?.frames
     ?? (MOCKS_DASHBOARD_ENABLED ? MOCK_REVENUE_FRAMES : [])
 
-  // Cards still on mock-only (Sprint 9+ extends backend):
-  const roomsGrid       = MOCKS_DASHBOARD_ENABLED ? MOCK_ROOMS_GRID : []
-  const noShows         = MOCKS_DASHBOARD_ENABLED ? MOCK_NO_SHOWS : []
-  const fxRates         = MOCKS_DASHBOARD_ENABLED ? MOCK_FX_RATES : []
-  const tickerInsights  = MOCKS_DASHBOARD_ENABLED ? MOCK_TICKER_INSIGHTS : []
+  const roomsGrid      = overview?.roomsGrid
+    ?? (MOCKS_DASHBOARD_ENABLED ? MOCK_ROOMS_GRID : [])
+  const noShows        = overview?.noShows
+    ?? (MOCKS_DASHBOARD_ENABLED ? MOCK_NO_SHOWS : [])
+  const fxRates        = overview?.fxRates
+    ?? (MOCKS_DASHBOARD_ENABLED ? MOCK_FX_RATES : [])
+  const tickerInsights = overview?.tickerInsights
+    ?? (MOCKS_DASHBOARD_ENABLED ? MOCK_TICKER_INSIGHTS : [])
 
   // Helpers for active-set lookups
   const activeKeys = new Set(kpis.map((k) => k.key))

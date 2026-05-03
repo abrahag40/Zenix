@@ -133,6 +133,19 @@ export function fmtDateRange(
 }
 
 /**
+ * Format a wall-clock time from a UTC Date in the property's timezone.
+ * Returns "HH:mm" (24h), e.g. "14:30".
+ */
+export function fmtLocalTime(d: Date, timezone: string): string {
+  return new Intl.DateTimeFormat('es-MX', {
+    timeZone: timezone,
+    hour:   '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(d)
+}
+
+/**
  * Format a flair tag for in-house rooms (VIP / Late ck / etc.).
  * For Sprint 9 we surface "VIP" if guestStay.notes contains the literal,
  * "Late ck" if scheduled checkout is later than property's defaultCheckoutTime,
