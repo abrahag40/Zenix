@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Dialog, DialogContent, DialogHeader,
          DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
@@ -36,10 +36,25 @@ export function CheckOutDialog({
   })
   const [confirmed, setConfirmed] = useState(false)
 
-  if (!stay) return null
-
-  const balance = stay.totalAmount - stay.amountPaid
+  // Pre-flight: si hay saldo pendiente, auto-prefill el monto con el balance
+  // para que el botón no quede silenciosamente disabled. El recepcionista
+  // puede ajustar si cobra parcial; sin esto, click → nada → "no funciona"
+  // (CLAUDE.md §33 feedback informativo).
+  const balance = stay ? stay.totalAmount - stay.amountPaid : 0
   const isFullyPaid = balance <= 0
+
+  useEffect(() => {
+    if (open && !isFullyPaid) {
+      setPayment(p => ({ ...p, amount: balance }))
+    } else if (open && isFullyPaid) {
+      setPayment(p => ({ ...p, amount: 0 }))
+    }
+    // intencionalmente solo cuando `open` cambia para no resobreescribir
+    // mientras el usuario está editando el monto.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, stay?.id])
+
+  if (!stay) return null
 
   function handleConfirm() {
     if (!isFullyPaid && payment.amount < balance) return
@@ -202,6 +217,11 @@ export function CheckOutDialog({
             size="sm"
             onClick={handleConfirm}
             disabled={!isFullyPaid && payment.amount < balance}
+            title={
+              !isFullyPaid && payment.amount < balance
+                ? `Falta cobrar ${stay.currency} ${(balance - (payment.amount || 0)).toLocaleString()} para poder hacer checkout`
+                : undefined
+            }
             className={cn(
               "text-xs transition-all",
               confirmed

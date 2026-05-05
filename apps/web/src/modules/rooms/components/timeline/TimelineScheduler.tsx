@@ -1020,7 +1020,14 @@ export function TimelineScheduler() {
 
       <CheckOutDialog
         stay={(() => {
-          const raw = stays.find(s => s.id === checkOutDialog.stayId) ?? null
+          // Buscar en stays + journeyBlocks (mismo patrón que BookingDetailSheet
+          // line 951). Sin fallback a journeyBlocks, los stays con segments
+          // (extensions, room moves) clickeados desde su botón OUT NO abrían
+          // el dialog porque viven en journeyBlocks, no en stays.
+          const raw =
+            stays.find(s => s.id === checkOutDialog.stayId) ??
+            journeyBlocks.find(s => s.id === checkOutDialog.stayId) ??
+            null
           if (!raw) return null
           if (raw.roomNumber) return raw
           const roomRow = flatRows.find(r => r.id === raw.roomId && r.type === 'room')
@@ -1029,7 +1036,14 @@ export function TimelineScheduler() {
         open={checkOutDialog.open}
         onClose={() => setCheckOutDialog({ open: false, stayId: null })}
         onConfirm={(stayId, _payment) => {
-          checkoutMut.mutate(stayId)
+          // Para journey segments, el `stay.id` es el segment id; el endpoint
+          // requiere el GuestStay id. Lo recuperamos del bloque para evitar
+          // POST /checkout con un id inexistente (404).
+          const block =
+            stays.find(s => s.id === stayId) ??
+            journeyBlocks.find(s => s.id === stayId)
+          const realStayId = block?.guestStayId ?? stayId
+          checkoutMut.mutate(realStayId)
           setCheckOutDialog({ open: false, stayId: null })
         }}
       />
