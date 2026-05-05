@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, ChevronDown } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { api } from '../api/client'
 import { useAuthStore } from '../store/auth'
 import { usePropertyStore } from '../store/property'
-import type { PropertyDto } from '@zenix/shared'
+import type { AuthResponse, PropertyDto } from '@zenix/shared'
 
 /**
  * PropertySwitcher — left-header control for choosing which property
@@ -45,7 +46,9 @@ export function PropertySwitcher() {
   const activePropertyId   = usePropertyStore((s) => s.activePropertyId)
   const activePropertyName = usePropertyStore((s) => s.activePropertyName)
   const setActiveProperty  = usePropertyStore((s) => s.setActiveProperty)
+  const setAuth            = useAuthStore((s) => s.setAuth)
   const qc = useQueryClient()
+  const [switching, setSwitching] = useState(false)
 
   const { data: properties = [] } = useQuery<PropertyDto[]>({
     queryKey: ['properties-mine'],
@@ -108,17 +111,36 @@ export function PropertySwitcher() {
   const showRegionHeaders = groups.groups.length >= 2
   const multiProperty = properties.length > 1
 
-  function handleSelect(p: PropertyDto) {
+  async function handleSelect(p: PropertyDto) {
     if (p.id === activePropertyId) {
       setOpen(false)
       return
     }
-    setActiveProperty(p.id, p.name)
-    qc.clear()
+    // CRITICAL: backend filtra por user.propertyId del JWT (no por param). Solo
+    // actualizar Zustand NO cambia los datos — todas las queries siguen
+    // devolviendo data de la propiedad anterior. Hay que pedir un JWT nuevo
+    // scoped a la propiedad destino antes de invalidar el cache.
+    setSwitching(true)
     setOpen(false)
+    try {
+      const auth = await api.post<AuthResponse>('/auth/switch-property', {
+        targetPropertyId: p.id,
+      })
+      setAuth(auth)
+      setActiveProperty(p.id, p.name)
+      qc.clear()
+      toast.success(`Sucursal: ${p.name}`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'No se pudo cambiar de sucursal'
+      toast.error(msg)
+    } finally {
+      setSwitching(false)
+    }
   }
 
-  const label = active?.name || activePropertyName || 'Cargando sucursal…'
+  const label = switching
+    ? 'Cambiando sucursal…'
+    : (active?.name || activePropertyName || 'Cargando sucursal…')
 
   return (
     <div ref={ref} className="relative">

@@ -63,7 +63,10 @@ const NAV: NavItem[] = [
     children: [
       { to: '/overrides',     icon: '🛠️', label: 'Ajustes del día' },
       { to: '/kanban',        icon: '🗂️', label: 'Tareas' },
-      { to: '/checkouts',     icon: '🚪', label: 'Checkouts' },
+      // /checkouts ocultado del menú: legacy, duplicado por
+      // ReservationDetailPage (historial) + OperationalOverridesPage (walk-in)
+      // + BookingDetailSheet (early-checkout). Mantener route por 2-3 semanas
+      // por deep-links externos; eliminar después.
       { to: '/discrepancies', icon: '⚠️', label: 'Discrepancias', showDiscrepancyBadge: true },
     ],
   },

@@ -58,14 +58,13 @@ export class CoverageService {
     if (!staff) throw new NotFoundException('Staff not found in this property')
     if (!room) throw new NotFoundException('Room not found in this property')
 
-    // Si se está creando como PRIMARY, eliminar cualquier otro PRIMARY de esta room
-    // (un room solo puede tener un primary). Manejado idempotentemente.
+    // Si se está creando como PRIMARY, demover cualquier otro PRIMARY de esta room.
+    // Cuidado con UNIQUE(staffId, roomId, isPrimary): si el staff demovido YA tiene
+    // un backup row para esta misma room, hacer DELETE en vez de UPDATE para evitar
+    // colisión del constraint.
     const isPrimary = dto.isPrimary ?? true
     if (isPrimary) {
-      await this.prisma.staffCoverage.updateMany({
-        where: { roomId: dto.roomId, isPrimary: true, staffId: { not: dto.staffId } },
-        data: { isPrimary: false },
-      })
+      await this.demoteOtherPrimaries(dto.roomId, /*excludeStaffId*/ dto.staffId, /*excludeId*/ undefined)
     }
 
     try {
@@ -91,17 +90,59 @@ export class CoverageService {
     if (!existing) throw new NotFoundException('Coverage not found')
 
     // Si se está promoviendo a PRIMARY, demover cualquier otro PRIMARY de esa room
+    // (con manejo de UNIQUE collision — ver create() arriba).
     if (dto.isPrimary === true && !existing.isPrimary) {
-      await this.prisma.staffCoverage.updateMany({
-        where: { roomId: existing.roomId, isPrimary: true, id: { not: id } },
-        data: { isPrimary: false },
-      })
+      await this.demoteOtherPrimaries(existing.roomId, /*excludeStaffId*/ undefined, /*excludeId*/ id)
     }
 
     return this.prisma.staffCoverage.update({
       where: { id },
       data: dto,
     })
+  }
+
+  /**
+   * Baja a backup todos los PRIMARY rows de una habitación, exceptuando opcionalmente
+   * un staff o un coverage row específico.
+   *
+   * Edge case crítico: el constraint UNIQUE(staffId, roomId, isPrimary) hace que
+   * UPDATE primary→backup falle si el staff que se demota YA tiene un row backup
+   * para la misma habitación. En ese caso DELETE el primary (el backup pre-existente
+   * gana — preserva la intención del usuario sin violar el constraint).
+   */
+  private async demoteOtherPrimaries(
+    roomId: string,
+    excludeStaffId?: string,
+    excludeId?: string,
+  ): Promise<void> {
+    const others = await this.prisma.staffCoverage.findMany({
+      where: {
+        roomId,
+        isPrimary: true,
+        ...(excludeStaffId ? { staffId: { not: excludeStaffId } } : {}),
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+      select: { id: true, staffId: true },
+    })
+    if (others.length === 0) return
+
+    const staffIds = others.map((o) => o.staffId)
+    const conflictingBackups = await this.prisma.staffCoverage.findMany({
+      where: { roomId, isPrimary: false, staffId: { in: staffIds } },
+      select: { staffId: true },
+    })
+    const staffWithBackup = new Set(conflictingBackups.map((b) => b.staffId))
+
+    for (const row of others) {
+      if (staffWithBackup.has(row.staffId)) {
+        await this.prisma.staffCoverage.delete({ where: { id: row.id } })
+      } else {
+        await this.prisma.staffCoverage.update({
+          where: { id: row.id },
+          data: { isPrimary: false },
+        })
+      }
+    }
   }
 
   async remove(id: string) {
