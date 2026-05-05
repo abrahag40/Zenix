@@ -12,7 +12,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     private prisma: PrismaService,
   ) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      // Aceptar token via Authorization header O query param ?token=
+      // El query param es necesario para SSE (EventSource API no permite
+      // headers custom). Header tiene prioridad si ambos están presentes.
+      // Sin esto, /api/events?token=... devuelve 401 y el frontend redirige
+      // a /login, bloqueando todas las páginas que montan useSSE.
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+        ExtractJwt.fromUrlQueryParameter('token'),
+      ]),
       ignoreExpiration: false,
       secretOrKey: configService.get<string>('jwt.secret') ?? 'changeme',
     })
