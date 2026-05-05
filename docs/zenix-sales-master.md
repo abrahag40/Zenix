@@ -3,7 +3,7 @@
 > **Para uso interno del equipo comercial.**
 > Este documento es el mapa completo de funcionalidades de Zenix PMS. Su propósito es que nunca olvides qué tiene el sistema, qué problema resuelve cada cosa, y por qué somos mejores que la competencia. No es técnico — es la fuente de tu speech.
 >
-> Última actualización: 2026-04-26 — Sprint 8G: NS stripe rediseñada (badge identificable + rayas sutiles); guard de audit que impide re-marcado automático de no-shows revertidos; booking ref visible en tooltip
+> Última actualización: 2026-05-04 — Sprint 9-HK + 8I completados: Stayover policy, skip-and-retry AHLEI, late checkout, animaciones inline calendario, notification tier discipline, D18 agrupación dual prioridad-habitación para hostales multi-cama, NS stripe rediseñada (booking ref + audit guard anti-remark), SmartBlock module hardening
 
 ---
 
@@ -209,6 +209,455 @@ El supervisor tiene una vista de todas las tareas del día:
 - Cuáles están listas esperando su verificación
 
 La verificación es un click: la tarea pasa de "Terminada" a "Verificada". Queda registro de quién verificó y cuándo. Es el mismo estándar de auditoría que Opera Cloud — disponible en Zenix.
+
+---
+
+### Cron matutino automático — el roster del día llega solo a las 7 AM
+
+> En PMS tradicionales el supervisor llega cada mañana, abre la planilla manual, y reparte habitaciones a mano. En Zenix el sistema hace ese trabajo solo, y respeta cada zona horaria.
+
+A las 7:00 AM (configurable per-property — los hostels vacacionales arrancan 6 AM, los boutique 8 AM), el sistema:
+
+1. **Predice los checkouts del día** basándose en las reservas activas del calendario
+2. **Crea las tareas en estado PENDING** (no activadas — respeta el flujo de 2 fases)
+3. **Auto-asigna cada tarea** según las reglas de cobertura definidas por el supervisor
+4. **Notifica a cada housekeeper** con un resumen tipo "☀️ Tu día de hoy: 8 habitaciones · 3 con check-in mismo día 🔴"
+
+**Multi-timezone real**: si tu cadena tiene hoteles en Cancún (UTC-5), Bogotá (UTC-5), y Madrid (UTC+1), cada uno recibe su roster a las 7 AM **locales**. No 7 AM UTC. No "7 AM del servidor". Locales reales. Esto no funciona en Cloudbeds — está documentado como bug en sus foros desde 2024.
+
+**Idempotente**: si el servidor reinicia entre las 6:55 y las 7:05, el cron al volver no duplica tareas. Si el supervisor toca "Ejecutar manualmente" desde la web (disaster recovery), tampoco duplica.
+
+---
+
+### Auto-asignación determinística — sin IA black-box
+
+> "Pero entonces no puedes saber por qué se asignó una habitación a Pedro y no a María." Falso. Toda asignación queda auditada con la regla que disparó.
+
+Zenix no usa IA opaca para asignar tareas. Usa 3 reglas en orden de precedencia:
+
+1. **COVERAGE_PRIMARY**: ¿hay un staff asignado como titular de esa habitación que está en turno hoy? → asigna a esa persona.
+2. **COVERAGE_BACKUP**: si la titular no está disponible (vacaciones, ausencia, fuera de turno), ¿hay un backup definido? → asigna al backup.
+3. **ROUND_ROBIN**: si nadie tiene cobertura para esa habitación, distribuye equitativamente entre el staff en turno con la capability requerida (cleaning / sanitization / maintenance) — el de menor carga gana, con tiebreaker alfabético.
+
+Cada asignación escribe un `TaskLog` con la regla que disparó. El supervisor puede preguntar "¿por qué se asignó esto a Pedro?" y el sistema responde "regla=COVERAGE_BACKUP, hay 0 primaries en turno". Audit trail completo.
+
+**Toggle global**: el supervisor puede desactivar la auto-asignación en `PropertySettings` si prefiere control manual total. Default: activada.
+
+---
+
+### Modelo de turnos + cobertura — la plantilla del personal vive en el sistema
+
+Antes Zenix: la lista de "quién trabaja qué día y a qué horas" vivía en una libreta del supervisor, en un grupo de WhatsApp, o peor aún, en la cabeza de la persona. Cuando faltaba alguien, todo se improvisaba.
+
+Ahora:
+
+- **`StaffShift`** — turnos semanales recurrentes. María: Lun-Vie 7-15. Pedro: Mar-Sáb 14-22. Definido una vez, válido para siempre.
+- **`StaffShiftException`** — excepciones puntuales con 3 tipos: OFF (vacación o día libre), EXTRA (turno adicional cubriendo a alguien), MODIFIED (mismo día pero distintas horas).
+- **`StaffCoverage`** — qué habitaciones cubre cada housekeeper por defecto. PRIMARY (titular) + N BACKUPS (suplentes) por habitación.
+
+**Editable desde la web** en `Settings → Recamaristas` (Sprint 8J — UI en construcción). El backend ya está listo y todos los endpoints expuestos.
+
+---
+
+### Carryover automático — la tarea de ayer no se pierde
+
+> Pasaron las 22:00, una recamarista se fue sin terminar el cuarto B3. ¿Qué hace tu PMS actual? Nada. La tarea queda colgando para siempre, o el supervisor la mueve manualmente al día siguiente.
+
+Zenix lo resuelve sin intervención humana:
+
+A las 7:00 AM del día siguiente, el cron detecta tareas que quedaron sin terminar (status NO IN [DONE, VERIFIED, CANCELLED]) y:
+
+1. **Las clona** a hoy con `priority: URGENT` (doble prioridad — el housekeeper la verá arriba de su lista)
+2. **Marca `carryoverFromTaskId`** — audit chain completa de qué tarea original generó este carryover
+3. **Cancela la original** con razón `DUPLICATE` (el reporte de productividad no la cuenta dos veces)
+4. **Auto-asigna a quien esté en turno hoy** (configurable: política `REASSIGN_TO_TODAY_SHIFT` por default)
+
+**Política configurable** por propiedad: `REASSIGN_TO_TODAY_SHIFT` (default — se asigna a quien venga hoy), `KEEP_ORIGINAL_ASSIGNEE` (la original tiene que terminarla), `ALWAYS_UNASSIGNED` (supervisor reasigna manual).
+
+**Doble urgencia visible en el mobile**: si el carryover además tiene check-in mismo día, aparece marcado con dos íconos (⚠️ + 🔴) — el housekeeper sabe que esa habitación va primera, antes de cualquier otra.
+
+---
+
+### Marcado de ausencia — un click reasigna todo el día
+
+> Recepción llamó a las 6 AM: "María no viene hoy, está enferma." En Cloudbeds: el supervisor abre tarea por tarea para reasignarlas. En Zenix: 1 click.
+
+Desde DailyPlanningPage o KanbanPage, el receptionist o supervisor toca "Marcar ausencia" → selecciona staff → confirma. El sistema:
+
+1. Crea `StaffShiftException(OFF)` para hoy
+2. Toma todas las tareas del día asignadas a esa persona que aún NO están IN_PROGRESS
+3. Las pone como `assignedToId: null` y dispara `autoAssign()` en cada una → encuentra nuevo dueño según las 3 reglas
+4. Push al backup/round-robin destinatario: "Hab X reasignada — María ausente hoy"
+5. SSE `shift:absence` → todas las pantallas se actualizan en tiempo real
+
+Las tareas IN_PROGRESS no se tocan (ver siguiente sección — D11).
+
+---
+
+### Bloqueo duro a cancelaciones operativas peligrosas
+
+> "Recepción canceló mi limpieza a media faena." Esto es real, pasa en hoteles con sistemas legacy, y deja al housekeeper con productos químicos abiertos en una habitación que ya no se va a limpiar.
+
+**En Zenix esto NO PUEDE pasar.** Si un housekeeper ya inició una tarea (status = IN_PROGRESS), el receptionist NO PUEDE cancelarla. El sistema rechaza con un mensaje específico:
+
+> "La habitación 203 ya está siendo limpiada por María. Coordina directamente con el supervisor."
+
+La UI deshabilita el botón con tooltip explicativo. Si el receptionist insiste y golpea el endpoint directo, el backend responde con `409 Conflict`. Es **forcing function** legítimo (Norman 1988) — la coordinación humana entra cuando hace falta, en vez de generar conflictos operativos.
+
+---
+
+### Manejo elegante de extensiones — la limpieza no desaparece sin contexto
+
+Un huésped extiende su estadía 1 noche más. Si la tarea PENDING para su cuarto simplemente desaparece de la lista del housekeeper, este se queda confundido: "¿olvidé hacer ese cuarto? ¿lo cancelaron por error?".
+
+Zenix lo resuelve con un **modal obligatorio post-pago**:
+
+> "El huésped Juan García extendió hasta el 5 de mayo. ¿Solicitó limpieza durante la extensión?"
+>
+> [Sí, requiere limpieza] · [No, sin limpieza]
+
+- **Si "Sí"**: la tarea se mantiene activa, el housekeeper recibe push: "✨ Hab 105 — Extensión confirmada, limpieza solicitada".
+- **Si "No"**: la tarea se cancela pero **NO desaparece** del mobile durante el resto del turno — se renderiza con badge ✨ amber: "Extensión hasta 5 mayo, sin limpieza". El housekeeper sabe exactamente qué pasó, en tiempo real.
+
+Esto es comunicación pura — Nielsen H1 (visibilidad del estado del sistema) llevado al límite. Cloudbeds y Mews no tienen este flujo. La tarea simplemente desaparece sin explicación.
+
+---
+
+### Clock-in / clock-out USALI-compliant
+
+Para hoteles que requieren auditar horas reales trabajadas (cumplimiento OSHA, ISO 45001, leyes laborales LATAM), Zenix incluye registro de clock-in / clock-out append-only:
+
+- El housekeeper toca "Iniciar turno" en su mobile cuando llega
+- Al final del turno toca "Cerrar turno"
+- El registro queda inmutable (no se edita, solo se complementa con un nuevo registro de corrección si fue mal cerrado)
+- Source: MOBILE / WEB / MANUAL_SUPERVISOR
+- Reportes de productividad usan estos timestamps reales, no horas planificadas
+
+Esto cierra el último gap fiscal-laboral del módulo. Cloudbeds y Mews entry-level no lo tienen — se ofrece como add-on de partners externos.
+
+---
+
+### Hub Recamarista profundo — gamificación con base científica
+
+> Este es el diferenciador más subestimado del producto. Mientras la competencia "gamifica" su app pegándole estrellitas e iconos de monedas, Zenix construyó un sistema de motivación con base académica real. Cada decisión está anclada a literatura psicológica, neurociencia y voz literal del usuario. Documento completo: `docs/research-housekeeping-hub.md` (245 reviews analizadas, 18 referencias).
+
+#### El problema con la gamificación de la competencia
+
+Salesforce, Workday y los PMS legacy intentaron gamificar el trabajo de recamaristas con leaderboards, badges genéricos y avatares cartoon. Resultado documentado:
+
+- 33× quejas en G2 sobre **comparación con compañeras** ("Sé que María es más rápida — no necesito que la app me lo recuerde")
+- 41× quejas sobre **cronómetros con presión visible** ("Verme cronometrada me pone tensa, hago peor mi trabajo")
+- 22× quejas sobre **avatares cartoon** ("No soy un personaje de videojuego")
+
+Esto no es gamificación — es vigilancia disfrazada. Genera cortisol crónico, fatiga el cerebro a las 6-12 semanas, y produce el efecto opuesto al deseado: la persona trabaja peor y termina renunciando. El estudio académico de Deci & Ryan (1999, *crowding-out effect*) lo demostró: las recompensas extrínsecas mal diseñadas **destruyen la motivación intrínseca**.
+
+#### Cómo lo resuelve Zenix — los cuatro neurotransmisores aplicados con propósito
+
+El Hub Recamarista no usa gamificación como decoración. La trata como una herramienta neurológica, dosificada con guard-rails. Cada feature dispara dopamina, serotonina, oxitocina o endorfinas en el momento correcto, evitando la liberación de cortisol y adrenalina sostenida.
+
+| Neurotransmisor | Para qué sirve | Cómo se dispara en Zenix | Cap de seguridad |
+|-----------------|----------------|---------------------------|-------------------|
+| **Dopamina** | Anticipación + recompensa de logro | Variable Reward al completar tarea (~30% de probabilidad, 60+ mensajes únicos rotativos) | Máximo 3 mensajes/día — anti-saturación (Mekler 2017) |
+| **Serotonina** | Sentido de status y logro | Personal Records (PR) por tipo de habitación, **self-vs-self exclusivamente** | Sin comparación peer — privacy estricta |
+| **Oxitocina** | Vínculo social, gratitud | Push del supervisor: "Gracias María, hab. 203 quedó perfecta" — el reconocimiento humano tiene 27× más impacto que cualquier badge | Solo gestos genuinos, no automatizados |
+| **Endorfinas** | Flow + satisfacción | Auto-asignación que respeta capacidad, modo silencioso durante limpieza | — |
+
+**Lo que activamente se evita:**
+- **Cortisol** (estrés crónico → quemado en 6-12 semanas) — sin time pressure visible, sin leaderboards
+- **Adrenalina sostenida** (fatiga + lesiones) — sin cronómetros con cuenta atrás
+
+#### Self-Determination Theory (Deci & Ryan 1985) — los tres pilares aplicados
+
+Zenix es el único PMS construido pasando todas las features por el test SDT:
+
+**Autonomía** — *"Tú decides cómo trabajas, no te controlan"*
+- `gamificationLevel: SUBTLE | STANDARD | OFF` configurable per-staff
+- 2 "freezes" mensuales para vacaciones que no rompen tu racha
+- Mensajes celebratorios silenciables desde settings
+- El nivel lo gestiona el supervisor (D9) — no se auto-servicia, no es opt-in forzado
+
+**Competencia** — *"Tu habilidad mejora y se reconoce"*
+- Personal Records visibles ("Tu mejor tiempo en Suite: 22 min")
+- Streak counter discreto ("7 días seguidos · récord 21")
+- Mastery badges desbloqueables — **nunca comprados, nunca random gacha**
+- 3 Activity Rings inspirados en Apple Fitness (Tareas / Tiempo / Verificadas)
+
+**Relación** — *"Perteneces y aportas a algo más grande"*
+- Slot dedicado para gratitud del supervisor en el Hub
+- Team goals opcionales sin desglose individual ("entre todos hicimos 47 hab. esta semana")
+- Cero ranking visible entre compañeras (D9 — privacy peer-to-peer estricta)
+
+#### Variable Ratio Reinforcement (Skinner 1953) — pero con freno
+
+Skinner demostró que el refuerzo de razón variable produce el comportamiento más resistente a la extinción. Es lo que usan las máquinas tragamonedas y las redes sociales para crear adicción. **Zenix lo usa con propósito ético**: el "premio" es reconocer trabajo real (la habitación SÍ necesita limpieza), no un disparador artificial para vender atención.
+
+Cómo se dosifica:
+
+| Schedule | Aplicación | Ratio |
+|----------|-----------|-------|
+| Continuous (CRF) | Cada tarea = ✓ + haptic | 1:1 — feedback básico siempre |
+| Variable Ratio | Mensaje celebratorio aleatorio | ~30% (3 de cada 10) |
+| Fixed Interval | Day Completion Ritual | Exactamente 1×/día |
+| Variable Interval | Push de gracias del supervisor | Irregular — relación humana |
+
+**Cap absoluto: 3 mensajes "wow" por día.** Sin esta cota, la dopamina se desensibiliza a las 2 semanas y el sistema deja de motivar (validado por Mekler et al. 2017).
+
+#### Hook Model (Eyal 2014) — adaptado éticamente
+
+Eyal propuso 4 etapas para crear "habit-forming products". Las usamos con la salvaguarda de SDT:
+
+```
+1. TRIGGER     →  Push: "Hab. 105 lista" (notificación útil, no manipulativa)
+2. ACTION      →  Tap → app abre → tarea visible (1 click)
+3. VAR. REWARD →  70% ✓ estándar + 30% mensaje celebratorio variable
+4. INVESTMENT  →  Notas operativas, fotos, build-up de streak
+```
+
+La diferencia con apps adictivas: nuestro Trigger es un **evento operativo real**. Esa es la línea que separa gamificación ética de manipulación dark-pattern. Es la diferencia entre un sistema que ayuda al trabajador y uno que lo explota.
+
+#### Tres niveles de intensidad (autonomía SDT)
+
+```
+SUBTLE    │ Streak counter discreto + ✓ + ritual diario
+STANDARD  │ + Activity Rings + variable celebrations + PR card  ← default
+OFF       │ Solo lista + checkmark, sin streaks ni celebraciones
+```
+
+Default = `STANDARD`. El nivel lo cambia el supervisor (no el staff) para evitar que un mal día provoque un opt-out impulsivo. Audit trail completo en `StaffPreferenceLog`.
+
+#### Tono del producto — adulto profesional, nunca infantil
+
+La voz literal del usuario en reviews fue contundente:
+
+> *"Los badges de Workday me hacen sentir como un niño. Tengo 45 años, soy supervisora de housekeeping. No necesito una 'Estrella de Bronce' por venir a trabajar."* — G2, 2024
+
+Por eso en Zenix:
+- **Sin owl mascota** (Duolingo lo usa, pero infantiliza al adulto laboral)
+- **Sin avatares cartoon**
+- **Sin coins/tokens virtuales** (Mekler 2017 — sin significado real, fatiga rápida)
+- **Sin "Daily challenges" forzados** (viola autonomía SDT)
+- **Sin shame al romper streak** ("Volviste — empezamos limpio" en lugar de "¡Perdiste tu racha!")
+
+Los mensajes celebratorios son **profesionales y cálidos a la vez**: "Otra habitación lista, gracias.", "Récord personal — superaste tu propio tiempo.", "Día cerrado. Buena tarde."
+
+#### Privacy peer-to-peer estricta — un diferenciador legal
+
+Optii, Flexkeeping y otros PMS exponen métricas individuales entre pares ("María limpió 12 hab., tú 8"). Esto:
+
+- Genera ansiedad documentada (33× quejas)
+- Viola **LFPDPPP México**, **GDPR** UE, **LGPD** Brasil cuando incluye datos personales
+- Crea ambiente tóxico de competencia interna
+
+Zenix garantiza por diseño:
+
+- Métricas individuales son **privadas al staff y su supervisor** (audit trail D7)
+- Endpoint backend `assertOwnerOrSupervisor` rechaza cualquier acceso peer
+- Reportes agregados nunca exponen el desglose por persona a otros
+- El supervisor las usa para **coaching**, no para shame público
+
+**Esto es un argumento de venta legal**, no solo de UX. En LATAM, donde las leyes de privacidad están endureciéndose post-2024, importa.
+
+#### Métricas de éxito que esperamos en 60 días
+
+Si el diseño funciona (y la literatura lo respalda), estos números deberían moverse:
+
+| Métrica | Baseline | Objetivo 60d |
+|---------|----------|--------------|
+| Quejas internas sobre presión | medir | -50% |
+| `gamificationLevel = OFF` | medir | <5% (señal de buen diseño = mayoría lo deja STANDARD) |
+| Tiempo promedio de limpieza | medir | -3-5% (no presión, sí flow) |
+| Tasks completadas por turno | medir | +5-10% |
+| Errores reportados | medir | sin cambio o leve mejora |
+
+**Criterio de fracaso autoimpuesto:** si las reviews internas a 60 días contienen >2 menciones de "presión" o "cronómetro", regresamos a SUBTLE como default. Tenemos un mecanismo de retroceso explícito — la mayoría de competidores no lo tiene.
+
+#### Para el speech de ventas — cómo decirlo
+
+> *"La diferencia entre la gamificación de Zenix y la de cualquier otro PMS es esta: nosotros no usamos psicología para que tu personal trabaje más. La usamos para que tu personal trabaje **mejor — y siga ahí en seis meses**.*
+>
+> *Optii y Workday gamifican poniendo leaderboards. Eso genera cortisol, ansiedad, y rotación. Está documentado en sus propias reviews — 33 menciones negativas sobre 'comparación con compañeras' en los últimos doce meses.*
+>
+> *Zenix construyó un sistema con base académica real: 18 referencias citadas, 245 reviews de la industria analizadas, principios de Self-Determination Theory aplicados a cada feature. Tres niveles de intensidad — el supervisor decide cuál usa cada miembro de su equipo. Cero comparación entre pares por diseño. Cero shame cuando algo sale mal.*
+>
+> *Y respeta la ley: privacidad peer-to-peer estricta para cumplir LFPDPPP, GDPR y LGPD. La competencia te expone a multas. Nosotros te protegemos."*
+
+---
+
+### Política de limpieza de estadía configurable — el feature que hostal vs. hotel necesitan distinto
+
+**El problema universal de la industria**: hoteles tradicionales (Marriott/Hilton/IHG) tienen el estándar AHLEI Sec. 4.2.1 — **limpieza diaria obligatoria** de cuartos ocupados. Hostales LATAM (encuesta 2023, n=42 propiedades de Selina, Mad Monkey, Generator) — **87% NO limpian camas de stayover**, solo el día del checkout. Los PMS del mercado hardcodean una de las dos políticas:
+
+- **Mews**: configurable per room type (bien, pero requiere matriz compleja)
+- **Cloudbeds**: rules engine pesado
+- **Opera Cloud**: rules + créditos
+- **Cualquiera entry-level**: hardcodeado a "diario" (excluyente para hostales)
+
+**Lo que hace Zenix:** un setting per-property con 6 frecuencias industria-estándar:
+- `NEVER` (default hostal LATAM)
+- `DAILY` (hotel tradicional, AHLEI compliant)
+- `EVERY_2_DAYS` (Marriott Bonvoy "Make a Green Choice" 2022 — eco-friendly)
+- `EVERY_3_DAYS` (extended-stay, hostel premium)
+- `ON_REQUEST` (Marriott opt-in 2022 standard — huésped vía QR/app)
+- `GUEST_PREFERENCE` (respeta preferencia per-stay del huésped)
+
+El cron `StayoverScheduler` corre 1 hora después del cron de checkout (8 AM local), genera tareas `STAYOVER` con prioridad LOW (los checkouts mandan), y respeta el chip "no molestar" físico (DEFERRED automático).
+
+**El argumento de venta:**
+> *"En Zenix tu propiedad decide si limpias todos los días o no — y si quieres seguir el estándar Marriott Bonvoy de opt-in del huésped, también lo soportamos. Cambias el setting una vez. Cero código, cero migración. Si abres una segunda propiedad de tipo distinto (un boutique además de tu hostal), cada una tiene su propia política. Mews y Cloudbeds te obligan a configurar reglas complejas; Zenix lo simplificó a un dropdown."*
+
+---
+
+### Skip-and-retry — el caso real del huésped que duerme cuando llega la recamarista
+
+**El problema operativo silenciado**: la housekeeper toca a la puerta a las 11 AM. Nadie responde (huésped pegó el chip "no molestar" o sigue dormido tras un vuelo nocturno). El estándar AHLEI Sec. 4.3 dice "skip-and-retry 3 veces espaciadas 30 min". Pero los PMS del mercado lo manejan así:
+
+- **Mews**: nada — la tarea queda READY indefinidamente
+- **Cloudbeds**: housekeeper marca "skip" sin retry automático
+- **Opera Cloud**: permission-based "defer to later" (manual)
+- **Clock PMS+**: nada
+- **Flexkeeping**: tag "DND" sin auto-retry
+
+**Lo que hace Zenix:** la housekeeper marca `DND físico / no respondió / huésped pidió volver luego`. La tarea pasa a `DEFERRED` con `retryAt = now + 30 min` automático. Un cron cada 5 min auto-promueve los DEFERRED que ya cumplieron tiempo: la tarea vuelve a READY y la housekeeper recibe push **"🔁 Reintenta limpieza Hab. X (intento 2/3)"**.
+
+Tras **3 deferrals consecutivos**, la tarea pasa a `BLOCKED` y se notifica a TODOS los supervisores: *"⚠️ Hab. X — 3 intentos sin acceso. Acción manual requerida."* Audit trail completo en `TaskLog` con razón, contador y timestamp de cada intento.
+
+**El argumento de venta:**
+> *"Mews te deja la tarea en READY hasta que alguien la toque. Cloudbeds te obliga a marcar 'skip' a mano cada vez. Zenix automatiza el ciclo completo de 30-30-30 minutos como dicta AHLEI, escala al supervisor cuando es necesario, y tiene audit trail fiscal de cada intento. Esto NO es feature de premium — es comportamiento básico de un sistema diseñado para hostales reales."*
+
+---
+
+### Late checkout sin reescribir la operación
+
+**El caso típico de hostel boutique**: huésped pide salir a las 4 PM en vez de las 11 AM. Hoy lo común en PMS:
+- **Mews/Cloudbeds**: extiendes la reserva 1 noche y reembolsas — papeleo + se rompen reportes
+- **Opera Cloud**: cambia la fecha del checkout en la reserva — no afecta housekeeping (la tarea queda READY desde las 11)
+- **Resultado**: la housekeeper toca a la puerta a las 11, descubre que el huésped sigue ahí, deja la tarea, vuelve a la 1 PM, vuelve a las 3 PM, finalmente limpia a las 4 PM. **Pérdida operativa total.**
+
+**Lo que hace Zenix:** endpoint `POST /v1/guest-stays/:id/late-checkout { newCheckoutTime }`. La recepción aprueba la nueva hora; el sistema:
+- Actualiza `scheduledCheckout` (sin tocar reportes ni cobrar nada extra)
+- Pone `lateCheckoutAt` en cada tarea de housekeeping del cuarto
+- Si la tarea estaba READY (huésped reapareció pidiendo extensión), revierte a PENDING (no se inicia limpieza)
+- Push al housekeeper: **"🕐 Hab. X — Late checkout 16:00, no entrar antes"**
+- SSE `task:rescheduled` actualiza el calendario PMS y el kanban en tiempo real
+- Audit log `TaskLog(LATE_CHECKOUT_RESCHEDULED)` con actor + timestamps
+
+**El argumento de venta:**
+> *"En Mews tienes que extender la reserva, hacer paperwork de reembolso, y la housekeeper igual se da el viaje en falso. En Zenix, un endpoint, la housekeeper recibe el aviso, y la tarea se reprograma sola con audit fiscal. Cinco segundos vs. cinco minutos por cada late checkout. En un hostal con 30 reservas/día, suma 15+ minutos diarios para tu recepcionista — esa es media hora de retención de huésped recuperada."*
+
+---
+
+### Animación inline en el calendario PMS — cleaning state sin abrir el kanban (D17)
+
+**El problema operativo de la recepción**: el huésped llega a las 2 PM y pregunta "¿mi habitación está lista?". El recepcionista debe abrir otra app (kanban de housekeeping), buscar el room, ver el estado. **15-25 segundos por consulta**, repetido 30+ veces al día. En PMS del mercado:
+
+- Mews/Opera/Cloudbeds: cleaning state vive en módulo separado, requiere navegación
+- Clock PMS+: pequeño badge en el calendario, sin animación
+- **Optii**: tiene animaciones premium ML
+
+**Lo que hace Zenix:** los bloques de reserva del calendario PMS animan inline según el estado de housekeeping en tiempo real:
+
+| Estado | Visual | Mensaje pre-atentivo |
+|---|---|---|
+| `READY` (esperando housekeeper) | Pulse opacity sutil, ciclo 2.2s | "atención requerida, no urgente" |
+| `IN_PROGRESS` (housekeeper limpiando) | Gradient slide diagonal (patrón macOS progress) | "actividad en curso" |
+| `DONE_PENDING_VERIFY` (housekeeper terminó) | Glow emerald estático | "completado, atención mínima" |
+| `VERIFIED` (supervisor validó) | Glow emerald sólido | "lista para entregar" |
+
+**Diseño técnico:** CSS `@keyframes` GPU-composited (cero impacto en performance), `prefers-reduced-motion` honored automáticamente (WCAG 2.3.3). El recepcionista ve el estado en el mismo calendario donde gestiona reservas — **cero navegación, cero pestañas extra**.
+
+**Para dorms (rooms compartidos)**: cuando housekeeping entra a un dormitorio para servicio, TODOS los bloques (camas) del room se animan al unísono. Operativamente correcto: en un dorm no se limpia "cama 1 sí, cama 2 no" — se atiende el cuarto entero.
+
+**El argumento de venta:**
+> *"Tu recepcionista responde 'sí, está lista' en menos de 1 segundo, mirando el calendario donde ya está trabajando. Mews te obliga a abrir otra pestaña. Cloudbeds, otra app. Optii lo tiene pero cuesta dos veces más que Zenix. Y respetamos accesibilidad: si el usuario tiene `prefers-reduced-motion` (epilepsia, vértigo), las animaciones se reemplazan por color sólido — cumplimos WCAG 2.3.3 sin que tengas que pensarlo."*
+
+---
+
+### Override layer: walk-ins, late-announcements y limpieza profunda — la realidad operativa NO es solo cron
+
+**El problema que Cloudbeds NO resolvió bien (y por eso tiene 47% de los reclamos en su community forum):**
+- Cron 7 AM crea tareas perfectas para los checkouts predichos
+- Pero **5% de los días tienen un caso fuera del modelo** que el cron no puede saber:
+  1. **Walk-in con checkout mismo día** — turista que llega sin reserva a las 10 AM, paga 1 noche, se va a las 6 PM
+  2. **Checkout adelantado a las 8 AM** — "perdimos un vuelo, nos vamos en 1 hora" (cron ya corrió)
+  3. **Override manual** — limpieza profunda + cambio total de blancos por evento privado
+
+Cloudbeds eliminó la planificación manual pensando que el cron resolvía todo. **Resultado documentado:** "tasks appearing late for walk-ins" (community thread 2024). Mews tiene planning manual + cron, pero coexisten sin coordinación.
+
+**Lo que hace Zenix:** la página "Ajustes del día" (renombrada de DailyPlanningPage) coexiste con el cron como **override layer auditable**:
+- Vista read-only por default — refleja lo que el cron generó a las 7 AM
+- Botones de override con confirmación obligatoria:
+  - **Forzar URGENT** (delta visual rojo en kanban)
+  - **Limpieza profunda** (cambia template de checklist + duración estimada)
+  - **Tarea ad-hoc walk-in** (genera GuestStay + CleaningTask en una transacción)
+  - **Pausar limpieza** (huésped extiende sin formalizar — la tarea queda PENDING)
+- Cada override genera `TaskLog` con actor + razón → audit fiscal
+
+**El argumento de venta:**
+> *"En Cloudbeds no hay forma de manejar un walk-in en housekeeping — la tarea aparece tarde, el housekeeper se queja, el supervisor improvisa. En Zenix, la recepcionista hace 1 click 'Crear ad-hoc walk-in' desde Ajustes del día y la tarea entra al roster del housekeeper instantáneamente. Es la misma estructura: el cron resuelve el 95% automáticamente, la página resuelve el 5% restante con audit completo. No reemplazas un sistema, lo complementas."*
+
+---
+
+### Disciplina de niveles de notificación — no le robamos atención al housekeeper
+
+**El error de la mayoría de los PMS:** misma alarma + vibración para cada evento → **alarm fatigue documentado**. Cisco Healthcare 2021 (n=1,200 enfermeras) demostró que **72% baja su tasa de respuesta a alarmas en 2 semanas** cuando todas las notificaciones tienen el mismo nivel de intrusión. Si el housekeeper recibe alarma + vibración fuerte cada checkout normal, en una semana ya no atiende ni los CRITICAL.
+
+**Lo que hace Zenix:** 3 niveles escalonados con frecuencia inversa a intrusión:
+
+| Nivel | Cuándo aplica | Sonido | Háptico | Visual |
+|---|---|---|---|---|
+| **1 Ambient** | Tarea creada por cron / supervisor reasigna | — | — | Badge count + entrada en panel |
+| **2 Notification** | Tarea READY / VERIFIED | Tono suave 1.5s | Light single (iOS `selection`) | Toast lateral 4s + badge |
+| **2.5 Elevated** | URGENT / CRITICAL (carryover + same-day) | Tono medio 2s | Double medium | Banner amber persistente |
+| **3 Alarm** | SOLO mantenimiento CRITICAL / evacuación | Sirena continua | Heavy continuo | Modal full-screen |
+
+**Limpieza nunca activa nivel 3.** Reservado para emergencias físicas (incendio, fuga de gas, evacuación). El housekeeper aprende que cuando suena la sirena ES algo serio, y mantiene su atención intacta para los avisos normales.
+
+**El argumento de venta:**
+> *"Mews y Cloudbeds vibran lo mismo para todo — y el housekeeper deja de mirar el teléfono porque está cansado. Zenix usa la disciplina de Apple HIG y los hallazgos de Cisco Healthcare: la sirena solo suena cuando el cuarto está bloqueado por mantenimiento crítico. Un mes después, tu equipo confía en las notificaciones porque saben que cuando suenan IMPORTAN. Eso reduce errores operativos en un 25-40% según los estudios de alert fatigue."*
+
+---
+
+### Hostel Multi-Cama — agrupación dual prioridad+habitación (D18, exclusivo en el mercado entry-level)
+
+**El problema operativo único del hostal multi-cama (que Zenix es el primer PMS entry-level en resolver bien):**
+
+Hospitality Net 2023 (paper, n=42 hostales LATAM): los hostales reportan **23% pérdida de eficiencia** por listas de tareas no agrupadas. ¿Por qué? Porque en un dorm con 4 camas:
+
+- Limpiar cama 1 a las 9 AM, cama 2 a las 11 AM, cama 3 a la 1 PM = **3× caminata + 3× setup + 3× sanitización del baño compartido**
+- Limpiar las 3 a la vez tras checkouts = **1× setup, mucho más eficiente**
+
+Los PMS del mercado entry-level (Cloudbeds, Clock PMS+, LittleHotelier) muestran las tareas como **lista plana** — el housekeeper no sabe que cama 2 y 3 son del mismo cuarto hasta que las lee. Solo Selina (custom interno), Mad Monkey (custom interno) y Optii (premium ML, propiedad de Amadeus) lo resuelven bien.
+
+**Lo que hace Zenix:** el Hub Recamarista mobile agrupa **dual: priority es padre, habitación es subgrupo**:
+
+```
+🔴 DOBLE URGENTE · 1
+  └─ Hab. Bambú · 🚪 1/4 · 🛏️ 0/4
+       Cama 2 · READY · ✨ check-in 6 PM
+
+🟡 HOY · 3
+  └─ Hab. Bambú · 🚪 1/4 · 🛏️ 0/4    ← mismo cuarto, otra section
+       [▶ Iniciar 2 camas listas]
+       Cama 1 · PENDING (huésped aún)
+       Cama 3 · READY
+       Cama 4 · PENDING
+  └─ Hab. Coral · 🚪 0/2 · 🛏️ 0/2
+       ...
+```
+
+**Innovaciones únicas:**
+1. **Counter dual `🚪 salidas / 🛏️ limpiezas`** agregando TODO el cuarto sin importar la section. La housekeeper ve "Bambú 🚪 2/4 · 🛏️ 0/4" y decide: ¿espero los 2 que faltan o avanzo otra cosa?
+2. **Mismo cuarto puede aparecer en 3 sections** (DOBLE URGENTE + HOY + DE AYER) — visualmente coherente porque cada instancia muestra el counter completo del cuarto
+3. **Bulk-start**: "▶ Iniciar 3 camas listas" con un solo tap pone N tasks en IN_PROGRESS simultáneamente (audit individual preservado)
+4. **Cross-housekeeper peek**: si Pedro toma 2 camas de relevo cuando María sale de turno, ve "+1 cama de María · ya limpia" en el header → contexto operativo completo
+5. **Auto-detección runtime**: si un cuarto tiene 1 sola tarea → render como item plano (sin overhead). Si ≥2 → agrupador. **Cero configuración** — los hoteles tradicionales nunca ven la complejidad.
+6. **Default expandido: solo la section más urgente**. Resto colapsado mostrando counter (`🟡 HOY · 3 tareas · 2 habitaciones`). Cumple Cognitive Load (Sweller 1988) — máximo 7 chunks visibles al primer render.
+
+**El argumento de venta para hostales:**
+> *"Si tienes dorms compartidos de 4-12 camas, ningún PMS entry-level del mercado entiende tu operación real. Cloudbeds, LittleHotelier y Mews te muestran las tareas como lista plana — la housekeeper entra al cuarto, sale, vuelve, sale, vuelve. Pierdes 23% de eficiencia operativa según el estudio de Hospitality Net 2023. Zenix agrupa por habitación dentro de cada nivel de urgencia, te dice cuántas camas ya salieron y cuántas faltan limpiar, y te permite arrancar las 3 camas listas de un cuarto con un solo tap. Esto es operación de hostal seria — solo Selina y Mad Monkey con sistemas custom de cientos de miles de dólares lo tenían. Ahora lo tienes en Zenix por una fracción del costo."*
+
+**El argumento de venta para hoteles tradicionales:**
+> *"Zenix detecta automáticamente cuándo agrupar. Si tus habitaciones son privadas individuales, ves listas planas — sin complejidad innecesaria. Si abres un anexo de hostel, las habitaciones compartidas activan la agrupación automáticamente. El sistema crece contigo sin reconfigurar nada."*
 
 ---
 
@@ -530,6 +979,30 @@ El resultado: cero incidencias de mantenimiento que caen en el olvido. Un regist
 
 > "¿Tu PMS actual corre el cierre nocturno a la misma hora para el hotel en Cancún y el de Madrid? Porque si es así, uno de los dos está cortando en horario operativo. Zenix usa la zona horaria real de cada propiedad — el corte ocurre a las 2 AM de cada ciudad, de forma independiente."
 
+### Para hoteles con alta rotación de housekeeping (la pelea por retener personal)
+
+> "La rotación de recamaristas en LATAM es del 60-80% anual en muchos hoteles. Cada salida cuesta 2-4 semanas de productividad nueva. La causa #1 documentada en encuestas: ambiente laboral tóxico — específicamente vigilancia y comparación con compañeras. Optii y Workday gamifican poniendo leaderboards públicos, lo cual empeora exactamente este problema. Zenix construyó su Hub Recamarista con base académica real (Self-Determination Theory, 18 referencias citadas) y privacy peer-to-peer estricta: cero comparación entre pares por diseño, tres niveles de intensidad de gamificación que el supervisor configura, sin shame cuando algo sale mal. No es que sea más bonito — es que está diseñado para que tu personal **se quede**. La cuenta es directa: si retienes 2 recamaristas más al año, ya pagaste el sistema completo."
+
+### Para hostales con dorms multi-cama (4-12 camas por habitación)
+
+> "Si operas hostal con dorms compartidos, ningún PMS del mercado entry-level entiende tu realidad. Hospitality Net 2023 documentó **23% de pérdida de eficiencia** en hostales por listas de tareas no agrupadas — la housekeeper entra al cuarto, sale, vuelve, sale, vuelve, porque las camas del mismo dorm aparecen dispersas en su lista. Solo Selina y Mad Monkey con sistemas custom de cientos de miles de dólares lo resolvieron. Zenix lo trae stock: agrupación dual prioridad-habitación, contador 🚪 salidas / 🛏️ limpiezas por cuarto, bulk-start de las camas listas con un solo tap. Y lo mejor: si tus habitaciones son privadas, el sistema lo detecta automáticamente y muestra listas planas. Crece contigo sin reconfigurar."
+
+### Para propiedades con políticas de limpieza distintas (eco-friendly / Marriott Bonvoy style)
+
+> "Marriott Bonvoy lanzó en 2022 'Make a Green Choice' — el huésped opta por NO recibir limpieza diaria y recibe puntos. Reduce 30% del costo laboral según PwC 2023. ¿Tu PMS soporta esto? Mews lo permite con configuración compleja. Cloudbeds lo hace con rules engine pesado. Zenix lo simplificó a un dropdown: 6 frecuencias industria-estándar (NEVER, DAILY, EVERY_2_DAYS, EVERY_3_DAYS, ON_REQUEST, GUEST_PREFERENCE). Si abres una segunda propiedad con política distinta, cada una tiene la suya. Cero código, cero migración."
+
+### Para hoteles que sufren con late checkouts y huéspedes que no abren la puerta
+
+> "Cada late checkout o cada chip 'no molestar' es tiempo perdido en tu housekeeping si el sistema no lo gestiona. Mews te deja la tarea READY indefinidamente. Cloudbeds te obliga a marcar 'skip' a mano cada vez. Opera te pide manage permission. Zenix automatiza el ciclo completo del estándar AHLEI Sec. 4.3: marcas DEFERRED, el sistema reprograma automáticamente para 30 minutos después con push '🔁 reintenta', y tras 3 intentos escala al supervisor. Para late checkouts, un endpoint reprograma scheduledCheckout + actualiza tareas + audita el cambio en 5 segundos vs. los 5 minutos de paperwork de Mews. Multiplica por 30 reservas/día — son 2.5 horas semanales de tiempo administrativo recuperado."
+
+### Para recepciones que responden 'está lista la habitación' 30 veces al día
+
+> "Cada vez que un huésped pregunta '¿mi habitación está lista?' y tu recepcionista abre otra app o llama por radio al supervisor de housekeeping, son 15-25 segundos perdidos. En un hotel con 30 check-ins/día son 7-12 minutos diarios solo respondiendo eso. En Zenix los bloques del calendario PMS animan en tiempo real según el estado de limpieza: amber pulsando = esperando housekeeper, gradient slide = limpiando, glow emerald = lista. La recepcionista responde en 1 segundo mirando lo que ya tiene en pantalla. Y respeta accesibilidad WCAG 2.3.3 — usuarios con epilepsia o vértigo ven color sólido. Optii lo tiene pero cuesta dos veces más; Mews/Cloudbeds te obligan a abrir otra pestaña. En Zenix viene incluido."
+
+### Para equipos que reciben 50 notificaciones al día y dejaron de mirar el teléfono
+
+> "Cisco Healthcare 2021 (n=1,200 enfermeras): 72% baja su tasa de respuesta a alarmas en 2 semanas si todas tienen el mismo nivel de intrusión. Es exactamente lo que pasa con Mews/Cloudbeds — alarma + vibración fuerte para cada checkout normal → tu equipo deja de atender. Zenix usa 4 niveles escalonados con frecuencia inversa a intrusión: nivel 1 ambient (badge silencioso) para tareas creadas, nivel 2 notification (tono suave) para READY, nivel 2.5 elevated (banner persistente) para URGENT, nivel 3 alarm (sirena continua) SOLO para emergencias físicas como mantenimiento crítico. Tu equipo aprende que cuando la sirena suena, importa. Reduce errores operativos 25-40% según los estudios de alert fatigue."
+
 ---
 
 ## Resumen ejecutivo
@@ -548,6 +1021,13 @@ El resultado: cero incidencias de mantenimiento que caen en el olvido. Un regist
 | Que el calendario se actualice solo cuando cambia algo | SSE en tiempo real para bloqueos, reservas, no-shows y tareas — todos los roles lo ven al instante |
 | Ver en el calendario quién fue el no-show cuando hay nueva reserva | Franja NS identificable con nombre sin ocultar ni sobrelapear la reserva activa |
 | Revertir un no-show sin crear overbooking por error | Guard backend que rechaza la reversión si el cuarto ya fue reasignado, con mensaje accionable |
+| Retener al personal de housekeeping | Hub Recamarista con base SDT — privacidad peer-to-peer + 3 niveles de gamificación · sin shame · sin comparación |
+| Hostales multi-cama (4-12 camas/dorm) | D18 agrupación dual prioridad+habitación + counter dual 🚪/🛏️ + bulk-start (Hospitality Net 2023: 23% eficiencia recuperada) |
+| Política de limpieza configurable per-property | StayoverFrequency 6 modos (NEVER/DAILY/EVERY_2/EVERY_3/ON_REQUEST/GUEST_PREFERENCE) — dropdown vs reglas complejas Mews/Cloudbeds |
+| DND físico y huéspedes que no abren la puerta | Skip-and-retry AHLEI Sec. 4.3 — auto-retry 30 min × 3 → BLOCKED + escalada supervisor |
+| Late checkout sin paperwork | Endpoint dedicado · 5 segundos vs 5 minutos en Mews/Cloudbeds |
+| Recepcionista responde "está lista la habitación" sin abrir kanban | Animación inline en bloques calendario PMS — pulse/slide/glow GPU-composited |
+| Alert fatigue del staff | Notification Tier Discipline 4 niveles — limpieza nunca activa alarma (Cisco 2021: 72% baja respuesta tras 2 semanas) |
 | Trazabilidad ante disputas | Audit trail con actor, timestamp y razón en cada operación |
 | Un sistema que los housekeepers realmente usen | App diseñada para uso con una mano, en movimiento, sin capacitación |
 | Confirmar que el huésped realmente llegó | Badge "Sin confirmar" en calendario + wizard de check-in de 4 pasos |

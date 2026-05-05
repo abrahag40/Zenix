@@ -13,7 +13,14 @@ import { EmailService } from '../../common/email/email.service'
 import { CreateGuestStayDto } from './dto/create-guest-stay.dto'
 import { MoveRoomDto } from './dto/move-room.dto'
 import type { AvailabilityConflict, RoomAvailabilityResult } from '@zenix/shared'
-import { PaymentMethod } from '@zenix/shared'
+import { PaymentMethod, HousekeepingRole, CleaningStatus, TaskLogEvent } from '@zenix/shared'
+import {
+  addDays,
+  localYMD,
+  fmtRelativeLabel,
+  fmtAbsoluteLabel,
+  fmtReservationDateRange,
+} from '../../dashboard-reports/format.helpers'
 import { Prisma } from '@prisma/client'
 import { ConfirmCheckinDto } from './dto/confirm-checkin.dto'
 import { RegisterPaymentDto } from './dto/register-payment.dto'
@@ -21,6 +28,7 @@ import { VoidPaymentDto } from './dto/void-payment.dto'
 import { StayJourneyService } from '../stay-journeys/stay-journeys.service'
 import { ChannexGateway } from '../../integrations/channex/channex.gateway'
 import { NotificationCenterService } from '../../notification-center/notification-center.service'
+import { AssignmentService } from '../../assignment/assignment.service'
 
 /** Maps GuestStay.source values to the single-char SRC segment of bookingRef. */
 const SOURCE_CHAR: Record<string, string> = {
@@ -63,6 +71,60 @@ function toLocalHour(date: Date, timezone: string): number {
   )
 }
 
+/**
+ * Sprint 9 — Aggregate the cleaning status of multiple units (beds) belonging
+ * to the same room into a single status per room.
+ *
+ * Design rationale (CLAUDE.md §54):
+ *   - PRIVATE rooms (1 unit): trivial, the only task's status maps directly.
+ *   - SHARED rooms (N units, dorms): the calendar shows N blocks (one per
+ *     stay/bed) for the same roomId. Without a stay→unit linkage in the
+ *     data model, all N blocks display the same status — which is correct
+ *     operationally: when housekeeping enters a dorm, ALL beds are being
+ *     serviced. The receptionist should NOT show "limpiando" on bed 1 and
+ *     "esperando" on bed 2 if the housekeeper is in the room.
+ *
+ * Priority order (most "active" wins, mirrors animation hierarchy in CSS):
+ *   IN_PROGRESS → READY → DONE → PAUSED → VERIFIED → UNASSIGNED → PENDING
+ *
+ * Why IN_PROGRESS > READY > DONE in this order:
+ *   - IN_PROGRESS: housekeeping IS in the room → most attention (slide stripe)
+ *   - READY: room available for housekeeping but they haven't entered → pulse
+ *   - DONE: pending supervisor verification → glow
+ *   - PAUSED: was IN_PROGRESS, less urgent than active work
+ *   - VERIFIED: completed cycle, low signal
+ *   - UNASSIGNED/PENDING: not yet activated, no animation needed
+ *
+ * Returns null when there are no active tasks for the room.
+ */
+const CLEANING_STATUS_PRIORITY: Record<string, number> = {
+  IN_PROGRESS: 7,
+  READY:       6,
+  DONE:        5,
+  PAUSED:      4,
+  VERIFIED:    3,
+  UNASSIGNED:  2,
+  PENDING:     1,
+}
+
+type CleaningTaskMin = { status: string; unit: { roomId: string } }
+
+export function aggregateCleaningStatusByRoom(
+  tasks: CleaningTaskMin[],
+): Map<string, string> {
+  const result = new Map<string, string>()
+  for (const t of tasks) {
+    const roomId = t.unit.roomId
+    const current = result.get(roomId)
+    const currentRank = current ? (CLEANING_STATUS_PRIORITY[current] ?? 0) : -1
+    const newRank = CLEANING_STATUS_PRIORITY[t.status] ?? 0
+    if (newRank > currentRank) {
+      result.set(roomId, t.status)
+    }
+  }
+  return result
+}
+
 @Injectable()
 export class GuestStaysService {
   private readonly logger = new Logger(GuestStaysService.name)
@@ -75,6 +137,7 @@ export class GuestStaysService {
     private readonly journeyService: StayJourneyService,
     private readonly channex: ChannexGateway,
     private readonly notifCenter: NotificationCenterService,
+    private readonly assignment: AssignmentService,
   ) {}
 
   /** Generates a globally unique human-readable booking reference.
@@ -355,7 +418,8 @@ export class GuestStaysService {
 
   async findByProperty(propertyId: string, from?: Date, to?: Date) {
     const orgId = this.tenant.getOrganizationId()
-    return this.prisma.guestStay.findMany({
+
+    const stays = await this.prisma.guestStay.findMany({
       where: {
         organizationId: orgId,
         propertyId,
@@ -373,6 +437,42 @@ export class GuestStaysService {
       },
       orderBy: { checkinAt: 'desc' },
     })
+
+    // ── Sprint 9 — cleaningStatus per stay (CLAUDE.md §54-§57) ────────────
+    // Calendario PMS muestra animación inline según el estado de limpieza
+    // del cuarto. Una sola query agregada para todos los rooms involucrados.
+    const roomIds = Array.from(new Set(stays.map((s) => s.roomId)))
+    const activeTasks =
+      roomIds.length === 0
+        ? []
+        : await this.prisma.cleaningTask.findMany({
+            where: {
+              unit: { roomId: { in: roomIds } },
+              // Solo estados visibles en el calendario (no CANCELLED / DEFERRED / BLOCKED).
+              // PENDING incluido para "esperando salida física" pero no causa animación.
+              status: {
+                in: [
+                  CleaningStatus.PENDING,
+                  CleaningStatus.UNASSIGNED,
+                  CleaningStatus.READY,
+                  CleaningStatus.IN_PROGRESS,
+                  CleaningStatus.PAUSED,
+                  CleaningStatus.DONE,
+                  CleaningStatus.VERIFIED,
+                ],
+              },
+            },
+            select: {
+              status: true,
+              unit: { select: { roomId: true } },
+            },
+          })
+
+    const cleaningByRoom = aggregateCleaningStatusByRoom(activeTasks)
+    return stays.map((s) => ({
+      ...s,
+      cleaningStatus: cleaningByRoom.get(s.roomId) ?? null,
+    }))
   }
 
   async checkout(stayId: string, actorId: string) {
@@ -486,6 +586,7 @@ export class GuestStaysService {
     }
 
     // Transacción principal: actualizar stay + crear housekeeping records
+    const newCleaningTaskIds: string[] = []
     await this.prisma.$transaction(async (tx) => {
       // 1. Marcar GuestStay como early-checkout
       await tx.guestStay.update({
@@ -519,6 +620,7 @@ export class GuestStaysService {
       // 4. Crear CleaningTask(PENDING) por cada unidad (cama) de la habitación
       //    Misma lógica que batchCheckout: PENDING porque el housekeeper aún
       //    debe confirmar salida física (Fase 2 del flujo de 2 fases).
+      const scheduledFor = new Date(`${taskCheckoutAt.toISOString().slice(0, 10)}T00:00:00.000Z`)
       for (const unit of stay.room.units) {
         const task = await tx.cleaningTask.create({
           data: {
@@ -529,6 +631,7 @@ export class GuestStaysService {
             taskType: 'CLEANING',
             priority: 'MEDIUM',
             hasSameDayCheckIn: false,
+            scheduledFor,
           },
         })
         await tx.taskLog.create({
@@ -540,6 +643,7 @@ export class GuestStaysService {
             note: `Early checkout registrado${notes ? ` — ${notes}` : ''}`,
           },
         })
+        newCleaningTaskIds.push(task.id)
       }
 
       // 5. Si hay journey activo, recortar el segmento activo a la fecha de hoy
@@ -571,6 +675,13 @@ export class GuestStaysService {
         })
       }
     })
+
+    // Post-transaction: auto-asignar tareas creadas (D10) — fire-and-forget
+    for (const taskId of newCleaningTaskIds) {
+      this.assignment.autoAssign(taskId).catch((err: Error) =>
+        this.logger.warn(`autoAssign failed (earlyCheckout) task=${taskId}: ${err.message}`),
+      )
+    }
 
     // Post-transaction: notificaciones best-effort (no revertir si fallan)
     this.events.emit('checkout.early', {
@@ -631,6 +742,263 @@ export class GuestStaysService {
       freedTo: stay.scheduledCheckout.toISOString(),
       tasksScheduledFor: localHour < HOUSEKEEPING_END_HOUR ? 'today' : 'tomorrow',
     }
+  }
+
+  /**
+   * EC-3 (CLAUDE.md §58) — Late checkout aprobado por recepción.
+   *
+   * El huésped pide salir a las 16:00 en vez de 11:00. La tarea PENDING/READY
+   * ya existe (creada por MorningRosterScheduler). Este endpoint:
+   *
+   *   1. Actualiza `GuestStay.scheduledCheckout` a la nueva hora.
+   *   2. Pone `lateCheckoutAt` en cada CleaningTask asociada a esa estadía
+   *      (housekeeper móvil baja prioridad hasta `lateCheckoutAt - 1h`).
+   *   3. Si la tarea está READY (huésped ya salió y reapareció) → revierte
+   *      a PENDING (idempotente con undoDeparture, pero no re-cierra checkout).
+   *   4. SSE `task:rescheduled` para que el calendario PMS y el kanban
+   *      reflejen el cambio en tiempo real.
+   *
+   * Permisos: SUPERVISOR / RECEPTIONIST (controller layer).
+   */
+  async lateCheckout(stayId: string, newCheckoutTime: Date, actorId: string) {
+    const orgId = this.tenant.getOrganizationId()
+
+    const stay = await this.prisma.guestStay.findUnique({
+      where: { id: stayId, organizationId: orgId },
+      include: {
+        room: {
+          select: {
+            id: true,
+            number: true,
+            propertyId: true,
+            units: { select: { id: true } },
+          },
+        },
+      },
+    })
+
+    if (!stay) throw new NotFoundException('Reserva no encontrada')
+    if (stay.actualCheckout) {
+      throw new BadRequestException('La estadía ya fue cerrada — no aplica late checkout')
+    }
+    if (stay.noShowAt) {
+      throw new BadRequestException('No-show — no aplica late checkout')
+    }
+
+    const now = new Date()
+    if (newCheckoutTime <= now) {
+      throw new BadRequestException('La nueva hora de salida debe ser futura')
+    }
+
+    // Sanity: no aceptar cambios > 24h del scheduled actual
+    const HOURS_24 = 24 * 60 * 60 * 1000
+    const delta = Math.abs(newCheckoutTime.getTime() - stay.scheduledCheckout.getTime())
+    if (delta > HOURS_24) {
+      throw new BadRequestException(
+        'Late checkout > 24h — usa "Extender estadía" en su lugar',
+      )
+    }
+
+    const propertyId = stay.room.propertyId
+    const unitIds = stay.room.units.map((u) => u.id)
+    const updatedTaskIds: string[] = []
+
+    await this.prisma.$transaction(async (tx) => {
+      // 1. Actualizar GuestStay
+      await tx.guestStay.update({
+        where: { id: stayId },
+        data: { scheduledCheckout: newCheckoutTime },
+      })
+
+      // 2. Encontrar tareas afectadas (PENDING o READY) para esta estadía
+      const tasks = await tx.cleaningTask.findMany({
+        where: {
+          unitId: { in: unitIds },
+          status: { in: [CleaningStatus.PENDING, CleaningStatus.READY] },
+          // Solo tareas de hoy (no carryover)
+          scheduledFor: { not: null },
+        },
+        select: { id: true, status: true },
+      })
+
+      for (const t of tasks) {
+        // Si está READY (huésped ya salió y volvió pidiendo más tiempo),
+        // revertir a PENDING para que la limpieza no inicie aún.
+        const newStatus =
+          t.status === CleaningStatus.READY ? CleaningStatus.PENDING : t.status
+
+        await tx.cleaningTask.update({
+          where: { id: t.id },
+          data: {
+            lateCheckoutAt: newCheckoutTime,
+            status: newStatus,
+          },
+        })
+        await tx.taskLog.create({
+          data: {
+            taskId: t.id,
+            staffId: actorId,
+            event: TaskLogEvent.LATE_CHECKOUT_RESCHEDULED,
+            note: `late checkout to ${newCheckoutTime.toISOString()}`,
+            metadata: {
+              previousStatus: t.status,
+              newCheckoutTime: newCheckoutTime.toISOString(),
+            },
+          },
+        })
+        updatedTaskIds.push(t.id)
+      }
+
+    })
+
+    // 4. Internal event → pms-sse.listener convierte a SSE 'task:rescheduled'
+    this.events.emit('task.rescheduled', {
+      propertyId,
+      stayId,
+      roomId: stay.roomId,
+      roomNumber: stay.room.number,
+      newCheckoutTime: newCheckoutTime.toISOString(),
+      affectedTaskIds: updatedTaskIds,
+    })
+
+    this.logger.log(
+      `[lateCheckout] stay=${stayId} new=${newCheckoutTime.toISOString()} ` +
+        `tasks=${updatedTaskIds.length}`,
+    )
+
+    return {
+      success: true,
+      newCheckoutTime: newCheckoutTime.toISOString(),
+      affectedTaskIds: updatedTaskIds,
+    }
+  }
+
+  /**
+   * D12 — extension confirmation handler.
+   *
+   * Cuando un huésped extiende su estadía y el receptionist confirma el pago,
+   * un modal pregunta: "¿requiere limpieza?" Esta función encarna ese flow.
+   *
+   *   requiresCleaning = true  → mantener tareas PENDING/READY ACTIVAS, marcar
+   *                              extensionFlag=WITH_CLEANING para tracking y push
+   *                              al housekeeper "Hab X — extensión confirmada,
+   *                              limpieza solicitada".
+   *
+   *   requiresCleaning = false → cancelar las tareas con cancelledReason=
+   *                              EXTENSION_NO_CLEANING + extensionFlag=WITHOUT_CLEANING.
+   *                              Mobile las renderiza como badge ✨ en vez de
+   *                              hacerlas desaparecer.
+   *
+   * Solo afecta tareas PENDING/READY/UNASSIGNED del día actual asociadas a
+   * la habitación de esta estadía. Tareas IN_PROGRESS NUNCA se tocan (D11).
+   */
+  async extendWithCleaningFlag(
+    stayId: string,
+    requiresCleaning: boolean,
+    actorId: string,
+  ) {
+    const orgId = this.tenant.getOrganizationId()
+    const stay = await this.prisma.guestStay.findUnique({
+      where: { id: stayId, organizationId: orgId },
+      include: { room: { select: { id: true, number: true, propertyId: true } } },
+    })
+    if (!stay) throw new NotFoundException()
+
+    // Tasks afectadas: solo del día actual, asociadas a la room (vía unit), no IN_PROGRESS
+    const todayUtc = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`)
+    const tasks = await this.prisma.cleaningTask.findMany({
+      where: {
+        unit: { roomId: stay.roomId },
+        scheduledFor: todayUtc,
+        status: {
+          in: ['PENDING', 'READY', 'UNASSIGNED'] as const,
+        },
+      },
+      include: {
+        assignedTo: { select: { id: true, name: true } },
+        unit: { select: { id: true } },
+      },
+    })
+
+    if (tasks.length === 0) {
+      return { affectedTasks: 0, requiresCleaning }
+    }
+
+    const updates: { id: string; assignedToId: string | null }[] = []
+
+    if (requiresCleaning) {
+      // Mantener tareas activas, marcar flag, push al housekeeper
+      await this.prisma.$transaction(async (tx) => {
+        for (const t of tasks) {
+          await tx.cleaningTask.update({
+            where: { id: t.id },
+            data: { extensionFlag: 'WITH_CLEANING' },
+          })
+          await tx.taskLog.create({
+            data: {
+              taskId: t.id,
+              staffId: actorId,
+              event: 'NOTE_ADDED',
+              note: 'Extensión confirmada con limpieza solicitada',
+            },
+          })
+          updates.push({ id: t.id, assignedToId: t.assignedToId })
+        }
+      })
+    } else {
+      // Cancelar tareas con razón EXTENSION_NO_CLEANING (mobile las renderizará como badge)
+      await this.prisma.$transaction(async (tx) => {
+        for (const t of tasks) {
+          await tx.cleaningTask.update({
+            where: { id: t.id },
+            data: {
+              status: 'CANCELLED',
+              cancelledReason: 'EXTENSION_NO_CLEANING',
+              cancelledAt: new Date(),
+              extensionFlag: 'WITHOUT_CLEANING',
+            },
+          })
+          await tx.taskLog.create({
+            data: {
+              taskId: t.id,
+              staffId: actorId,
+              event: 'CANCELLED',
+              note: 'Extensión confirmada sin limpieza',
+            },
+          })
+          // Restaurar unit a OCCUPIED (huésped sigue ahí)
+          await tx.unit.update({ where: { id: t.unitId }, data: { status: 'OCCUPIED' } })
+          updates.push({ id: t.id, assignedToId: t.assignedToId })
+        }
+      })
+    }
+
+    // SSE para que mobile/web invaliden — D12 task:extension-confirmed
+    this.events.emit('task.extension-confirmed', {
+      propertyId: stay.room.propertyId,
+      stayId,
+      roomId: stay.roomId,
+      requiresCleaning,
+      affectedTasks: updates.length,
+    })
+
+    // Push al housekeeper afectado
+    for (const u of updates) {
+      if (!u.assignedToId) continue
+      const title = requiresCleaning
+        ? '✨ Extensión con limpieza'
+        : '✨ Extensión sin limpieza'
+      const body = requiresCleaning
+        ? `Hab. ${stay.room.number} — Extensión confirmada, limpieza solicitada.`
+        : `Hab. ${stay.room.number} — Huésped extendió, NO requiere limpieza hoy.`
+      // Lazy import to avoid circular: usar EventEmitter para que push.service oiga si quiere.
+      // Pero para simplicidad y mantener consistencia con el resto del codebase,
+      // emitimos solo SSE. El push directo se queda para cuando se conecte al
+      // PushService como dependencia opcional (futuro).
+      this.logger.debug(`[D12] would push to staff=${u.assignedToId} title="${title}" body="${body}"`)
+    }
+
+    return { affectedTasks: updates.length, requiresCleaning }
   }
 
   async moveRoom(stayId: string, dto: MoveRoomDto, actorId: string) {
@@ -1493,6 +1861,289 @@ export class GuestStaysService {
         count:         v.count,
       })),
     }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Mobile-specific endpoints — Sprint 9 wiring
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /**
+   * GET /v1/guest-stays/mobile/list
+   * Returns a filtered list of reservations pre-shaped for the mobile card.
+   * All derived fields (status, arrivesToday, dateRangeLabel, etc.) are
+   * computed server-side to guarantee timezone correctness.
+   */
+  async getMobileList(
+    propertyId: string,
+    actorRole: HousekeepingRole,
+    query: {
+      search?: string
+      statusFilter?: string[]
+      dateFilter?: string
+    },
+  ) {
+    const settings = await this.prisma.propertySettings.findUnique({
+      where: { propertyId },
+      select: { timezone: true },
+    })
+    const tz = settings?.timezone ?? 'America/Mexico_City'
+    const now = new Date()
+    const todayLocal    = localYMD(now, tz)
+    const tomorrowLocal = localYMD(addDays(now, 1), tz)
+    const dayAfterLocal = localYMD(addDays(now, 2), tz)
+
+    // Window: last 7 days (recent no-shows/departures) + next 60 days
+    const windowEnd = addDays(now, 60)
+    const windowStart = addDays(now, -7)
+
+    const stays = await this.prisma.guestStay.findMany({
+      where: {
+        propertyId,
+        deletedAt: null,
+        checkinAt: { lte: windowEnd },
+        OR: [
+          { actualCheckout: null },
+          { actualCheckout: { gte: windowStart } },
+          { noShowAt: { gte: windowStart } },
+        ],
+      },
+      include: { room: { select: { number: true } } },
+      orderBy: { checkinAt: 'asc' },
+    })
+
+    const items = stays.map((stay) => {
+      const checkinDay  = localYMD(stay.checkinAt, tz)
+      const checkoutDay = localYMD(stay.scheduledCheckout, tz)
+      const arrivesToday = checkinDay === todayLocal
+      const departsToday = checkoutDay === todayLocal
+      const isNoShow    = stay.noShowAt != null
+      const isDeparted  = stay.actualCheckout != null
+      const isConfirmed = stay.actualCheckin != null
+
+      let status: string
+      if (isNoShow)              status = 'NO_SHOW'
+      else if (isDeparted)       status = 'DEPARTED'
+      else if (departsToday)     status = 'DEPARTING'
+      else if (isConfirmed)      status = 'IN_HOUSE'
+      else if (arrivesToday)     status = 'UNCONFIRMED'
+      else                       status = 'UPCOMING'
+
+      const isRedacted = actorRole === HousekeepingRole.HOUSEKEEPER
+      return {
+        id: stay.id,
+        guestName: isRedacted ? `Hab. ${stay.room.number}` : stay.guestName,
+        isRedacted,
+        roomNumber: stay.room.number,
+        unitLabel: null,
+        status,
+        source: this.mapReservationSource(stay.source),
+        paxCount: stay.paxCount,
+        checkinAt: stay.checkinAt.toISOString(),
+        scheduledCheckout: stay.scheduledCheckout.toISOString(),
+        arrivesToday,
+        departsToday,
+        isNoShow,
+        dateRangeLabel: fmtReservationDateRange(stay.checkinAt, stay.scheduledCheckout, tz),
+      }
+    })
+
+    // Apply filters in memory (status is derived, not stored)
+    let result = items
+
+    if (query.search?.trim()) {
+      const needle = query.search.trim().toLowerCase()
+      result = result.filter(
+        (item) =>
+          item.guestName.toLowerCase().includes(needle) ||
+          (item.roomNumber ?? '').toLowerCase().includes(needle) ||
+          item.id.toLowerCase().includes(needle),
+      )
+    }
+
+    if (query.dateFilter && query.dateFilter !== 'all') {
+      const df = query.dateFilter
+      result = result.filter((item) => {
+        if (df === 'today') {
+          return (
+            item.arrivesToday ||
+            item.departsToday ||
+            item.status === 'IN_HOUSE' ||
+            item.status === 'NO_SHOW'
+          )
+        }
+        const day = localYMD(new Date(item.checkinAt), tz)
+        if (df === 'tomorrow')  return day === tomorrowLocal
+        if (df === 'dayAfter')  return day === dayAfterLocal
+        return true
+      })
+    }
+
+    if (query.statusFilter?.length) {
+      result = result.filter((item) => query.statusFilter!.includes(item.status))
+    }
+
+    return result
+  }
+
+  /**
+   * GET /v1/guest-stays/mobile/:id
+   * Full detail payload for the reservation detail screen.
+   * Includes payments history and journey audit trail.
+   * PII is redacted for HOUSEKEEPER role.
+   */
+  async getMobileDetail(stayId: string, actorRole: HousekeepingRole) {
+    const stay = await this.prisma.guestStay.findUnique({
+      where: { id: stayId },
+      include: {
+        room: { select: { number: true } },
+        paymentLogs: {
+          include: { collectedBy: { select: { name: true } } },
+          orderBy: { createdAt: 'asc' },
+        },
+        stayJourney: {
+          include: { events: { orderBy: { occurredAt: 'desc' } } },
+        },
+      },
+    })
+    if (!stay) throw new NotFoundException('Reserva no encontrada')
+
+    const settings = await this.prisma.propertySettings.findUnique({
+      where: { propertyId: stay.propertyId },
+      select: { timezone: true },
+    })
+    const tz = settings?.timezone ?? 'America/Mexico_City'
+    const now = new Date()
+    const todayLocal = localYMD(now, tz)
+    const checkinDay  = localYMD(stay.checkinAt, tz)
+    const checkoutDay = localYMD(stay.scheduledCheckout, tz)
+    const arrivesToday = checkinDay === todayLocal
+    const departsToday = checkoutDay === todayLocal
+    const isNoShow    = stay.noShowAt != null
+    const isDeparted  = stay.actualCheckout != null
+    const isConfirmed = stay.actualCheckin != null
+
+    let status: string
+    if (isNoShow)          status = 'NO_SHOW'
+    else if (isDeparted)   status = 'DEPARTED'
+    else if (departsToday) status = 'DEPARTING'
+    else if (isConfirmed)  status = 'IN_HOUSE'
+    else if (arrivesToday) status = 'UNCONFIRMED'
+    else                   status = 'UPCOMING'
+
+    const isRedacted = actorRole === HousekeepingRole.HOUSEKEEPER
+
+    // Resolve actor names for history events
+    const actorIds = [
+      ...new Set(
+        (stay.stayJourney?.events ?? [])
+          .filter((e) => e.actorId)
+          .map((e) => e.actorId!),
+      ),
+    ]
+    const actorNames = new Map<string, string>()
+    if (actorIds.length > 0) {
+      const actors = await this.prisma.housekeepingStaff.findMany({
+        where: { id: { in: actorIds } },
+        select: { id: true, name: true },
+      })
+      for (const a of actors) actorNames.set(a.id, a.name)
+    }
+
+    // Mask document number — keep only last 4 chars for privacy
+    const docNum = stay.documentNumber
+    const documentNumberMasked =
+      docNum && docNum.length >= 4 ? `***${docNum.slice(-4)}` : docNum ? '***' : null
+
+    const payments = stay.paymentLogs.map((p) => ({
+      id: p.id,
+      method: p.method as string,
+      amount: p.amount.toString(),
+      currency: p.currency,
+      collectedAt: p.createdAt.toISOString(),
+      collectedByName: p.collectedBy.name ?? null,
+      isVoid: p.isVoid,
+      reference: p.reference ?? null,
+    }))
+
+    const ICON_MAP: Record<string, string> = {
+      JOURNEY_CREATED: 'system',   SEGMENT_ADDED: 'system',
+      SEGMENT_LOCKED: 'edit',      ROOM_MOVE_EXECUTED: 'edit',
+      EXTENSION_APPROVED: 'edit',  JOURNEY_SPLIT: 'edit',
+      CHECKED_IN: 'arrival',       CHECKED_OUT: 'departure',
+      NO_SHOW_MARKED: 'noshow',    NO_SHOW_REVERTED: 'noshow',
+      CANCELLED: 'system',
+    }
+    const DESC_MAP: Record<string, string> = {
+      JOURNEY_CREATED: 'Reserva registrada',
+      SEGMENT_ADDED: 'Segmento añadido',
+      SEGMENT_LOCKED: 'Segmento confirmado',
+      ROOM_MOVE_EXECUTED: 'Traslado de habitación',
+      EXTENSION_APPROVED: 'Extensión aprobada',
+      JOURNEY_SPLIT: 'Estadía dividida',
+      CHECKED_IN: 'Check-in confirmado',
+      CHECKED_OUT: 'Check-out registrado',
+      NO_SHOW_MARKED: 'Marcado como no-show',
+      NO_SHOW_REVERTED: 'No-show revertido',
+      CANCELLED: 'Cancelado',
+    }
+
+    const history = (stay.stayJourney?.events ?? []).map((e) => ({
+      id: e.id,
+      whenLabel: fmtRelativeLabel(e.occurredAt),
+      absoluteLabel: fmtAbsoluteLabel(e.occurredAt, tz),
+      description: DESC_MAP[e.eventType] ?? String(e.eventType),
+      actorName: e.actorId ? (actorNames.get(e.actorId) ?? null) : null,
+      iconKey: ICON_MAP[e.eventType] ?? 'system',
+    }))
+
+    // Map PaymentStatus schema enum → mobile type
+    const paymentStatusMap: Record<string, string> = {
+      PENDING: 'UNPAID', PARTIAL: 'PARTIAL',
+      PAID: 'PAID',       CREDIT: 'REFUNDED',
+      OVERDUE: 'UNPAID',
+    }
+
+    return {
+      // List fields
+      id: stay.id,
+      guestName: isRedacted ? `Hab. ${stay.room.number}` : stay.guestName,
+      isRedacted,
+      roomNumber: stay.room.number,
+      unitLabel: null,
+      status,
+      source: this.mapReservationSource(stay.source),
+      paxCount: stay.paxCount,
+      checkinAt: stay.checkinAt.toISOString(),
+      scheduledCheckout: stay.scheduledCheckout.toISOString(),
+      arrivesToday,
+      departsToday,
+      isNoShow,
+      dateRangeLabel: fmtReservationDateRange(stay.checkinAt, stay.scheduledCheckout, tz),
+      // Detail fields
+      guestEmail:            isRedacted ? null : (stay.guestEmail ?? null),
+      guestPhone:            isRedacted ? null : (stay.guestPhone ?? null),
+      nationality:           isRedacted ? null : (stay.nationality ?? null),
+      documentType:          isRedacted ? null : (stay.documentType ?? null),
+      documentNumberMasked:  isRedacted ? null : documentNumberMasked,
+      ratePerNight:          stay.ratePerNight.toString(),
+      currency:              stay.currency,
+      totalAmount:           stay.totalAmount.toString(),
+      amountPaid:            stay.amountPaid.toString(),
+      paymentStatus:         paymentStatusMap[stay.paymentStatus] ?? 'UNPAID',
+      notes:                 stay.notes ?? null,
+      arrivalNotes:          stay.arrivalNotes ?? null,
+      keyType:               stay.keyType ?? null,
+      noShowAt:              stay.noShowAt?.toISOString() ?? null,
+      noShowReason:          stay.noShowReason ?? null,
+      payments,
+      history,
+    }
+  }
+
+  private mapReservationSource(source: string | null): string | null {
+    const known = ['DIRECT', 'BOOKING', 'AIRBNB', 'EXPEDIA', 'HOSTELWORLD', 'WALK_IN']
+    if (!source) return null
+    return known.includes(source) ? source : 'OTHER'
   }
 
   /**

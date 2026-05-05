@@ -37,6 +37,7 @@ import { PrismaService } from '../prisma/prisma.service'
 import { TenantContextService } from '../common/tenant-context.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import { PushService } from '../notifications/push.service'
+import { AssignmentService } from '../assignment/assignment.service'
 import { CreateCheckoutDto, BatchCheckoutDto } from './dto/create-checkout.dto'
 
 export interface CheckoutInput {
@@ -60,6 +61,7 @@ export class CheckoutsService {
     private notifications: NotificationsService,
     private push: PushService,
     private events: EventEmitter2,
+    private assignment: AssignmentService,
   ) {}
 
   /**
@@ -90,6 +92,7 @@ export class CheckoutsService {
 
     const priority: Priority = input.hasSameDayCheckIn ? Priority.URGENT : Priority.MEDIUM
 
+    const newTaskIds: string[] = []
     const checkout = await this.prisma.$transaction(async (tx) => {
       // Create checkout record
       const checkout = await tx.checkout.create({
@@ -151,8 +154,12 @@ export class CheckoutsService {
               status: taskStatus,
               priority,
               requiredCapability: 'CLEANING',
+              scheduledFor: new Date(
+                `${input.actualCheckoutAt.toISOString().slice(0, 10)}T00:00:00.000Z`,
+              ),
             },
           })
+          newTaskIds.push(newTask.id)
 
           await tx.taskLog.create({
             data: {
@@ -169,6 +176,13 @@ export class CheckoutsService {
 
       return checkout
     })
+
+    // Auto-assign new tasks created (D10) — fire-and-forget.
+    for (const taskId of newTaskIds) {
+      this.assignment.autoAssign(taskId).catch((err: Error) =>
+        this.logger.warn(`autoAssign failed (processCheckout) task=${taskId}: ${err.message}`),
+      )
+    }
 
     // Post-transaction: fire push notifications and SSE
     await this.dispatchNotifications(checkout.id, room.property.id, input)
@@ -244,6 +258,9 @@ export class CheckoutsService {
         })
 
         let tasksCreated = 0
+        const newTaskIds: string[] = []
+        // scheduledFor = fecha del checkout (idempotencia con MorningRosterScheduler)
+        const scheduledFor = new Date(`${checkoutDate.toISOString().slice(0, 10)}T00:00:00.000Z`)
         for (const unit of roomUnits) {
           // Crear tarea en estado PENDING — el huésped aún no ha salido físicamente.
           // La tarea pasará a READY/UNASSIGNED cuando el recepcionista confirme la salida física.
@@ -257,6 +274,7 @@ export class CheckoutsService {
               priority,
               hasSameDayCheckIn: unitHasSameDayCheckIn,
               requiredCapability: 'CLEANING',
+              scheduledFor,
             },
           })
 
@@ -268,12 +286,21 @@ export class CheckoutsService {
             },
           })
           tasksCreated++
+          newTaskIds.push(task.id)
         }
         // IMPORTANTE: unit.status NO se cambia aquí. El huésped sigue en la unidad.
         // Solo cambia a DIRTY en confirmDeparture() cuando sale físicamente.
 
-        return { checkoutId: checkout.id, roomId, tasksCreated }
+        return { checkoutId: checkout.id, roomId, tasksCreated, newTaskIds }
       })
+
+      // Auto-asignación post-transaction (D10) — fire-and-forget para no bloquear el commit.
+      // Si autoAssign falla, la tarea queda sin asignar y el supervisor la asigna manual.
+      for (const taskId of result.newTaskIds) {
+        this.assignment.autoAssign(taskId).catch((err: Error) =>
+          this.logger.warn(`autoAssign failed for task ${taskId}: ${err.message}`),
+        )
+      }
 
       results.push(result)
     }
@@ -321,12 +348,22 @@ export class CheckoutsService {
    * Sin unitId: cancela todas las tareas del checkout y marca el checkout como
    * cancelado (comportamiento original — "huésped extendió toda la habitación").
    */
-  async cancelCheckout(checkoutId: string, propertyId: string, unitId?: string) {
+  async cancelCheckout(
+    checkoutId: string,
+    propertyId: string,
+    unitId?: string,
+    reason?: import('@zenix/shared').CleaningCancelReason,
+  ) {
     const orgId = this.tenant.getOrganizationId()
     const checkout = await this.prisma.checkout.findUnique({
       where: { id: checkoutId, organizationId: orgId },
       include: {
-        tasks: { include: { assignedTo: { include: { pushTokens: true } } } },
+        tasks: {
+          include: {
+            assignedTo: { include: { pushTokens: true } },
+            unit: { include: { room: true } },
+          },
+        },
         room: true,
       },
     })
@@ -335,6 +372,23 @@ export class CheckoutsService {
 
     const isUnitId = !!unitId
 
+    // ── D11 GUARD ──────────────────────────────────────────────────────────
+    // Tarea IN_PROGRESS es inmutable desde recepción. Bloquear con mensaje
+    // explicativo en lugar de cancelar parcialmente o emitir alerta silenciosa.
+    const inProgress = checkout.tasks.filter(
+      (t) =>
+        t.status === CleaningStatus.IN_PROGRESS &&
+        (!isUnitId || t.unitId === unitId),
+    )
+    if (inProgress.length > 0) {
+      const first = inProgress[0]
+      const cleanerName = first.assignedTo?.name ?? 'el housekeeper asignado'
+      throw new ConflictException(
+        `La habitación ${first.unit.room.number} ya está siendo limpiada por ${cleanerName}. ` +
+          `Coordina directamente con el supervisor.`,
+      )
+    }
+
     const cancellableTasks = checkout.tasks.filter(
       (t) =>
         [CleaningStatus.READY, CleaningStatus.UNASSIGNED, CleaningStatus.PENDING].includes(
@@ -342,9 +396,10 @@ export class CheckoutsService {
         ) && (!isUnitId || t.unitId === unitId),
     )
 
+    // PAUSED tasks (raras pero posibles): no se cancelan — alerta supervisor
     const criticalTasks = checkout.tasks.filter(
       (t) =>
-        (t.status === CleaningStatus.IN_PROGRESS || t.status === CleaningStatus.PAUSED) &&
+        t.status === CleaningStatus.PAUSED &&
         (!isUnitId || t.unitId === unitId),
     )
 
@@ -353,12 +408,24 @@ export class CheckoutsService {
       for (const task of cancellableTasks) {
         await tx.cleaningTask.update({
           where: { id: task.id },
-          data: { status: CleaningStatus.CANCELLED },
+          data: {
+            status: CleaningStatus.CANCELLED,
+            cancelledReason: reason ?? 'RECEPTIONIST_MANUAL',
+            cancelledAt: new Date(),
+          },
         })
         await tx.taskLog.create({
-          data: { taskId: task.id, staffId: null, event: TaskLogEvent.CANCELLED },
+          data: {
+            taskId: task.id,
+            staffId: null,
+            event: TaskLogEvent.CANCELLED,
+            note: reason ? `reason=${reason}` : undefined,
+          },
         })
-        // Restore unit to OCCUPIED (huésped extendió, sigue durmiendo)
+        // Restore unit to OCCUPIED (huésped extendió, sigue durmiendo) — solo si la
+        // razón es operativa (extensión/manual). Para EXTENSION_NO_CLEANING también
+        // mantiene OCCUPIED (huésped sigue ahí); para extensiones WITH_CLEANING la
+        // tarea NO se cancela (no entra a este flow).
         await tx.unit.update({ where: { id: task.unitId }, data: { status: 'OCCUPIED' } })
       }
 
@@ -561,6 +628,7 @@ export class CheckoutsService {
     }
 
     // Activar las tareas PENDING → READY/UNASSIGNED + marcar unidades como DIRTY
+    const tasksToReevaluate: string[] = []
     await this.prisma.$transaction(async (tx) => {
       for (const task of pendingTasks) {
         const newStatus = task.assignedToId ? CleaningStatus.READY : CleaningStatus.UNASSIGNED
@@ -583,8 +651,21 @@ export class CheckoutsService {
           where: { id: task.unitId },
           data: { status: 'DIRTY' },
         })
+
+        // Si la tarea quedó UNASSIGNED (sin pre-asignación, ej: cron 7am sin staff
+        // disponible), intentar auto-asignar AHORA — turno actual puede tener más opciones.
+        if (newStatus === CleaningStatus.UNASSIGNED) {
+          tasksToReevaluate.push(task.id)
+        }
       }
     })
+
+    // Re-evaluar auto-asignación post-departure (D10). Fire-and-forget.
+    for (const taskId of tasksToReevaluate) {
+      this.assignment.autoAssign(taskId).catch((err: Error) =>
+        this.logger.warn(`autoAssign post-departure failed task=${taskId}: ${err.message}`),
+      )
+    }
 
     // Notificaciones: push a housekeeping + SSE al dashboard
     await this.dispatchNotifications(checkoutId, propertyId, {

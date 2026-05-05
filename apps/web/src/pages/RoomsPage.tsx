@@ -188,7 +188,12 @@ export function RoomsPage() {
    */
   const handleSSE = useCallback(
     (event: SseEvent) => {
-      if (['task:ready', 'task:started', 'task:done', 'task:unassigned', 'task:cancelled'].includes(event.type)) {
+      // Sprint 8K: extended task events (paused/resumed/verified) so the
+      // recepcionista's room grid reflects mobile state changes in real-time.
+      if ([
+        'task:ready', 'task:started', 'task:paused', 'task:resumed',
+        'task:done', 'task:verified', 'task:unassigned', 'task:cancelled',
+      ].includes(event.type)) {
         qc.invalidateQueries({ queryKey: ['rooms-bed-level'] })
         if (event.type === 'task:done') {
           const d = event.data as { roomNumber?: string }

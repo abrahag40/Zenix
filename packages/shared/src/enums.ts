@@ -15,12 +15,41 @@ export enum CleaningStatus {
   DONE = 'DONE',
   VERIFIED = 'VERIFIED',
   CANCELLED = 'CANCELLED',
+  // Sprint 9 / EC-6 — skip-and-retry (AHLEI Sec. 4.3)
+  DEFERRED = 'DEFERRED',
+  BLOCKED = 'BLOCKED',
+}
+
+// Sprint 9 / EC-6
+export enum CleaningDeferReason {
+  DND_PHYSICAL = 'DND_PHYSICAL',
+  NO_ANSWER = 'NO_ANSWER',
+  GUEST_REQUEST = 'GUEST_REQUEST',
 }
 
 export enum HousekeepingRole {
   HOUSEKEEPER = 'HOUSEKEEPER',
   SUPERVISOR = 'SUPERVISOR',
   RECEPTIONIST = 'RECEPTIONIST',
+}
+
+/**
+ * Department — operational area within a hotel (Sprint 8I AD-011).
+ * Drives the role-aware module switch in the mobile app's "Mi día" tab.
+ *
+ * Adding values requires:
+ *   1. Update this enum
+ *   2. Update Prisma schema enum + migration
+ *   3. Add `src/features/<area>/` folder with screens/Hub.tsx
+ *   4. Wire into mobile/app/(app)/trabajo.tsx switch
+ */
+export enum Department {
+  HOUSEKEEPING = 'HOUSEKEEPING',
+  MAINTENANCE  = 'MAINTENANCE',
+  LAUNDRY      = 'LAUNDRY',
+  PUBLIC_AREAS = 'PUBLIC_AREAS',
+  GARDENING    = 'GARDENING',
+  RECEPTION    = 'RECEPTION',
 }
 
 export enum RoomCategory {
@@ -33,6 +62,18 @@ export enum TaskType {
   SANITIZATION = 'SANITIZATION',
   MAINTENANCE = 'MAINTENANCE',
   PREPARATION = 'PREPARATION',
+  // Sprint 9 / D14 — limpieza de estadía (in-house)
+  STAYOVER = 'STAYOVER',
+}
+
+// Sprint 9 / D14
+export enum StayoverFrequency {
+  NEVER = 'NEVER',
+  DAILY = 'DAILY',
+  EVERY_2_DAYS = 'EVERY_2_DAYS',
+  EVERY_3_DAYS = 'EVERY_3_DAYS',
+  ON_REQUEST = 'ON_REQUEST',
+  GUEST_PREFERENCE = 'GUEST_PREFERENCE',
 }
 
 export enum Capability {
@@ -60,6 +101,84 @@ export enum TaskLogEvent {
   CANCELLED = 'CANCELLED',
   REOPENED = 'REOPENED',
   NOTE_ADDED = 'NOTE_ADDED',
+  // Sprint 8H
+  AUTO_ASSIGNED = 'AUTO_ASSIGNED',
+  CARRYOVER = 'CARRYOVER',
+  REASSIGNED = 'REASSIGNED',
+  CLOCKED_BY_STAFF = 'CLOCKED_BY_STAFF',
+  // Sprint 9
+  STAYOVER_CREATED = 'STAYOVER_CREATED',
+  DEFERRED = 'DEFERRED',
+  RETRY_SCHEDULED = 'RETRY_SCHEDULED',
+  BLOCKED = 'BLOCKED',
+  LATE_CHECKOUT_RESCHEDULED = 'LATE_CHECKOUT_RESCHEDULED',
+  // Sprint 9 / D15 — Operational overrides
+  PRIORITY_OVERRIDDEN = 'PRIORITY_OVERRIDDEN',
+  DEEP_CLEAN_FLAGGED = 'DEEP_CLEAN_FLAGGED',
+  WALK_IN_CREATED = 'WALK_IN_CREATED',
+  HOLD_PLACED = 'HOLD_PLACED',
+  HOLD_RELEASED = 'HOLD_RELEASED',
+}
+
+// ─── Housekeeping Scheduling (Sprint 8H) ─────────────────────────────────────
+
+/**
+ * Razón de cancelación de una CleaningTask. Se usa para distinguir cancelaciones
+ * operativas legítimas (extensiones, no-shows) de errores y duplicados.
+ * D12 — `EXTENSION_*` permite que mobile renderice badge especial.
+ */
+export enum CleaningCancelReason {
+  EXTENSION_NO_CLEANING   = 'EXTENSION_NO_CLEANING',
+  EXTENSION_WITH_CLEANING = 'EXTENSION_WITH_CLEANING',
+  GUEST_NEVER_CHECKED_IN  = 'GUEST_NEVER_CHECKED_IN',
+  RECEPTIONIST_MANUAL     = 'RECEPTIONIST_MANUAL',
+  STAFF_ABSENCE_CLEANUP   = 'STAFF_ABSENCE_CLEANUP',
+  DUPLICATE               = 'DUPLICATE',
+}
+
+/**
+ * Marca que una tarea fue "tocada" por una extensión de estadía.
+ * WITH_CLEANING — sigue activa, se notificó a housekeeping.
+ * WITHOUT_CLEANING — se canceló pero queda visible en mobile (D12).
+ */
+export enum ExtensionFlag {
+  WITH_CLEANING    = 'WITH_CLEANING',
+  WITHOUT_CLEANING = 'WITHOUT_CLEANING',
+}
+
+/** Excepción puntual al horario semanal recurrente del staff. */
+export enum ShiftExceptionType {
+  OFF      = 'OFF',
+  EXTRA    = 'EXTRA',
+  MODIFIED = 'MODIFIED',
+}
+
+/** Origen de un clock-in/out (USALI auditability). */
+export enum ClockSource {
+  MOBILE             = 'MOBILE',
+  WEB                = 'WEB',
+  MANUAL_SUPERVISOR  = 'MANUAL_SUPERVISOR',
+}
+
+/** Nivel de gamificación — D9: gestionado por supervisor, no auto-servido. */
+export enum GamificationLevel {
+  OFF      = 'OFF',
+  SUBTLE   = 'SUBTLE',
+  STANDARD = 'STANDARD',
+}
+
+/** Política de carryover de tareas incompletas — confirmada `REASSIGN_TO_TODAY_SHIFT` por default. */
+export enum CarryoverPolicy {
+  REASSIGN_TO_TODAY_SHIFT = 'REASSIGN_TO_TODAY_SHIFT',
+  KEEP_ORIGINAL_ASSIGNEE  = 'KEEP_ORIGINAL_ASSIGNEE',
+  ALWAYS_UNASSIGNED       = 'ALWAYS_UNASSIGNED',
+}
+
+/** Regla que disparó la auto-asignación — para audit y debugging. */
+export enum AutoAssignmentRule {
+  COVERAGE_PRIMARY = 'COVERAGE_PRIMARY',
+  COVERAGE_BACKUP  = 'COVERAGE_BACKUP',
+  ROUND_ROBIN      = 'ROUND_ROBIN',
 }
 
 

@@ -26,6 +26,17 @@ enum AppNotificationCategory {
   MAINTENANCE_REPORTED
   PAYMENT_PENDING
   SYSTEM
+  // ── Sprint Mx-1 — Módulo de Mantenimiento ─────────────────────────────────
+  // MAINTENANCE_TICKET_CRITICAL genera ACTION_REQUIRED automático al manager/supervisor
+  // cuando el ticket se crea con priority=CRITICAL (inventario auto-bloqueado).
+  MAINTENANCE_TICKET_CREATED   // ticket nuevo (MEDIUM/HIGH) — solo INFORMATIONAL
+  MAINTENANCE_TICKET_UPDATED   // cambio de estado relevante (asignado, resuelto)
+  MAINTENANCE_TICKET_CRITICAL  // CRITICAL → habitación bloqueada — ACTION_REQUIRED
+  // ── Sprint 9 — D17 dual toast+panel persistence ──────────────────────────
+  // TASK_VERIFIED_READY: housekeeping ciclo completado, recepción puede entregar
+  // la habitación. Toast tier-2 (4s lateral) + entrada persistente en panel.
+  // Auto-expira a las 4h para limpieza visual del feed (CLAUDE.md §57).
+  TASK_VERIFIED_READY
 }
 
 enum AppNotificationPriority {
@@ -64,12 +75,60 @@ enum CleaningStatus {
   DONE
   VERIFIED
   CANCELLED
+  // ── Sprint 9 / EC-6 — skip-and-retry (AHLEI Sec. 4.3) ────────────────────
+  // DEFERRED: housekeeper tocó la puerta y nadie respondió, o el huésped
+  // tiene chip DND físico. La tarea se reprograma automáticamente para
+  // 30 min después (cron auto-retry). Tras 3 deferrals consecutivos →
+  // BLOCKED (acción manual del supervisor).
+  DEFERRED
+  BLOCKED
+}
+
+// EC-6 — razones por las cuales una tarea se difiere temporalmente.
+enum CleaningDeferReason {
+  DND_PHYSICAL    // chip "do not disturb" colgado en la puerta
+  NO_ANSWER       // tocó, nadie respondió
+  GUEST_REQUEST   // huésped pidió "vuelve más tarde"
 }
 
 enum HousekeepingRole {
   HOUSEKEEPER
   SUPERVISOR
   RECEPTIONIST
+}
+
+/**
+ * Department — operational area within a hotel property.
+ *
+ * Sprint 8I "shared chrome + role-aware module" (CLAUDE.md / ARCHITECTURE.md AD-011):
+ * the mobile app shows the same chrome (tabs, dashboard, notifications, profile) for
+ * all staff, but the "Mi día" tab loads a different feature module based on this enum.
+ *
+ * Adding a value here = enabling its module slot. Adding a stub for the area follows
+ * the pattern at apps/mobile/src/features/<area>/screens/Hub.tsx.
+ *
+ * NOTE: this is the OPERATIONAL area, distinct from `role` (which is access level —
+ * HOUSEKEEPER vs SUPERVISOR vs RECEPTIONIST).
+ *
+ * Examples:
+ *   - Ana: role=SUPERVISOR, department=HOUSEKEEPING (supervisora de recamaristas)
+ *   - Carlos: role=RECEPTIONIST, department=RECEPTION
+ *   - Pedro: role=HOUSEKEEPER, department=HOUSEKEEPING
+ *   - (futuro) Ingeniero: role=SUPERVISOR, department=MAINTENANCE
+ */
+enum Department {
+  HOUSEKEEPING
+  MAINTENANCE
+  LAUNDRY
+  PUBLIC_AREAS
+  GARDENING
+  RECEPTION
+  // futuros (cuando demanda lo justifique):
+  // FOOD_AND_BEVERAGE
+  // SPA
+  // SECURITY
+  // ACTIVITIES
+  // ADMINISTRATION
 }
 
 enum RoomCategory {
@@ -82,6 +141,11 @@ enum TaskType {
   SANITIZATION
   MAINTENANCE
   PREPARATION
+  // ── Sprint 9 / D14 — limpieza de estadía (in-house cleaning) ──────────────
+  // Generada por StayoverScheduler para camas con bed.status=OCCUPIED y
+  // sin checkout planificado para hoy. Frecuencia configurable per-property
+  // via PropertySettings.stayoverFrequency.
+  STAYOVER
 }
 
 enum Capability {
@@ -109,6 +173,38 @@ enum TaskLogEvent {
   CANCELLED
   REOPENED
   NOTE_ADDED
+  // ── Sprint 8H — housekeeping scheduling ───────────────────────────────────
+  AUTO_ASSIGNED      // auto-asignación por AssignmentService
+  CARRYOVER          // tarea movida del día anterior por MorningRosterScheduler
+  REASSIGNED         // cambio de assignedToId post-creación (ausencia/manual)
+  CLOCKED_BY_STAFF   // clock-in del staff vinculado a esta tarea
+  // ── Sprint 9 — flow refactor ──────────────────────────────────────────────
+  STAYOVER_CREATED          // tarea STAYOVER generada por StayoverScheduler
+  DEFERRED                  // EC-6 — housekeeper difirió la tarea (DND/no-answer/guest-request)
+  RETRY_SCHEDULED           // cron auto-retry promovió DEFERRED → READY/UNASSIGNED
+  BLOCKED                   // 3 deferrals consecutivos → acción manual del supervisor
+  LATE_CHECKOUT_RESCHEDULED // EC-3 — recepción aprobó late-checkout, scheduledCheckout movido
+  // ── Sprint 9 / D15 — Operational overrides (recepción) ──────────────────
+  PRIORITY_OVERRIDDEN       // recepción forzó URGENT desde Ajustes del día
+  DEEP_CLEAN_FLAGGED        // tarea marcada para limpieza profunda
+  WALK_IN_CREATED           // walk-in checkout creado ad-hoc
+  HOLD_PLACED               // recepción puso hold por extensión sin formalizar
+  HOLD_RELEASED             // recepción liberó el hold
+}
+
+// ── Sprint 8H — Cleaning task cancellation reason / extension flag (D12) ────
+enum CleaningCancelReason {
+  EXTENSION_NO_CLEANING     // huésped extendió y no pidió limpieza (queda visible en mobile como badge)
+  EXTENSION_WITH_CLEANING   // huésped extendió pero pidió limpieza (no debería aparecer cancelada — sólo si flow lo requiere)
+  GUEST_NEVER_CHECKED_IN    // no-show o cancelación
+  RECEPTIONIST_MANUAL       // cancelación operativa estándar
+  STAFF_ABSENCE_CLEANUP     // sin personal disponible al final del día
+  DUPLICATE                 // tarea duplicada por error/race condition
+}
+
+enum ExtensionFlag {
+  WITH_CLEANING             // mantener tarea activa, push al housekeeper
+  WITHOUT_CLEANING          // cancelar pero mantener visible en mobile como badge
 }
 
 enum CheckoutSource {
@@ -183,6 +279,73 @@ enum PropertyType {
   VACATION_RENTAL
 }
 
+// ── Sprint Mx-1 — Módulo de Mantenimiento (v1.0.0 scope) ──────────────────
+//
+// Sistema completo de tickets de mantenimiento que reemplaza al modelo legacy
+// `MaintenanceIssue` (lightweight, vinculado a CleaningTask). Caso de uso real
+// que motivó el módulo (Hotel Monica Tulum, 2026-04-09): el área de mantenimiento
+// inició encerado de Bongaloo B2 sin bloquear la habitación → la habitación se
+// vendió en Booking.com → el hotel asumió pérdidas reubicando al huésped.
+//
+// El módulo MaintenanceModule es MONOLÍTICO con el resto del PMS (mismo NestJS,
+// misma BD, mismo auth). La separación es a nivel de módulos NestJS, no de
+// servicios. Ver CLAUDE.md §10 para el principio arquitectónico.
+//
+// Bridge crítico con inventario:
+//   TicketPriority.CRITICAL → MaintenanceModule.onTicketCreated()
+//                          → SmartBlockService.createBlock(OUT_OF_ORDER, MAINTENANCE)
+//                          → room.status = BLOCKED
+//                          → la habitación desaparece del calendario PMS para venta.
+// Resuelto en RoomBlock.maintenanceTicketId (FK del lado del bloque para evitar
+// dependencia circular). El ticket conoce su bloque vía la reverse relation.
+
+enum TicketStatus {
+  OPEN              // recién creado por housekeeper/recepcionista
+  ACKNOWLEDGED      // técnico de mantenimiento lo vio (lectura confirmada)
+  IN_PROGRESS       // trabajo activo
+  WAITING_PARTS     // pausa por espera de material/proveedor
+  RESOLVED          // técnico marcó trabajo completado
+  VERIFIED          // supervisor confirmó la resolución (calidad)
+  CLOSED            // archivado — readonly, fuente para reportes históricos
+}
+
+enum TicketPriority {
+  LOW               // cosmético, no afecta disponibilidad (mancha leve, pintura)
+  MEDIUM            // funcional pero no bloquea la habitación (foco fundido)
+  HIGH              // afecta experiencia del huésped (aire acondicionado débil)
+  CRITICAL          // habitación inhabitable → AUTO-BLOQUEA inventario en PMS
+}
+
+enum TicketCategory {
+  PLUMBING          // fontanería: grifos, baño, desagües
+  ELECTRICAL        // eléctrico: instalación, contactos, breakers
+  FURNITURE         // mobiliario: cama, escritorio, sillas dañadas
+  APPLIANCE         // electrodomésticos: TV, mini-bar, cafetera
+  HVAC              // climatización: aire, calefacción, ventilación
+  STRUCTURAL        // estructura: paredes, techo, piso, ventanas
+  COSMETIC          // estética: pintura, manchas no removibles
+  SAFETY            // seguridad: cerraduras, detectores humo, extintores
+  PEST              // control de plagas (escala desde housekeeping)
+  DEEP_CLEANING     // limpieza profunda especializada (mancha extrema, encerado)
+  OTHER
+}
+
+enum TicketLogEvent {
+  CREATED              // ticket nuevo
+  ACKNOWLEDGED         // técnico marcó como visto
+  ASSIGNED             // assignedToId cambió
+  STARTED              // status → IN_PROGRESS
+  WAITING_PARTS        // status → WAITING_PARTS
+  RESOLVED             // status → RESOLVED
+  VERIFIED             // status → VERIFIED por supervisor
+  CLOSED               // status → CLOSED
+  REOPENED             // RESOLVED/VERIFIED → IN_PROGRESS (regresión)
+  COMMENT_ADDED        // nuevo TicketComment
+  PHOTO_ADDED          // nueva TicketPhoto
+  BLOCK_AUTO_CREATED   // CRITICAL → RoomBlock auto-creado
+  BLOCK_AUTO_RELEASED  // ticket VERIFIED/CLOSED → RoomBlock liberado
+}
+
 // ======================= MULTI-TENANT FOUNDATION =======================
 
 model Organization {
@@ -219,6 +382,12 @@ model Organization {
   stayJourneys       StayJourney[]
   roomBlocks         RoomBlock[]
   appNotifications   AppNotification[]
+  // ── Sprint 8H ─────────────────────────────────────────────────────────────
+  staffShifts        StaffShift[]
+  // ── Sprint 9 ──────────────────────────────────────────────────────────────
+  channelCommissions ChannelCommission[]
+  // ── Sprint Mx-1 — Mantenimiento ──────────────────────────────────────────
+  maintenanceTickets MaintenanceTicket[]
 
   @@map("organizations")
 }
@@ -291,6 +460,19 @@ model Property {
   userRoles    UserPropertyRole[]
   stayJourneys StayJourney[]
   appNotifications AppNotification[]
+  // ── Sprint 8H ─────────────────────────────────────────────────────────────
+  shifts          StaffShift[]
+  staffCoverages  StaffCoverage[]
+  shiftClocks     StaffShiftClock[]
+  // ── Sprint 9 — Reports / Channel Manager ──────────────────────────────────
+  channelCommissions ChannelCommission[]
+  // ── Feature flags / testing toggles ───────────────────────────────────────
+  featureFlags    FeatureFlag[]
+  // ── Reports — pre-computed aggregations (Sprint 9 research) ──────────────
+  dailyMetrics       DailyPropertyMetrics[]
+  channelProduction  ChannelProductionDaily[]
+  // ── Sprint Mx-1 — Mantenimiento ──────────────────────────────────────────
+  maintenanceTickets MaintenanceTicket[]
 
   @@index([organizationId])
   @@map("properties")
@@ -320,6 +502,10 @@ model Room {
   readinessTasks RoomReadinessTask[]
   staySegments StaySegment[]
   blocks       RoomBlock[]
+  // ── Sprint 8H — quién cubre esta habitación por defecto ───────────────────
+  staffCoverages StaffCoverage[]
+  // ── Sprint Mx-1 — Mantenimiento ────────────────────────────────────────
+  maintenanceTickets MaintenanceTicket[] @relation("TicketRoom")
 
   @@unique([propertyId, number])
   @@index([organizationId])
@@ -343,6 +529,9 @@ model Unit {
   cleaningTasks CleaningTask[]
   discrepancies UnitDiscrepancy[]
   blocks        RoomBlock[]
+  // ── Sprint Mx-1 — Mantenimiento ────────────────────────────────────────
+  // Ticket a nivel unidad (e.g. solo cama 2 del dorm tiene problema mecánico)
+  maintenanceTickets MaintenanceTicket[] @relation("TicketUnit")
 
   @@index([organizationId])
   @@map("units")
@@ -357,6 +546,7 @@ model HousekeepingStaff {
   email          String           @unique
   passwordHash   String
   role           HousekeepingRole
+  department     Department       @default(HOUSEKEEPING) @map("department")
   active         Boolean          @default(true)
   capabilities   Capability[]
   deletedAt      DateTime?        @map("deleted_at")
@@ -384,6 +574,32 @@ model HousekeepingStaff {
   collectedPayments      PaymentLog[]     @relation("PaymentCollectedBy")
   approvedPayments       PaymentLog[]     @relation("PaymentApprovedBy")
   voidedPayments         PaymentLog[]     @relation("PaymentVoidedBy")
+  // ── Sprint 8H — housekeeping scheduling ─────────────────────────────────
+  shifts                 StaffShift[]
+  shiftExceptions        StaffShiftException[]            @relation("ShiftExceptionsForStaff")
+  approvedShiftExceptions StaffShiftException[]           @relation("ShiftExceptionsApprovedBy")
+  coverages              StaffCoverage[]
+  shiftClocks            StaffShiftClock[]
+  preferences            StaffPreferences?
+  preferenceChangesMade  StaffPreferenceLog[]             @relation("PreferenceChangesByStaff")
+  // ── Sprint 8I-J — Hub Recamarista gamificación (privacy-respecting) ─────
+  streak                 StaffStreak?
+  personalRecords        StaffPersonalRecord[]
+  dailyActivity          StaffDailyActivity[]
+  // ── Feature flags audit trail ────────────────────────────────────────────
+  featureFlagsUpdated    FeatureFlag[]
+  featureFlagAudits      FeatureFlagAuditLog[]
+  // ── Sprint Mx-1 — Módulo de Mantenimiento ─────────────────────────────────
+  // Un staff puede aparecer en múltiples roles dentro del ciclo de vida de un
+  // ticket (reporta, asignado, resuelve, verifica) — cada relación es independiente.
+  // Department.MAINTENANCE identifica al staff que es técnico de mantenimiento.
+  ticketsReported        MaintenanceTicket[]        @relation("TicketsReported")
+  ticketsAssigned        MaintenanceTicket[]        @relation("TicketsAssigned")
+  ticketsResolved        MaintenanceTicket[]        @relation("TicketsResolved")
+  ticketsVerified        MaintenanceTicket[]        @relation("TicketsVerified")
+  ticketPhotosUploaded   MaintenanceTicketPhoto[]   @relation("TicketPhotoUploader")
+  ticketCommentsAuthored MaintenanceTicketComment[] @relation("TicketCommentAuthor")
+  ticketLogsBy           MaintenanceTicketLog[]     @relation("TicketLogActor")
 
   @@index([organizationId])
   @@index([organizationId, propertyId])
@@ -446,6 +662,43 @@ model CleaningTask {
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
 
+  // ── Sprint 8H — housekeeping scheduling ─────────────────────────────────
+  scheduledFor         DateTime?             @db.Date @map("scheduled_for")  // fecha lógica del roster (idempotencia + queries)
+  carryoverFromDate    DateTime?             @db.Date @map("carryover_from_date")
+  carryoverFromTaskId  String?               @map("carryover_from_task_id")
+  autoAssignmentRule   String?               @map("auto_assignment_rule")    // 'COVERAGE_PRIMARY' | 'COVERAGE_BACKUP' | 'ROUND_ROBIN' | null
+  cancelledReason      CleaningCancelReason? @map("cancelled_reason")
+  cancelledAt          DateTime?             @map("cancelled_at")
+  extensionFlag        ExtensionFlag?        @map("extension_flag")          // D12 — re-etiqueta cuando extension aplica
+
+  // ── Sprint 9 / EC-6 — Skip-and-retry (AHLEI Sec. 4.3) ────────────────────
+  deferredAt           DateTime?              @map("deferred_at")
+  deferredReason       CleaningDeferReason?   @map("deferred_reason")
+  // Hora a la que la tarea debe re-promoverse a READY/UNASSIGNED automáticamente.
+  // El cron `*/5 * * * *` la chequea contra `now`. Default 30 min post-defer (AHLEI).
+  retryAt              DateTime?              @map("retry_at")
+  // Contador acumulado de deferrals. ≥3 → status=BLOCKED + notif tier-2.5 supervisor.
+  deferredCount        Int                    @default(0) @map("deferred_count")
+
+  // ── Sprint 9 / EC-3 — Late checkout (huésped sale a hora distinta) ───────
+  // Si la recepción aprobó late checkout, este timestamp guarda la nueva
+  // hora prevista. Mobile lo usa para re-calcular prioridad: la tarea no
+  // es URGENT hasta que `now >= lateCheckoutAt - 1h`.
+  lateCheckoutAt       DateTime?              @map("late_checkout_at")
+
+  // ── Sprint 9 / D15 — Override flags (OperationalOverridesPage) ────────────
+  // Limpieza profunda — cambia el template de checklist + duración estimada.
+  // Operativo: el housekeeper recibe pack diferente (sábanas + manta + cortinas
+  // vs solo sábanas) y debe documentar más fotos.
+  deepClean            Boolean                @default(false) @map("deep_clean")
+  // Hold por extensión sin formalizar (huésped pidió quedarse pero aún no paga).
+  // Estado: la tarea se mantiene PENDING (no se inicia limpieza). El housekeeper
+  // ve el badge "⏸ En espera de extensión". Al formalizar la extensión: D12
+  // resuelve (con/sin limpieza). Al cancelar el hold: vuelve a estado normal.
+  holdReason           String?                @map("hold_reason")
+  heldAt               DateTime?              @map("held_at")
+  heldById             String?                @map("held_by_id")
+
   organization Organization?      @relation(fields: [organizationId], references: [id])
   unit         Unit               @relation(fields: [unitId], references: [id])
   checkout     Checkout?          @relation(fields: [checkoutId], references: [id])
@@ -455,12 +708,22 @@ model CleaningTask {
   notes        CleaningNote[]
   issues       MaintenanceIssue[]
   block        RoomBlock?         @relation("BlockTask")
+  // Self-relation for carryover audit chain (CleaningTask → original CleaningTask de ayer)
+  carryoverFromTask    CleaningTask?  @relation("TaskCarryover", fields: [carryoverFromTaskId], references: [id])
+  carryoverChildren    CleaningTask[] @relation("TaskCarryover")
+  // ── Sprint Mx-1 — Mantenimiento ────────────────────────────────────────
+  // Tickets levantados durante esta tarea de limpieza (housekeeper detecta
+  // problemas en cuarto). Vínculo via MaintenanceTicket.sourceTaskId.
+  maintenanceTickets   MaintenanceTicket[] @relation("TicketSourceTask")
 
   @@index([organizationId])
   @@index([status])
   @@index([assignedToId, status])
   @@index([unitId])
   @@index([checkoutId])
+  @@index([scheduledFor, status])
+  @@index([carryoverFromDate])
+  @@index([cancelledReason])
   @@map("cleaning_tasks")
 }
 
@@ -471,6 +734,11 @@ model TaskLog {
   staffId        String?
   event          TaskLogEvent
   note           String?
+  // metadata: snapshot opcional del evento. Caso principal:
+  //   COMPLETED { checklist: [{ id, label, completed }] }  → para reportes
+  //   PAUSED    { reason: '...' }                         → opcional
+  // Queryable con operadores JSONB de Postgres en reports.
+  metadata       Json?
   createdAt      DateTime     @default(now())
 
   organization Organization?      @relation(fields: [organizationId], references: [id])
@@ -575,6 +843,40 @@ model PropertySettings {
   // Channex.io channel manager (Sprint 8): ID de la propiedad en Channex para push de inventario.
   // Opcional — sin él, pushInventory() es no-op (fail-soft).
   channexPropertyId             String?   @map("channex_property_id")
+  // ── Sprint 8H — Housekeeping scheduling ───────────────────────────────────
+  // Hora local (0-23) a la que el MorningRosterScheduler genera el roster del día.
+  // Default 7 = 7:00 AM. Configurable per-property porque hostels vacacionales LATAM
+  // suelen empezar 6 AM y boutique 8 AM.
+  morningRosterHour             Int       @default(7) @map("morning_roster_hour")
+  // Idempotencia del cron — fecha local del último roster procesado.
+  // Mismo patrón que noShowProcessedDate (§15 CLAUDE.md). El scheduler corre cada
+  // 15 min y solo procesa si esta fecha != localDate actual.
+  morningRosterDate             DateTime? @db.Date @map("morning_roster_date")
+  // D-decisión: política de carryover de tareas incompletas del día anterior.
+  carryoverPolicy               CarryoverPolicy @default(REASSIGN_TO_TODAY_SHIFT) @map("carryover_policy")
+  // Toggle global para auto-asignación. Si false, todas las tareas nacen UNASSIGNED.
+  autoAssignmentEnabled         Boolean   @default(true) @map("auto_assignment_enabled")
+  // Si true, mobile pide clock-in al abrir y bloquea acciones hasta marcar entrada.
+  shiftClockingRequired         Boolean   @default(false) @map("shift_clocking_required")
+
+  // ── Sprint 9 / D14 — Stayover (in-house cleaning) policy ───────────────
+  // Frecuencia de limpieza para camas ocupadas sin checkout planificado.
+  // Default por PropertyType (en seed/factory): HOTEL→DAILY, HOSTAL→NEVER,
+  // VACATION_RENTAL→NEVER. Configurable per-property desde Settings.
+  stayoverFrequency  StayoverFrequency @default(NEVER) @map("stayover_frequency")
+  // Hora local a la que el StayoverScheduler genera tareas (default 8 = 8 AM,
+  // 1h después del MorningRoster para no competir).
+  stayoverHour       Int               @default(8)     @map("stayover_hour")
+  // Idempotencia per-day del scheduler — mismo patrón que morningRosterDate.
+  stayoverProcessedDate DateTime?      @db.Date        @map("stayover_processed_date")
+  // ── Sprint 9 — Reports / Revenue ──────────────────────────────────────────
+  // Meta semanal de revenue para el frame "FORECAST SEMANA" del Revenue
+  // Carousel mobile. Editable por admin desde Settings. Null = sin meta;
+  // el frame se computa como porcentaje contra null hasta configurarse.
+  weeklyRevenueTarget Decimal?  @db.Decimal(12, 2) @map("weekly_revenue_target")
+  // Currency por defecto para revenue reports (no para folios — esos vienen
+  // de la reserva). Default MXN. ISO 4217.
+  reportCurrency      String    @default("MXN") @map("report_currency")
   deletedAt           DateTime? @map("deleted_at")
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
@@ -585,6 +887,24 @@ model PropertySettings {
   @@index([organizationId])
   @@index([organizationId, propertyId])
   @@map("property_settings")
+}
+
+// Política de carryover (D6 + decisión de usuario REASSIGN_TO_TODAY_SHIFT por default).
+enum CarryoverPolicy {
+  REASSIGN_TO_TODAY_SHIFT   // reasigna a quien esté en turno hoy (default operativo)
+  KEEP_ORIGINAL_ASSIGNEE    // preserva original (si no en turno → UNASSIGNED)
+  ALWAYS_UNASSIGNED         // estricto — supervisor reasigna manualmente
+}
+
+// D14 (CLAUDE.md §54) — Frecuencia de limpieza de estadía configurable per-property.
+// Default por PropertyType en seed/factory (HOTEL=DAILY, HOSTAL/VR=NEVER).
+enum StayoverFrequency {
+  NEVER             // hostal LATAM default — solo limpieza de checkout
+  DAILY             // hotel tradicional (AHLEI Sec. 4.2.1, Marriott/Hilton/IHG)
+  EVERY_2_DAYS      // hotel eco-friendly (Marriott Bonvoy "Make a Green Choice")
+  EVERY_3_DAYS      // extended-stay / hostel premium
+  ON_REQUEST        // huésped opt-in via QR/web (Marriott Bonvoy 2022 standard)
+  GUEST_PREFERENCE  // respeta GuestPreference per-stay (futuro — Roadmap P6)
 }
 
 model UnitDiscrepancy {
@@ -684,6 +1004,11 @@ model GuestStay {
   // ── Check-in extended fields (Sprint 9) ─────────────────────────────────
   arrivalNotes  String?          @map("arrival_notes")
   keyType       KeyDeliveryType? @map("key_type")
+  // ── Reports — pace/lead-time analytics (Sprint 9 research recommendation) ─
+  // Días entre creación de la reserva y check-in. Calculado al crear.
+  // Habilita pace/lead-time analysis (top wanted report en cross-research)
+  // sin recomputar `differenceInDays` en cada query agregada. Trivial cost.
+  bookingLeadDays   Int?              @map("booking_lead_days")
   // ── Stripe card-on-file (Sprint 8) ───────────────────────────────────────
   // Guardados al hacer check-in via SetupIntent (usage: 'off_session').
   // stripePaymentIntentId se genera al procesar el cargo de no-show.
@@ -826,12 +1151,18 @@ model RoomReadinessTaskItem {
   completedAt          DateTime?  @map("completed_at")
   photoUrl             String?    @map("photo_url")
   notes                String?
+  // ── Sprint Mx-1 — vínculo con ticket levantado al detectar problema ─────
+  // El housekeeper marca un item del checklist como "issue detected" → se crea
+  // automáticamente un MaintenanceTicket con sourceTaskId = task.cleaningTaskId
+  // (si aplica) y se guarda el id aquí para auditoría inversa.
   maintenanceTicketId  String?    @map("maintenance_ticket_id")
 
-  task          RoomReadinessTask @relation(fields: [taskId], references: [id])
-  checklistItem ChecklistItem     @relation(fields: [checklistItemId], references: [id])
+  task              RoomReadinessTask  @relation(fields: [taskId], references: [id])
+  checklistItem     ChecklistItem      @relation(fields: [checklistItemId], references: [id])
+  maintenanceTicket MaintenanceTicket? @relation("ItemMaintenanceTicket", fields: [maintenanceTicketId], references: [id])
 
   @@index([taskId])
+  @@index([maintenanceTicketId])
   @@map("room_readiness_task_items")
 }
 
@@ -1106,6 +1437,13 @@ model RoomBlock {
   // Tarea de mantenimiento creada automáticamente al activar el bloqueo
   cleaningTaskId String?       @unique @map("cleaning_task_id")
 
+  // ── Sprint Mx-1 — Mantenimiento (Bridge crítico inventario ↔ tickets) ───
+  // FK al ticket que disparó este bloqueo automático (TicketPriority.CRITICAL).
+  // Se coloca del lado del bloque para evitar dependencia FK circular con
+  // MaintenanceTicket. La reverse relation `MaintenanceTicket.autoBlock` no
+  // tiene FK propia. @unique garantiza 1 bloque automático por ticket.
+  maintenanceTicketId String? @unique @map("maintenance_ticket_id")
+
   createdAt      DateTime      @default(now()) @map("created_at")
   updatedAt      DateTime      @updatedAt @map("updated_at")
 
@@ -1115,6 +1453,7 @@ model RoomBlock {
   requestedBy    HousekeepingStaff @relation("BlocksRequested", fields: [requestedById], references: [id])
   approvedBy     HousekeepingStaff? @relation("BlocksApproved", fields: [approvedById], references: [id])
   cleaningTask   CleaningTask?     @relation("BlockTask", fields: [cleaningTaskId], references: [id])
+  maintenanceTicket MaintenanceTicket? @relation("BlockMaintenanceTicket", fields: [maintenanceTicketId], references: [id])
   logs           BlockLog[]
 
   @@index([organizationId, propertyId, status])
@@ -1293,4 +1632,717 @@ model PaymentLog {
   @@index([organizationId, propertyId, shiftDate])
   @@index([collectedById, shiftDate])
   @@map("payment_logs")
+}
+
+// ======================= HOUSEKEEPING SCHEDULING (Sprint 8H) =======================
+//
+// Modelos que sustentan el módulo de recamaristas como diferenciador competitivo:
+//   StaffShift            — turno semanal recurrente
+//   StaffShiftException   — excepción puntual (vacación, día libre, turno extra)
+//   StaffCoverage         — cobertura habitación↔staff (primary/backup)
+//   StaffShiftClock       — clock-in/out real (USALI compliance)
+//   StaffPreferences      — preferencias del staff (gamificación gestionada por supervisor)
+//   StaffPreferenceLog    — audit append-only de cambios a preferences
+//
+// Decisiones documentadas en CLAUDE.md §35-§46 (D1-D12) y plan vamos-a-comenzar-a-federated-kitten.md.
+
+/**
+ * StaffShift — turno semanal recurrente del staff. Fuente de verdad de "quién está en turno".
+ * Las excepciones puntuales viven en StaffShiftException (D5: ausencia explícita, etc.)
+ *
+ * Ejemplo: María trabaja Lun-Vie 7-15.
+ *   { staffId: 'maria', dayOfWeek: 1, startTime: '07:00', endTime: '15:00', active: true }
+ *   { staffId: 'maria', dayOfWeek: 2, ... }
+ *   ...
+ */
+model StaffShift {
+  id              String    @id @default(uuid())
+  organizationId  String?   @map("organization_id")
+  propertyId      String    @map("property_id")
+  staffId         String    @map("staff_id")
+  dayOfWeek       Int       @map("day_of_week")        // 0 (Sun) - 6 (Sat)
+  startTime       String    @map("start_time")          // "HH:mm" — local de la propiedad
+  endTime         String    @map("end_time")            // "HH:mm" — local de la propiedad
+  effectiveFrom   DateTime  @db.Date @map("effective_from")
+  effectiveUntil  DateTime? @db.Date @map("effective_until")
+  active          Boolean   @default(true)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  organization Organization?     @relation(fields: [organizationId], references: [id])
+  property     Property          @relation(fields: [propertyId], references: [id])
+  staff        HousekeepingStaff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([propertyId, dayOfWeek, active])
+  @@index([staffId, active])
+  @@map("staff_shifts")
+}
+
+enum ShiftExceptionType {
+  OFF        // día libre solicitado / ausencia
+  EXTRA      // turno adicional cubriendo a alguien
+  MODIFIED   // misma fecha pero distintas horas
+}
+
+/**
+ * StaffShiftException — excepción puntual al horario semanal (D5).
+ * Tipo OFF se usa también para registrar AUSENCIAS marcadas por el receptionist
+ * a través del endpoint POST /v1/scheduling/absences.
+ */
+model StaffShiftException {
+  id           String             @id @default(uuid())
+  staffId      String             @map("staff_id")
+  date         DateTime           @db.Date
+  type         ShiftExceptionType
+  startTime    String?            @map("start_time")    // null si OFF
+  endTime      String?            @map("end_time")
+  reason       String?
+  approvedById String?            @map("approved_by_id")
+  createdAt    DateTime           @default(now()) @map("created_at")
+
+  staff      HousekeepingStaff  @relation("ShiftExceptionsForStaff", fields: [staffId], references: [id], onDelete: Cascade)
+  approvedBy HousekeepingStaff? @relation("ShiftExceptionsApprovedBy", fields: [approvedById], references: [id])
+
+  @@unique([staffId, date])
+  @@index([date])
+  @@map("staff_shift_exceptions")
+}
+
+/**
+ * StaffCoverage — qué habitaciones limpia esta recamarista por defecto (D5: soft, no hard).
+ * Una habitación puede tener múltiples staff cubriéndola: 1 primary + N backups.
+ *
+ * El AssignmentService prefiere primary; si no en turno, baja a backup; si nadie cubre, round-robin.
+ */
+model StaffCoverage {
+  id          String   @id @default(uuid())
+  propertyId  String   @map("property_id")
+  staffId     String   @map("staff_id")
+  roomId      String   @map("room_id")
+  isPrimary   Boolean  @default(true) @map("is_primary")
+  weight      Int      @default(1)                       // tiebreaker para round-robin secundario
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  property Property          @relation(fields: [propertyId], references: [id])
+  staff    HousekeepingStaff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  room     Room              @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  // Un staff no puede tener dos coverages para la misma room en el mismo nivel (primary vs backup).
+  @@unique([staffId, roomId, isPrimary])
+  @@index([propertyId, roomId])
+  @@index([roomId, isPrimary])
+  @@map("staff_coverages")
+}
+
+enum ClockSource {
+  MOBILE
+  WEB
+  MANUAL_SUPERVISOR
+}
+
+/**
+ * StaffShiftClock — registro real de clock-in/out (USALI auditability).
+ * Append-only: nunca se actualiza un clock-in pasado.
+ * Para correcciones, el supervisor crea un nuevo registro con source=MANUAL_SUPERVISOR.
+ */
+model StaffShiftClock {
+  id         String      @id @default(uuid())
+  staffId    String      @map("staff_id")
+  propertyId String      @map("property_id")
+  clockInAt  DateTime    @map("clock_in_at")
+  clockOutAt DateTime?   @map("clock_out_at")
+  source     ClockSource
+  notes      String?
+  createdAt  DateTime    @default(now()) @map("created_at")
+
+  staff    HousekeepingStaff @relation(fields: [staffId], references: [id])
+  property Property          @relation(fields: [propertyId], references: [id])
+
+  @@index([staffId, clockInAt])
+  @@index([propertyId, clockInAt])
+  @@map("staff_shift_clocks")
+}
+
+enum GamificationLevel {
+  OFF
+  SUBTLE
+  STANDARD
+}
+
+/**
+ * StaffPreferences — preferencias del staff. NOTA: gamificationLevel solo es
+ * editable por SUPERVISOR (D9). El staff puede leer su propio registro pero no
+ * escribirlo. hapticEnabled / soundEnabled SÍ son self-managed.
+ */
+model StaffPreferences {
+  id                String            @id @default(uuid())
+  staffId           String            @unique @map("staff_id")
+  gamificationLevel GamificationLevel @default(STANDARD) @map("gamification_level")
+  language          String            @default("es-MX")
+  hapticEnabled     Boolean           @default(true) @map("haptic_enabled")
+  soundEnabled      Boolean           @default(true) @map("sound_enabled")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+
+  staff HousekeepingStaff   @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  logs  StaffPreferenceLog[]
+
+  @@map("staff_preferences")
+}
+
+/**
+ * StaffPreferenceLog — append-only log de cambios a StaffPreferences.
+ * Cumple USALI auditability + traza decisiones laborales (quién cambió qué, cuándo, por qué).
+ * Útil para cumplir LFPDPPP MX / GDPR / LGPD si un staff cuestiona la configuración.
+ */
+model StaffPreferenceLog {
+  id            String   @id @default(uuid())
+  preferencesId String   @map("preferences_id")
+  staffId       String   @map("staff_id")          // denormalizado para queries directas
+  field         String                              // 'gamificationLevel' | 'language' | etc.
+  oldValue      String?  @map("old_value")
+  newValue      String   @map("new_value")
+  changedById   String   @map("changed_by_id")     // siempre presente — sin cambios automáticos
+  reason        String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  preferences StaffPreferences  @relation(fields: [preferencesId], references: [id], onDelete: Cascade)
+  changedBy   HousekeepingStaff @relation("PreferenceChangesByStaff", fields: [changedById], references: [id])
+
+  @@index([staffId, createdAt])
+  @@map("staff_preference_logs")
+}
+
+// ============================================================================
+// SPRINT 9 — REPORTS / CHANNEL COMMISSIONS
+// ============================================================================
+
+/**
+ * ChannelCommission — comisión que cada OTA cobra por reserva.
+ *
+ * Justificación (CLAUDE.md §29 + revenue-data-mapping.md):
+ *   - Booking típicamente 15%, Airbnb 14-16%, Expedia 18-22%
+ *   - El % varía por contrato y temporada — no es constante
+ *   - Necesario para el frame "COMISIONES OTA HOY" del Revenue Carousel
+ *   - Histórico relevante (effectiveFrom/effectiveUntil) para reportes
+ *     fiscales correctos cuando un cliente revisa períodos pasados
+ *
+ * Source uses the same string values as GuestStay.source.
+ * Sprint 9+ podríamos migrar a un enum BookingSource compartido.
+ *
+ * Lookup pattern:
+ *   const rate = await prisma.channelCommission.findFirst({
+ *     where: {
+ *       propertyId,
+ *       source: 'BOOKING',
+ *       effectiveFrom: { lte: targetDate },
+ *       OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: targetDate } }],
+ *     },
+ *     orderBy: { effectiveFrom: 'desc' },
+ *   })
+ */
+model ChannelCommission {
+  id             String    @id @default(uuid())
+  organizationId String?   @map("organization_id")
+  propertyId     String    @map("property_id")
+  /** Channel source (matches GuestStay.source string values). */
+  source         String    // 'BOOKING' | 'AIRBNB' | 'EXPEDIA' | 'HOSTELWORLD' | etc.
+  /** Commission rate as percent (e.g., 15.00 for 15%). Stored as Decimal
+   *  for exact arithmetic (CLAUDE.md §17 — no float for money). */
+  ratePercent    Decimal   @db.Decimal(5, 2) @map("rate_percent")
+  /** Effective period — supports historical lookups for past reports. */
+  effectiveFrom  DateTime  @map("effective_from") @db.Date
+  effectiveUntil DateTime? @map("effective_until") @db.Date
+  notes          String?
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization Organization? @relation(fields: [organizationId], references: [id])
+  property     Property      @relation(fields: [propertyId], references: [id])
+
+  @@index([propertyId, source, effectiveFrom])
+  @@map("channel_commissions")
+}
+
+// ============================================================================
+// SPRINT 8I-J — HUB RECAMARISTA · GAMIFICACIÓN (privacy-respecting)
+// ============================================================================
+//
+// Anclado a docs/research-housekeeping-hub.md.
+// Principios SDT (Deci & Ryan 1985) + privacy peer-to-peer estricta (D9).
+//
+// NUNCA expuestos a pares ni listados públicamente. Solo:
+//   - El propio staff (en su Hub)
+//   - Su supervisor (audit trail / coaching)
+
+/**
+ * StaffStreak — racha diaria estilo Duolingo, sin shame al romperse.
+ *
+ * Loss aversion suave (Tversky-Kahneman 1979): el usuario no quiere
+ * romper su racha. Pero usamos `freezesTotal` (2/mes) para vacaciones
+ * o ausencias justificadas — autonomía SDT preservada.
+ */
+model StaffStreak {
+  id              String    @id @default(uuid())
+  staffId         String    @unique @map("staff_id")
+  /** Días consecutivos con al menos 1 tarea completada (o freeze activo). */
+  currentDays     Int       @default(0) @map("current_days")
+  /** Récord histórico — para celebrar al superarlo (Strava-style). */
+  longestDays     Int       @default(0) @map("longest_days")
+  /** Última fecha (DATE local) en que el staff trabajó tareas. */
+  lastWorkDate    DateTime? @db.Date @map("last_work_date")
+  /** Freezes usados este mes — ausencias que no rompen la racha. */
+  freezesUsed     Int       @default(0) @map("freezes_used")
+  /** Budget mensual de freezes. Default 2 — generoso pero acotado. */
+  freezesTotal    Int       @default(2) @map("freezes_total")
+  /** Reset mensual del contador de freezes (1° del mes). */
+  freezesResetAt  DateTime? @db.Date @map("freezes_reset_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  staff           HousekeepingStaff @relation(fields: [staffId], references: [id])
+
+  @@map("staff_streaks")
+}
+
+/**
+ * StaffPersonalRecord — récord personal por categoría de habitación.
+ *
+ * Strava PR pattern. Self-vs-self. No es ranking ni comparación peer.
+ * Una row por staff por categoría — siempre el mejor tiempo histórico.
+ *
+ * `roomCategory` usa los valores de `RoomCategory` (PRIVATE | SHARED) o
+ * un id de RoomType cuando exista (Sprint 9+).
+ */
+model StaffPersonalRecord {
+  id            String   @id @default(uuid())
+  staffId       String   @map("staff_id")
+  /** Bucketing key. */
+  roomCategory  String   @map("room_category")
+  /** Best cleaning duration in minutes. */
+  bestMinutes   Int      @map("best_minutes")
+  /** When the PR was set. */
+  achievedAt    DateTime @map("achieved_at")
+  /** Reference to the task that set the record (audit trail). */
+  taskId        String   @map("task_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  staff         HousekeepingStaff @relation(fields: [staffId], references: [id])
+
+  @@unique([staffId, roomCategory])
+  @@map("staff_personal_records")
+}
+
+/**
+ * StaffDailyActivity — granular día-a-día por staff para Activity Rings.
+ *
+ * Apple Fitness pattern: 3 rings = (tareas, tiempo eficiente,
+ * verificaciones positivas). Una row por staff por día. Permite
+ * GitHub-style contribution graph en /me sin re-computar.
+ */
+model StaffDailyActivity {
+  id                    String   @id @default(uuid())
+  staffId               String   @map("staff_id")
+  date                  DateTime @db.Date
+  tasksCompleted        Int      @default(0) @map("tasks_completed")
+  tasksVerified         Int      @default(0) @map("tasks_verified")
+  totalCleaningMinutes  Int      @default(0) @map("total_cleaning_minutes")
+  /** Whether the user closed all 3 rings this day (Day Completion Ritual). */
+  ringsCompleted        Boolean  @default(false) @map("rings_completed")
+  /** Cached daily target for ring 1 (tasks). Derived at roster time. */
+  tasksTarget           Int      @default(0) @map("tasks_target")
+  /** Cached daily target for ring 2 (efficient minutes). */
+  minutesTarget         Int      @default(0) @map("minutes_target")
+  /** Cached daily target for ring 3 (verified count). */
+  verifiedTarget        Int      @default(0) @map("verified_target")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  staff                 HousekeepingStaff @relation(fields: [staffId], references: [id])
+
+  @@unique([staffId, date])
+  @@index([staffId, date])
+  @@map("staff_daily_activity")
+}
+
+/**
+ * FeatureFlag — toggles persistentes server-side para testing y rollouts.
+ *
+ * Por qué server-side y no localStorage:
+ *   - Multi-device coherence: un admin que activa "test.alarm" desde web
+ *     debe afectar al backend (cron) y a todos los clientes mobile/web
+ *     simultáneamente. localStorage solo afecta al navegador del actor.
+ *   - Audit fiscal-grade: registro de quién encendió qué cuándo (ver
+ *     FeatureFlagAuditLog). Esto es trazabilidad de operación, no de UI.
+ *
+ * Naming convention:
+ *   - test.*    → entornos/flujos de prueba (test.alarm, test.no_show, ...)
+ *   - feature.* → feature flags futuros con rollout gradual
+ *   - debug.*   → logs/diagnostics que en prod están off por defecto
+ *
+ * Kill-switch de seguridad:
+ *   - Las variables de entorno SIEMPRE ganan sobre el DB flag.
+ *     Si `TEST_ALARM_ENABLED=false` por env, el cron NO se activa
+ *     aunque el flag esté ON en BD. Esto permite a ops apagar
+ *     un flag inmediatamente sin acceso a la base.
+ *
+ * Scope:
+ *   - propertyId nullable: flag global a toda la organización si null,
+ *     o restringido a una propiedad si está seteado.
+ *
+ * Solo SUPERVISOR puede crear/editar (Roles guard en el controller).
+ *
+ * Referencia: Martin Fowler — *Feature Toggles* (2017),
+ * https://martinfowler.com/articles/feature-toggles.html
+ */
+model FeatureFlag {
+  id          String   @id @default(uuid())
+  /** Identificador único del flag (e.g. "test.alarm", "feature.x"). */
+  key         String   @unique
+  enabled     Boolean  @default(false)
+  /** Restringir el flag a una propiedad específica. null = global. */
+  propertyId  String?  @map("property_id")
+  /** Configuración libre por flag (e.g. { intervalMin: 5, staffEmail: "m@z.co" }). */
+  config      Json?
+  /** Texto humano para que admin recuerde qué hace este flag. */
+  description String?
+  updatedById String?  @map("updated_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  property    Property?          @relation(fields: [propertyId], references: [id])
+  updatedBy   HousekeepingStaff? @relation(fields: [updatedById], references: [id])
+  auditLogs   FeatureFlagAuditLog[]
+
+  @@index([key])
+  @@index([propertyId])
+  @@map("feature_flags")
+}
+
+/**
+ * FeatureFlagAuditLog — append-only audit trail de cambios.
+ * Append-only: nunca se borra ni edita. Cumple con §11 (registros
+ * inmutables). Permite responder "¿quién dejó test.alarm encendido en
+ * producción 3 horas?" en cualquier postmortem.
+ */
+model FeatureFlagAuditLog {
+  id          String   @id @default(uuid())
+  flagId      String   @map("flag_id")
+  flagKey     String   @map("flag_key")  // duplicado para queries sin join
+  action      String   // 'CREATED' | 'ENABLED' | 'DISABLED' | 'CONFIG_UPDATED'
+  previousValue Json?  @map("previous_value")
+  newValue    Json?    @map("new_value")
+  actorId     String?  @map("actor_id")
+  actorRole   String?  @map("actor_role")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  flag        FeatureFlag        @relation(fields: [flagId], references: [id])
+  actor       HousekeepingStaff? @relation(fields: [actorId], references: [id])
+
+  @@index([flagKey, createdAt])
+  @@index([actorId])
+  @@map("feature_flag_audit_logs")
+}
+
+/**
+ * DailyPropertyMetrics — snapshot diario inmutable de KPIs operativos.
+ *
+ * Recomendación basada en investigación cross-referencia (Sprint 9):
+ * Mews/Cloudbeds engineering blogs + STR + USALI 12th + reviews G2/Capterra.
+ * El "Manager Report" (Occ + ADR + RevPAR) es el report #4 más usado en la
+ * industria. Recomputarlo desde GuestStay + StaySegment + PaymentLog no
+ * escala más allá de ~30 días. Snapshot append-only por propiedad por
+ * fecha local.
+ *
+ * Refresh trigger: `NightAuditScheduler` corre per-property en local TZ
+ * (CLAUDE.md §14). Añadir paso `computeDailyMetrics(propertyId, localDate)`
+ * tras procesar no-shows.
+ *
+ * Tamaño: 1 row/property/day = ~365 rows/año/propiedad. 50 propiedades
+ * × 5 años = 91k rows. Trivial para Postgres con índice (propertyId, date).
+ *
+ * NO denormaliza datos derivables on-the-fly (ARRIVAL_LIST, IN_HOUSE) —
+ * eso es projection sobre GuestStay con índices, no aggregation table.
+ */
+model DailyPropertyMetrics {
+  id                String   @id @default(uuid())
+  propertyId        String   @map("property_id")
+  /** Fecha local de la propiedad (timezone IANA aplicado). NO UTC. */
+  date              DateTime @db.Date
+  /** Inventario base — habitaciones disponibles para vender ese día. */
+  roomsAvailable    Int      @map("rooms_available")
+  /** Habitaciones vendidas (con stay activo cubriendo la noche). */
+  roomsSold         Int      @map("rooms_sold")
+  /** Habitaciones bloqueadas (mantenimiento, OOS). */
+  roomsOOO          Int      @map("rooms_ooo")
+  /** Revenue de habitaciones (sin F&B, sin extras). */
+  roomRevenue       Decimal  @map("room_revenue") @db.Decimal(12, 2)
+  /** Revenue total (incluye otros departamentos cuando los haya). */
+  totalRevenue      Decimal  @map("total_revenue") @db.Decimal(12, 2)
+  /** ADR = roomRevenue / roomsSold. Snapshot — no se recalcula. */
+  adr               Decimal  @map("adr") @db.Decimal(10, 2)
+  /** Occupancy = roomsSold / roomsAvailable. */
+  occupancy         Decimal  @db.Decimal(5, 4)
+  /** RevPAR = roomRevenue / roomsAvailable. */
+  revpar            Decimal  @db.Decimal(10, 2)
+  /** Eventos del día — counters para reportes diarios. */
+  arrivalCount      Int      @default(0) @map("arrival_count")
+  departureCount    Int      @default(0) @map("departure_count")
+  noShowCount       Int      @default(0) @map("no_show_count")
+  cancellationCount Int      @default(0) @map("cancellation_count")
+  walkInCount       Int      @default(0) @map("walk_in_count")
+  /** Currency snapshot (importante en LATAM con multi-property multi-divisa). */
+  currency          String   @default("MXN")
+  computedAt        DateTime @default(now()) @map("computed_at")
+
+  property          Property @relation(fields: [propertyId], references: [id])
+
+  @@unique([propertyId, date])
+  @@index([propertyId, date])
+  @@map("daily_property_metrics")
+}
+
+/**
+ * ChannelProductionDaily — agregación diaria por canal de venta.
+ *
+ * El "Channel Production Report" es report #9 en uso real (cross-research)
+ * y crítico para evaluar comisiones OTA vs revenue directo. Recomputarlo
+ * por fecha exige scan completo de GuestStay para rangos largos.
+ *
+ * Granularidad: 1 row/property/date/source. 5 sources típicos
+ * (Booking, Expedia, Direct, Airbnb, Walk-in) × 365 días × 50 propiedades
+ * = 91k rows/año.
+ *
+ * Top wanted report cross-research: "cancellation rate by channel +
+ * lead-time-to-cancel" — los counters aquí agregados habilitan ese
+ * análisis sin scan adicional.
+ */
+model ChannelProductionDaily {
+  id            String   @id @default(uuid())
+  propertyId    String   @map("property_id")
+  date          DateTime @db.Date
+  /** Identificador de canal: 'BOOKING' | 'EXPEDIA' | 'DIRECT' | 'WALK_IN' | 'AIRBNB' | etc. */
+  source        String
+  /** Reservas creadas en ese día/canal (no necesariamente con check-in ese día). */
+  bookings      Int      @default(0)
+  /** Reservas canceladas con fecha de cancelación en ese día. */
+  cancellations Int      @default(0)
+  /** No-shows: GuestStay con noShowAt cayendo en este día/canal. */
+  noShows       Int      @default(0) @map("no_shows")
+  /** Revenue neto del canal en ese día (post-comisión cuando aplique). */
+  netRevenue    Decimal  @default(0) @map("net_revenue") @db.Decimal(12, 2)
+  /** Comisión cobrada por el canal (0 para DIRECT/WALK_IN). */
+  commission    Decimal  @default(0) @db.Decimal(12, 2)
+  /** Lead time promedio en días — habilita análisis de patrones de booking. */
+  avgLeadDays   Int?     @map("avg_lead_days")
+  currency      String   @default("MXN")
+  computedAt    DateTime @default(now()) @map("computed_at")
+
+  property      Property @relation(fields: [propertyId], references: [id])
+
+  @@unique([propertyId, date, source])
+  @@index([propertyId, date])
+  @@index([source, date])
+  @@map("channel_production_daily")
+}
+
+// ============================================================================
+// SPRINT Mx-1 — MÓDULO DE MANTENIMIENTO (v1.0.0)
+// ============================================================================
+//
+// Sistema completo de tickets de mantenimiento con control, administración y
+// seguimiento en tiempo real. Reemplaza al modelo legacy `MaintenanceIssue`
+// (lightweight, vinculado a CleaningTask) que se preserva por compatibilidad
+// pero NO debe usarse para nuevas integraciones.
+//
+// Flujo operativo del ticket:
+//
+//   [Housekeeper detecta problema durante limpieza]
+//                  ↓
+//   POST /v1/maintenance/tickets { roomId, category, priority, title, photos[] }
+//                  ↓
+//   MaintenanceTicket(status: OPEN, sourceTaskId: <CleaningTask>)
+//                  ↓
+//   ─── ¿priority === CRITICAL? ────────────────┐
+//   │ NO                                       │ SÍ
+//   ↓                                          ↓
+//   AppNotification(MAINTENANCE_TICKET_CREATED) │
+//   → técnico mantenimiento                     │
+//                                               ↓
+//                                        SmartBlockService.createBlock(
+//                                          OUT_OF_ORDER, MAINTENANCE,
+//                                          maintenanceTicketId: ticket.id
+//                                        )
+//                                        → room.status = BLOCKED
+//                                        → desaparece del calendario PMS
+//                                        → SSE: block:activated
+//                                        → AppNotification(
+//                                            MAINTENANCE_TICKET_CRITICAL,
+//                                            ACTION_REQUIRED) → manager
+//                                        → TicketLog(BLOCK_AUTO_CREATED)
+//
+//   [Técnico acknowledge → IN_PROGRESS → RESOLVED]
+//                  ↓
+//   [Supervisor verifica calidad → VERIFIED]
+//                  ↓
+//   ─── ¿hubo bloque automático? ───────────────┐
+//                                                ↓
+//                                        SmartBlockService.releaseBlock()
+//                                        → room.status restored
+//                                        → TicketLog(BLOCK_AUTO_RELEASED)
+//                  ↓
+//   [CLOSED — readonly, archivo histórico]
+//
+// Caso de uso real (Hotel Monica Tulum, 2026-04-09):
+//   Mantenimiento inició encerado de Bongaloo B2 sin bloquear la habitación.
+//   La habitación se vendió en Booking.com → pérdida + reubicación de huésped.
+//   Con este módulo: encerado se levanta como TicketCategory.DEEP_CLEANING +
+//   priority=CRITICAL → auto-bloqueo → Channex.io recibe pushInventory →
+//   Booking.com cierra disponibilidad → no hay reserva conflictiva.
+//
+// Multi-tenancy: organizationId presente y obligatorio. Toda query debe
+// filtrar por organizationId via TenantContextService.
+//
+// Integraciones:
+//   - NotificationCenterService (notif.send) en cada cambio de estado.
+//   - SmartBlockService (createBlock/releaseBlock) en CRITICAL/VERIFIED.
+//   - PushService (Expo) al técnico asignado.
+//   - SSE: maintenance:ticket:created | :updated | :resolved | :verified.
+//   - Channex.io: el bloque automático dispara pushInventory (Sprint 9).
+// ============================================================================
+
+model MaintenanceTicket {
+  id             String         @id @default(uuid())
+  organizationId String         @map("organization_id")
+  propertyId     String         @map("property_id")
+  roomId         String         @map("room_id")              // ticket SIEMPRE vincula a habitación
+  unitId         String?        @map("unit_id")              // opcional — solo cuando aplica a unidad específica
+
+  category       TicketCategory
+  priority       TicketPriority @default(MEDIUM)
+  status         TicketStatus   @default(OPEN)
+
+  title          String                                       // resumen corto: "Grifo gotea en baño"
+  description    String?        @db.Text                      // detalle libre
+  guestImpact    String?        @map("guest_impact")          // "huésped reportó al recepcionista" — contexto
+
+  // ── Actores del ciclo de vida ────────────────────────────────────────────
+  reportedById   String         @map("reported_by_id")        // housekeeper / recepcionista que detectó
+  assignedToId   String?        @map("assigned_to_id")        // técnico (HousekeepingStaff con department=MAINTENANCE)
+  resolvedById   String?        @map("resolved_by_id")        // quien marcó RESOLVED
+  verifiedById   String?        @map("verified_by_id")        // supervisor que confirmó VERIFIED
+
+  // ── Estimación y tiempo real ─────────────────────────────────────────────
+  estimatedMinutes Int?         @map("estimated_minutes")     // estimación al crear/asignar
+  actualMinutes    Int?         @map("actual_minutes")        // calculado al RESOLVED desde logs
+
+  // ── Costos / refacciones (Sprint Mx-2: integración con inventario) ──────
+  // estimatedCost   Decimal?    @db.Decimal(10, 2)
+  // actualCost      Decimal?    @db.Decimal(10, 2)
+  // partsRequired   Json?                                    // [{ name, qty, supplier?, eta? }]
+
+  // ── Timestamps del ciclo de vida (cada cambio de status escribe aquí) ──
+  acknowledgedAt DateTime?      @map("acknowledged_at")
+  startedAt      DateTime?      @map("started_at")
+  waitingPartsAt DateTime?      @map("waiting_parts_at")
+  resolvedAt     DateTime?      @map("resolved_at")
+  verifiedAt     DateTime?      @map("verified_at")
+  closedAt       DateTime?      @map("closed_at")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  // ── Vínculo con tarea de limpieza origen (cuando housekeeper lo detectó) ─
+  sourceTaskId   String?        @map("source_task_id")
+
+  // ── Relations ────────────────────────────────────────────────────────────
+  organization Organization        @relation(fields: [organizationId], references: [id])
+  property     Property            @relation(fields: [propertyId], references: [id])
+  room         Room                @relation("TicketRoom", fields: [roomId], references: [id])
+  unit         Unit?               @relation("TicketUnit", fields: [unitId], references: [id])
+  reportedBy   HousekeepingStaff   @relation("TicketsReported", fields: [reportedById], references: [id])
+  assignedTo   HousekeepingStaff?  @relation("TicketsAssigned", fields: [assignedToId], references: [id])
+  resolvedBy   HousekeepingStaff?  @relation("TicketsResolved", fields: [resolvedById], references: [id])
+  verifiedBy   HousekeepingStaff?  @relation("TicketsVerified", fields: [verifiedById], references: [id])
+  sourceTask   CleaningTask?       @relation("TicketSourceTask", fields: [sourceTaskId], references: [id])
+
+  // Reverse relations — hijos del ticket
+  photos       MaintenanceTicketPhoto[]
+  comments     MaintenanceTicketComment[]
+  logs         MaintenanceTicketLog[]
+  // Reverse: bloque automático creado por este ticket cuando priority=CRITICAL.
+  // FK vive en RoomBlock.maintenanceTicketId para evitar dependencia circular.
+  // 1 ticket → 0..1 bloque (garantizado por @unique en RoomBlock).
+  autoBlock    RoomBlock?          @relation("BlockMaintenanceTicket")
+  // Reverse: items del checklist de readiness que originaron este ticket
+  readinessItems RoomReadinessTaskItem[] @relation("ItemMaintenanceTicket")
+
+  @@index([organizationId, propertyId, status])
+  @@index([organizationId, propertyId, priority, status])
+  @@index([assignedToId, status])
+  @@index([roomId, status])
+  @@index([category, status])
+  @@index([createdAt])
+  @@map("maintenance_tickets")
+}
+
+// ── Fotos antes/después de la reparación ─────────────────────────────────
+// Se almacenan como URLs (S3 / Cloudinary). El upload pasa por endpoint
+// dedicado /v1/uploads que retorna la URL pública firmada.
+model MaintenanceTicketPhoto {
+  id            String   @id @default(uuid())
+  ticketId      String   @map("ticket_id")
+  url           String                                          // URL pública del archivo
+  caption       String?                                         // "antes" | "después" | descripción libre
+  isAfterPhoto  Boolean  @default(false) @map("is_after_photo") // true = foto post-reparación
+  uploadedById  String   @map("uploaded_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  ticket     MaintenanceTicket @relation(fields: [ticketId], references: [id])
+  uploadedBy HousekeepingStaff @relation("TicketPhotoUploader", fields: [uploadedById], references: [id])
+
+  @@index([ticketId])
+  @@map("maintenance_ticket_photos")
+}
+
+// ── Comentarios del ticket (chat interno técnico ↔ supervisor) ──────────
+model MaintenanceTicketComment {
+  id        String   @id @default(uuid())
+  ticketId  String   @map("ticket_id")
+  authorId  String   @map("author_id")
+  content   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  ticket MaintenanceTicket @relation(fields: [ticketId], references: [id])
+  author HousekeepingStaff @relation("TicketCommentAuthor", fields: [authorId], references: [id])
+
+  @@index([ticketId, createdAt])
+  @@map("maintenance_ticket_comments")
+}
+
+// ── Audit trail inmutable del ciclo de vida del ticket ──────────────────
+// Append-only. Cada cambio de status, asignación, foto o comentario genera
+// una entrada. Fuente de verdad para reportes de tiempo de respuesta y
+// disputas operativas.
+model MaintenanceTicketLog {
+  id        String         @id @default(uuid())
+  ticketId  String         @map("ticket_id")
+  event     TicketLogEvent
+  staffId   String?        @map("staff_id")               // null = evento del sistema (auto-block)
+  // metadata: snapshot del cambio. Ejemplos:
+  //   ASSIGNED            { fromStaffId, toStaffId }
+  //   STARTED             { estimatedMinutes }
+  //   WAITING_PARTS       { reason, expectedEta }
+  //   RESOLVED            { resolutionSummary, actualMinutes }
+  //   BLOCK_AUTO_CREATED  { roomBlockId, semantic, reason }
+  //   BLOCK_AUTO_RELEASED { roomBlockId }
+  metadata  Json?
+  createdAt DateTime       @default(now()) @map("created_at")
+
+  ticket MaintenanceTicket  @relation(fields: [ticketId], references: [id])
+  staff  HousekeepingStaff? @relation("TicketLogActor", fields: [staffId], references: [id])
+
+  @@index([ticketId, createdAt])
+  @@index([event])
+  @@map("maintenance_ticket_logs")
 }

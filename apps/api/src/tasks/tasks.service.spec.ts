@@ -17,6 +17,7 @@ import { PrismaService } from '../prisma/prisma.service'
 import { TenantContextService } from '../common/tenant-context.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import { PushService } from '../notifications/push.service'
+import { StaffGamificationService } from '../staff-gamification/staff-gamification.service'
 
 // ─── Helpers para construir datos de prueba ───────────────────────────────────
 
@@ -88,6 +89,11 @@ describe('TasksService', () => {
 
   const notificationsMock = { emit: jest.fn() }
   const pushMock = { sendToStaff: jest.fn() }
+  const gamificationMock = {
+    onTaskVerified: jest.fn().mockResolvedValue(undefined),
+    onTaskStarted: jest.fn().mockResolvedValue(undefined),
+    onTaskCompleted: jest.fn().mockResolvedValue(undefined),
+  }
   const tenantMock = {
     getOrganizationId: jest.fn().mockReturnValue('org-1'),
     getPropertyId: jest.fn().mockReturnValue('property-1'),
@@ -102,6 +108,7 @@ describe('TasksService', () => {
         { provide: TenantContextService, useValue: tenantMock },
         { provide: NotificationsService, useValue: notificationsMock },
         { provide: PushService, useValue: pushMock },
+        { provide: StaffGamificationService, useValue: gamificationMock },
       ],
     }).compile()
 
@@ -418,6 +425,380 @@ describe('TasksService', () => {
 
       // Assert
       expect(result.status).toBe(CleaningStatus.IN_PROGRESS)
+    })
+  })
+
+  // ─── deferTask (Sprint 9 / EC-6) ─────────────────────────────────────────
+  describe('deferTask', () => {
+    beforeEach(() => {
+      // housekeepingStaff.findMany usado para notificar supervisores cuando BLOCKED
+      ;(prismaMock.housekeepingStaff as any).findMany = jest.fn().mockResolvedValue([])
+    })
+
+    it('marca DEFERRED + retryAt 30min después en primer defer (count=1)', async () => {
+      const task = makeTask({ status: CleaningStatus.READY, deferredCount: 0 })
+      prismaMock.cleaningTask.findUnique.mockResolvedValue(task)
+      prismaMock.cleaningTask.update.mockImplementation(({ data }: any) =>
+        Promise.resolve({ ...task, ...data }),
+      )
+
+      const before = Date.now()
+      const result = await service.deferTask('task-1', 'NO_ANSWER' as any, makeActor())
+      const after = Date.now()
+
+      expect(result.status).toBe(CleaningStatus.DEFERRED)
+      expect(prismaMock.cleaningTask.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: CleaningStatus.DEFERRED,
+            deferredReason: 'NO_ANSWER',
+            deferredCount: 1,
+            retryAt: expect.any(Date),
+          }),
+        }),
+      )
+      // El retryAt debe estar ~30 min en el futuro
+      const updateCall = prismaMock.cleaningTask.update.mock.calls[0][0] as any
+      const retryAt = updateCall.data.retryAt as Date
+      const expectedMin = before + 30 * 60 * 1000
+      const expectedMax = after + 30 * 60 * 1000
+      expect(retryAt.getTime()).toBeGreaterThanOrEqual(expectedMin)
+      expect(retryAt.getTime()).toBeLessThanOrEqual(expectedMax)
+
+      expect(notificationsMock.emit).toHaveBeenCalledWith(
+        'property-1',
+        'task:deferred',
+        expect.objectContaining({ taskId: 'task-1', reason: 'NO_ANSWER' }),
+      )
+    })
+
+    it('al tercer defer (count=3) → BLOCKED + notifica supervisores', async () => {
+      const task = makeTask({ status: CleaningStatus.READY, deferredCount: 2 })
+      prismaMock.cleaningTask.findUnique.mockResolvedValue(task)
+      prismaMock.cleaningTask.update.mockImplementation(({ data }: any) =>
+        Promise.resolve({ ...task, ...data }),
+      )
+      ;(prismaMock.housekeepingStaff as any).findMany.mockResolvedValue([
+        { id: 'supervisor-1' },
+        { id: 'supervisor-2' },
+      ])
+
+      const result = await service.deferTask('task-1', 'DND_PHYSICAL' as any, makeActor())
+
+      expect(result.status).toBe(CleaningStatus.BLOCKED)
+      expect(prismaMock.cleaningTask.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: CleaningStatus.BLOCKED,
+            deferredCount: 3,
+            retryAt: null,
+          }),
+        }),
+      )
+      expect(notificationsMock.emit).toHaveBeenCalledWith(
+        'property-1',
+        'task:blocked',
+        expect.any(Object),
+      )
+      expect(pushMock.sendToStaff).toHaveBeenCalledTimes(2)
+      expect(pushMock.sendToStaff).toHaveBeenCalledWith(
+        'supervisor-1',
+        expect.stringContaining('bloqueada'),
+        expect.any(String),
+        expect.objectContaining({ type: 'task:blocked' }),
+      )
+    })
+
+    it('rechaza defer si el actor no es asignado ni SUPERVISOR', async () => {
+      const task = makeTask({ status: CleaningStatus.READY, assignedToId: 'other-staff' })
+      prismaMock.cleaningTask.findUnique.mockResolvedValue(task)
+
+      await expect(
+        service.deferTask('task-1', 'NO_ANSWER' as any, makeActor({ sub: 'random-staff' })),
+      ).rejects.toThrow(ForbiddenException)
+    })
+
+    it('SUPERVISOR puede diferir aunque no sea el asignado', async () => {
+      const task = makeTask({ status: CleaningStatus.READY, assignedToId: 'maria', deferredCount: 0 })
+      prismaMock.cleaningTask.findUnique.mockResolvedValue(task)
+      prismaMock.cleaningTask.update.mockImplementation(({ data }: any) =>
+        Promise.resolve({ ...task, ...data }),
+      )
+
+      const result = await service.deferTask(
+        'task-1',
+        'GUEST_REQUEST' as any,
+        makeActor({ sub: 'sup-1', role: HousekeepingRole.SUPERVISOR }),
+      )
+      expect(result.status).toBe(CleaningStatus.DEFERRED)
+    })
+
+    it('rechaza defer desde estado DONE/VERIFIED/CANCELLED', async () => {
+      const task = makeTask({ status: CleaningStatus.DONE })
+      prismaMock.cleaningTask.findUnique.mockResolvedValue(task)
+      await expect(
+        service.deferTask('task-1', 'NO_ANSWER' as any, makeActor()),
+      ).rejects.toThrow(ConflictException)
+    })
+
+    it('crea TaskLog con event=DEFERRED y metadata', async () => {
+      const task = makeTask({ status: CleaningStatus.READY, deferredCount: 0 })
+      prismaMock.cleaningTask.findUnique.mockResolvedValue(task)
+      prismaMock.cleaningTask.update.mockImplementation(({ data }: any) =>
+        Promise.resolve({ ...task, ...data }),
+      )
+
+      await service.deferTask('task-1', 'DND_PHYSICAL' as any, makeActor())
+
+      expect(prismaMock.taskLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            taskId: 'task-1',
+            event: TaskLogEvent.DEFERRED,
+            metadata: expect.objectContaining({ reason: 'DND_PHYSICAL', deferredCount: 1 }),
+          }),
+        }),
+      )
+    })
+  })
+
+  // ─── D15 — Operational overrides (Sprint 9 / Ajustes del día) ────────────
+  describe('forceUrgent', () => {
+    it('cambia priority a URGENT y emite SSE', async () => {
+      const task = makeTask({ status: CleaningStatus.READY, priority: 'MEDIUM', deferredCount: 0 })
+      prismaMock.cleaningTask.findUnique.mockResolvedValue(task)
+      prismaMock.cleaningTask.update.mockImplementation(({ data }: any) =>
+        Promise.resolve({ ...task, ...data }),
+      )
+
+      await service.forceUrgent('task-1', makeActor({ role: HousekeepingRole.RECEPTIONIST }))
+
+      expect(prismaMock.cleaningTask.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { priority: 'URGENT' } }),
+      )
+      expect(notificationsMock.emit).toHaveBeenCalledWith(
+        'property-1',
+        'task:priority-overridden',
+        expect.objectContaining({ newPriority: 'URGENT', previousPriority: 'MEDIUM' }),
+      )
+    })
+
+    it('idempotente — si ya es URGENT, retorna sin update', async () => {
+      const task = makeTask({ priority: 'URGENT', deferredCount: 0 })
+      prismaMock.cleaningTask.findUnique.mockResolvedValue(task)
+      const result = await service.forceUrgent('task-1', makeActor())
+      expect(result).toBe(task)
+      expect(prismaMock.cleaningTask.update).not.toHaveBeenCalled()
+    })
+
+    it('rechaza si la tarea está VERIFIED o CANCELLED', async () => {
+      const task = makeTask({ status: CleaningStatus.VERIFIED })
+      prismaMock.cleaningTask.findUnique.mockResolvedValue(task)
+      await expect(service.forceUrgent('task-1', makeActor())).rejects.toThrow(ConflictException)
+    })
+  })
+
+  describe('toggleDeepClean', () => {
+    it('toggles deep clean flag (off → on)', async () => {
+      const task = makeTask({ status: CleaningStatus.READY, deepClean: false, deferredCount: 0 })
+      prismaMock.cleaningTask.findUnique.mockResolvedValue(task)
+      prismaMock.cleaningTask.update.mockImplementation(({ data }: any) =>
+        Promise.resolve({ ...task, ...data }),
+      )
+
+      await service.toggleDeepClean('task-1', makeActor())
+
+      expect(prismaMock.cleaningTask.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { deepClean: true } }),
+      )
+    })
+
+    it('rechaza si la tarea está IN_PROGRESS (housekeeper ya limpiando)', async () => {
+      const task = makeTask({ status: CleaningStatus.IN_PROGRESS })
+      prismaMock.cleaningTask.findUnique.mockResolvedValue(task)
+      await expect(service.toggleDeepClean('task-1', makeActor())).rejects.toThrow(/progreso/i)
+    })
+  })
+
+  describe('holdCleaning', () => {
+    it('pone hold con reason y revierte READY → PENDING', async () => {
+      const task = makeTask({ status: CleaningStatus.READY, deferredCount: 0 })
+      prismaMock.cleaningTask.findUnique.mockResolvedValue(task)
+      prismaMock.cleaningTask.update.mockImplementation(({ data }: any) =>
+        Promise.resolve({ ...task, ...data }),
+      )
+
+      await service.holdCleaning('task-1', 'Huésped pidió extender', makeActor())
+
+      expect(prismaMock.cleaningTask.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: CleaningStatus.PENDING,
+            holdReason: 'Huésped pidió extender',
+            heldById: 'staff-1',
+          }),
+        }),
+      )
+    })
+
+    it('rechaza si la tarea está IN_PROGRESS', async () => {
+      const task = makeTask({ status: CleaningStatus.IN_PROGRESS })
+      prismaMock.cleaningTask.findUnique.mockResolvedValue(task)
+      await expect(
+        service.holdCleaning('task-1', 'razón', makeActor()),
+      ).rejects.toThrow(/coordina con el housekeeper/i)
+    })
+
+    it('preserva PENDING si la tarea ya estaba PENDING', async () => {
+      const task = makeTask({ status: CleaningStatus.PENDING, deferredCount: 0 })
+      prismaMock.cleaningTask.findUnique.mockResolvedValue(task)
+      prismaMock.cleaningTask.update.mockImplementation(({ data }: any) =>
+        Promise.resolve({ ...task, ...data }),
+      )
+      await service.holdCleaning('task-1', 'razón', makeActor())
+      expect(prismaMock.cleaningTask.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: CleaningStatus.PENDING }),
+        }),
+      )
+    })
+  })
+
+  describe('releaseHold', () => {
+    it('limpia holdReason + heldAt + heldById', async () => {
+      const task = makeTask({
+        status: CleaningStatus.PENDING,
+        holdReason: 'razón previa',
+        heldAt: new Date(),
+        heldById: 'staff-1',
+      })
+      prismaMock.cleaningTask.findUnique.mockResolvedValue(task)
+      prismaMock.cleaningTask.update.mockImplementation(({ data }: any) =>
+        Promise.resolve({ ...task, ...data }),
+      )
+
+      await service.releaseHold('task-1', makeActor())
+
+      expect(prismaMock.cleaningTask.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { holdReason: null, heldAt: null, heldById: null },
+        }),
+      )
+    })
+
+    it('rechaza si la tarea no estaba en hold', async () => {
+      const task = makeTask({ holdReason: null })
+      prismaMock.cleaningTask.findUnique.mockResolvedValue(task)
+      await expect(service.releaseHold('task-1', makeActor())).rejects.toThrow(/no está en hold/i)
+    })
+  })
+
+  describe('createWalkIn', () => {
+    function setupRoom(units: { id: string }[] = [{ id: 'unit-1' }]) {
+      ;(prismaMock as any).room = { findUnique: jest.fn().mockResolvedValue({
+        id: 'room-1', number: '201', propertyId: 'property-1',
+        property: { id: 'property-1' },
+        units,
+      }) }
+      ;(prismaMock as any).guestStay = {
+        count: jest.fn().mockResolvedValue(0),
+        create: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ id: 'stay-1', ...data })),
+      }
+    }
+
+    it('crea GuestStay (PAID/WALK_IN) + CleaningTask (PENDING) atómicamente', async () => {
+      setupRoom([{ id: 'unit-1' }])
+      prismaMock.cleaningTask.create.mockImplementation(({ data }: any) =>
+        Promise.resolve({ id: 'task-1', ...data, unit: { roomId: 'room-1', room: { number: '201' } } }),
+      )
+
+      const checkout = new Date(Date.now() + 6 * 60 * 60 * 1000) // +6h
+      const result = await service.createWalkIn(
+        {
+          roomId: 'room-1',
+          guestName: 'Carlos Walk-in',
+          ratePerNight: 80,
+          currency: 'USD',
+          scheduledCheckout: checkout,
+        },
+        makeActor({ role: HousekeepingRole.RECEPTIONIST }),
+      )
+
+      expect(result.stay).toBeDefined()
+      expect(result.task).toBeDefined()
+      const stayCreateCall = (prismaMock as any).guestStay.create.mock.calls[0][0]
+      expect(stayCreateCall.data.source).toBe('WALK_IN')
+      expect(stayCreateCall.data.paymentStatus).toBe('PAID')
+      expect(stayCreateCall.data.actualCheckin).toBeInstanceOf(Date)
+    })
+
+    it('rechaza walk-in con scheduledCheckout en el pasado', async () => {
+      setupRoom()
+      await expect(
+        service.createWalkIn(
+          {
+            roomId: 'room-1',
+            guestName: 'X',
+            ratePerNight: 50,
+            currency: 'USD',
+            scheduledCheckout: new Date(Date.now() - 60 * 60 * 1000),
+          },
+          makeActor(),
+        ),
+      ).rejects.toThrow(/futura/i)
+    })
+
+    it('rechaza walk-in con > 24h de duración', async () => {
+      setupRoom()
+      await expect(
+        service.createWalkIn(
+          {
+            roomId: 'room-1',
+            guestName: 'X',
+            ratePerNight: 50,
+            currency: 'USD',
+            scheduledCheckout: new Date(Date.now() + 30 * 60 * 60 * 1000),
+          },
+          makeActor(),
+        ),
+      ).rejects.toThrow(/24h/i)
+    })
+
+    it('habitación shared sin unitId → ConflictException', async () => {
+      setupRoom([{ id: 'u1' }, { id: 'u2' }, { id: 'u3' }])
+      await expect(
+        service.createWalkIn(
+          {
+            roomId: 'room-1',
+            guestName: 'X',
+            ratePerNight: 50,
+            currency: 'USD',
+            scheduledCheckout: new Date(Date.now() + 6 * 60 * 60 * 1000),
+          },
+          makeActor(),
+        ),
+      ).rejects.toThrow(/cama/i)
+    })
+
+    it('habitación privada (1 unit) sin unitId → auto-pick', async () => {
+      setupRoom([{ id: 'unit-only' }])
+      prismaMock.cleaningTask.create.mockImplementation(({ data }: any) =>
+        Promise.resolve({ id: 'task-1', ...data, unit: { roomId: 'room-1', room: { number: '201' } } }),
+      )
+
+      await service.createWalkIn(
+        {
+          roomId: 'room-1',
+          guestName: 'X',
+          ratePerNight: 50,
+          currency: 'USD',
+          scheduledCheckout: new Date(Date.now() + 6 * 60 * 60 * 1000),
+        },
+        makeActor(),
+      )
+
+      const taskCreateCall = prismaMock.cleaningTask.create.mock.calls[0][0]
+      expect(taskCreateCall.data.unitId).toBe('unit-only')
     })
   })
 })

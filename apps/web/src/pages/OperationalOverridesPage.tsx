@@ -1,8 +1,20 @@
 /**
- * DailyPlanningPage.tsx
+ * OperationalOverridesPage.tsx (anteriormente DailyPlanningPage — D15 / Sprint 9)
  *
- * Pantalla central de operaciones de recepción. Une dos flujos del mismo ciclo
- * operativo en un solo lugar para que el recepcionista no tenga que navegar:
+ * Pantalla central de operaciones de recepción. Tras Sprint 8H, el cron 7 AM
+ * (MorningRosterScheduler) genera el roster automáticamente — esta página
+ * deja de ser "planning manual" y pasa a ser **override layer auditable**.
+ *
+ * Cubre los 3 escenarios que el cron NO puede saber (CLAUDE.md §55 / D15):
+ *   1. Walk-in con checkout mismo día (turista sin reserva previa)
+ *   2. Checkout adelantado anunciado a las 8 AM (cron ya corrió)
+ *   3. Override manual: forzar URGENT, limpieza profunda, pausar limpieza
+ *
+ * Pestañas (legacy preservadas):
+ *   PESTAÑA 1 — Planificación del Día (hoja de salidas matutina)
+ *   ─────────────────────────────────────────────────────────────
+ *   Modelo mental: pizarra en blanco. Cada mañana (~7 am) el recepcionista
+ *   marca qué camas tienen salida hoy basándose en su lista física.
  *
  *   PESTAÑA 1 — Planificación del Día (hoja de salidas matutina)
  *   ─────────────────────────────────────────────────────────────
@@ -29,6 +41,7 @@
 
 import { useState, useMemo, useCallback, type ReactNode } from 'react'
 import { BlockModal } from '../components/blocks/BlockModal'
+import { WalkInModal } from '../components/overrides/WalkInModal'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import { format } from 'date-fns'
@@ -203,7 +216,7 @@ const DISCREPANCY_LABEL: Record<string, string> = {
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
-export function DailyPlanningPage() {
+export function OperationalOverridesPage() {
 
   // ── Estado local ──────────────────────────────────────────────────────────
 
@@ -217,6 +230,8 @@ export function DailyPlanningPage() {
    */
   const [overrides, setOverrides] = useState<Map<CellKey, CellOverride>>(new Map())
   const [noteTarget, setNoteTarget]   = useState<CellKey | null>(null)
+  // D15 — Walk-in modal (Sprint 9)
+  const [walkInModalOpen, setWalkInModalOpen] = useState(false)
 
   /**
    * Unidad pendiente de confirmación de salida (modal de Fase 2).
@@ -331,7 +346,15 @@ export function DailyPlanningPage() {
    */
   const handleSSE = useCallback(
     (event: SseEvent) => {
-      const taskEvents = ['task:planned', 'task:ready', 'task:started', 'task:done', 'task:unassigned', 'task:cancelled']
+      // Sprint 8K: extended task events — recepcionista now sees in real-time
+      // when housekeeper pauses/resumes/finishes from mobile, plus supervisor
+      // verification.
+      const taskEvents = [
+        'task:planned', 'task:ready', 'task:started',
+        'task:paused', 'task:resumed',
+        'task:done', 'task:verified',
+        'task:unassigned', 'task:cancelled',
+      ]
       if (taskEvents.includes(event.type)) {
         qc.invalidateQueries({ queryKey: ['daily-grid', TODAY] })
         if (event.type === 'task:done') {
@@ -632,13 +655,20 @@ export function DailyPlanningPage() {
       <div>
         <div className="flex items-start justify-between flex-wrap gap-3 mb-4">
           <div>
-            <h1 className="text-lg font-semibold text-gray-900">Planificación</h1>
+            <h1 className="text-lg font-semibold text-gray-900">Ajustes del día</h1>
             <p className="text-xs text-gray-400 mt-0.5">{TODAY_LABEL}</p>
           </div>
 
-          {/* Botón contextual — solo visible en planificación */}
+          {/* Botones contextuales por pestaña */}
           {activeTab === 'planning' && (
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setWalkInModalOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors"
+              >
+                <span>+</span>
+                <span>Walk-in checkout</span>
+              </button>
               {planningIsDone ? (
                 <span className="text-sm text-green-600 font-medium flex items-center gap-1">
                   <span>✓</span> Planificación confirmada
@@ -654,6 +684,16 @@ export function DailyPlanningPage() {
               )}
             </div>
           )}
+        </div>
+
+        {/* D15 Banner — explica el rol de override layer (CLAUDE.md §55) */}
+        <div className="flex items-start gap-2 px-3 py-2 mb-3 bg-blue-50 border border-blue-200 rounded-xl">
+          <span className="text-base leading-tight">🛠️</span>
+          <p className="text-xs text-blue-900 leading-relaxed">
+            <span className="font-semibold">El cron de las 7 AM</span> ya generó las salidas predichas del día.
+            Esta pantalla es para <span className="font-semibold">ajustes operativos</span>: walk-ins, late-announcements,
+            limpieza profunda, hold por extensión, o forzar URGENT. Cada acción queda auditada.
+          </p>
         </div>
 
         {/* Selector de pestañas estilo píldora */}
@@ -880,6 +920,9 @@ export function DailyPlanningPage() {
         prefillRoomId={blockTarget?.roomId}
         prefillUnitId={blockTarget?.unitId}
       />
+
+      {/* D15 — Walk-in checkout modal (Sprint 9) */}
+      <WalkInModal open={walkInModalOpen} onClose={() => setWalkInModalOpen(false)} />
     </div>
   )
 }

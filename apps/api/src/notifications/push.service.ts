@@ -85,6 +85,35 @@ export class PushService {
     this.logger.log(`Deactivated invalid push token: ${token}`)
   }
 
+  /**
+   * Daily roster summary push (Sprint 8H — MorningRosterScheduler).
+   * Formato emoji estandarizado para que el housekeeper lea de un vistazo.
+   */
+  async sendDailyRoster(
+    staffId: string,
+    summary: {
+      total: number
+      sameDay: number
+      carryover: number
+      doubleUrgent: number
+    },
+  ) {
+    const parts: string[] = [`${summary.total} habitaciones`]
+    if (summary.doubleUrgent > 0) {
+      parts.push(`${summary.doubleUrgent} doble urgente 🔴⚠️`)
+    } else if (summary.sameDay > 0) {
+      parts.push(`${summary.sameDay} con check-in hoy 🔴`)
+    }
+    if (summary.carryover > 0 && summary.doubleUrgent === 0) {
+      parts.push(`${summary.carryover} carryover ⚠️`)
+    }
+
+    return this.sendToStaff(staffId, '☀️ Tu día de hoy', parts.join(' · '), {
+      type: 'roster:published',
+      summary,
+    })
+  }
+
   async registerToken(staffId: string, token: string, platform: string) {
     if (!Expo.isExpoPushToken(token)) {
       throw new Error(`Invalid Expo push token: ${token}`)

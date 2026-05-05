@@ -33,6 +33,10 @@ import { GuestStaysService } from './guest-stays.service'
 import { PrismaService } from '../../prisma/prisma.service'
 import { TenantContextService } from '../../common/tenant-context.service'
 import { EmailService } from '../../common/email/email.service'
+import { StayJourneyService } from '../stay-journeys/stay-journeys.service'
+import { ChannexGateway } from '../../integrations/channex/channex.gateway'
+import { NotificationCenterService } from '../../notification-center/notification-center.service'
+import { AssignmentService } from '../../assignment/assignment.service'
 
 // ─── Constantes de prueba ──────────────────────────────────────────────────────
 
@@ -148,15 +152,23 @@ describe('GuestStaysService — no-show', () => {
   const eventsMock  = { emit: jest.fn() }
   const tenantMock  = { getOrganizationId: jest.fn().mockReturnValue(ORG_ID) }
   const emailMock   = { send: jest.fn() }
+  const journeyMock = { recordEvent: jest.fn() }
+  const channexMock = { pushInventory: jest.fn(), notifyRelease: jest.fn() }
+  const notifCenterMock = { send: jest.fn() }
+  const assignmentMock = { autoAssign: jest.fn() }
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         GuestStaysService,
-        { provide: PrismaService,        useValue: prismaMock },
-        { provide: TenantContextService, useValue: tenantMock },
-        { provide: EventEmitter2,        useValue: eventsMock },
-        { provide: EmailService,         useValue: emailMock },
+        { provide: PrismaService,             useValue: prismaMock },
+        { provide: TenantContextService,      useValue: tenantMock },
+        { provide: EventEmitter2,             useValue: eventsMock },
+        { provide: EmailService,              useValue: emailMock },
+        { provide: StayJourneyService,        useValue: journeyMock },
+        { provide: ChannexGateway,            useValue: channexMock },
+        { provide: NotificationCenterService, useValue: notifCenterMock },
+        { provide: AssignmentService,         useValue: assignmentMock },
       ],
     }).compile()
 

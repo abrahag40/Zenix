@@ -19,7 +19,7 @@ export class PaymentsService {
     if (apiKey) {
       // Stripe docs: always pin the API version to avoid unexpected breaking changes.
       // Update the version intentionally after reviewing Stripe's changelog.
-      this.stripe = new Stripe(apiKey, { apiVersion: '2026-03-25.dahlia' })
+      this.stripe = new Stripe(apiKey, { apiVersion: '2026-04-22.dahlia' })
     } else {
       this.logger.warn('[Stripe] STRIPE_SECRET_KEY not set — payment features disabled (dev mode)')
     }

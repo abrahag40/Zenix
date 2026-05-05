@@ -40,6 +40,64 @@
   .tooltip-top, .tooltip-bottom { animation-duration: 0ms; }
 }
 
+/* ── Housekeeping cleaning state animations (CLAUDE.md §54-§57, Sprint 9) ── */
+/* Aplicadas al BookingBlock del calendario PMS para comunicar inline el      */
+/* estado de limpieza al recepcionista — sin necesidad de abrir el kanban.    */
+/*                                                                            */
+/* Diseño basado en Pre-attentive Attention (Treisman 1980): movimiento +     */
+/* color + opacidad procesados en <250ms sin razonamiento consciente. NO      */
+/* usar formas semánticas (escoba, etc.) que requieren Sistema 2 (Kahneman    */
+/* 2011) y consumen 600-800ms por bloque en operación.                        */
+/*                                                                            */
+/* Composited en GPU: solo opacity + transform + box-shadow. Cero reflow.     */
+/* Cumple WCAG 2.3.3 vía @media (prefers-reduced-motion).                     */
+
+/* READY — pulse opacity sutil. Comunica "atención requerida".                */
+@keyframes hk-pulse-ready {
+  0%, 100% { opacity: 1;    }
+  50%      { opacity: 0.65; }
+}
+.hk-state-ready {
+  animation: hk-pulse-ready 2.2s ease-in-out infinite;
+}
+
+/* IN_PROGRESS — gradient slide diagonal. Comunica "actividad en curso".     */
+/* Patrón macOS progress stripe (System 7+, replicated en Stripe Dashboard).  */
+@keyframes hk-stripe-slide {
+  from { background-position: 0 0;     }
+  to   { background-position: 28px 0;  }
+}
+.hk-state-in-progress {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent           0,
+    transparent           6px,
+    rgba(245, 158, 11, 0.18) 6px,   /* amber-500 @ 18% — bajo contraste para no opacar texto */
+    rgba(245, 158, 11, 0.18) 14px
+  );
+  animation: hk-stripe-slide 1.4s linear infinite;
+}
+
+/* DONE_PENDING_VERIFY — glow estático emerald. "Completado, atención mínima". */
+.hk-state-done-pending {
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.35), 0 0 12px rgba(16, 185, 129, 0.25);
+}
+
+/* VERIFIED — glow más sólido + corner check. "Listo para entregar".          */
+.hk-state-verified {
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.6), 0 0 8px rgba(16, 185, 129, 0.4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hk-state-ready,
+  .hk-state-in-progress {
+    animation: none;
+  }
+  .hk-state-in-progress {
+    background-image: linear-gradient(rgba(245, 158, 11, 0.18), rgba(245, 158, 11, 0.18));
+  }
+}
+
 /* ── Journey connection dot — SwiftUI-style pulse ────────────────────────── */
 /* Matches the Apple Maps / Find My ring: expands + fades over 2.2s.         */
 /* Ring element uses this; solid center is static.                            */

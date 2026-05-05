@@ -1,4 +1,5 @@
-import { IsInt, IsOptional, IsString, Matches, Max, Min } from 'class-validator'
+import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Matches, Max, Min } from 'class-validator'
+import { CarryoverPolicy } from '@zenix/shared'
 
 export class UpdateSettingsDto {
   @IsOptional()
@@ -24,4 +25,34 @@ export class UpdateSettingsDto {
   @Min(0)
   @Max(6)  // Máximo 6 AM — cobrar después crea disputas
   noShowCutoffHour?: number
+
+  // ── Sprint 8H — Housekeeping scheduling rules ──────────────────────────────
+
+  /**
+   * Hora local (0-23) a la que el MorningRosterScheduler genera el roster diario.
+   * Default 7 AM. Configurable porque hostels vacacionales arrancan 6, boutique 8.
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(23)
+  morningRosterHour?: number
+
+  /**
+   * Política de carryover de tareas incompletas del día anterior.
+   * REASSIGN_TO_TODAY_SHIFT (default) | KEEP_ORIGINAL_ASSIGNEE | ALWAYS_UNASSIGNED.
+   */
+  @IsOptional()
+  @IsEnum(CarryoverPolicy)
+  carryoverPolicy?: CarryoverPolicy
+
+  /** Toggle global de auto-asignación. Si false, todas las tareas nacen UNASSIGNED. */
+  @IsOptional()
+  @IsBoolean()
+  autoAssignmentEnabled?: boolean
+
+  /** Si true, mobile exige clock-in al abrir y bloquea acciones hasta marcar entrada. */
+  @IsOptional()
+  @IsBoolean()
+  shiftClockingRequired?: boolean
 }

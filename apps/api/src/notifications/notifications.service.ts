@@ -31,7 +31,6 @@ export class NotificationsService {
     for (const client of this.clients) {
       if (client.propertyId === propertyId) {
         try {
-          client.res.write(`event: ${type}\n`)
           client.res.write(payload)
         } catch {
           this.clients.delete(client)

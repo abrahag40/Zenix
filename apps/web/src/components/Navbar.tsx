@@ -4,7 +4,7 @@ import { HousekeepingRole } from '@zenix/shared'
 
 const links = [
   { to: '/rooms', label: 'Habitaciones', roles: [HousekeepingRole.RECEPTIONIST, HousekeepingRole.SUPERVISOR] },
-  { to: '/planning', label: 'Planificación', roles: [HousekeepingRole.RECEPTIONIST, HousekeepingRole.SUPERVISOR] },
+  { to: '/overrides', label: 'Ajustes del día', roles: [HousekeepingRole.RECEPTIONIST, HousekeepingRole.SUPERVISOR] },
   { to: '/kanban', label: 'Kanban', roles: [HousekeepingRole.SUPERVISOR] },
   { to: '/checkouts', label: 'Checkouts', roles: [HousekeepingRole.RECEPTIONIST, HousekeepingRole.SUPERVISOR] },
   { to: '/staff', label: 'Personal', roles: [HousekeepingRole.SUPERVISOR] },

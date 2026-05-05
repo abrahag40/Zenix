@@ -18,6 +18,20 @@ const ROOM_EVENT_TYPES: SseEventType[] = [
   'block:expired',
   'block:cancelled',
   'block:extended',
+  // Sprint 9 — cleaning state animations on calendar blocks (CLAUDE.md §54-§57).
+  // Each task lifecycle event changes `cleaningStatus` of the stay's room → re-fetch.
+  'task:planned',
+  'task:ready',
+  'task:started',
+  'task:paused',
+  'task:resumed',
+  'task:done',
+  'task:verified',
+  'task:cancelled',
+  'task:deferred',
+  'task:retry-scheduled',
+  'task:blocked',
+  'task:rescheduled',
 ]
 
 /**

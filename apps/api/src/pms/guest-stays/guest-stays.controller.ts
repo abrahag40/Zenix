@@ -86,6 +86,42 @@ export class GuestStaysController {
     return this.service.checkAvailability(roomId, ciDate, coDate)
   }
 
+  /**
+   * GET /v1/guest-stays/mobile/list
+   * Mobile-shaped reservation list for the Reservas tab.
+   * Computes status, arrivesToday, departsToday, dateRangeLabel server-side
+   * for timezone correctness. Declared before :id to avoid route shadowing.
+   */
+  @Get('mobile/list')
+  getMobileList(
+    @Query('search')       search?: string,
+    @Query('statusFilter') statusFilter?: string | string[],
+    @Query('dateFilter')   dateFilter?: string,
+    @CurrentUser()         actor?: JwtPayload,
+  ) {
+    if (!actor) throw new BadRequestException('No actor')
+    const statusArray = statusFilter
+      ? Array.isArray(statusFilter) ? statusFilter : [statusFilter]
+      : []
+    return this.service.getMobileList(actor.propertyId, actor.role, {
+      search, statusFilter: statusArray, dateFilter,
+    })
+  }
+
+  /**
+   * GET /v1/guest-stays/mobile/:id
+   * Full reservation detail for the mobile detail screen.
+   * Includes payments and journey audit trail.
+   * Declared before :id to avoid route shadowing.
+   */
+  @Get('mobile/:id')
+  getMobileDetail(
+    @Param('id')   id: string,
+    @CurrentUser() actor: JwtPayload,
+  ) {
+    return this.service.getMobileDetail(id, actor.role)
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.service.findOne(id)
@@ -116,6 +152,45 @@ export class GuestStaysController {
     @CurrentUser() actor: JwtPayload,
   ) {
     return this.service.earlyCheckout(id, actor.sub, dto.notes)
+  }
+
+  /**
+   * EC-3 — Late checkout. Recepcionista aprueba que el huésped salga a una
+   * hora distinta a la programada. Body: { newCheckoutTime: ISO string }.
+   * Ajusta scheduledCheckout + actualiza tareas asociadas.
+   */
+  @Post(':id/late-checkout')
+  lateCheckout(
+    @Param('id') id: string,
+    @Body() dto: { newCheckoutTime: string },
+    @CurrentUser() actor: JwtPayload,
+  ) {
+    if (!dto.newCheckoutTime) {
+      throw new BadRequestException('newCheckoutTime is required (ISO string)')
+    }
+    const parsed = new Date(dto.newCheckoutTime)
+    if (Number.isNaN(parsed.getTime())) {
+      throw new BadRequestException('newCheckoutTime must be a valid ISO date')
+    }
+    return this.service.lateCheckout(id, parsed, actor.sub)
+  }
+
+  /**
+   * D12 — extension cleaning flag.
+   * Después de confirmar el pago de una extensión, el receptionist responde:
+   *   { requiresCleaning: true }  → tareas existentes se marcan WITH_CLEANING + push
+   *   { requiresCleaning: false } → tareas se cancelan con EXTENSION_NO_CLEANING + badge en mobile
+   */
+  @Post(':id/extend-with-cleaning-flag')
+  extendWithCleaningFlag(
+    @Param('id') id: string,
+    @Body() dto: { requiresCleaning: boolean },
+    @CurrentUser() actor: JwtPayload,
+  ) {
+    if (typeof dto.requiresCleaning !== 'boolean') {
+      throw new BadRequestException('requiresCleaning is required (boolean)')
+    }
+    return this.service.extendWithCleaningFlag(id, dto.requiresCleaning, actor.sub)
   }
 
   @Patch(':id/extend')

@@ -21,6 +21,8 @@ import { AvailabilityModule } from './pms/availability/availability.module'
 import { SettingsModule } from './settings/settings.module'
 import { DiscrepanciesModule } from './discrepancies/discrepancies.module'
 import { ReportsModule } from './reports/reports.module'
+import { DashboardReportsModule } from './dashboard-reports/dashboard-reports.module'
+import { StaffGamificationModule } from './staff-gamification/staff-gamification.module'
 // EmailModule fue stubbed temporalmente (sin @nestjs-modules/mailer). Sigue
 // activo y expone EmailService con envío no-op hasta que se configure SMTP.
 import { EmailModule } from './common/email/email.module'
@@ -33,6 +35,11 @@ import { BlocksModule } from './blocks/blocks.module'
 import { PaymentsModule } from './payments/payments.module'
 import { SoftLockModule } from './soft-lock/soft-lock.module'
 import { NotificationCenterModule } from './notification-center/notification-center.module'
+// Sprint 8H — Housekeeping scheduling foundation
+import { SchedulingModule } from './scheduling/scheduling.module'
+import { AssignmentModule } from './assignment/assignment.module'
+import { StaffPreferencesModule } from './staff-preferences/staff-preferences.module'
+import { FeatureFlagsModule } from './feature-flags/feature-flags.module'
 import { TenantContextMiddleware } from './common/tenant-context.middleware'
 import { TenantContextService } from './common/tenant-context.service'
 import { TenantGuard } from './common/guards/tenant.guard'
@@ -66,6 +73,8 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
     SettingsModule,
     DiscrepanciesModule,
     ReportsModule,
+    DashboardReportsModule, // Sprint 9 — mobile dashboard endpoints
+    StaffGamificationModule, // Sprint 8I-J — Hub Recamarista gamificación
     EmailModule,            // stubbed — ver comentario arriba
     GuestStaysModule,
     RoomReadinessModule,
@@ -76,6 +85,12 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
     PaymentsModule,
     SoftLockModule,
     NotificationCenterModule,
+    // Sprint 8H — Housekeeping scheduling foundation
+    SchedulingModule,
+    AssignmentModule,
+    StaffPreferencesModule,
+    // Server-side feature toggles (testing envs + future feature flags)
+    FeatureFlagsModule,
   ],
   providers: [
     TenantContextService,

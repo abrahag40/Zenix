@@ -61,7 +61,7 @@ const NAV: NavItem[] = [
     label: 'Housekeeping',
     defaultOpen: true,
     children: [
-      { to: '/planning',      icon: '📋', label: 'Planificación' },
+      { to: '/overrides',     icon: '🛠️', label: 'Ajustes del día' },
       { to: '/kanban',        icon: '🗂️', label: 'Tareas' },
       { to: '/checkouts',     icon: '🚪', label: 'Checkouts' },
       { to: '/discrepancies', icon: '⚠️', label: 'Discrepancias', showDiscrepancyBadge: true },

@@ -67,6 +67,9 @@
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
     },
+    "moduleNameMapper": {
+      "^@zenix/shared$": "<rootDir>/../../../packages/shared/src/index.ts"
+    },
     "collectCoverageFrom": [
       "**/*.(t|j)s"
     ],
