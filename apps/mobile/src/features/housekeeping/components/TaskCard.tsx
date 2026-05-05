@@ -44,6 +44,9 @@ const STATUS_LABEL: Record<CleaningStatus, string> = {
   [CleaningStatus.DONE]: 'Terminada',
   [CleaningStatus.VERIFIED]: 'Verificada ✓',
   [CleaningStatus.CANCELLED]: 'Cancelada',
+  // Sprint 9 EC-6
+  [CleaningStatus.DEFERRED]: 'En espera (DND)',
+  [CleaningStatus.BLOCKED]: 'Bloqueada · ver supervisor',
 }
 
 function statusToken(status: CleaningStatus) {
@@ -131,7 +134,7 @@ export function TaskCard({ task, onPress, isLocked = false }: TaskCardProps) {
             )}
           </View>
 
-          {/* Sub-info */}
+          {/* Sub-info row — pills + textos */}
           {(task.hasSameDayCheckIn || task.carryoverFromDate || task.extensionFlag) && (
             <View style={styles.subInfoRow}>
               {task.carryoverFromDate && (
@@ -142,11 +145,20 @@ export function TaskCard({ task, onPress, isLocked = false }: TaskCardProps) {
                   Hoy entra
                 </Text>
               )}
+              {/* D12 — Extension badges con color semántico (CLAUDE.md §46) */}
               {task.extensionFlag === 'WITHOUT_CLEANING' && (
-                <Text style={styles.subInfo}>Extensión sin limpieza</Text>
+                <View style={styles.extensionPillNoClean}>
+                  <Text style={styles.extensionPillNoCleanText}>
+                    ✨ Extensión · NO limpiar
+                  </Text>
+                </View>
               )}
               {task.extensionFlag === 'WITH_CLEANING' && (
-                <Text style={styles.subInfo}>Extensión con limpieza</Text>
+                <View style={styles.extensionPillWithClean}>
+                  <Text style={styles.extensionPillWithCleanText}>
+                    ✨ Extensión · limpieza solicitada
+                  </Text>
+                </View>
               )}
             </View>
           )}
@@ -244,5 +256,38 @@ const styles = StyleSheet.create({
   subInfoUrgent: {
     color: colors.urgent[400],
     fontWeight: typography.weight.semibold,
+  },
+  // D12 — Extension pills (CLAUDE.md §46)
+  // WITHOUT_CLEANING: amber — la tarea técnicamente está CANCELLED pero se
+  // mantiene visible para que la recamarista vea que el cuarto NO se limpia.
+  extensionPillNoClean: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: 'rgba(245,158,11,0.15)',  // amber-500 @ 15%
+    borderWidth: 1,
+    borderColor: 'rgba(245,158,11,0.35)',
+  },
+  extensionPillNoCleanText: {
+    fontSize: typography.size.micro,
+    color: '#D97706',                            // amber-600
+    fontWeight: typography.weight.semibold,
+    letterSpacing: 0.1,
+  },
+  // WITH_CLEANING: emerald — extensión confirmada Y huésped pidió limpieza.
+  // Tarea sigue activa, solo se enriquece la metadata.
+  extensionPillWithClean: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: 'rgba(16,185,129,0.12)',   // emerald-500 @ 12%
+    borderWidth: 1,
+    borderColor: 'rgba(16,185,129,0.30)',
+  },
+  extensionPillWithCleanText: {
+    fontSize: typography.size.micro,
+    color: '#059669',                            // emerald-600
+    fontWeight: typography.weight.semibold,
+    letterSpacing: 0.1,
   },
 })

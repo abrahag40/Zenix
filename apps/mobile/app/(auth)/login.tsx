@@ -66,7 +66,7 @@ import type { AuthResponse } from '@zenix/shared'
 import { colors } from '../../src/design/colors'
 import { typography } from '../../src/design/typography'
 import { MOTION } from '../../src/design/motion'
-import { DEMO_USERS, type DemoUser } from '../../src/features/auth/demoUsers'
+import { getDemoUsersByProperty, type DemoUser } from '../../src/features/auth/demoUsers'
 import { BrandLoader } from '../../src/features/loader/BrandLoader'
 
 export default function LoginScreen() {
@@ -253,19 +253,28 @@ export default function LoginScreen() {
             )}
           </Animated.View>
 
-          {/* ── Demo user picker (1-tap login) ────────────────────── */}
+          {/* ── Demo user picker (1-tap login, grouped by property) ── */}
           <Animated.View style={[styles.demoSection, pickerStyle]}>
             <View style={styles.demoDivider}>
               <View style={styles.dividerLine} />
               <Text style={styles.demoLabel}>O entra como demo</Text>
               <View style={styles.dividerLine} />
             </View>
-            <View style={styles.demoGrid}>
-              {DEMO_USERS.map((u) => (
-                <DemoUserChip key={u.id} user={u} onPress={() => handleDemoUserTap(u)} />
-              ))}
-            </View>
-            <Text style={styles.demoHint}>Toca un avatar para entrar al instante. Todas las cuentas usan contraseña 123456.</Text>
+            {getDemoUsersByProperty().map(({ property, users }) => (
+              <View key={property} style={styles.propertyGroup}>
+                <View style={styles.propertyHeader}>
+                  <View style={styles.propertyHeaderLine} />
+                  <Text style={styles.propertyHeaderLabel}>{property}</Text>
+                  <View style={styles.propertyHeaderLine} />
+                </View>
+                <View style={styles.demoGrid}>
+                  {users.map((u) => (
+                    <DemoUserChip key={u.id} user={u} onPress={() => handleDemoUserTap(u)} />
+                  ))}
+                </View>
+              </View>
+            ))}
+            <Text style={styles.demoHint}>Toca un avatar para entrar al instante · contraseña 123456</Text>
           </Animated.View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -464,10 +473,31 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     fontWeight: typography.weight.medium,
   },
+  // Property group (wraps chips for one hotel)
+  propertyGroup: {
+    marginBottom: 12,
+  },
+  propertyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 10,
+  },
+  propertyHeaderLine: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border.default,
+  },
+  propertyHeaderLabel: {
+    fontSize: typography.size.micro,
+    color: colors.brand[400],
+    fontWeight: typography.weight.semibold,
+    letterSpacing: typography.letterSpacing.wide,
+    textTransform: 'uppercase',
+  },
   demoGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'space-between',
     gap: 8,
   },
   chipPressable: {

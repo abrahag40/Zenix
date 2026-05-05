@@ -42,6 +42,9 @@ const STATUS_LABEL: Record<CleaningStatus, string> = {
   [CleaningStatus.DONE]:        'Terminada',
   [CleaningStatus.VERIFIED]:    'Verificada',
   [CleaningStatus.CANCELLED]:   'Cancelada',
+  // Sprint 9 EC-6
+  [CleaningStatus.DEFERRED]:    'En espera',
+  [CleaningStatus.BLOCKED]:     'Bloqueada',
 }
 
 const STATUS_TINT: Record<CleaningStatus, { fg: string; bg: string }> = {
@@ -53,6 +56,9 @@ const STATUS_TINT: Record<CleaningStatus, { fg: string; bg: string }> = {
   [CleaningStatus.DONE]:        { fg: '#A78BFA', bg: 'rgba(167,139,250,0.14)' },
   [CleaningStatus.VERIFIED]:    { fg: '#A78BFA', bg: 'rgba(167,139,250,0.14)' },
   [CleaningStatus.CANCELLED]:   { fg: '#9CA3AF', bg: 'rgba(255,255,255,0.04)' },
+  // Sprint 9 EC-6 — DEFERRED amber soft, BLOCKED red soft (escala visual de urgencia)
+  [CleaningStatus.DEFERRED]:    { fg: '#FBBF24', bg: 'rgba(251,191,36,0.14)' },
+  [CleaningStatus.BLOCKED]:     { fg: '#F87171', bg: 'rgba(248,113,113,0.16)' },
 }
 
 function priorityAccent(task: CleaningTaskDto): string {

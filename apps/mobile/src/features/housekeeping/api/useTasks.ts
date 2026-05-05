@@ -24,6 +24,8 @@ export interface TaskGroups {
   sameDayCheckIn: CleaningTaskDto[]
   carryover: CleaningTaskDto[]
   normal: CleaningTaskDto[]
+  // Sprint 9 / D14 — limpieza de estadía (in-house cleaning)
+  stayover: CleaningTaskDto[]
   done: CleaningTaskDto[]
 }
 
@@ -36,6 +38,9 @@ const STATUS_RANK: Record<CleaningStatus, number> = {
   [CleaningStatus.PAUSED]: 2,
   [CleaningStatus.PENDING]: 3,
   [CleaningStatus.UNASSIGNED]: 3,
+  // Sprint 9 EC-6 — DEFERRED y BLOCKED entre PENDING y DONE
+  [CleaningStatus.DEFERRED]: 3,
+  [CleaningStatus.BLOCKED]: 3,
   [CleaningStatus.DONE]: 4,
   [CleaningStatus.VERIFIED]: 5,
   [CleaningStatus.CANCELLED]: 6,
@@ -90,11 +95,15 @@ export function useHousekeepingTasks() {
     const sameDayCheckIn: CleaningTaskDto[] = []
     const carryover: CleaningTaskDto[] = []
     const normal: CleaningTaskDto[] = []
+    const stayover: CleaningTaskDto[] = []
     const done: CleaningTaskDto[] = []
 
     for (const t of sorted) {
       if (t.status === CleaningStatus.DONE || t.status === CleaningStatus.VERIFIED) {
         done.push(t)
+      } else if (t.taskType === 'STAYOVER') {
+        // D14 — sección dedicada para limpieza de estadía (in-house)
+        stayover.push(t)
       } else if (t.carryoverFromDate && t.hasSameDayCheckIn) {
         doubleUrgent.push(t)
       } else if (t.hasSameDayCheckIn) {
@@ -106,14 +115,15 @@ export function useHousekeepingTasks() {
       }
     }
 
-    return { doubleUrgent, sameDayCheckIn, carryover, normal, done }
+    return { doubleUrgent, sameDayCheckIn, carryover, normal, stayover, done }
   }, [tasks])
 
   const totalActive =
     groups.doubleUrgent.length +
     groups.sameDayCheckIn.length +
     groups.carryover.length +
-    groups.normal.length
+    groups.normal.length +
+    groups.stayover.length
 
   const completedToday = groups.done.length
 

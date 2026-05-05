@@ -25,6 +25,7 @@ import {
   FlatList,
   RefreshControl,
   TouchableOpacity,
+  Pressable,
   Alert,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -51,7 +52,9 @@ import {
   IconRotateCcw,
   IconListTask,
   IconCheckCircle,
+  IconChevronRight,
 } from '../../../design/icons'
+import { groupByRoom, roomBorderColor, type RoomGroup } from '../api/groupByRoom'
 import { HubGamificationHeader } from '../gamification/HubGamificationHeader'
 import { CelebrationToast } from '../gamification/CelebrationToast'
 import { decideCelebration } from '../gamification/celebrationEngine'
@@ -78,14 +81,25 @@ type ListItem =
       count: number
       Icon: React.ComponentType<{ size?: number; color?: string }>
     }
-  | { type: 'card'; key: string; task: CleaningTaskDto }
+  // D18 — Room sub-header (shown when ≥2 tasks of same room exist in a priority section)
+  | {
+      type: 'room-header'
+      key: string
+      sectionKey: string
+      group: RoomGroup
+      collapsed: boolean
+      onToggle: () => void
+    }
+  | { type: 'card'; key: string; task: CleaningTaskDto; insetByRoom?: boolean }
 
 interface SectionConfig {
-  key: 'doubleUrgent' | 'sameDayCheckIn' | 'carryover' | 'normal' | 'done'
+  key: 'doubleUrgent' | 'sameDayCheckIn' | 'carryover' | 'normal' | 'stayover' | 'done'
   label: string
   tint: string
   level: SectionLevel
   Icon: React.ComponentType<{ size?: number; color?: string }>
+  /** Default collapsed (D14: stayover sí; resto no) */
+  defaultCollapsed?: boolean
 }
 
 const SECTIONS: SectionConfig[] = [
@@ -93,6 +107,10 @@ const SECTIONS: SectionConfig[] = [
   { key: 'sameDayCheckIn', label: 'Hoy entra',      tint: colors.urgent[400],  level: 'urgent',   Icon: IconLogIn       },
   { key: 'carryover',      label: 'De ayer',        tint: colors.warning[500], level: 'warning',  Icon: IconRotateCcw   },
   { key: 'normal',         label: 'Normal',         tint: colors.brand[500],   level: 'normal',   Icon: IconListTask    },
+  // D14 — limpieza de estadía (in-house). Colapsada por default: el housekeeper
+  // termina los checkouts primero, luego expande estadías si tiene tiempo.
+  // Cumple Cognitive Load (Sweller 1988) — no satura pantalla principal.
+  { key: 'stayover',       label: 'Estadías',       tint: '#3B82F6',           level: 'normal',   Icon: IconBed,         defaultCollapsed: true },
   { key: 'done',           label: 'Completadas hoy',tint: '#A78BFA',           level: 'done',     Icon: IconCheckCircle },
 ]
 
@@ -212,11 +230,49 @@ export function HousekeepingHub() {
     opacity: bodyOpacity.value,
   }))
 
-  // Build flat list (sections + tasks)
+  // ── D14 + D18 — Section/room collapsibility state ──────────────────────
+  // Sections colapsadas (D14: stayover por default colapsada)
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
+    () => new Set(SECTIONS.filter((s) => s.defaultCollapsed).map((s) => s.key)),
+  )
+  function toggleSection(key: string) {
+    setCollapsedSections((prev) => {
+      const next = new Set(prev)
+      next.has(key) ? next.delete(key) : next.add(key)
+      return next
+    })
+  }
+  // Rooms colapsados (D18: por default todas las rooms expandidas dentro de
+  // sus priority sections; el usuario colapsa manualmente si lo prefiere)
+  const [collapsedRooms, setCollapsedRooms] = useState<Set<string>>(new Set())
+  function toggleRoom(key: string) {
+    setCollapsedRooms((prev) => {
+      const next = new Set(prev)
+      next.has(key) ? next.delete(key) : next.add(key)
+      return next
+    })
+  }
+
+  // ── D18 — Build list with optional room sub-grouping per section ────────
+  // Auto-detect runtime: ≥2 tasks of same room in a section → render room header.
+  // Counters dual son agregados sobre TODO el día (no solo la section).
+  const allActiveTasks = useMemo(
+    () => [
+      ...groups.doubleUrgent,
+      ...groups.sameDayCheckIn,
+      ...groups.carryover,
+      ...groups.normal,
+      ...groups.stayover,
+      ...groups.done,
+    ],
+    [groups],
+  )
+
   const listData: ListItem[] = []
   for (const section of SECTIONS) {
     const tasks = groups[section.key]
     if (tasks.length === 0) continue
+    const sectionCollapsed = collapsedSections.has(section.key)
     listData.push({
       type: 'header',
       key: `h-${section.key}`,
@@ -226,7 +282,30 @@ export function HousekeepingHub() {
       count: tasks.length,
       Icon: section.Icon,
     })
-    for (const task of tasks) {
+    if (sectionCollapsed) continue
+
+    // D18 — room grouping per section (auto-detect runtime)
+    const { groups: roomGroups, flatTasks } = groupByRoom(tasks, allActiveTasks)
+    // Render room groups first (preserve insertion order = priority order)
+    for (const rg of roomGroups) {
+      const roomKey = `${section.key}-${rg.roomId}`
+      const isRoomCollapsed = collapsedRooms.has(roomKey)
+      listData.push({
+        type: 'room-header',
+        key: `rh-${roomKey}`,
+        sectionKey: section.key,
+        group: rg,
+        collapsed: isRoomCollapsed,
+        onToggle: () => toggleRoom(roomKey),
+      })
+      if (!isRoomCollapsed) {
+        for (const task of rg.sectionTasks) {
+          listData.push({ type: 'card', key: task.id, task, insetByRoom: true })
+        }
+      }
+    }
+    // Then flat tasks (rooms con 1 sola task)
+    for (const task of flatTasks) {
       listData.push({ type: 'card', key: task.id, task })
     }
   }
@@ -283,11 +362,33 @@ export function HousekeepingHub() {
               )}
             </>
           }
-          renderItem={({ item }) =>
-            item.type === 'header' ? (
-              <SectionHeader label={item.label} tint={item.tint} level={item.level} count={item.count} Icon={item.Icon} />
-            ) : (
-              <View style={styles.cardWrapper}>
+          renderItem={({ item }) => {
+            if (item.type === 'header') {
+              const sectionKey = item.key.replace(/^h-/, '')
+              const collapsed = collapsedSections.has(sectionKey)
+              return (
+                <SectionHeader
+                  label={item.label}
+                  tint={item.tint}
+                  level={item.level}
+                  count={item.count}
+                  Icon={item.Icon}
+                  collapsed={collapsed}
+                  onToggle={() => toggleSection(sectionKey)}
+                />
+              )
+            }
+            if (item.type === 'room-header') {
+              return (
+                <RoomGroupHeader
+                  group={item.group}
+                  collapsed={item.collapsed}
+                  onToggle={item.onToggle}
+                />
+              )
+            }
+            return (
+              <View style={[styles.cardWrapper, item.insetByRoom && styles.cardWrapperInset]}>
                 <TaskCard
                   task={item.task}
                   isLocked={
@@ -301,7 +402,7 @@ export function HousekeepingHub() {
                 />
               </View>
             )
-          }
+          }}
           contentContainerStyle={styles.listContent}
           ItemSeparatorComponent={() => <View style={styles.sep} />}
           refreshControl={
@@ -339,13 +440,15 @@ export function HousekeepingHub() {
 
 // ─── Subcomponents ─────────────────────────────────────────────────────────
 function SectionHeader({
-  label, tint, level, count, Icon,
+  label, tint, level, count, Icon, collapsed, onToggle,
 }: {
   label: string
   tint: string
   level: SectionLevel
   count: number
   Icon: React.ComponentType<{ size?: number; color?: string }>
+  collapsed: boolean
+  onToggle: () => void
 }) {
   // Color psychology (Mehrabian-Russell 1974 + Treisman 1980):
   //   critical/urgent → red tint bg signals danger pre-attentively
@@ -370,7 +473,7 @@ function SectionHeader({
     : tint
 
   return (
-    <View style={[styles.sectionHeader, { backgroundColor: bgColor }]}>
+    <Pressable onPress={onToggle} style={[styles.sectionHeader, { backgroundColor: bgColor }]}>
       <View style={styles.sectionHeaderRow}>
         {/* Left accent strip — only for sections with urgency signal */}
         {hasBg && (
@@ -382,8 +485,52 @@ function SectionHeader({
         <View style={[styles.sectionCountWrap, { backgroundColor: countBg }]}>
           <Text style={[styles.sectionCount, { color: countColor }]}>{count}</Text>
         </View>
+        {/* Chevron — rotated when expanded (Apple Settings.app pattern) */}
+        <View style={{ marginLeft: 'auto', transform: [{ rotate: collapsed ? '0deg' : '90deg' }] }}>
+          <IconChevronRight size={16} color={colors.text.tertiary} />
+        </View>
       </View>
-    </View>
+    </Pressable>
+  )
+}
+
+/**
+ * RoomGroupHeader — D18 / Sprint 8I.
+ *
+ * Sub-header dentro de una priority section cuando ≥2 tasks comparten roomId.
+ * Compact 40dp altura, single-line. Counter dual `🚪 X/N · 🛏️ Y/N` agregado
+ * sobre TODO el día (no solo la section). Color de borde left determinístico
+ * por roomId (Gestalt similarity).
+ */
+function RoomGroupHeader({
+  group,
+  collapsed,
+  onToggle,
+}: {
+  group: RoomGroup
+  collapsed: boolean
+  onToggle: () => void
+}) {
+  const borderColor = roomBorderColor(group.roomId)
+  return (
+    <Pressable onPress={onToggle} style={styles.roomGroupHeader}>
+      <View style={[styles.roomGroupBorder, { backgroundColor: borderColor }]} />
+      <View style={styles.roomGroupBody}>
+        <Text style={styles.roomGroupName} numberOfLines={1}>Hab. {group.roomNumber}</Text>
+        <View style={styles.roomGroupCountersWrap}>
+          <Text style={styles.roomGroupCounter}>
+            🚪 <Text style={styles.roomGroupCounterValue}>{group.salidasDone}/{group.salidasTotal}</Text>
+          </Text>
+          <Text style={styles.roomGroupCounterDivider}>·</Text>
+          <Text style={styles.roomGroupCounter}>
+            🛏️ <Text style={styles.roomGroupCounterValue}>{group.cleaningsDone}/{group.cleaningsTotal}</Text>
+          </Text>
+        </View>
+        <View style={{ transform: [{ rotate: collapsed ? '0deg' : '90deg' }] }}>
+          <IconChevronRight size={14} color={colors.text.tertiary} />
+        </View>
+      </View>
+    </Pressable>
   )
 }
 
@@ -523,8 +670,59 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 4,
   },
+  // D18 — task card inset cuando está dentro de un room group (visual hierarchy)
+  cardWrapperInset: {
+    paddingLeft: 32,
+  },
   sep: {
     height: 4,
+  },
+  // D18 — Room group header (compact, single-line, max 40dp)
+  roomGroupHeader: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    marginHorizontal: 20,
+    marginTop: 8,
+    marginBottom: 2,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: colors.canvas.secondary,
+    overflow: 'hidden',
+  },
+  roomGroupBorder: {
+    // D18 regla 4 — color determinístico por roomId (Gestalt similarity)
+    width: 3,
+  },
+  roomGroupBody: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    gap: 8,
+  },
+  roomGroupName: {
+    fontSize: typography.size.small,
+    fontWeight: typography.weight.semibold,
+    color: colors.text.primary,
+  },
+  roomGroupCountersWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 'auto',
+    gap: 6,
+    paddingRight: 4,
+  },
+  roomGroupCounter: {
+    fontSize: typography.size.micro,
+    color: colors.text.tertiary,
+  },
+  roomGroupCounterValue: {
+    color: colors.text.secondary,
+    fontWeight: typography.weight.semibold,
+  },
+  roomGroupCounterDivider: {
+    fontSize: typography.size.micro,
+    color: colors.text.tertiary,
   },
   // Active task banner
   activeBanner: {

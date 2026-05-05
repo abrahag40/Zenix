@@ -29,6 +29,7 @@
  *        footer pattern. Useful for support tickets.
  */
 
+import { useState } from 'react'
 import { Alert, View, Text, StyleSheet, ScrollView, Pressable } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
@@ -53,11 +54,15 @@ import {
   IconHelp,
   IconSparkles,
 } from '../../src/design/icons'
+import { PropertySwitcherSheet } from '../../src/features/property/PropertySwitcherSheet'
 
 export default function YoScreen() {
   const user = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
   const router = useRouter()
+  const [showSwitcher, setShowSwitcher] = useState(false)
+
+  const canSwitchProperty = user?.role === 'SUPERVISOR' || user?.role === 'RECEPTIONIST'
 
   function confirmLogout() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
@@ -87,11 +92,20 @@ export default function YoScreen() {
             <Text style={styles.avatarLetter}>{user?.name?.[0]?.toUpperCase() ?? 'Z'}</Text>
           </View>
           <Text style={styles.userName}>{user?.name ?? 'Usuario'}</Text>
-          <View style={styles.userMeta}>
-            <Text style={styles.userMetaText}>{roleLabel(user?.role)}</Text>
-            <Text style={styles.userMetaSeparator}>·</Text>
-            <Text style={styles.userMetaText}>Hotel Tulum</Text>
-          </View>
+          <Text style={styles.userRoleLine}>{roleLabel(user?.role)}</Text>
+
+          {/* Property pill — tappable for SUPERVISOR/RECEPTIONIST.
+              SwiftUI standard: pill with chevron + scale-down on press. */}
+          {canSwitchProperty ? (
+            <PropertyPill
+              propertyName={user?.propertyName ?? '—'}
+              onPress={() => setShowSwitcher(true)}
+            />
+          ) : (
+            <View style={styles.propertyPillStatic}>
+              <Text style={styles.propertyPillStaticText}>{user?.propertyName ?? '—'}</Text>
+            </View>
+          )}
         </View>
 
         {/* ── Group: Tu cuenta ──────────────────────────────────── */}
@@ -107,12 +121,6 @@ export default function YoScreen() {
             label="Gamificación"
             description="Personalizar tu experiencia"
             onPress={() => Alert.alert('Próximamente', 'Habla con tu supervisor para ajustar este nivel.')}
-          />
-          <SettingsRow
-            Icon={IconGlobe}
-            label="Idioma"
-            description="Español (México)"
-            onPress={() => Alert.alert('Próximamente', 'Selección de idioma en Sprint 9+.')}
           />
         </SettingsGroup>
 
@@ -170,6 +178,11 @@ export default function YoScreen() {
           </Text>
         </View>
       </ScrollView>
+
+      <PropertySwitcherSheet
+        visible={showSwitcher}
+        onClose={() => setShowSwitcher(false)}
+      />
     </SafeAreaView>
   )
 }
@@ -181,6 +194,34 @@ function SettingsGroup({ title, children }: { title: string; children: React.Rea
       <Text style={styles.groupTitle}>{title}</Text>
       <View style={styles.groupCard}>{children}</View>
     </View>
+  )
+}
+
+/**
+ * PropertyPill — tappable pill below the user name showing the active property.
+ * SwiftUI parallel: capsule shape + chevron + spring scale on press, signaling
+ * "this is interactive" without an extra explanatory label.
+ */
+function PropertyPill({ propertyName, onPress }: { propertyName: string; onPress: () => void }) {
+  const scale = useSharedValue(1)
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }))
+  return (
+    <Pressable
+      onPressIn={() => { scale.value = withSpring(0.96, MOTION.spring.snappy) }}
+      onPressOut={() => { scale.value = withSpring(1, MOTION.spring.snappy) }}
+      onPress={() => {
+        Haptics.selectionAsync()
+        onPress()
+      }}
+      hitSlop={8}
+    >
+      <Animated.View style={[styles.propertyPill, animStyle]}>
+        <Text style={styles.propertyPillText}>{propertyName}</Text>
+        <IconChevronRight size={14} color={colors.brand[400]} />
+      </Animated.View>
+    </Pressable>
   )
 }
 
@@ -278,18 +319,42 @@ const styles = StyleSheet.create({
     letterSpacing: typography.letterSpacing.title,
     marginBottom: 4,
   },
-  userMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  userMetaText: {
+  userRoleLine: {
     fontSize: typography.size.small,
     color: colors.text.secondary,
     fontWeight: typography.weight.medium,
+    marginBottom: 10,
   },
-  userMetaSeparator: {
-    color: colors.text.tertiary,
+  // Tappable property pill (SUPERVISOR/RECEPTIONIST)
+  propertyPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: `${colors.brand[500]}1A`, // 10% emerald tint
+    borderWidth: 1,
+    borderColor: `${colors.brand[500]}40`,
+  },
+  // Static (non-tappable) pill for HOUSEKEEPER role
+  propertyPillStatic: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: colors.canvas.tertiary,
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
+  },
+  propertyPillText: {
+    fontSize: typography.size.small,
+    color: colors.brand[400],
+    fontWeight: typography.weight.semibold,
+  },
+  propertyPillStaticText: {
+    fontSize: typography.size.small,
+    color: colors.text.secondary,
+    fontWeight: typography.weight.medium,
   },
   // Group
   group: {

@@ -9,6 +9,10 @@
  *   - 1-tap pre-fill removes 18+ keystrokes (`m@z.co` + `1234` = 11 chars
  *     × 1.4s average = ~15s saved per login attempt).
  *
+ * Users are grouped by property in the login screen for fast E2E testing.
+ * Each chip shows: name · role · property — so testers know exactly who
+ * they're logging in as without reading the email.
+ *
  * Production builds will gate this picker behind __DEV__ to avoid leaking
  * staff identities. For Sprint 8I we leave it visible — Zenix is in active
  * customer demos where this accelerates the showcase.
@@ -20,43 +24,28 @@ import { colors } from '../../design/colors'
 export interface DemoUser {
   id: string
   name: string
-  shortName: string         // used as avatar initial
+  shortName: string         // avatar initial
   email: string
   password: string
   role: 'HOUSEKEEPER' | 'SUPERVISOR' | 'RECEPTIONIST'
-  roleLabel: string         // human-readable
+  roleLabel: string
   department: Department
   property: 'Tulum' | 'Cancún'
-  /** Background color for the avatar (semantic to role) */
   avatarBg: string
 }
 
+// ── Color palette by role (consistent across both properties) ───────────────
+const ROLE_COLORS = {
+  SUPERVISOR:   '#A78BFA',  // violet  — authority / management
+  RECEPTIONIST: '#60A5FA',  // blue    — front desk / customer-facing
+  HOUSEKEEPER:  colors.brand[500],      // emerald — operations / housekeeping
+  HOUSEKEEPER_2: colors.brand[400],
+  HOUSEKEEPER_3: colors.brand[600],
+  MAINTENANCE:  '#F59E0B',  // amber   — maintenance department
+}
+
 export const DEMO_USERS: DemoUser[] = [
-  // Tulum
-  {
-    id: 'maria',
-    name: 'María Torres',
-    shortName: 'M',
-    email: 'm@z.co',
-    password: '123456',
-    role: 'HOUSEKEEPER',
-    roleLabel: 'Recamarista',
-    department: Department.HOUSEKEEPING,
-    property: 'Tulum',
-    avatarBg: colors.brand[500],
-  },
-  {
-    id: 'pedro',
-    name: 'Pedro Ramírez',
-    shortName: 'P',
-    email: 'p@z.co',
-    password: '123456',
-    role: 'HOUSEKEEPER',
-    roleLabel: 'Recamarista',
-    department: Department.HOUSEKEEPING,
-    property: 'Tulum',
-    avatarBg: colors.brand[600],
-  },
+  // ── Hotel Tulum ────────────────────────────────────────────────────────
   {
     id: 'ana',
     name: 'Ana García',
@@ -67,7 +56,7 @@ export const DEMO_USERS: DemoUser[] = [
     roleLabel: 'Supervisor',
     department: Department.HOUSEKEEPING,
     property: 'Tulum',
-    avatarBg: '#A78BFA',  // violet — distinct from housekeeper greens
+    avatarBg: ROLE_COLORS.SUPERVISOR,
   },
   {
     id: 'carlos',
@@ -79,20 +68,81 @@ export const DEMO_USERS: DemoUser[] = [
     roleLabel: 'Recepción',
     department: Department.RECEPTION,
     property: 'Tulum',
-    avatarBg: '#60A5FA',  // blue — distinct from housekeeper greens
+    avatarBg: ROLE_COLORS.RECEPTIONIST,
   },
-  // Cancún
   {
-    id: 'luis',
-    name: 'Luis Herrera',
-    shortName: 'L',
-    email: 'l@z.co',
+    id: 'maria',
+    name: 'María Torres',
+    shortName: 'M',
+    email: 'm@z.co',
     password: '123456',
     role: 'HOUSEKEEPER',
     roleLabel: 'Recamarista',
     department: Department.HOUSEKEEPING,
+    property: 'Tulum',
+    avatarBg: ROLE_COLORS.HOUSEKEEPER,
+  },
+  {
+    id: 'valentina',
+    name: 'Valentina Cruz',
+    shortName: 'V',
+    email: 'v@z.co',
+    password: '123456',
+    role: 'HOUSEKEEPER',
+    roleLabel: 'Recamarista',
+    department: Department.HOUSEKEEPING,
+    property: 'Tulum',
+    avatarBg: ROLE_COLORS.HOUSEKEEPER_2,
+  },
+  {
+    id: 'pedro',
+    name: 'Pedro Ramírez',
+    shortName: 'P',
+    email: 'p@z.co',
+    password: '123456',
+    role: 'HOUSEKEEPER',
+    roleLabel: 'Recamarista',
+    department: Department.HOUSEKEEPING,
+    property: 'Tulum',
+    avatarBg: ROLE_COLORS.HOUSEKEEPER_3,
+  },
+  {
+    id: 'diego',
+    name: 'Diego Flores',
+    shortName: 'D',
+    email: 'd@z.co',
+    password: '123456',
+    role: 'HOUSEKEEPER',
+    roleLabel: 'Recamarista',
+    department: Department.HOUSEKEEPING,
+    property: 'Tulum',
+    avatarBg: colors.brand[700] ?? '#065F46',
+  },
+  {
+    id: 'javier',
+    name: 'Javier Ruiz',
+    shortName: 'J',
+    email: 'j@z.co',
+    password: '123456',
+    role: 'HOUSEKEEPER',
+    roleLabel: 'Mantenimiento',
+    department: Department.MAINTENANCE,
+    property: 'Tulum',
+    avatarBg: ROLE_COLORS.MAINTENANCE,
+  },
+
+  // ── Hotel Cancún ───────────────────────────────────────────────────────
+  {
+    id: 'rodrigo',
+    name: 'Rodrigo Vega',
+    shortName: 'R',
+    email: 'sc@z.co',
+    password: '123456',
+    role: 'SUPERVISOR',
+    roleLabel: 'Supervisor',
+    department: Department.HOUSEKEEPING,
     property: 'Cancún',
-    avatarBg: colors.brand[400],
+    avatarBg: ROLE_COLORS.SUPERVISOR,
   },
   {
     id: 'laura',
@@ -104,6 +154,40 @@ export const DEMO_USERS: DemoUser[] = [
     roleLabel: 'Recepción',
     department: Department.RECEPTION,
     property: 'Cancún',
-    avatarBg: '#3B82F6',
+    avatarBg: ROLE_COLORS.RECEPTIONIST,
+  },
+  {
+    id: 'luis',
+    name: 'Luis Herrera',
+    shortName: 'L',
+    email: 'l@z.co',
+    password: '123456',
+    role: 'HOUSEKEEPER',
+    roleLabel: 'Recamarista',
+    department: Department.HOUSEKEEPING,
+    property: 'Cancún',
+    avatarBg: ROLE_COLORS.HOUSEKEEPER,
+  },
+  {
+    id: 'carmen',
+    name: 'Carmen Silva',
+    shortName: 'C',
+    email: 'c@z.co',
+    password: '123456',
+    role: 'HOUSEKEEPER',
+    roleLabel: 'Recamarista',
+    department: Department.HOUSEKEEPING,
+    property: 'Cancún',
+    avatarBg: ROLE_COLORS.HOUSEKEEPER_2,
   },
 ]
+
+/** Returns users grouped by property for rendering section lists. */
+export function getDemoUsersByProperty(): { property: string; users: DemoUser[] }[] {
+  const groups: Record<string, DemoUser[]> = {}
+  for (const user of DEMO_USERS) {
+    if (!groups[user.property]) groups[user.property] = []
+    groups[user.property].push(user)
+  }
+  return Object.entries(groups).map(([property, users]) => ({ property, users }))
+}
