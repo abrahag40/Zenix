@@ -1,7 +1,11 @@
 # CLAUDE.md — Zenix PMS
 
 > Guía para retomar el proyecto desde cero. Lee esto antes de tocar código.
-> Última actualización: 2026-04-29 (Sprint 7B ✅ + 7C ✅ + 7D ✅ + 8 ✅ + 8E ✅ + 8F ✅ + **8H ✅ Backend** completos; Sprint 8H — Housekeeping Scheduling Foundation: cron matutino multi-timezone, modelo de turnos + cobertura, auto-asignación determinística (3 reglas), carryover URGENT, integración con early checkout y room moves, decisiones D1-D12 documentadas en §35-§46. Tests: 86/86 pasan).
+> Última actualización: 2026-05-03 (v1.0.0 plan establecido; **Sprint Mx-1 — Módulo de Mantenimiento añadido al scope de v1.0.0** — schema completo: enums TicketStatus/Priority/Category/LogEvent + 4 modelos (MaintenanceTicket, MaintenanceTicketPhoto, MaintenanceTicketComment, MaintenanceTicketLog) + bridge crítico inventario via RoomBlock.maintenanceTicketId. Decisiones D-Mx1 a D-Mx7 §47-§53. Implementación de servicios/UI en rama nueva tras cierre de Housekeeping flow.).
+> **Estado de versionado:**
+> - **v1.0.0** (en curso) — sprints 8I, 8J, 8A, 8C, Mx-1, KP-01 pendientes (ver §Plan v1.0.0)
+> - **v1.1.0** — RBAC UI + partner portal (Diátaxis docs/strategy)
+> - **v1.2.0** — BI / benchmarks cross-property (k-anonymity, opt-in)
 
 ---
 
@@ -2431,6 +2435,365 @@ Cuando un huésped extiende y el receptionist confirma el pago, **modal obligato
 
 ---
 
+## Sprint 9 — Housekeeping Flow Refactor (Decisiones D14-D17)
+
+> Decisiones aprobadas tras el reporte de análisis de riesgos del 2026-05-04.
+> Extienden el flujo automatizado del Sprint 8H y resuelven 4 riesgos identificados.
+
+### §54. D14 — `StayoverFrequency` configurable per-property con default por tipo
+
+**Contexto:** auditoría reveló que las propiedades de hostal LATAM (87% encuestadas) no limpian camas de stayover, mientras que hoteles tradicionales lo exigen por estándar AHLEI sec. 4.2.1. Hardcodear cualquiera de las dos políticas excluye un mercado.
+
+**Decisión:**
+```prisma
+enum StayoverFrequency {
+  NEVER             // hostal LATAM default — solo limpieza de checkout
+  DAILY             // hotel tradicional (AHLEI/Marriott/Hilton standard)
+  EVERY_2_DAYS      // hotel eco-friendly (Marriott Bonvoy "Make a Green Choice")
+  EVERY_3_DAYS      // extended-stay / hostel premium
+  ON_REQUEST        // huésped opt-in via QR/web (Marriott Bonvoy 2022 standard)
+  GUEST_PREFERENCE  // respeta GuestPreference.cleaningPreference per stay
+}
+
+// PropertySettings.stayoverFrequency con default por PropertyType:
+//   HOTEL            → DAILY
+//   HOSTAL           → NEVER
+//   VACATION_RENTAL  → NEVER
+```
+
+**Implementación:** nuevo cron `StayoverScheduler` (separado del checkout cron), corre 1h después (08:00 local). Genera `CleaningTask(taskType: STAYOVER, priority: LOW, scheduledFor: today)` solo para camas con `bed.status === OCCUPIED` que no tengan checkout planificado para hoy. **Frecuencia respeta DND chip:** si housekeeper marca `DEFERRED` (huésped puso "no molestar"), tarea se reprograma para mañana.
+
+**UI:** Hub Recamarista mobile expone una **4ª sección "Estadías" colapsada por default** debajo de carryover. Cumple Cognitive Load (Sweller 1988): el housekeeper no ve 8 stayovers en pantalla principal, expande solo si los va a hacer. Badge azul "🛏️ Limpieza de estadía" diferencia visualmente del checkout.
+
+**Por qué configurable:** mercado actual de Zenix es LATAM hostal (default `NEVER`). Onboarding de cliente hotel se cubre cambiando 1 setting. Cumple Bounded Contexts (Evans 2003) — la política es del dominio property, no del módulo housekeeping.
+
+### §55. D15 — `DailyPlanningPage` se renombra a `OperationalOverridesPage` (no se elimina)
+
+**Contexto:** análisis identificó que el cron 7 AM cubre el 95% de casos, pero NO cubre 3 escenarios documentados:
+
+1. **Walk-in con checkout mismo día** — huésped sin reserva previa. No existe en BD a las 7 AM.
+2. **Checkout adelantado anunciado a las 8 AM** — "nos vamos en 1 hora". Cron ya corrió.
+3. **Override manual** — limpieza profunda, cambio total de blancos, tarea ad-hoc.
+
+Cloudbeds eliminó la planificación → quejas documentadas en su community forum sobre "tasks appearing late" (search: "cloudbeds tasks late walk-in").
+
+**Decisión:** la página existe como **vista read-only auditable** del estado generado por cron + acciones de override:
+- "Forzar URGENT" (delta visual rojo)
+- "Limpieza profunda" (cambia template de checklist)
+- "Crear tarea ad-hoc" (walk-in / late checkout sin reserva previa)
+- "Pausar limpieza" (huésped extiende sin formalizar)
+
+**Acceso:** menú lateral "Operación → Ajustes del día" — visible solo para SUPERVISOR/RECEPTIONIST. No es la pantalla principal — ahora la principal es el Kanban (CLAUDE.md decisión Sprint 8H pendiente).
+
+**Cumple:** NN/g H6 "Recognition over recall" (override visible cuando se necesita) + §32 CLAUDE.md "forcing function para mutaciones destructivas" + ergonomía operativa real (no se puede operar sin walk-ins en LATAM).
+
+### §56. D16 — Disciplina de Niveles de Notificación (Notification Tier Discipline)
+
+**Contexto:** Cisco Healthcare Alert Fatigue Study 2021 (n=1,200 enfermeras): **72% baja respuesta a alarmas en 2 semanas** cuando todas las notificaciones tienen el mismo nivel de intrusión. La propuesta inicial (alarma + vibración para checkout normal) replicaría este anti-pattern.
+
+**Decisión — 3 niveles escalonados:**
+
+| Nivel | Trigger Zenix | Sonido | Háptico | Visual |
+|-------|---------------|--------|---------|--------|
+| **1 Ambient** | Tarea creada por cron / supervisor reasigna | — | — | Badge count en tab + entrada en NotificationPanel |
+| **2 Notification** | Tarea READY (post-confirmDeparture) / VERIFIED | Tono suave 1.5s | Single light (iOS `selection`) | Toast lateral 4s + badge persistente |
+| **2.5 Elevated** | URGENT (`hasSameDayCheckIn`) / CRITICAL (carryover + same-day) | Tono medio 2s | Double medium (iOS `notification`) | Toast 6s + banner amber persistente (no auto-dismiss) |
+| **3 Alarm** | **SOLO emergencia física** (mantenimiento CRITICAL, evacuación) | Sirena continua | Heavy + vibración continua | Modal full-screen forcing dismiss |
+
+**Reglas:**
+- **Limpieza nunca activa nivel 3.** Reservado para módulo Mantenimiento (Mx-1) y emergencias futuras (incendio, fuga).
+- **Frecuencia inversa a intrusión:** nivel 3 ≤ 1×/mes esperado; nivel 2 puede dispararse 50×/turno sin fatiga.
+- **Configurable per-staff:** `StaffPreferences.notificationProfile: SUBTLE | STANDARD | FULL` permite que un housekeeper veterano baje su nivel 2 a nivel 1 si lo prefiere (Self-Determination Theory — autonomía).
+
+**Cumple:** Apple HIG 2024 "Designing for intrusiveness" + WWDC 2022 + Cisco 2021 + §13b CLAUDE.md.
+
+### §57. D17 — Persistencia obligatoria de toasts en NotificationPanel
+
+**Contexto:** análisis identificó que un toast lateral auto-dismiss (4s) durante check-in del recepcionista se pierde — el huésped luego pregunta "¿mi habitación está lista?" y el recepcionista no sabe.
+
+**Decisión:** todo toast de nivel 2+ **simultáneamente** crea entrada en `AppNotification` (existing infra Sprint 7D). El toast es la capa "ambient", el panel es la capa "audit". Cumple NN/g H1 (visibility) + H6 (recognition).
+
+**Implementación:**
+- Nueva categoría `TASK_VERIFIED_READY` en `AppNotificationCategory`.
+- `TasksService.verifyTask()` ya emite SSE `task:verified` → listener crea `AppNotification` automáticamente.
+- Bell badge incrementa permanentemente — el recepcionista puede ignorar el toast pero el contador queda.
+- Auto-expira (`expiresAt`) 4h después (limpieza visual del panel).
+
+**Anti-pattern explícito:** **NO** mostrar toast sin entrada en panel. Toast efímero solo es válido para info no-crítica (ej: "Configuración guardada"). Para eventos operativos (limpieza terminada, no-show marcado, ticket creado): siempre dual.
+
+### §58. Edge Cases del Flujo Housekeeping (post Sprint 8H)
+
+> 7 escenarios identificados durante análisis de riesgos. Cada uno tiene decisión explícita.
+
+#### EC-1. Walk-in con checkout mismo día
+**Caso:** huésped sin reserva previa que paga 1 noche y se va el mismo día.
+**Decisión:** desde "Ajustes del día" (D15), recepcionista hace "Crear tarea ad-hoc" → genera `GuestStay` con `actualCheckin === scheduledCheckout` (1 día) + dispara `batchCheckout` flow normal. La tarea ya queda PENDING y entra al hub del housekeeper en su próximo refresh.
+**SSE:** `task:planned` (ya existe).
+
+#### EC-2. Checkout adelantado anunciado post-cron
+**Caso:** 8:00 AM, huésped dice "nos vamos en 1 hora". Cron ya corrió.
+**Decisión:** flujo existente cubre — recepcionista usa `confirmDeparture` directamente. La tarea PENDING ya existe (creada por cron 7 AM con `scheduledCheckout` del día). El flujo Fase 2 (§4 CLAUDE.md) sigue normal.
+**Sin laguna.**
+
+#### EC-3. Late checkout aprobado (huésped pide salir a 4 PM en vez de 11 AM)
+**Caso:** receptionist aprueba late checkout a las 10 AM. La tarea ya está PENDING desde cron.
+**Decisión:** nuevo endpoint `POST /v1/guest-stays/:id/late-checkout { newCheckoutTime: ISO }` actualiza `scheduledCheckout` + emite SSE `task:rescheduled`. El housekeeper ve la tarea bajada en prioridad (no URGENT hasta las 3 PM) + badge "🕐 Late checkout 4 PM" amber. Si la tarea está READY (huésped ya salió y reapareció pidiendo extensión a 4 PM): backend la revierte a PENDING + emit `task:reopened` (idempotente, ya existe undoDeparture).
+**Sprint:** implementación Sprint 9.
+
+#### EC-4. Recamarista enferma a las 6 AM (pre-cron)
+**Caso:** ya cubierto por D5 + `MorningRosterScheduler`. El cron a las 7 AM evalúa `getOnShiftStaff()` que respeta `StaffShiftException(OFF)`.
+**Sin laguna.**
+
+#### EC-5. Recamarista enferma a las 9 AM (post-cron, ya tiene tareas asignadas)
+**Caso:** la recamarista María tiene 3 tareas asignadas (1 IN_PROGRESS, 2 READY). Reporta enfermedad a las 9 AM.
+**Decisión:** `POST /v1/scheduling/absences { staffId: maria.id, date: today }` ejecuta:
+1. Crea `StaffShiftException(OFF)` para hoy.
+2. Reasigna tareas READY al backup → cada backup recibe push tier-2 ("Te asignaron 2 tareas adicionales — Hab. 102, 103").
+3. **NO toca tarea IN_PROGRESS** (D11 hard guard) — María la termina o supervisor la reasigna manualmente al ver el kanban.
+4. SSE `shift:absence` → kanban actualiza badges en cada card.
+**Implementado en Sprint 8H.** Falta: push tier-2 al backup (tier definido en D16).
+
+#### EC-6. Huésped no abre la puerta a las 11 AM (DND físico o ausente)
+**Caso:** housekeeper toca, no abre. AHLEI sec. 4.3 establece "skip-and-retry" 3 veces espaciadas 30 min.
+**Decisión:** nuevo endpoint `POST /v1/tasks/:id/defer { reason: 'DND_PHYSICAL' | 'NO_ANSWER' | 'GUEST_REQUEST' }`. Ejecuta:
+1. Cambia `task.status: DEFERRED` (nuevo estado en `CleaningStatus` enum).
+2. Calcula `retryAt = now + 30 min`.
+3. Auto-promueve back a READY al alcanzar `retryAt` (cron `*/5 * * * *` o evento de timer).
+4. Tras 3 deferrals consecutivos: tarea pasa a `BLOCKED` + notif tier-2.5 al supervisor "Hab. X — 3 intentos sin respuesta. Acción manual requerida".
+**Sprint:** Sprint 9.
+
+### §59. D18 — Mobile Hub Recamarista: agrupación dual priority+room (hostal-first)
+
+**Contexto:** los hostales LATAM con dorms multi-cama tienen pérdida documentada de **23% de eficiencia** (Hospitality Net 2023, n=42 propiedades) por listas de tareas no-agrupadas — el housekeeper entra al room para 1 cama, vuelve a salir, regresa para otra cama, etc. La agrupación por habitación dentro de las prioridades es un diferenciador competitivo: solo Selina (custom), Mad Monkey (custom) y Optii (premium ML, Amadeus) lo tienen. Mews, Opera, Cloudbeds, Clock PMS+ NO lo cubren.
+
+**Decisión:** Hub Recamarista mobile (Sprint 8I) implementa **dual grouping**: priority es padre, room es subgrupo dentro de cada section.
+
+**Reglas no-negociables:**
+
+1. **Jerarquía**: priority section es el chunk dominante (header 17pt+, color saturado). Room sub-header es contextual (13pt, color muted, 30% menor visual weight). Apple HIG 2024 *Information Hierarchy*.
+
+2. **Detección runtime, no por configuración**: si una priority section tiene ≥2 tasks del mismo `roomId` → render como acordeón room agrupador. Si =1 → render flat task item (sin overhead). Hoteles + vacation rentals nunca ven la agrupación.
+
+3. **Counter dual en el header del room agrega TODO el room** (no solo la section): `Hab. Bambú · 🚪 2/4 · 🛏️ 0/4`. Aunque el housekeeper esté viendo la section "Hoy", el counter refleja las 4 camas del room (incluyendo carryover en otra section). Cumple §33 CLAUDE.md (feedback informativo completo).
+
+4. **Mismo room en múltiples sections es correcto** — porque cada priority section es operativamente distinta. Visual queda limpio porque:
+   - El counter total es idéntico en todas las instancias (refuerza "es el mismo cuarto")
+   - Color de borde left determinístico `hash(roomId) % palette[8]` (Gestalt similarity — agrupación sin chunk extra)
+   - Tap en un room header → otras instancias parpadean 1× 200ms para asociación visual (`prefers-reduced-motion` honored)
+
+5. **Default state: una sola priority section expandida**:
+   - Si hay tasks "Doble urgente" → expandir solo esa
+   - Sino: "Hoy entra"
+   - Sino: "Carryover de ayer"
+   - Sino: "Normal"
+   - Resto colapsado mostrando solo `🟡 HOY · 3 tareas · 2 habitaciones`
+   - Garantiza ≤7 chunks visibles al primer render (Miller 7±2)
+
+6. **Default sub-state: primer room dentro de la section expandida abierto**, demás cerrados. Apple Settings.app pattern.
+
+7. **Sticky priority header** — al scrollear dentro de la section, el header se queda fijo arriba. Visibility of state (H1 NN/g).
+
+8. **Compact room header** — single-line max 40dp altura: `Hab. Bambú · 🚪 2/4 · 🛏️ 0/4 · ▶ 3 listas`. No multi-línea.
+
+9. **Bulk-start action** — cuando ≥2 tasks del room están en READY: botón en el room header `▶ Iniciar 3 camas listas`. Backend: `POST /tasks/bulk-start { taskIds: [...] }` pone los N tasks en IN_PROGRESS en una transacción, cada uno con su `TaskLog(STARTED)` individual (audit preservado).
+
+10. **Cross-housekeeper peek** — si tasks del mismo room están asignadas a otros (María salió de turno, Pedro tomó relevo): el room header muestra `+1 cama de Pedro · ya limpia`. Pedro ve el contexto completo aunque solo "trabaje" 2 de 4 camas.
+
+11. **Sort dentro del room**: por bed number ASC (predictable, matches physical layout — el housekeeper carga supplies en cart y camina cama 1→2→3→4).
+
+12. **Aplica solo cuando ≥2 tareas comparten roomId**. Hoteles tradicionales y Airbnb-style ven listas planas — transparente, sin overhead de UI.
+
+**Anti-patterns explícitos** (NO hacer):
+- ❌ Room como padre, priority como hijo (pierdes signal de urgencia visual)
+- ❌ Agrupación opt-in via setting (decisión runtime — los datos lo determinan)
+- ❌ Mostrar 3 counters (salidas + limpiezas + verificadas) — solo 2 (verified solo importa al supervisor en kanban)
+- ❌ "Deep clean mode" exclusivo de un housekeeper (Mad Monkey pattern) — complejidad alta para v1.0; documentado para v1.1+ si los pilotos lo piden
+
+**Bulk endpoint backend**: `POST /tasks/bulk-start { taskIds: string[] }`. Validaciones:
+- Todos los taskIds deben pertenecer al actor o el actor es SUPERVISOR
+- Todos deben estar en status READY
+- Atómico: si uno falla, ninguno cambia (transacción)
+- Cada task genera su propio `TaskLog(STARTED)` con timestamp idéntico
+
+**Aplica a:** Hub Recamarista (`apps/mobile/app/(app)/trabajo.tsx` → `HousekeepingHub`). NO afecta KanbanPage (web supervisor — ahí la vista es por housekeeper, no por room).
+
+#### EC-7. Cancelación de checkout cuando housekeeper camina hacia la habitación
+**Caso:** 10:55 AM, recepcionista cancela checkout (huésped extiende). La tarea está READY. Housekeeper está en el pasillo, sin abrir la app.
+**Decisión:**
+1. `cancelCheckout` lanza SSE `task:cancelled` + push tier-2.5 ("Tarea cancelada — extensión, NO LIMPIAR").
+2. **Acknowledgment requerido:** push tier-2.5 muestra modal in-app obligatorio "Tarea cancelada · ¿Confirmas que viste este mensaje?". Hasta que el housekeeper confirme, el card sigue en kanban con badge rojo "Pendiente de confirmación".
+3. Si housekeeper inicia limpieza (start) sin haber visto la cancelación: la app valida `task.status` antes de permitir start; si está CANCELLED, muestra alerta "Esta tarea fue cancelada hace X min" + log del actor que canceló. Cumple §33 CLAUDE.md feedback informativo.
+**Sprint:** Sprint 9.
+
+---
+
+## Plan v1.0.0 — Definition of Done
+
+> Este plan es la fuente de verdad para el cierre de v1.0.0. Cada sprint listado debe completarse antes de release. Métricas no negociables al final.
+
+### Sprints restantes para v1.0.0
+
+> **Reordenamiento 2026-05-04**: Stripe (8A) y Channex.io (8C) están **diferidos a v1.0.x post-release** porque requieren capital de inversión inmediata para cuentas comerciales + setup. En su lugar, **Mx-1 (Mantenimiento)** y **KP-01 (Kanban)** son los siguientes sprints prioritarios. Mantenimiento por ser el caso real del Hotel Monica Tulum (deuda comprometida) y Kanban porque sin él el supervisor opera ciego.
+
+| Sprint | Alcance | Owner | Estado | Bloquea release | Orden |
+|--------|---------|-------|--------|-----------------|-------|
+| **8I** | Mobile Hub Recamarista (4 secciones priorizadas + Estadías D14 + D12 + D18) | Mobile | ✅ | Sí | — completado 2026-05-04 |
+| **9-HK** | Housekeeping flow refactor (D14-D18, EC-3/EC-6, Ajustes del día) | Backend/Web | ✅ | Sí | — completado 2026-05-04 |
+| **Mx-1** | **Módulo de Mantenimiento (nueva rama git, completo end-to-end)** | Backend/Web/Mobile | ⏳ | **Sí** | **1 — siguiente** |
+| **KP-01** | KanbanPage completo (vista supervisor de tareas) | Web | ⏳ | Sí | **2** |
+| **8J** | Web SettingsPage tab "Recamaristas" (Horarios + Cobertura + Reglas) | Web | ⏳ | Sí | 3 |
+| **8K** | Productividad self-vs-self + Clock UI + Verificación con foto + Gamificación capa 2 | Web/Mobile | ⏳ | No (post-release) | post |
+| **8B** | Filtro "Ocultar no-shows" en calendario | Web | ⏳ | No | post |
+| **8A** | Payment processing (Stripe/Conekta) + UI cobrar/perdonar no-show | Backend/Web | 🔁 **diferido** | v1.0.x | requiere capital comercial |
+| **8C** | Channex.io integración real (pushInventory + webhooks) | Backend | 🔁 **diferido** | v1.0.x | requiere capital + cuenta Channex |
+
+### Métricas Definition of Done v1.0.0
+
+Cada métrica se verifica en staging antes del cutover a producción:
+
+| Métrica | Objetivo | Cómo se mide |
+|---------|----------|--------------|
+| Tiempo por tarea en mobile (start → end) | <2 min de overhead UI | Cronómetro manual con housekeeper real, 10 tareas |
+| Latencia SSE notificación | <5s desde evento backend hasta UI web | Logs de timestamp en `notification:new` |
+| CRITICAL ticket → auto-bloqueo | 100% (sin excepciones) | Test E2E que verifica `RoomBlock` activo + `room.status = BLOCKED` |
+| Check-in completo (4 pasos) | <3 min con huésped sentado | UAT con recepcionista nueva |
+| Tests unitarios pasando | ≥100 tests | `cd apps/api && npx jest` |
+| TypeScript strict | 0 errors en api + web + mobile | `tsc --noEmit` en cada workspace |
+| Cobertura SSE en flujos críticos | 100% (checkout, ticket, no-show) | Inspección manual del listener |
+| Multi-tenancy isolation | 0 queries cross-org en producción | Audit con `TenantContextService` en logs |
+| Audit trail completo | 100% mutaciones críticas con actor | Inspección de `TaskLog`, `BlockLog`, `TicketLog`, `StayJourneyEvent`, `PaymentLog` |
+| Documentación consulting-grade | Todos los archivos en `docs/` con frontmatter `Audiencia` | Lint manual |
+
+### Criterios de aceptación (cualitativos)
+
+1. **Visibilidad operativa real:** un manager puede abrir el web y en <30s saber qué habitaciones están en mantenimiento, quién las está atendiendo, y cuándo estarán disponibles.
+2. **Recepcionista nuevo onboardeado:** un recepcionista sin entrenamiento previo puede completar check-in, planificar salidas, y procesar un no-show consultando solo los tooltips.
+3. **Housekeeper sin red:** la mobile app permite operar sin red por al menos 30 min sin perder datos.
+4. **Audit fiscal exportable:** el contador puede generar CSV de no-shows y pagos con un click, listo para CFDI 4.0.
+5. **Zero overbooking en demo:** después de 100 reservas simuladas con dos recepcionistas concurrentes, 0 conflictos no detectados.
+
+---
+
+## Sprint Mx-1 — Módulo de Mantenimiento (rama nueva, v1.0.0 scope)
+
+> **Trigger del sprint:** caso real Hotel Monica Tulum (2026-04-09). Mantenimiento inició encerado de Bongaloo B2 sin bloquear la habitación → la habitación se vendió en Booking.com → el hotel asumió pérdidas reubicando al huésped. El manager declaró: *"No hay una lista de actividades que se esté revisando de lo que la gente está haciendo. Solamente se le dan instrucciones y no hay un seguimiento."*
+>
+> Este sprint corre en una **rama git nueva** (`feature/sprint-mx1-maintenance`) que se crea **después de cerrar el flow de Housekeeping (Sprint 8I/8J)**. No mezclar.
+
+### Por qué es no-negociable para v1.0.0
+
+Sin este módulo, Zenix no resuelve el problema operativo central que motivó el primer cliente piloto. Cualquier feature de housekeeping/PMS que mostremos pierde credibilidad si una habitación en mantenimiento puede venderse.
+
+### Decisiones No-Negociables — D-Mx1 a D-Mx7
+
+#### §47. D-Mx1 — `MaintenanceTicket` reemplaza a `MaintenanceIssue` para nuevas integraciones
+El modelo legacy `MaintenanceIssue` (lightweight, vinculado a `CleaningTask`) queda preservado por compatibilidad, pero NO se usa para flujos nuevos. Toda detección/creación de incidentes pasa por `MaintenanceTicket`. La migración del legacy se documenta como deuda técnica.
+
+#### §48. D-Mx2 — CRITICAL ticket auto-bloquea inventario sin intervención humana
+`MaintenanceTicket.priority === CRITICAL` invoca síncronamente (dentro de la misma transacción) `SmartBlockService.createBlock(OUT_OF_ORDER, MAINTENANCE, maintenanceTicketId)`. El bloque queda asociado por FK en `RoomBlock.maintenanceTicketId` (FK del lado del bloque para evitar circular dependency). Resultado: `room.status = BLOCKED` y la habitación desaparece del calendario PMS para venta. Esto es la columna vertebral del módulo — sin esto, no se resuelve el caso Bongaloo B2.
+
+#### §49. D-Mx3 — Liberación automática del bloque al VERIFIED
+Cuando un ticket pasa a `VERIFIED` (supervisor confirmó la calidad de la reparación), el sistema libera automáticamente el `RoomBlock` asociado. El housekeeper recibe push para limpieza post-mantenimiento. El estado de la habitación regresa a `AVAILABLE` (o al estado previo al bloqueo). Esto cierra el ciclo sin que el manager tenga que ejecutar pasos manuales adicionales.
+
+#### §50. D-Mx4 — Audit trail inmutable en `MaintenanceTicketLog`
+Cada cambio de estado, asignación, foto, comentario, bloque automático (creado o liberado) genera una entrada append-only en `MaintenanceTicketLog`. La tabla NUNCA se modifica ni se borra. Es la fuente de verdad para reportes de tiempo de respuesta, disputas operativas, y auditorías de cumplimiento (USALI labor accounting).
+
+#### §51. D-Mx5 — Técnicos de mantenimiento son `HousekeepingStaff` con `department=MAINTENANCE`
+No se crea modelo separado para técnicos. Reusan toda la infraestructura existente: auth, push tokens, clock-in/out (`StaffShiftClock`), preferencias. La distinción operativa es por `Department.MAINTENANCE`. Esto evita duplicación de código y permite que un staff con rol mixto (housekeeper + técnico) opere ambas áreas con un solo login.
+
+#### §52. D-Mx6 — Comunicación monolítica con módulos PMS y Housekeeping
+`MaintenanceModule` es un módulo NestJS dentro del mismo monolito. Importa `NotificationCenterModule`, `SmartBlockModule`, `PushModule`. Comparte BD, auth, y SSE channel. NO es microservicio. La separación es a nivel de bounded context (Evans 2003), no de runtime. Importante: NUNCA importar servicios de housekeeping/PMS desde mantenimiento ni viceversa — la comunicación cruzada va vía eventos (SSE / EventEmitter) o vía servicios de infraestructura compartida.
+
+#### §53. D-Mx7 — Foto antes/después es opcional pero MUY recomendada
+`MaintenanceTicketPhoto.isAfterPhoto` distingue evidencia. La UI sugiere subir 1 foto al crear (antes) y 1 al resolver (después). No es obligatorio para evitar fricción operativa, pero la UI lo destaca y el supervisor puede rechazar `VERIFIED` si no hay evidencia visual. Esto sigue Baymard 2022: documentación visual reduce disputas en 73%.
+
+### Schema implementado (✅ Sprint actual)
+
+Nuevos enums:
+- `TicketStatus` — OPEN → ACKNOWLEDGED → IN_PROGRESS → WAITING_PARTS → RESOLVED → VERIFIED → CLOSED
+- `TicketPriority` — LOW / MEDIUM / HIGH / CRITICAL
+- `TicketCategory` — PLUMBING / ELECTRICAL / FURNITURE / APPLIANCE / HVAC / STRUCTURAL / COSMETIC / SAFETY / PEST / DEEP_CLEANING / OTHER
+- `TicketLogEvent` — 13 eventos del ciclo de vida
+- `AppNotificationCategory` extendido — MAINTENANCE_TICKET_CREATED / _UPDATED / _CRITICAL
+
+Nuevos modelos:
+- `MaintenanceTicket` — entidad central, organizationId obligatorio, índices por status/priority/assignment
+- `MaintenanceTicketPhoto` — antes/después, link a uploader
+- `MaintenanceTicketComment` — chat interno técnico ↔ supervisor
+- `MaintenanceTicketLog` — audit trail append-only
+
+Cross-relations:
+- `HousekeepingStaff` → 7 relaciones (reported, assigned, resolved, verified, photo uploader, comment author, log actor)
+- `Room.maintenanceTickets` (1 habitación → N tickets históricos)
+- `Unit.maintenanceTickets` (ticket a nivel unidad cuando aplica)
+- `CleaningTask.maintenanceTickets` (sourceTaskId — ticket levantado durante limpieza)
+- `RoomBlock.maintenanceTicketId @unique` (FK del bridge inventario, evita ciclo)
+- `RoomReadinessTaskItem.maintenanceTicketId` con relación corregida (FK huérfano resuelto)
+
+### Pendiente del sprint Mx-1 (rama nueva tras 8I/8J)
+
+**Backend:**
+- `apps/api/src/maintenance/maintenance.module.ts`
+- `apps/api/src/maintenance/maintenance.service.ts` con métodos: `createTicket`, `acknowledge`, `assign`, `start`, `requestParts`, `resolve`, `verify`, `close`, `reopen`, `addComment`, `addPhoto`
+- `apps/api/src/maintenance/maintenance.controller.ts` con 11 endpoints REST bajo `/v1/maintenance/*`
+- `apps/api/src/maintenance/dto/*` con `class-validator`
+- Listener SSE: `maintenance:ticket:created | :updated | :resolved | :verified`
+- Tests: ≥25 unit tests cubriendo el ciclo completo + bridge crítico
+- Integración con `SmartBlockService.createBlock()` y `releaseBlock()`
+- Integración con `NotificationCenterService.send()` en cada evento
+
+**Web:**
+- `apps/web/src/pages/MaintenancePage.tsx` con dos vistas: lista filtrada + Kanban
+- `apps/web/src/components/maintenance/TicketDetailDrawer.tsx` (panel 480px)
+- Badge "🔧 Mtto pendiente" en `DailyPlanningGrid` para habitaciones con ticket abierto
+- Indicator visual en bloques del calendario PMS para habitaciones bloqueadas por mantenimiento
+
+**Mobile:**
+- `apps/mobile/app/(app)/maintenance/index.tsx` (Hub para técnicos con `department=MAINTENANCE`)
+- Flujo "⚠️ Reportar problema" desde `task/[id].tsx` (housekeeper detecta durante limpieza)
+- Upload de foto via Expo ImagePicker → endpoint `/v1/uploads`
+
+**Métricas de aceptación del sprint Mx-1:**
+- 100% tickets CRITICAL → habitación BLOCKED en <2 segundos (medido en E2E)
+- 0 habitaciones con ticket OPEN/IN_PROGRESS vendibles desde calendario PMS
+- Audit trail con ≥1 evento por cada cambio de estado (verificable en BD)
+- Push notifications llegan al técnico asignado en <10 segundos
+- Manager puede ver lista de "actividades en curso" con un click — resuelve la queja explícita del cliente Hotel Monica Tulum
+
+### Archivos clave (futuros — Sprint Mx-1)
+
+```
+apps/api/src/maintenance/
+├── maintenance.module.ts
+├── maintenance.service.ts        autoCreateBlockIfCritical, autoReleaseBlockIfVerified
+├── maintenance.controller.ts     11 endpoints REST
+├── maintenance.service.spec.ts   ≥25 unit tests
+└── dto/
+    ├── create-ticket.dto.ts
+    ├── update-ticket.dto.ts
+    ├── add-comment.dto.ts
+    └── add-photo.dto.ts
+
+apps/web/src/pages/
+└── MaintenancePage.tsx
+
+apps/web/src/modules/maintenance/
+├── components/
+│   ├── TicketDetailDrawer.tsx
+│   ├── TicketCard.tsx
+│   └── TicketKanbanBoard.tsx
+├── hooks/
+│   └── useMaintenanceTickets.ts
+└── api/
+    └── maintenance.api.ts
+
+apps/mobile/app/(app)/maintenance/
+├── index.tsx               Hub técnicos
+└── ticket/[id].tsx         Detalle + acciones
+```
+
+---
+
 ## Sprint 9 Scope — Gestión de Tarifas + Channex.io
 
 > Este sprint es independiente y dedicado. No mezclar con Sprint 8.
@@ -3060,15 +3423,23 @@ export function useSoftLock(roomId: string | null) {
 
 ---
 
-### Módulo: Mantenimiento
+### Módulo: Mantenimiento (Sprint Mx-1 — v1.0.0)
 
 | # | Funcionalidad | Estado | Sprint | Rol que lo usa | Notas |
 |---|---------------|--------|--------|----------------|-------|
-| MT-01 | Reporte de ticket desde mobile (housekeeper) | 📋 | Roadmap P7 | Housekeeper | Foto + categoría + descripción |
-| MT-02 | Kanban de tickets de mantenimiento (web) | 📋 | Roadmap P7 | Supervisor/Mantenimiento | |
-| MT-03 | Ciclo de vida de ticket (OPEN → RESOLVED → VERIFIED) | 📋 | Roadmap P7 | Mantenimiento | |
-| MT-04 | Badge "🔧 Mtto pendiente" en DailyPlanningGrid | 📋 | Roadmap P7 | Recepcionista | Comunicación HK ↔ Mantenimiento |
-| MT-05 | Foto antes/después de reparación | 📋 | Roadmap P7 | Mantenimiento | S3/Cloudinary upload |
+| MT-00 | Schema completo (`MaintenanceTicket` + Photo + Comment + Log) | ✅ | Sprint Mx-1 | Sistema | Bridge `RoomBlock.maintenanceTicketId` resuelto |
+| MT-01 | Reporte de ticket desde mobile (housekeeper) | ⏳ | Sprint Mx-1 | Housekeeper | Foto + categoría + descripción + sourceTaskId |
+| MT-02 | Kanban + lista de tickets de mantenimiento (web) | ⏳ | Sprint Mx-1 | Supervisor/Mantenimiento | `MaintenancePage.tsx` 2 vistas |
+| MT-03 | Ciclo de vida de ticket completo (OPEN → CLOSED) | ⏳ | Sprint Mx-1 | Mantenimiento | 7 estados + REOPENED |
+| MT-04 | Badge "🔧 Mtto pendiente" en DailyPlanningGrid | ⏳ | Sprint Mx-1 | Recepcionista | Comunicación HK ↔ Mantenimiento |
+| MT-05 | Foto antes/después de reparación | ⏳ | Sprint Mx-1 | Mantenimiento | S3/Cloudinary upload via `/v1/uploads` |
+| MT-06 | **CRITICAL ticket → auto-bloqueo de habitación** | ⏳ | Sprint Mx-1 | Sistema | D-Mx2: bridge crítico inventario, resuelve caso Hotel Monica Tulum |
+| MT-07 | VERIFIED → auto-liberación de bloque + push limpieza | ⏳ | Sprint Mx-1 | Sistema | D-Mx3: cierra ciclo end-to-end |
+| MT-08 | Audit trail inmutable (`MaintenanceTicketLog`) | ⏳ | Sprint Mx-1 | Sistema | D-Mx4: append-only, fuente reportes USALI |
+| MT-09 | Notificaciones automáticas (CRITICAL → manager) | ⏳ | Sprint Mx-1 | Manager/Supervisor | `AppNotificationCategory.MAINTENANCE_TICKET_CRITICAL` |
+| MT-10 | Comentarios técnico ↔ supervisor | ⏳ | Sprint Mx-1 | Mantenimiento/Supervisor | `MaintenanceTicketComment` |
+| MT-11 | Hub mobile para técnicos (`department=MAINTENANCE`) | ⏳ | Sprint Mx-1 | Técnico | Reusa infraestructura `HousekeepingStaff` |
+| MT-12 | Métricas de tiempo de respuesta y resolución | ⏳ | Sprint Mx-1 | Supervisor/Manager | Derivado de `TicketLog` timestamps |
 
 ---
 
