@@ -11,6 +11,7 @@ const SELECT_SAFE = {
   name: true,
   email: true,
   role: true,
+  department: true,
   active: true,
   capabilities: true,
   createdAt: true,

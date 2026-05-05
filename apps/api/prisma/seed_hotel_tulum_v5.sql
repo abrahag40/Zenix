@@ -48,11 +48,13 @@ BEGIN
   IF v_org_id IS NULL THEN
     RAISE EXCEPTION 'Propiedad % no encontrada. Ejecuta seed.ts primero.', v_prop_id;
   END IF;
-  SELECT id INTO v_sup_id FROM housekeeping_staff WHERE email = 'supervisor@demo.com' LIMIT 1;
-  SELECT id INTO v_rec_id FROM housekeeping_staff WHERE email = 'reception@demo.com'  LIMIT 1;
+  SELECT id INTO v_sup_id FROM housekeeping_staff WHERE email = 's@z.co' LIMIT 1;
+  SELECT id INTO v_rec_id FROM housekeeping_staff WHERE email = 'r@z.co' LIMIT 1;
 
   -- ── 2. Limpieza FK-safe ────────────────────────────────────────────────────
   DELETE FROM payment_logs
+    WHERE stay_id IN (SELECT id FROM guest_stays WHERE property_id = v_prop_id);
+  DELETE FROM guest_contact_logs
     WHERE stay_id IN (SELECT id FROM guest_stays WHERE property_id = v_prop_id);
   DELETE FROM stay_journey_events
     WHERE journey_id IN (SELECT id FROM stay_journeys WHERE property_id = v_prop_id);

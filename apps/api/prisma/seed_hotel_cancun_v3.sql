@@ -30,8 +30,8 @@ DO $$
 DECLARE
   v_org_id      TEXT;
   v_prop_id     TEXT := 'prop-hotel-cancun-001';
-  v_rec_id      TEXT;   -- reception.cun@demo.com (Laura Mendez)
-  v_sup_id      TEXT;   -- supervisor@demo.com
+  v_rec_id      TEXT;   -- rc@z.co (Laura Mendez)
+  v_sup_id      TEXT;   -- s@z.co (Ana García)
 
   v_room_id     TEXT;
   v_room_201_id TEXT;
@@ -47,11 +47,13 @@ BEGIN
   IF v_org_id IS NULL THEN
     RAISE EXCEPTION 'Propiedad % no encontrada. Ejecuta seed.ts primero.', v_prop_id;
   END IF;
-  SELECT id INTO v_rec_id FROM housekeeping_staff WHERE email = 'reception.cun@demo.com' LIMIT 1;
-  SELECT id INTO v_sup_id  FROM housekeeping_staff WHERE email = 'supervisor@demo.com'    LIMIT 1;
+  SELECT id INTO v_rec_id FROM housekeeping_staff WHERE email = 'rc@z.co' LIMIT 1;
+  SELECT id INTO v_sup_id  FROM housekeeping_staff WHERE email = 's@z.co' LIMIT 1;
 
   -- ── 2. Limpieza FK-safe ─────────────────────────────────────────────────────
   DELETE FROM payment_logs
+    WHERE stay_id IN (SELECT id FROM guest_stays WHERE property_id = v_prop_id);
+  DELETE FROM guest_contact_logs
     WHERE stay_id IN (SELECT id FROM guest_stays WHERE property_id = v_prop_id);
   DELETE FROM stay_journey_events
     WHERE journey_id IN (SELECT id FROM stay_journeys WHERE property_id = v_prop_id);

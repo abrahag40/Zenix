@@ -16,16 +16,18 @@ import toast from 'react-hot-toast'
 import { api } from '../api/client'
 import { useAuthStore } from '../store/auth'
 import { SettingsScopeBanner } from '../components/SettingsScopeBanner'
+import { HousekeepingScheduleSection } from '../components/settings/HousekeepingScheduleSection'
 import type { UnitDto, PropertySettingsDto, RoomDto, StaffDto } from '@zenix/shared'
 import { Capability, HousekeepingRole, RoomCategory } from '@zenix/shared'
 
-type Section = 'rooms' | 'staff' | 'property' | 'support'
+type Section = 'rooms' | 'staff' | 'scheduling' | 'property' | 'support'
 
 const TABS: { key: Section; label: string; icon: string }[] = [
-  { key: 'rooms',    label: 'Habitaciones', icon: '🛏️' },
-  { key: 'staff',    label: 'Personal',     icon: '👥' },
-  { key: 'property', label: 'Propiedad',    icon: '⚙️' },
-  { key: 'support',  label: 'Soporte',      icon: '🛟' },
+  { key: 'rooms',      label: 'Habitaciones', icon: '🛏️' },
+  { key: 'staff',      label: 'Personal',     icon: '👥' },
+  { key: 'scheduling', label: 'Recamaristas', icon: '🧹' },
+  { key: 'property',   label: 'Propiedad',    icon: '⚙️' },
+  { key: 'support',    label: 'Soporte',      icon: '🛟' },
 ]
 
 export function SettingsPage() {
@@ -68,10 +70,11 @@ export function SettingsPage() {
         ))}
       </div>
 
-      {section === 'rooms'    && <RoomsSection isSupervisor={isSupervisor} />}
-      {section === 'staff'    && <StaffSection isSupervisor={isSupervisor} />}
-      {section === 'property' && <PropertySection isSupervisor={isSupervisor} />}
-      {section === 'support'  && <SupportSection isSupervisor={isSupervisor} />}
+      {section === 'rooms'      && <RoomsSection isSupervisor={isSupervisor} />}
+      {section === 'staff'      && <StaffSection isSupervisor={isSupervisor} />}
+      {section === 'scheduling' && <HousekeepingScheduleSection />}
+      {section === 'property'   && <PropertySection isSupervisor={isSupervisor} />}
+      {section === 'support'    && <SupportSection isSupervisor={isSupervisor} />}
     </div>
   )
 }
@@ -765,15 +768,31 @@ function PropertySection({ isSupervisor }: { isSupervisor: boolean }) {
   }
 
   return (
-    <div className="max-w-lg space-y-5">
-      {/* Horarios */}
-      <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
-        <h3 className="text-sm font-semibold text-gray-900">Horarios</h3>
+    <div className="space-y-5">
+      {/* Row 1 — 2 columnas en md+: Datos de Propiedad | Horarios */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
+        {/* Datos de la propiedad — va primero (más identitario) */}
+        <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
+          <h3 className="text-sm font-semibold text-gray-900">Datos de la Propiedad</h3>
+          <div>
+            <label className="form-label">Nombre de la propiedad</label>
+            <input
+              type="text"
+              value={propertyName}
+              onChange={(e) => setPropertyName(e.target.value)}
+              disabled={!isSupervisor}
+              placeholder="Ej: Hostel Xochimilco, Hotel Casa Azul..."
+              className="input disabled:opacity-60 disabled:cursor-not-allowed"
+            />
+          </div>
+        </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        {/* Horarios — checkout e check-in por defecto */}
+        <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
+          <h3 className="text-sm font-semibold text-gray-900">Horarios</h3>
           <div>
             <label className="form-label">
-              Hora de checkout por defecto
+              Check-out por defecto
               <span className="text-gray-400 font-normal ml-1">(pre-llena nuevos checkouts)</span>
             </label>
             <input
@@ -784,10 +803,9 @@ function PropertySection({ isSupervisor }: { isSupervisor: boolean }) {
               className="input disabled:opacity-60 disabled:cursor-not-allowed"
             />
           </div>
-
           <div>
             <label className="form-label">
-              Hora de check-in por defecto
+              Check-in por defecto
               <span className="text-gray-400 font-normal ml-1">(planificación)</span>
             </label>
             <input
@@ -801,28 +819,11 @@ function PropertySection({ isSupervisor }: { isSupervisor: boolean }) {
         </div>
       </div>
 
-      {/* Datos de la propiedad */}
-      <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
-        <h3 className="text-sm font-semibold text-gray-900">Datos de la Propiedad</h3>
-
-        <div>
-          <label className="form-label">Nombre de la propiedad</label>
-          <input
-            type="text"
-            value={propertyName}
-            onChange={(e) => setPropertyName(e.target.value)}
-            disabled={!isSupervisor}
-            placeholder="Ej: Hostel Xochimilco, Hotel Casa Azul..."
-            className="input disabled:opacity-60 disabled:cursor-not-allowed"
-          />
-        </div>
-      </div>
-
-      {/* Estándares de limpieza */}
+      {/* Row 2 — Estándares de limpieza (ancho completo) */}
       <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
         <h3 className="text-sm font-semibold text-gray-900">Estándares de Limpieza</h3>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="form-label">
               Nivel de limpieza
@@ -880,7 +881,7 @@ function PropertySection({ isSupervisor }: { isSupervisor: boolean }) {
         </div>
       </div>
 
-      {/* Botón guardar */}
+      {/* Row 3 — Botón guardar */}
       {isSupervisor && (
         <button
           onClick={handleSave}
@@ -891,7 +892,7 @@ function PropertySection({ isSupervisor }: { isSupervisor: boolean }) {
         </button>
       )}
 
-      {/* Modo PMS */}
+      {/* Row 4 — Modo PMS (informativo, ancho completo) */}
       <div
         className={`rounded-xl border p-4 text-xs space-y-1 ${
           settings?.pmsMode === 'CONNECTED'
