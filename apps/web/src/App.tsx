@@ -7,7 +7,7 @@ import { LoginPage } from './pages/LoginPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { RoomsPage } from './pages/RoomsPage'
 import { RoomsPage as PmsPage } from './modules/rooms/pages/RoomsPage'
-import { DailyPlanningPage } from './pages/DailyPlanningPage'
+import { OperationalOverridesPage } from './pages/OperationalOverridesPage'
 import { KanbanPage } from './pages/KanbanPage'
 import { CheckoutsPage } from './pages/CheckoutsPage'
 import { ReportsPage } from './pages/ReportsPage'
@@ -54,7 +54,9 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/dashboard"       element={<ProtectedLayout><DashboardPage /></ProtectedLayout>} />
-          <Route path="/planning"        element={<ProtectedLayout><DailyPlanningPage /></ProtectedLayout>} />
+          <Route path="/overrides"       element={<ProtectedLayout><OperationalOverridesPage /></ProtectedLayout>} />
+          {/* Legacy redirect — old "/planning" now points to overrides (D15) */}
+          <Route path="/planning"        element={<Navigate to="/overrides" replace />} />
           <Route path="/rooms"           element={<ProtectedLayout><RoomsPage /></ProtectedLayout>} />
           <Route path="/pms"             element={<PmsLayout><PmsPage /></PmsLayout>} />
           <Route path="/kanban"          element={<ProtectedLayout><KanbanPage /></ProtectedLayout>} />

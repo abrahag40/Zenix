@@ -307,6 +307,13 @@ function BookingBlockInner({
           !isDragging && 'hover:z-10',
           !isDragging && 'active:scale-[0.995] active:shadow-none',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500',
+          // Inline cleaning state (CLAUDE.md §54-§57). Subtle pre-attentive
+          // cues so the receptionist reads cleaning progress without leaving
+          // the calendar. CSS keyframes in index.css. Reduce-motion respected.
+          stay.cleaningStatus === 'READY'        && 'hk-state-ready',
+          stay.cleaningStatus === 'IN_PROGRESS'  && 'hk-state-in-progress',
+          stay.cleaningStatus === 'DONE'         && 'hk-state-done-pending',
+          stay.cleaningStatus === 'VERIFIED'     && 'hk-state-verified',
         )}
         style={{
           left: rect.x + 1,

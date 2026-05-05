@@ -35,7 +35,7 @@ export function DashboardPage() {
         </Link>
 
         <Link
-          to="/planning"
+          to="/overrides"
           className="block bg-white border border-gray-200 rounded-xl p-5 hover:border-indigo-300 hover:shadow-sm transition"
         >
           <div className="flex items-center gap-3">
@@ -43,7 +43,7 @@ export function DashboardPage() {
             <div>
               <p className="font-medium text-gray-900">Housekeeping</p>
               <p className="text-sm text-gray-500">
-                Planificación, tareas y checkouts
+                Ajustes del día, tareas y checkouts
               </p>
             </div>
           </div>
