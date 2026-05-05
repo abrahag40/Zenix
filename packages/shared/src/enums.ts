@@ -15,6 +15,16 @@ export enum CleaningStatus {
   DONE = 'DONE',
   VERIFIED = 'VERIFIED',
   CANCELLED = 'CANCELLED',
+  // Sprint 9 / EC-6 — skip-and-retry (AHLEI Sec. 4.3)
+  DEFERRED = 'DEFERRED',
+  BLOCKED = 'BLOCKED',
+}
+
+// Sprint 9 / EC-6
+export enum CleaningDeferReason {
+  DND_PHYSICAL = 'DND_PHYSICAL',
+  NO_ANSWER = 'NO_ANSWER',
+  GUEST_REQUEST = 'GUEST_REQUEST',
 }
 
 export enum HousekeepingRole {
@@ -52,6 +62,18 @@ export enum TaskType {
   SANITIZATION = 'SANITIZATION',
   MAINTENANCE = 'MAINTENANCE',
   PREPARATION = 'PREPARATION',
+  // Sprint 9 / D14 — limpieza de estadía (in-house)
+  STAYOVER = 'STAYOVER',
+}
+
+// Sprint 9 / D14
+export enum StayoverFrequency {
+  NEVER = 'NEVER',
+  DAILY = 'DAILY',
+  EVERY_2_DAYS = 'EVERY_2_DAYS',
+  EVERY_3_DAYS = 'EVERY_3_DAYS',
+  ON_REQUEST = 'ON_REQUEST',
+  GUEST_PREFERENCE = 'GUEST_PREFERENCE',
 }
 
 export enum Capability {
@@ -84,6 +106,18 @@ export enum TaskLogEvent {
   CARRYOVER = 'CARRYOVER',
   REASSIGNED = 'REASSIGNED',
   CLOCKED_BY_STAFF = 'CLOCKED_BY_STAFF',
+  // Sprint 9
+  STAYOVER_CREATED = 'STAYOVER_CREATED',
+  DEFERRED = 'DEFERRED',
+  RETRY_SCHEDULED = 'RETRY_SCHEDULED',
+  BLOCKED = 'BLOCKED',
+  LATE_CHECKOUT_RESCHEDULED = 'LATE_CHECKOUT_RESCHEDULED',
+  // Sprint 9 / D15 — Operational overrides
+  PRIORITY_OVERRIDDEN = 'PRIORITY_OVERRIDDEN',
+  DEEP_CLEAN_FLAGGED = 'DEEP_CLEAN_FLAGGED',
+  WALK_IN_CREATED = 'WALK_IN_CREATED',
+  HOLD_PLACED = 'HOLD_PLACED',
+  HOLD_RELEASED = 'HOLD_RELEASED',
 }
 
 // ─── Housekeeping Scheduling (Sprint 8H) ─────────────────────────────────────

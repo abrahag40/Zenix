@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import { CleaningStatus, HousekeepingRole, JwtPayload, TaskLogEvent } from '@zenix/shared'
+import { CleaningStatus, CleaningDeferReason, HousekeepingRole, JwtPayload, TaskLogEvent } from '@zenix/shared'
 import { PrismaService } from '../prisma/prisma.service'
 import { TenantContextService } from '../common/tenant-context.service'
 import { NotificationsService } from '../notifications/notifications.service'
@@ -406,6 +406,485 @@ export class TasksService {
           console.warn('[gamification.onTaskVerified] non-fatal:', e?.message ?? e)
         })
     }
+
+    return result
+  }
+
+  /**
+   * EC-6 (CLAUDE.md §58) — Skip-and-retry para casos AHLEI Sec. 4.3.
+   *
+   * El housekeeper toca y nadie responde, o el chip "no molestar" está
+   * colgado. La tarea se marca DEFERRED y se reprograma automáticamente
+   * 30 min después. Tras 3 deferrals consecutivos, pasa a BLOCKED y se
+   * notifica al supervisor (acción manual).
+   *
+   * Reglas:
+   *   - Solo el housekeeper asignado o un SUPERVISOR puede diferir.
+   *   - Solo desde estado READY o IN_PROGRESS (si paused mid-task ante DND).
+   *   - DONE/VERIFIED/CANCELLED rechazan defer (ya finalizadas).
+   */
+  async deferTask(taskId: string, reason: CleaningDeferReason, actor: JwtPayload) {
+    const orgId = this.tenant.getOrganizationId()
+    const task = await this.prisma.cleaningTask.findUnique({
+      where: { id: taskId, organizationId: orgId },
+      include: { unit: { include: { room: { include: { property: true } } } } },
+    })
+    if (!task) throw new NotFoundException('Task not found')
+
+    // Permisos: housekeeper asignado o supervisor
+    const isOwner = task.assignedToId === actor.sub
+    const isSupervisor = actor.role === HousekeepingRole.SUPERVISOR
+    if (!isOwner && !isSupervisor) {
+      throw new ForbiddenException('Only the assigned housekeeper or a supervisor can defer this task')
+    }
+
+    // Solo deferrible desde estados activos
+    const ALLOWED = [CleaningStatus.READY, CleaningStatus.IN_PROGRESS, CleaningStatus.PAUSED] as const
+    if (!ALLOWED.includes(task.status as any)) {
+      throw new ConflictException(`Cannot defer a task in status ${task.status}`)
+    }
+
+    const newCount = task.deferredCount + 1
+    const willBlock = newCount >= 3
+
+    // Tres deferrals consecutivos → BLOCKED + alerta supervisor
+    const newStatus = willBlock ? CleaningStatus.BLOCKED : CleaningStatus.DEFERRED
+    const retryAt = willBlock ? null : new Date(Date.now() + 30 * 60 * 1000)
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.cleaningTask.update({
+        where: { id: taskId },
+        data: {
+          status: newStatus,
+          deferredAt: new Date(),
+          deferredReason: reason,
+          deferredCount: newCount,
+          retryAt,
+        },
+        include: TASK_INCLUDE,
+      })
+      await tx.taskLog.create({
+        data: {
+          taskId,
+          staffId: actor.sub,
+          event: willBlock ? TaskLogEvent.BLOCKED : TaskLogEvent.DEFERRED,
+          note: `${reason}${willBlock ? ' — 3 attempts, blocked for manual action' : ''}`,
+          metadata: { reason, deferredCount: newCount, retryAt: retryAt?.toISOString() ?? null },
+        },
+      })
+      return updated
+    })
+
+    const propertyId = task.unit.room.property.id
+
+    // SSE — supervisor + recepción ven el cambio en tiempo real
+    if (willBlock) {
+      this.notifications.emit(propertyId, 'task:blocked', {
+        taskId,
+        unitId: task.unitId,
+        roomId: task.unit.roomId,
+        roomNumber: task.unit.room.number,
+        reason,
+        deferredCount: newCount,
+      })
+      // Notif tier-2.5 al supervisor (push) — acción manual requerida
+      const supervisors = await this.prisma.housekeepingStaff.findMany({
+        where: { propertyId, organizationId: orgId, role: 'SUPERVISOR', active: true },
+        select: { id: true },
+      })
+      for (const sup of supervisors) {
+        await this.push.sendToStaff(
+          sup.id,
+          '⚠️ Habitación bloqueada',
+          `Hab. ${task.unit.room.number} — 3 intentos sin acceso. Acción manual requerida.`,
+          { type: 'task:blocked', taskId, reason },
+        )
+      }
+    } else {
+      this.notifications.emit(propertyId, 'task:deferred', {
+        taskId,
+        unitId: task.unitId,
+        roomId: task.unit.roomId,
+        roomNumber: task.unit.room.number,
+        reason,
+        retryAt: retryAt?.toISOString() ?? null,
+      })
+    }
+
+    return result
+  }
+
+  /**
+   * D15 — Force URGENT. Recepción decide que esta tarea es prioritaria
+   * (huésped llegando antes, evento privado, etc.). Cambia priority a URGENT
+   * y emite SSE para que el housekeeper la vea reordenada en su mobile hub.
+   *
+   * Permisos: SUPERVISOR / RECEPTIONIST (controller layer).
+   * No reversible vía endpoint dedicado — para "bajar" la urgencia se reasigna
+   * o se permite que el flow normal siga. Audit trail completo en TaskLog.
+   */
+  async forceUrgent(taskId: string, actor: JwtPayload) {
+    const orgId = this.tenant.getOrganizationId()
+    const task = await this.prisma.cleaningTask.findUnique({
+      where: { id: taskId, organizationId: orgId },
+      include: { unit: { include: { room: { include: { property: true } } } } },
+    })
+    if (!task) throw new NotFoundException('Task not found')
+    if (task.status === CleaningStatus.CANCELLED || task.status === CleaningStatus.VERIFIED) {
+      throw new ConflictException(`No se puede modificar una tarea ${task.status}`)
+    }
+    if (task.priority === 'URGENT') {
+      return task // idempotente — ya es URGENT
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.cleaningTask.update({
+        where: { id: taskId },
+        data: { priority: 'URGENT' },
+        include: TASK_INCLUDE,
+      })
+      await tx.taskLog.create({
+        data: {
+          taskId,
+          staffId: actor.sub,
+          event: TaskLogEvent.PRIORITY_OVERRIDDEN,
+          note: `recepción forzó URGENT (era ${task.priority})`,
+          metadata: { previousPriority: task.priority },
+        },
+      })
+      return updated
+    })
+
+    this.notifications.emit(task.unit.room.property.id, 'task:priority-overridden', {
+      taskId,
+      unitId: task.unitId,
+      roomId: task.unit.roomId,
+      roomNumber: task.unit.room.number,
+      previousPriority: task.priority,
+      newPriority: 'URGENT',
+    })
+
+    if (task.assignedToId) {
+      await this.push.sendToStaff(
+        task.assignedToId,
+        '🚨 Habitación URGENTE',
+        `Hab. ${task.unit.room.number} — Prioridad forzada por recepción`,
+        { type: 'task:priority-overridden', taskId },
+      )
+    }
+
+    return result
+  }
+
+  /**
+   * D15 — Deep clean flag. Recepción marca que esta tarea requiere limpieza
+   * profunda (cambio total de blancos, sanitización extra, evento privado).
+   * No cambia status — solo marca el flag para que el housekeeper reciba el
+   * checklist extendido y duración estimada mayor.
+   *
+   * Toggle behavior: si ya está deep=true, lo apaga (idempotente).
+   */
+  async toggleDeepClean(taskId: string, actor: JwtPayload) {
+    const orgId = this.tenant.getOrganizationId()
+    const task = await this.prisma.cleaningTask.findUnique({
+      where: { id: taskId, organizationId: orgId },
+      include: { unit: { include: { room: { include: { property: true } } } } },
+    })
+    if (!task) throw new NotFoundException('Task not found')
+    if (task.status === CleaningStatus.CANCELLED || task.status === CleaningStatus.VERIFIED) {
+      throw new ConflictException(`No se puede modificar una tarea ${task.status}`)
+    }
+    if (task.status === CleaningStatus.IN_PROGRESS) {
+      throw new ConflictException(
+        'La limpieza ya está en progreso — espera a que termine para marcar deep-clean',
+      )
+    }
+
+    const newDeepClean = !task.deepClean
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.cleaningTask.update({
+        where: { id: taskId },
+        data: { deepClean: newDeepClean },
+        include: TASK_INCLUDE,
+      })
+      await tx.taskLog.create({
+        data: {
+          taskId,
+          staffId: actor.sub,
+          event: TaskLogEvent.DEEP_CLEAN_FLAGGED,
+          note: newDeepClean ? 'marcada para limpieza profunda' : 'limpieza profunda removida',
+          metadata: { deepClean: newDeepClean },
+        },
+      })
+      return updated
+    })
+
+    this.notifications.emit(task.unit.room.property.id, 'task:deep-clean-flagged', {
+      taskId,
+      unitId: task.unitId,
+      roomNumber: task.unit.room.number,
+      deepClean: newDeepClean,
+    })
+
+    if (task.assignedToId && newDeepClean) {
+      await this.push.sendToStaff(
+        task.assignedToId,
+        '🧽 Limpieza profunda',
+        `Hab. ${task.unit.room.number} — Cambio total de blancos requerido`,
+        { type: 'task:deep-clean-flagged', taskId },
+      )
+    }
+
+    return result
+  }
+
+  /**
+   * D15 — Hold cleaning. Recepción pone hold por extensión sin formalizar
+   * (huésped pidió quedarse pero aún no paga). La tarea NO se inicia mientras
+   * holdReason esté presente. Si está READY → revierte a PENDING.
+   *
+   * Al formalizar la extensión: D12 extendWithCleaningFlag resuelve.
+   * Al cancelar el hold: releaseHold() restaura el estado.
+   */
+  async holdCleaning(taskId: string, reason: string, actor: JwtPayload) {
+    const orgId = this.tenant.getOrganizationId()
+    const task = await this.prisma.cleaningTask.findUnique({
+      where: { id: taskId, organizationId: orgId },
+      include: { unit: { include: { room: { include: { property: true } } } } },
+    })
+    if (!task) throw new NotFoundException('Task not found')
+    if (task.status === CleaningStatus.IN_PROGRESS) {
+      throw new ConflictException(
+        'No se puede pausar una limpieza en progreso — coordina con el housekeeper',
+      )
+    }
+    if (
+      task.status === CleaningStatus.DONE ||
+      task.status === CleaningStatus.VERIFIED ||
+      task.status === CleaningStatus.CANCELLED
+    ) {
+      throw new ConflictException(`No se puede poner en hold una tarea ${task.status}`)
+    }
+
+    const newStatus =
+      task.status === CleaningStatus.READY ? CleaningStatus.PENDING : task.status
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.cleaningTask.update({
+        where: { id: taskId },
+        data: {
+          status: newStatus,
+          holdReason: reason,
+          heldAt: new Date(),
+          heldById: actor.sub,
+        },
+        include: TASK_INCLUDE,
+      })
+      await tx.taskLog.create({
+        data: {
+          taskId,
+          staffId: actor.sub,
+          event: TaskLogEvent.HOLD_PLACED,
+          note: reason,
+          metadata: { previousStatus: task.status, reason },
+        },
+      })
+      return updated
+    })
+
+    this.notifications.emit(task.unit.room.property.id, 'task:hold-placed', {
+      taskId,
+      unitId: task.unitId,
+      roomNumber: task.unit.room.number,
+      reason,
+    })
+
+    if (task.assignedToId) {
+      await this.push.sendToStaff(
+        task.assignedToId,
+        '⏸ Limpieza en espera',
+        `Hab. ${task.unit.room.number} — ${reason}`,
+        { type: 'task:hold-placed', taskId },
+      )
+    }
+
+    return result
+  }
+
+  /**
+   * D15 — Release hold. Recepción cancela el hold (huésped sí salió, o la
+   * extensión no se formalizó). Restaura status según el contexto.
+   */
+  async releaseHold(taskId: string, actor: JwtPayload) {
+    const orgId = this.tenant.getOrganizationId()
+    const task = await this.prisma.cleaningTask.findUnique({
+      where: { id: taskId, organizationId: orgId },
+      include: { unit: { include: { room: { include: { property: true } } } } },
+    })
+    if (!task) throw new NotFoundException('Task not found')
+    if (!task.holdReason) {
+      throw new ConflictException('La tarea no está en hold')
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.cleaningTask.update({
+        where: { id: taskId },
+        data: {
+          holdReason: null,
+          heldAt: null,
+          heldById: null,
+        },
+        include: TASK_INCLUDE,
+      })
+      await tx.taskLog.create({
+        data: {
+          taskId,
+          staffId: actor.sub,
+          event: TaskLogEvent.HOLD_RELEASED,
+          note: `hold liberado (era: ${task.holdReason})`,
+          metadata: { previousReason: task.holdReason },
+        },
+      })
+      return updated
+    })
+
+    this.notifications.emit(task.unit.room.property.id, 'task:hold-released', {
+      taskId,
+      unitId: task.unitId,
+      roomNumber: task.unit.room.number,
+    })
+
+    return result
+  }
+
+  /**
+   * D15 — Walk-in checkout. Crea GuestStay + CleaningTask atómicamente
+   * para un huésped que llega sin reserva previa y se va el mismo día.
+   *
+   * Caso típico: turista pasa por la calle, paga 1 noche, se va a las 6 PM.
+   * El cron 7 AM no lo cubre — esta es la pieza de "Ajustes del día" (D15).
+   *
+   * Defaults aplicados:
+   *   - actualCheckin: now (se considera ya checkeado al llegar a recepción)
+   *   - paymentStatus: PAID (se cobra en efectivo al momento)
+   *   - taskType: CLEANING (no STAYOVER porque el huésped sale hoy)
+   *   - status: PENDING (housekeeper espera salida física via confirmDeparture)
+   *
+   * Validaciones:
+   *   - Room debe existir + pertenecer al org
+   *   - unitId opcional: si privada con 1 unit → auto-pick; si shared sin unitId → error
+   *   - scheduledCheckout debe ser futuro y <= 24h del checkin
+   */
+  async createWalkIn(
+    dto: {
+      roomId: string
+      unitId?: string
+      guestName: string
+      ratePerNight: number
+      currency: string
+      scheduledCheckout: Date
+      paxCount?: number
+    },
+    actor: JwtPayload,
+  ) {
+    const orgId = this.tenant.getOrganizationId()
+    if (!orgId) throw new NotFoundException('Tenant context not set')
+
+    const now = new Date()
+    if (dto.scheduledCheckout <= now) {
+      throw new ConflictException('La hora de salida debe ser futura')
+    }
+    const HOURS_24 = 24 * 60 * 60 * 1000
+    if (dto.scheduledCheckout.getTime() - now.getTime() > HOURS_24) {
+      throw new ConflictException('Walk-in debe salir antes de 24h — usa reserva normal')
+    }
+
+    const room = await this.prisma.room.findUnique({
+      where: { id: dto.roomId, organizationId: orgId },
+      include: { property: true, units: { select: { id: true } } },
+    })
+    if (!room) throw new NotFoundException('Habitación no encontrada')
+
+    // Resolve unitId
+    let unitId = dto.unitId
+    if (!unitId) {
+      if (room.units.length === 0) {
+        throw new ConflictException('La habitación no tiene unidades configuradas')
+      }
+      if (room.units.length > 1) {
+        throw new ConflictException('Habitación compartida — debes especificar unitId (cama)')
+      }
+      unitId = room.units[0].id
+    } else {
+      const validUnit = room.units.find((u) => u.id === unitId)
+      if (!validUnit) throw new NotFoundException('Cama no encontrada en esta habitación')
+    }
+
+    const total = dto.ratePerNight // 1 noche/día
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const stay = await tx.guestStay.create({
+        data: {
+          organizationId: orgId,
+          propertyId: room.propertyId,
+          roomId: dto.roomId,
+          guestName: dto.guestName,
+          paxCount: dto.paxCount ?? 1,
+          checkinAt: now,
+          scheduledCheckout: dto.scheduledCheckout,
+          actualCheckin: now,
+          checkinConfirmedById: actor.sub,
+          checkedInById: actor.sub,
+          ratePerNight: dto.ratePerNight,
+          currency: dto.currency,
+          totalAmount: total,
+          amountPaid: total,
+          paymentStatus: 'PAID',
+          source: 'WALK_IN',
+        },
+      })
+
+      const today = new Date()
+      today.setUTCHours(0, 0, 0, 0)
+
+      const task = await tx.cleaningTask.create({
+        data: {
+          organizationId: orgId,
+          unitId: unitId!,
+          status: CleaningStatus.PENDING,
+          taskType: 'CLEANING',
+          requiredCapability: 'CLEANING',
+          priority: 'MEDIUM',
+          hasSameDayCheckIn: false,
+          scheduledFor: today,
+        },
+        include: TASK_INCLUDE,
+      })
+      await tx.taskLog.create({
+        data: {
+          taskId: task.id,
+          staffId: actor.sub,
+          event: TaskLogEvent.WALK_IN_CREATED,
+          note: `walk-in checkout · ${dto.guestName}`,
+          metadata: {
+            stayId: stay.id,
+            roomNumber: room.number,
+            scheduledCheckout: dto.scheduledCheckout.toISOString(),
+          },
+        },
+      })
+
+      return { stay, task }
+    })
+
+    this.notifications.emit(room.propertyId, 'task:planned', {
+      taskId: result.task.id,
+      unitId,
+      roomId: dto.roomId,
+      roomNumber: room.number,
+      source: 'WALK_IN',
+    })
 
     return result
   }

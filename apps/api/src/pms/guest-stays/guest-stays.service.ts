@@ -13,7 +13,7 @@ import { EmailService } from '../../common/email/email.service'
 import { CreateGuestStayDto } from './dto/create-guest-stay.dto'
 import { MoveRoomDto } from './dto/move-room.dto'
 import type { AvailabilityConflict, RoomAvailabilityResult } from '@zenix/shared'
-import { PaymentMethod, HousekeepingRole } from '@zenix/shared'
+import { PaymentMethod, HousekeepingRole, CleaningStatus, TaskLogEvent } from '@zenix/shared'
 import {
   addDays,
   localYMD,
@@ -49,6 +49,60 @@ function toLocalHour(date: Date, timezone: string): number {
       hour12: false,
     }).format(date),
   )
+}
+
+/**
+ * Sprint 9 — Aggregate the cleaning status of multiple units (beds) belonging
+ * to the same room into a single status per room.
+ *
+ * Design rationale (CLAUDE.md §54):
+ *   - PRIVATE rooms (1 unit): trivial, the only task's status maps directly.
+ *   - SHARED rooms (N units, dorms): the calendar shows N blocks (one per
+ *     stay/bed) for the same roomId. Without a stay→unit linkage in the
+ *     data model, all N blocks display the same status — which is correct
+ *     operationally: when housekeeping enters a dorm, ALL beds are being
+ *     serviced. The receptionist should NOT show "limpiando" on bed 1 and
+ *     "esperando" on bed 2 if the housekeeper is in the room.
+ *
+ * Priority order (most "active" wins, mirrors animation hierarchy in CSS):
+ *   IN_PROGRESS → READY → DONE → PAUSED → VERIFIED → UNASSIGNED → PENDING
+ *
+ * Why IN_PROGRESS > READY > DONE in this order:
+ *   - IN_PROGRESS: housekeeping IS in the room → most attention (slide stripe)
+ *   - READY: room available for housekeeping but they haven't entered → pulse
+ *   - DONE: pending supervisor verification → glow
+ *   - PAUSED: was IN_PROGRESS, less urgent than active work
+ *   - VERIFIED: completed cycle, low signal
+ *   - UNASSIGNED/PENDING: not yet activated, no animation needed
+ *
+ * Returns null when there are no active tasks for the room.
+ */
+const CLEANING_STATUS_PRIORITY: Record<string, number> = {
+  IN_PROGRESS: 7,
+  READY:       6,
+  DONE:        5,
+  PAUSED:      4,
+  VERIFIED:    3,
+  UNASSIGNED:  2,
+  PENDING:     1,
+}
+
+type CleaningTaskMin = { status: string; unit: { roomId: string } }
+
+export function aggregateCleaningStatusByRoom(
+  tasks: CleaningTaskMin[],
+): Map<string, string> {
+  const result = new Map<string, string>()
+  for (const t of tasks) {
+    const roomId = t.unit.roomId
+    const current = result.get(roomId)
+    const currentRank = current ? (CLEANING_STATUS_PRIORITY[current] ?? 0) : -1
+    const newRank = CLEANING_STATUS_PRIORITY[t.status] ?? 0
+    if (newRank > currentRank) {
+      result.set(roomId, t.status)
+    }
+  }
+  return result
 }
 
 @Injectable()
@@ -319,7 +373,8 @@ export class GuestStaysService {
 
   async findByProperty(propertyId: string, from?: Date, to?: Date) {
     const orgId = this.tenant.getOrganizationId()
-    return this.prisma.guestStay.findMany({
+
+    const stays = await this.prisma.guestStay.findMany({
       where: {
         organizationId: orgId,
         propertyId,
@@ -337,6 +392,42 @@ export class GuestStaysService {
       },
       orderBy: { checkinAt: 'desc' },
     })
+
+    // ── Sprint 9 — cleaningStatus per stay (CLAUDE.md §54-§57) ────────────
+    // Calendario PMS muestra animación inline según el estado de limpieza
+    // del cuarto. Una sola query agregada para todos los rooms involucrados.
+    const roomIds = Array.from(new Set(stays.map((s) => s.roomId)))
+    const activeTasks =
+      roomIds.length === 0
+        ? []
+        : await this.prisma.cleaningTask.findMany({
+            where: {
+              unit: { roomId: { in: roomIds } },
+              // Solo estados visibles en el calendario (no CANCELLED / DEFERRED / BLOCKED).
+              // PENDING incluido para "esperando salida física" pero no causa animación.
+              status: {
+                in: [
+                  CleaningStatus.PENDING,
+                  CleaningStatus.UNASSIGNED,
+                  CleaningStatus.READY,
+                  CleaningStatus.IN_PROGRESS,
+                  CleaningStatus.PAUSED,
+                  CleaningStatus.DONE,
+                  CleaningStatus.VERIFIED,
+                ],
+              },
+            },
+            select: {
+              status: true,
+              unit: { select: { roomId: true } },
+            },
+          })
+
+    const cleaningByRoom = aggregateCleaningStatusByRoom(activeTasks)
+    return stays.map((s) => ({
+      ...s,
+      cleaningStatus: cleaningByRoom.get(s.roomId) ?? null,
+    }))
   }
 
   async checkout(stayId: string, actorId: string) {
@@ -605,6 +696,135 @@ export class GuestStaysService {
       freedFrom: now.toISOString(),
       freedTo: stay.scheduledCheckout.toISOString(),
       tasksScheduledFor: localHour < HOUSEKEEPING_END_HOUR ? 'today' : 'tomorrow',
+    }
+  }
+
+  /**
+   * EC-3 (CLAUDE.md §58) — Late checkout aprobado por recepción.
+   *
+   * El huésped pide salir a las 16:00 en vez de 11:00. La tarea PENDING/READY
+   * ya existe (creada por MorningRosterScheduler). Este endpoint:
+   *
+   *   1. Actualiza `GuestStay.scheduledCheckout` a la nueva hora.
+   *   2. Pone `lateCheckoutAt` en cada CleaningTask asociada a esa estadía
+   *      (housekeeper móvil baja prioridad hasta `lateCheckoutAt - 1h`).
+   *   3. Si la tarea está READY (huésped ya salió y reapareció) → revierte
+   *      a PENDING (idempotente con undoDeparture, pero no re-cierra checkout).
+   *   4. SSE `task:rescheduled` para que el calendario PMS y el kanban
+   *      reflejen el cambio en tiempo real.
+   *
+   * Permisos: SUPERVISOR / RECEPTIONIST (controller layer).
+   */
+  async lateCheckout(stayId: string, newCheckoutTime: Date, actorId: string) {
+    const orgId = this.tenant.getOrganizationId()
+
+    const stay = await this.prisma.guestStay.findUnique({
+      where: { id: stayId, organizationId: orgId },
+      include: {
+        room: {
+          select: {
+            id: true,
+            number: true,
+            propertyId: true,
+            units: { select: { id: true } },
+          },
+        },
+      },
+    })
+
+    if (!stay) throw new NotFoundException('Reserva no encontrada')
+    if (stay.actualCheckout) {
+      throw new BadRequestException('La estadía ya fue cerrada — no aplica late checkout')
+    }
+    if (stay.noShowAt) {
+      throw new BadRequestException('No-show — no aplica late checkout')
+    }
+
+    const now = new Date()
+    if (newCheckoutTime <= now) {
+      throw new BadRequestException('La nueva hora de salida debe ser futura')
+    }
+
+    // Sanity: no aceptar cambios > 24h del scheduled actual
+    const HOURS_24 = 24 * 60 * 60 * 1000
+    const delta = Math.abs(newCheckoutTime.getTime() - stay.scheduledCheckout.getTime())
+    if (delta > HOURS_24) {
+      throw new BadRequestException(
+        'Late checkout > 24h — usa "Extender estadía" en su lugar',
+      )
+    }
+
+    const propertyId = stay.room.propertyId
+    const unitIds = stay.room.units.map((u) => u.id)
+    const updatedTaskIds: string[] = []
+
+    await this.prisma.$transaction(async (tx) => {
+      // 1. Actualizar GuestStay
+      await tx.guestStay.update({
+        where: { id: stayId },
+        data: { scheduledCheckout: newCheckoutTime },
+      })
+
+      // 2. Encontrar tareas afectadas (PENDING o READY) para esta estadía
+      const tasks = await tx.cleaningTask.findMany({
+        where: {
+          unitId: { in: unitIds },
+          status: { in: [CleaningStatus.PENDING, CleaningStatus.READY] },
+          // Solo tareas de hoy (no carryover)
+          scheduledFor: { not: null },
+        },
+        select: { id: true, status: true },
+      })
+
+      for (const t of tasks) {
+        // Si está READY (huésped ya salió y volvió pidiendo más tiempo),
+        // revertir a PENDING para que la limpieza no inicie aún.
+        const newStatus =
+          t.status === CleaningStatus.READY ? CleaningStatus.PENDING : t.status
+
+        await tx.cleaningTask.update({
+          where: { id: t.id },
+          data: {
+            lateCheckoutAt: newCheckoutTime,
+            status: newStatus,
+          },
+        })
+        await tx.taskLog.create({
+          data: {
+            taskId: t.id,
+            staffId: actorId,
+            event: TaskLogEvent.LATE_CHECKOUT_RESCHEDULED,
+            note: `late checkout to ${newCheckoutTime.toISOString()}`,
+            metadata: {
+              previousStatus: t.status,
+              newCheckoutTime: newCheckoutTime.toISOString(),
+            },
+          },
+        })
+        updatedTaskIds.push(t.id)
+      }
+
+    })
+
+    // 4. Internal event → pms-sse.listener convierte a SSE 'task:rescheduled'
+    this.events.emit('task.rescheduled', {
+      propertyId,
+      stayId,
+      roomId: stay.roomId,
+      roomNumber: stay.room.number,
+      newCheckoutTime: newCheckoutTime.toISOString(),
+      affectedTaskIds: updatedTaskIds,
+    })
+
+    this.logger.log(
+      `[lateCheckout] stay=${stayId} new=${newCheckoutTime.toISOString()} ` +
+        `tasks=${updatedTaskIds.length}`,
+    )
+
+    return {
+      success: true,
+      newCheckoutTime: newCheckoutTime.toISOString(),
+      affectedTaskIds: updatedTaskIds,
     }
   }
 

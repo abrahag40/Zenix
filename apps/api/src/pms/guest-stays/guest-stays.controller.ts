@@ -155,6 +155,27 @@ export class GuestStaysController {
   }
 
   /**
+   * EC-3 — Late checkout. Recepcionista aprueba que el huésped salga a una
+   * hora distinta a la programada. Body: { newCheckoutTime: ISO string }.
+   * Ajusta scheduledCheckout + actualiza tareas asociadas.
+   */
+  @Post(':id/late-checkout')
+  lateCheckout(
+    @Param('id') id: string,
+    @Body() dto: { newCheckoutTime: string },
+    @CurrentUser() actor: JwtPayload,
+  ) {
+    if (!dto.newCheckoutTime) {
+      throw new BadRequestException('newCheckoutTime is required (ISO string)')
+    }
+    const parsed = new Date(dto.newCheckoutTime)
+    if (Number.isNaN(parsed.getTime())) {
+      throw new BadRequestException('newCheckoutTime must be a valid ISO date')
+    }
+    return this.service.lateCheckout(id, parsed, actor.sub)
+  }
+
+  /**
    * D12 — extension cleaning flag.
    * Después de confirmar el pago de una extensión, el receptionist responde:
    *   { requiresCleaning: true }  → tareas existentes se marcan WITH_CLEANING + push

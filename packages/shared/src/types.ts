@@ -89,6 +89,7 @@ export interface StaffDto {
   name: string
   email: string
   role: HousekeepingRole
+  department?: Department
   active: boolean
   capabilities: Capability[]
   createdAt: string
@@ -278,6 +279,13 @@ export interface GuestStayDto {
   createdAt: string
   updatedAt: string
   room?: RoomDto
+  /**
+   * Sprint 9 — Active cleaning state for the room of this stay (CLAUDE.md §54-§57).
+   * Aggregated across all units of the room (most "active" status wins).
+   * Drives the inline animation in the calendar PMS BookingBlock.
+   * Null when no active task exists for this room today.
+   */
+  cleaningStatus?: 'PENDING' | 'READY' | 'IN_PROGRESS' | 'PAUSED' | 'DONE' | 'VERIFIED' | null
 }
 
 // ─── Payment ─────────────────────────────────────────────────────────────────
@@ -345,6 +353,13 @@ export interface PropertySettingsDto {
   timezone: string
   pmsMode: PmsMode
   noShowCutoffHour: number     // hora local (0-23) a partir de la cual se marca no-show
+
+  // ── Sprint 8H — Housekeeping scheduling rules ──────────────────────────────
+  morningRosterHour?: number             // 0-23 — default 7 AM local
+  carryoverPolicy?: CarryoverPolicy
+  autoAssignmentEnabled?: boolean        // default true
+  shiftClockingRequired?: boolean        // default false
+
   updatedAt: string
 }
 
@@ -688,6 +703,17 @@ export type SseEventType =
   | 'shift:absence'            // recepcionista marcó ausencia de un staff
   | 'shift:clock-in'           // staff hizo check-in al turno
   | 'shift:clock-out'          // staff hizo check-out al turno
+  // Sprint 9 — flow refactor (D14, EC-3, EC-6)
+  | 'stayover:published'       // cron 8am stayover terminó (D14)
+  | 'task:deferred'            // EC-6 — housekeeper difirió tarea
+  | 'task:retry-scheduled'     // EC-6 — auto-retry promovió tarea de DEFERRED
+  | 'task:blocked'             // EC-6 — 3 deferrals → status=BLOCKED
+  | 'task:rescheduled'         // EC-3 — late-checkout movió scheduledCheckout
+  // Sprint 9 — D15 operational overrides (recepción)
+  | 'task:priority-overridden' // recepción forzó URGENT
+  | 'task:deep-clean-flagged'  // toggled deep clean flag
+  | 'task:hold-placed'         // hold por extensión sin formalizar
+  | 'task:hold-released'       // hold liberado
 
 // ─── Offline Sync (Mobile) ────────────────────────────────────────────────────
 

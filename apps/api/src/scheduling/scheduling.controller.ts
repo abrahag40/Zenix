@@ -25,6 +25,7 @@ import { CreateCoverageDto, UpdateCoverageDto } from './coverage/dto/coverage.dt
 import { ClockInDto, ClockOutDto } from './clock/dto/clock.dto'
 import { AssignmentService } from '../assignment/assignment.service'
 import { MorningRosterScheduler } from './morning-roster.scheduler'
+import { StayoverScheduler } from './stayover.scheduler'
 
 @Controller('v1/scheduling')
 export class SchedulingController {
@@ -35,6 +36,7 @@ export class SchedulingController {
     private availability: AvailabilityQueryService,
     private assignment: AssignmentService,
     private roster: MorningRosterScheduler,
+    private stayover: StayoverScheduler,
   ) {}
 
   // ── On-shift query ───────────────────────────────────────────────────────
@@ -181,5 +183,16 @@ export class SchedulingController {
   @Roles(HousekeepingRole.SUPERVISOR)
   async runRoster(@CurrentUser() user: JwtPayload) {
     return this.roster.runForProperty(user.propertyId, { force: true })
+  }
+
+  /**
+   * Manual stayover trigger (D14). SUPERVISOR-only — útil para testing
+   * y para "ejecutar ahora" desde Settings → Reglas cuando se cambia
+   * stayoverFrequency.
+   */
+  @Post('run-stayover')
+  @Roles(HousekeepingRole.SUPERVISOR)
+  async runStayover(@CurrentUser() user: JwtPayload) {
+    return this.stayover.runForProperty(user.propertyId, { force: true })
   }
 }

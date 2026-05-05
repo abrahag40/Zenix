@@ -5,6 +5,7 @@ import { CoverageService } from './coverage/coverage.service'
 import { ClockService } from './clock/clock.service'
 import { AvailabilityQueryService } from './availability-query.service'
 import { MorningRosterScheduler } from './morning-roster.scheduler'
+import { StayoverScheduler } from './stayover.scheduler'
 import { TenantContextService } from '../common/tenant-context.service'
 import { NotificationsModule } from '../notifications/notifications.module'
 import { AssignmentModule } from '../assignment/assignment.module'
@@ -27,6 +28,7 @@ import { AssignmentModule } from '../assignment/assignment.module'
     ClockService,
     AvailabilityQueryService,
     MorningRosterScheduler,
+    StayoverScheduler,
     TenantContextService,
   ],
   exports: [
@@ -35,6 +37,7 @@ import { AssignmentModule } from '../assignment/assignment.module'
     CoverageService,
     ClockService,
     MorningRosterScheduler,
+    StayoverScheduler,
   ],
 })
 export class SchedulingModule {}

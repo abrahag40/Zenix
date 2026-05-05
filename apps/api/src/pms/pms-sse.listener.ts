@@ -75,6 +75,24 @@ export class PmsSseListener {
     })
   }
 
+  @OnEvent('task.rescheduled')
+  onTaskRescheduled(payload: {
+    propertyId: string
+    stayId: string
+    roomId: string
+    roomNumber: string
+    newCheckoutTime: string
+    affectedTaskIds: string[]
+  }) {
+    this.notifications.emit(payload.propertyId, 'task:rescheduled', {
+      stayId: payload.stayId,
+      roomId: payload.roomId,
+      roomNumber: payload.roomNumber,
+      newCheckoutTime: payload.newCheckoutTime,
+      affectedTaskIds: payload.affectedTaskIds,
+    })
+  }
+
   @OnEvent('checkin.confirmed')
   onCheckinConfirmed(payload: {
     stayId: string
