@@ -179,13 +179,14 @@ export function useCheckout(propertyId: string) {
 
   return useMutation({
     mutationFn: (stayId: string) => guestStaysApi.checkout(stayId),
-    onSuccess: () => {
-      qc.invalidateQueries({
+    onSuccess: async () => {
+      await qc.refetchQueries({
         queryKey: ['guest-stays', propertyId],
         exact: false,
-        refetchType: 'active',
+        type: 'active',
       })
       qc.invalidateQueries({ queryKey: ['rooms', propertyId], exact: false })
+      toast.success('Checkout registrado — habitación liberada')
     },
     onError: (err: Error) => {
       toast.error(err.message ?? 'No se pudo realizar el checkout')

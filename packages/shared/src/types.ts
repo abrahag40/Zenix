@@ -359,6 +359,7 @@ export interface PropertySettingsDto {
 
   // ── Sprint 8H — Housekeeping scheduling rules ──────────────────────────────
   morningRosterHour?: number             // 0-23 — default 7 AM local
+  housekeepingEndHour?: number           // 0-23 — default 20 (8 PM). Cutoff post-turno HK
   carryoverPolicy?: CarryoverPolicy
   autoAssignmentEnabled?: boolean        // default true
   shiftClockingRequired?: boolean        // default false

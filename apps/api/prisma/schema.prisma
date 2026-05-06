@@ -848,6 +848,11 @@ model PropertySettings {
   // Default 7 = 7:00 AM. Configurable per-property porque hostels vacacionales LATAM
   // suelen empezar 6 AM y boutique 8 AM.
   morningRosterHour             Int       @default(7) @map("morning_roster_hour")
+  // Hora local (0-23) a la que termina el turno operativo de housekeeping.
+  // Default 20 = 8 PM. Si un checkout (regular o early) ocurre a partir de esta
+  // hora, la CleaningTask se programa para el grid del día siguiente — los
+  // housekeepers ya están fuera de turno y crear tareas hoy genera ruido.
+  housekeepingEndHour           Int       @default(20) @map("housekeeping_end_hour")
   // Idempotencia del cron — fecha local del último roster procesado.
   // Mismo patrón que noShowProcessedDate (§15 CLAUDE.md). El scheduler corre cada
   // 15 min y solo procesa si esta fecha != localDate actual.

@@ -499,13 +499,13 @@ async function main() {
   // que el seed sea idempotente (upsert by id). Las tareas cubren todos los estados
   // del flujo: READY, UNASSIGNED, IN_PROGRESS, PAUSED, DONE, VERIFIED.
   //
-  // Asignación sigue la cobertura del seed:
-  //   índice par  → María Torres  (m@z.co)
-  //   índice impar → Pedro Ramírez (p@z.co)
+  // SEED_DEMO_TASKS=0 → salta las 16 tareas demo (deja solo flujo real driven por
+  // calendario → batchCheckout). Units siguen creándose porque sección 10 las usa.
 
   const now = new Date()
   const minutesAgo = (m: number) => new Date(now.getTime() - m * 60_000)
   const hoursAgo   = (h: number) => new Date(now.getTime() - h * 3_600_000)
+  const seedDemoTasks = process.env.SEED_DEMO_TASKS !== '0'
 
   // 9a. Units — 1 por habitación Tulum (habitaciones privadas)
   const tulumRoomIds = await prisma.room.findMany({
@@ -529,6 +529,23 @@ async function main() {
     unitMap[r.number] = unit.id
   }
   console.log(`✅ Units: ${tulumRoomIds.length} unidades Tulum (idempotentes)`)
+
+  if (!seedDemoTasks) {
+    // Aún limpiamos por si previamente se corrió el seed con tareas demo.
+    const seedTaskIdsLegacy = [
+      'seed-task-t-101-ready', 'seed-task-t-102-ready-urgent', 'seed-task-t-103-ip',
+      'seed-task-t-104-unassigned', 'seed-task-t-105-paused', 'seed-task-t-106-done',
+      'seed-task-t-201-ready-urgent', 'seed-task-t-202-unassigned', 'seed-task-t-203-ip',
+      'seed-task-t-204-paused', 'seed-task-t-205-done', 'seed-task-t-302-ready',
+      'seed-task-t-303-done', 'seed-task-t-304-ip-urgent', 'seed-task-t-301-verified',
+      'seed-task-t-305-verified',
+    ]
+    await prisma.taskLog.deleteMany({ where: { taskId: { in: seedTaskIdsLegacy } } })
+    await prisma.cleaningNote.deleteMany({ where: { taskId: { in: seedTaskIdsLegacy } } })
+    await prisma.cleaningTask.deleteMany({ where: { id: { in: seedTaskIdsLegacy } } })
+    console.log('⏭  SEED_DEMO_TASKS=0 — saltando 16 tareas demo. Solo flujo real (calendar → batchCheckout)')
+  }
+  if (seedDemoTasks) {
 
   // 9b. Cleanup de tareas seed anteriores para reinicio limpio
   const seedTaskIds = [
@@ -813,6 +830,7 @@ async function main() {
 
   const taskCount = await prisma.cleaningTask.count({ where: { id: { in: seedTaskIds } } })
   console.log(`✅ Housekeeping seed: ${taskCount} tareas (READY×4, UNASSIGNED×2, IN_PROGRESS×3, PAUSED×2, DONE×3, VERIFIED×2)`)
+  } // end if (seedDemoTasks)
 
   // 10. CHECKOUT FLOW SEED — Huéspedes IN_HOUSE con checkout hoy/mañana/pasado ──────────────
   //

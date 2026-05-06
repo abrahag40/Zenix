@@ -39,6 +39,17 @@ export class UpdateSettingsDto {
   morningRosterHour?: number
 
   /**
+   * Hora local (0-23) a la que termina el turno operativo de housekeeping.
+   * Default 20 (8 PM). Si un checkout (regular o early) ocurre a partir de esta
+   * hora, la tarea se programa para el grid de mañana (housekeepers fuera de turno).
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(23)
+  housekeepingEndHour?: number
+
+  /**
    * Política de carryover de tareas incompletas del día anterior.
    * REASSIGN_TO_TODAY_SHIFT (default) | KEEP_ORIGINAL_ASSIGNEE | ALWAYS_UNASSIGNED.
    */
