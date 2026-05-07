@@ -91,6 +91,12 @@ export function RotatingTicker({
     if (manual) Haptics.selectionAsync()
   }
 
+  // Reset index si el array cambia y queda fuera de rango (ej. una insight
+  // desaparece tras completar una tarea — pasa de 3 a 2 items).
+  useEffect(() => {
+    if (index >= insights.length) setIndex(0)
+  }, [insights.length, index])
+
   // Auto-rotate
   useEffect(() => {
     if (insights.length <= 1) return
@@ -107,7 +113,12 @@ export function RotatingTicker({
 
   if (insights.length === 0) return null
 
-  const current = insights[index]
+  // Guard: si el array se redujo entre renders (ej. tarea completada) y `index`
+  // quedó fuera de rango, fallback al primero. Sin este guard, `current.tone`
+  // crashea porque insights[index] === undefined.
+  const safeIndex = index >= insights.length ? 0 : index
+  const current = insights[safeIndex]
+  if (!current) return null
   const tone = current.tone ?? 'neutral'
   const labelColor = TONE_COLOR[tone]
 

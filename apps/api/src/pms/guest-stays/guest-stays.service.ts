@@ -574,38 +574,69 @@ export class GuestStaysService {
         },
       })
 
-      // 4. CleaningTask(READY) por unit — el clic en checkout es la confirmación física
+      // 4. Por cada unit:
+      //    - Si existe PENDING (creada por cron 7am o por extension/move) → PROMOVER a READY
+      //      preservando audit trail (carryoverFromTaskId, asignación previa, etc.)
+      //    - Si NO existe → crear nueva READY (caso walk-in / super-early sin cron)
+      //    Esto evita duplicados (1 PENDING del cron + 1 READY del checkout endpoint).
       const scheduledFor = new Date(`${taskCheckoutAt.toISOString().slice(0, 10)}T00:00:00.000Z`)
       for (const unit of stay.room.units) {
-        const task = await tx.cleaningTask.create({
-          data: {
-            organizationId: orgId,
+        const existing = await tx.cleaningTask.findFirst({
+          where: {
             unitId: unit.id,
-            checkoutId: checkout.id,
-            status: 'READY',
-            taskType: 'CLEANING',
-            priority: taskPriority,
-            hasSameDayCheckIn,
-            scheduledFor,
+            status: { in: ['PENDING', 'UNASSIGNED'] },
           },
+          orderBy: { createdAt: 'desc' },
         })
-        await tx.taskLog.create({
-          data: {
-            organizationId: orgId,
-            taskId: task.id,
-            staffId: actorId,
-            event: 'CREATED',
-          },
-        })
-        await tx.taskLog.create({
-          data: {
-            organizationId: orgId,
-            taskId: task.id,
-            staffId: actorId,
-            event: 'READY',
-          },
-        })
-        newCleaningTaskIds.push(task.id)
+
+        if (existing) {
+          // Promover PENDING → READY. Mantiene assignedToId, priority, hasSameDayCheckIn
+          // del cron (que ya hizo auto-assign + URGENT detection en su momento). Solo
+          // actualizamos checkoutId para vincularla a esta salida física.
+          const updated = await tx.cleaningTask.update({
+            where: { id: existing.id },
+            data: {
+              status: 'READY',
+              checkoutId: checkout.id,
+              // Re-evaluar URGENT por si entró un nuevo huésped same-day post-cron
+              priority: hasSameDayCheckIn ? 'URGENT' : existing.priority,
+              hasSameDayCheckIn: hasSameDayCheckIn || existing.hasSameDayCheckIn,
+            },
+          })
+          await tx.taskLog.create({
+            data: {
+              organizationId: orgId,
+              taskId: updated.id,
+              staffId: actorId,
+              event: 'READY',
+              note: 'Salida física confirmada por recepción',
+            },
+          })
+          // No re-asignamos: ya está asignada por el cron. autoAssign() en post-tx
+          // verificará y solo asigna si está sin asignar.
+          newCleaningTaskIds.push(updated.id)
+        } else {
+          // Walk-in o super-early sin pre-population del cron: crear desde cero.
+          const task = await tx.cleaningTask.create({
+            data: {
+              organizationId: orgId,
+              unitId: unit.id,
+              checkoutId: checkout.id,
+              status: 'READY',
+              taskType: 'CLEANING',
+              priority: taskPriority,
+              hasSameDayCheckIn,
+              scheduledFor,
+            },
+          })
+          await tx.taskLog.create({
+            data: { organizationId: orgId, taskId: task.id, staffId: actorId, event: 'CREATED' },
+          })
+          await tx.taskLog.create({
+            data: { organizationId: orgId, taskId: task.id, staffId: actorId, event: 'READY' },
+          })
+          newCleaningTaskIds.push(task.id)
+        }
       }
 
       return stayUpdated
@@ -768,41 +799,62 @@ export class GuestStaysService {
         },
       })
 
-      // 4. CleaningTask(READY) por cada unidad — el clic en early checkout es la
-      //    confirmación física de salida (decisión unificada con checkout regular).
-      //    AHLEI sec. 4.1: front desk closes checkout = physical departure confirmed.
+      // 4. Por cada unit: promover PENDING existente a READY o crear nueva.
+      //    Misma lógica que checkout regular — evita duplicados con cron 7am.
       const scheduledFor = new Date(`${taskCheckoutAt.toISOString().slice(0, 10)}T00:00:00.000Z`)
       for (const unit of stay.room.units) {
-        const task = await tx.cleaningTask.create({
-          data: {
-            organizationId: orgId,
-            unitId: unit.id,
-            checkoutId: checkout.id,
-            status: 'READY',
-            taskType: 'CLEANING',
-            priority: taskPriority,
-            hasSameDayCheckIn,
-            scheduledFor,
-          },
+        const existing = await tx.cleaningTask.findFirst({
+          where: { unitId: unit.id, status: { in: ['PENDING', 'UNASSIGNED'] } },
+          orderBy: { createdAt: 'desc' },
         })
-        await tx.taskLog.create({
-          data: {
-            organizationId: orgId,
-            taskId: task.id,
-            staffId: actorId,
-            event: 'CREATED',
-            note: `Early checkout registrado${notes ? ` — ${notes}` : ''}`,
-          },
-        })
-        await tx.taskLog.create({
-          data: {
-            organizationId: orgId,
-            taskId: task.id,
-            staffId: actorId,
-            event: 'READY',
-          },
-        })
-        newCleaningTaskIds.push(task.id)
+
+        if (existing) {
+          const updated = await tx.cleaningTask.update({
+            where: { id: existing.id },
+            data: {
+              status: 'READY',
+              checkoutId: checkout.id,
+              priority: hasSameDayCheckIn ? 'URGENT' : existing.priority,
+              hasSameDayCheckIn: hasSameDayCheckIn || existing.hasSameDayCheckIn,
+            },
+          })
+          await tx.taskLog.create({
+            data: {
+              organizationId: orgId,
+              taskId: updated.id,
+              staffId: actorId,
+              event: 'READY',
+              note: `Early checkout — salida física confirmada${notes ? ` (${notes})` : ''}`,
+            },
+          })
+          newCleaningTaskIds.push(updated.id)
+        } else {
+          const task = await tx.cleaningTask.create({
+            data: {
+              organizationId: orgId,
+              unitId: unit.id,
+              checkoutId: checkout.id,
+              status: 'READY',
+              taskType: 'CLEANING',
+              priority: taskPriority,
+              hasSameDayCheckIn,
+              scheduledFor,
+            },
+          })
+          await tx.taskLog.create({
+            data: {
+              organizationId: orgId,
+              taskId: task.id,
+              staffId: actorId,
+              event: 'CREATED',
+              note: `Early checkout registrado${notes ? ` — ${notes}` : ''}`,
+            },
+          })
+          await tx.taskLog.create({
+            data: { organizationId: orgId, taskId: task.id, staffId: actorId, event: 'READY' },
+          })
+          newCleaningTaskIds.push(task.id)
+        }
       }
 
       // 5. Si hay journey activo, recortar el segmento activo a la fecha de hoy
