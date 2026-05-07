@@ -82,12 +82,15 @@ export function useSSE(onEvent: Handler) {
       pollingInterval: 0, // 0 = use SSE proper, not long-poll fallback
     })
 
+    if (__DEV__) console.log('[SSE] Connecting to', url.replace(/token=[^&]+/, 'token=***'))
+
     const handleMessage = (e: any) => {
       try {
         const parsed = JSON.parse(e.data) as SseEvent
+        if (__DEV__) console.log('[SSE] event recv:', parsed.type)
         handlerRef.current(parsed)
-      } catch {
-        // ignore malformed events
+      } catch (err) {
+        if (__DEV__) console.warn('[SSE] parse error:', err, e?.data?.slice?.(0, 100))
       }
     }
 
@@ -102,7 +105,12 @@ export function useSSE(onEvent: Handler) {
     // Some servers send a "ping" event for keepalive — ignore silently
     ;(es as any).addEventListener('ping', () => {})
 
+    ;(es as any).addEventListener('open', () => {
+      if (__DEV__) console.log('[SSE] connection OPEN')
+    })
+
     ;(es as any).addEventListener('error', (e: any) => {
+      if (__DEV__) console.warn('[SSE] error:', e?.type, e?.message, 'status=', e?.xhrStatus)
       // 401 → token expired → logout
       if (e?.xhrStatus === 401) {
         useAuthStore.getState().logout()
