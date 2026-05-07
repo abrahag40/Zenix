@@ -141,7 +141,9 @@ export function SlideToAcknowledge({
         pointerEvents="none"
       />
 
-      {/* Instruction label — centered, fades during slide */}
+      {/* Instruction label — desplazado hacia la derecha para que NO quede
+          tapado por el thumb (el thumb ocupa los primeros 60dp del track).
+          paddingLeft: THUMB_SIZE + 12 lo coloca después del thumb inicial. */}
       <Animated.Text style={[styles.label, labelStyle]} pointerEvents="none">
         {label}  →
       </Animated.Text>
@@ -187,6 +189,11 @@ const styles = StyleSheet.create({
     fontWeight: typography.weight.semibold,
     textAlign: 'center',
     letterSpacing: 0.4,
+    // Padding L = THUMB_SIZE (56) + HORIZONTAL_PAD (4) + breathing 8 = 68.
+    // Padding R = HORIZONTAL_PAD (4) + breathing 8 = 12. Mantiene el label
+    // visible y no tapado por el thumb cuando arranca a la izquierda.
+    paddingLeft: 68,
+    paddingRight: 12,
   },
   thumb: {
     position: 'absolute',

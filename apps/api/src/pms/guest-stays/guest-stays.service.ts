@@ -29,6 +29,7 @@ import { StayJourneyService } from '../stay-journeys/stay-journeys.service'
 import { ChannexGateway } from '../../integrations/channex/channex.gateway'
 import { NotificationCenterService } from '../../notification-center/notification-center.service'
 import { PushService } from '../../notifications/push.service'
+import { NotificationsService } from '../../notifications/notifications.service'
 import { AssignmentService } from '../../assignment/assignment.service'
 
 /** Maps GuestStay.source values to the single-char SRC segment of bookingRef. */
@@ -140,6 +141,7 @@ export class GuestStaysService {
     private readonly notifCenter: NotificationCenterService,
     private readonly assignment: AssignmentService,
     private readonly push: PushService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** Generates a globally unique human-readable booking reference.
@@ -651,14 +653,31 @@ export class GuestStaysService {
       )
     }
 
-    // Push al staff asignado por cada task READY (D16 — tier 2/2.5).
-    // Si hasSameDayCheckIn → tier 2.5 (URGENT), si no → tier 2 (notification).
-    // El push del SO + alarma in-app dependen del payload `priority` que
-    // el handler de Expo Notifications interpreta en mobile.
+    // SSE task:ready por cada task — alimenta:
+    //   * AlarmHost mobile (alarmService.show + AlarmOverlay)
+    //   * useRoomSSE web (refresca calendar + kanban en tiempo real)
+    //   * useTasks mobile (refresca lista "Mi día")
+    // Sin esta emisión, mobile solo se entera vía pull-to-refresh.
     const tasksForPush = await this.prisma.cleaningTask.findMany({
       where: { id: { in: newCleaningTaskIds } },
       select: { id: true, assignedToId: true, priority: true, hasSameDayCheckIn: true },
     })
+    for (const t of tasksForPush) {
+      this.notifications.emit(stay.propertyId, 'task:ready', {
+        taskId: t.id,
+        roomNumber: stay.room.number,
+        unitId: undefined,
+        assignedToId: t.assignedToId,
+        hasSameDayCheckIn: t.hasSameDayCheckIn,
+        priority: t.priority,
+        carryoverFromDate: null,
+      })
+    }
+
+    // Push al staff asignado por cada task READY (D16 — tier 2/2.5).
+    // Si hasSameDayCheckIn → tier 2.5 (URGENT), si no → tier 2 (notification).
+    // El push del SO + alarma in-app dependen del payload `priority` que
+    // el handler de Expo Notifications interpreta en mobile.
     for (const t of tasksForPush) {
       if (!t.assignedToId) continue
       const isUrgent = t.hasSameDayCheckIn || t.priority === 'URGENT'
@@ -672,6 +691,7 @@ export class GuestStaysService {
         type: 'task:ready',
         taskId: t.id,
         priority: isUrgent ? 'urgent' : 'high',
+        alarm: true,
       }).catch((err: Error) =>
         this.logger.warn(`Push checkout task=${t.id}: ${err?.message}`),
       )
