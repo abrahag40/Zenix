@@ -28,6 +28,11 @@ import type { CleaningTaskDto, SseEvent, StaffDto, TaskLogDto } from '@zenix/sha
 import { CleaningStatus, HousekeepingRole, Priority, TaskLogEvent } from '@zenix/shared'
 
 const COLUMNS: { status: CleaningStatus; label: string; ringColor: string; pillBg: string }[] = [
+  // PENDING — esperando salida física del huésped (Fase 1 del flujo §4 CLAUDE.md).
+  // Pre-Sprint 9 esto vivía en /overrides "Real-Time" tab. Consolidado aquí
+  // para que el supervisor tenga vista única del día (cron pre-population +
+  // cards confirmar salida → READY).
+  { status: CleaningStatus.PENDING,      label: 'Esperando salida', ringColor: 'border-t-slate-400',  pillBg: 'bg-slate-100 text-slate-600' },
   { status: CleaningStatus.UNASSIGNED,   label: 'Sin asignar',   ringColor: 'border-t-red-400',     pillBg: 'bg-red-100 text-red-700' },
   { status: CleaningStatus.READY,        label: 'Lista',         ringColor: 'border-t-amber-400',   pillBg: 'bg-amber-100 text-amber-700' },
   { status: CleaningStatus.IN_PROGRESS,  label: 'En progreso',   ringColor: 'border-t-blue-400',    pillBg: 'bg-blue-100 text-blue-700' },
@@ -46,11 +51,12 @@ export function KanbanPage() {
   const qc = useQueryClient()
   const [filterStaffId, setFilterStaffId] = useState<string>('') // '' = todos
   const [verifying, setVerifying] = useState<string | null>(null) // taskId en modal verify
+  const [showAdHocModal, setShowAdHocModal] = useState(false)
 
   const { data: tasks = [], isLoading } = useQuery<CleaningTaskDto[]>({
     queryKey: ['kanban-tasks'],
     queryFn: () =>
-      api.get('/tasks?status=UNASSIGNED,READY,IN_PROGRESS,PAUSED,DONE,VERIFIED'),
+      api.get('/tasks?status=PENDING,UNASSIGNED,READY,IN_PROGRESS,PAUSED,DONE,VERIFIED'),
     staleTime: 30_000,
   })
 
@@ -73,6 +79,36 @@ export function KanbanPage() {
     },
     onError: (e) =>
       toast.error(e instanceof Error ? e.message : 'No se pudo asignar'),
+  })
+
+  // ── Mutations Sprint 9 — acciones de override migradas desde /overrides ──
+  // Confirma salida física: PENDING → READY (Fase 2 §4 CLAUDE.md)
+  const confirmDepartMutation = useMutation({
+    mutationFn: ({ checkoutId, unitId }: { checkoutId: string; unitId: string }) =>
+      api.post(`/checkouts/${checkoutId}/depart`, { unitId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['kanban-tasks'] })
+      toast.success('Salida confirmada — limpieza activada')
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'No se pudo confirmar la salida'),
+  })
+
+  const forceUrgentMutation = useMutation({
+    mutationFn: (taskId: string) => api.post(`/tasks/${taskId}/force-urgent`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['kanban-tasks'] })
+      toast.success('Tarea marcada URGENT')
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'No se pudo cambiar prioridad'),
+  })
+
+  const deepCleanMutation = useMutation({
+    mutationFn: (taskId: string) => api.post(`/tasks/${taskId}/toggle-deep-clean`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['kanban-tasks'] })
+      toast.success('Limpieza profunda activada')
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'No se pudo activar deep clean'),
   })
 
   const handleSSE = useCallback(
@@ -116,6 +152,13 @@ export function KanbanPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowAdHocModal(true)}
+            className="text-xs px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-medium"
+            title="Crear tarea para walk-in / late checkout sin reserva"
+          >
+            + Tarea ad-hoc
+          </button>
           <label className="text-xs text-gray-600">Housekeeper</label>
           <select
             value={filterStaffId}
@@ -160,6 +203,18 @@ export function KanbanPage() {
                         assignMutation.mutate({ taskId: task.id, assignedToId: staffId })
                       }
                       onVerifyClick={() => setVerifying(task.id)}
+                      onConfirmDepart={() => {
+                        if (!task.checkoutId) {
+                          toast.error('No hay checkout asociado a esta tarea')
+                          return
+                        }
+                        confirmDepartMutation.mutate({
+                          checkoutId: task.checkoutId,
+                          unitId: task.unitId,
+                        })
+                      }}
+                      onForceUrgent={() => forceUrgentMutation.mutate(task.id)}
+                      onToggleDeepClean={() => deepCleanMutation.mutate(task.id)}
                       isAssigning={assignMutation.isPending && assignMutation.variables?.taskId === task.id}
                     />
                   ))
@@ -181,6 +236,130 @@ export function KanbanPage() {
           }}
         />
       )}
+
+      {/* Modal Tarea Ad-hoc (Sprint 9 — walk-in / late checkout sin reserva) */}
+      {showAdHocModal && (
+        <AdHocTaskModal
+          onClose={() => setShowAdHocModal(false)}
+          onCreated={() => {
+            setShowAdHocModal(false)
+            qc.invalidateQueries({ queryKey: ['kanban-tasks'] })
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+/**
+ * AdHocTaskModal — crea CleaningTask sin checkout previo (walk-in / late
+ * checkout sin reserva). Migrado desde /overrides para que el supervisor
+ * tenga vista única de operaciones (CLAUDE.md §55 Fase 1).
+ */
+function AdHocTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const [unitId, setUnitId] = useState('')
+  const [priority, setPriority] = useState<Priority>(Priority.MEDIUM)
+  const [reason, setReason] = useState('')
+
+  // Fetch rooms (con units anidadas) para el selector — el endpoint /units
+  // no expone "all per property", solo per-room. /rooms incluye units.
+  const { data: rooms = [] } = useQuery<Array<{ id: string; number: string; units: Array<{ id: string; label: string }> }>>({
+    queryKey: ['rooms-for-adhoc'],
+    queryFn: () => api.get('/rooms'),
+    staleTime: 5 * 60_000,
+  })
+  const units = useMemo(() => {
+    const flat: Array<{ id: string; label: string; room: { number: string } }> = []
+    for (const r of rooms) {
+      for (const u of r.units || []) {
+        flat.push({ id: u.id, label: u.label, room: { number: r.number } })
+      }
+    }
+    return flat.sort((a, b) => a.room.number.localeCompare(b.room.number))
+  }, [rooms])
+
+  const createMut = useMutation({
+    mutationFn: () =>
+      api.post('/tasks', {
+        unitId,
+        priority,
+        notes: reason || undefined,
+      }),
+    onSuccess: () => {
+      toast.success('Tarea ad-hoc creada')
+      onCreated()
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'No se pudo crear la tarea'),
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
+        <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
+          <h2 className="font-semibold text-gray-900">Crear tarea ad-hoc</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+        </div>
+        <div className="p-5 space-y-4">
+          <p className="text-xs text-gray-600">
+            Para casos no previstos por el cron: walk-in con checkout mismo día,
+            late checkout sin reserva, limpieza extraordinaria.
+          </p>
+          <div>
+            <label className="text-xs font-medium text-gray-700 block mb-1">Habitación / Unidad</label>
+            <select
+              value={unitId}
+              onChange={(e) => setUnitId(e.target.value)}
+              className="w-full text-sm border border-gray-300 rounded px-2 py-1.5"
+            >
+              <option value="">Selecciona unidad...</option>
+              {units.map((u) => (
+                <option key={u.id} value={u.id}>
+                  Hab. {u.room?.number ?? '?'} {u.label && u.label !== `Hab. ${u.room?.number}` ? `· ${u.label}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-700 block mb-1">Prioridad</label>
+            <select
+              value={priority}
+              onChange={(e) => setPriority(e.target.value as Priority)}
+              className="w-full text-sm border border-gray-300 rounded px-2 py-1.5"
+            >
+              <option value={Priority.LOW}>Baja</option>
+              <option value={Priority.MEDIUM}>Media</option>
+              <option value={Priority.HIGH}>Alta</option>
+              <option value={Priority.URGENT}>🔴 URGENT (entra hoy)</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-700 block mb-1">Motivo / Notas (opcional)</label>
+            <textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Ej. Walk-in 1 noche, late checkout 4pm aprobado, etc."
+              rows={3}
+              className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 resize-none"
+            />
+          </div>
+        </div>
+        <div className="px-5 py-3 border-t border-gray-200 flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="text-sm px-3 py-1.5 text-gray-700 hover:bg-gray-50 rounded"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={() => createMut.mutate()}
+            disabled={!unitId || createMut.isPending}
+            className="text-sm px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {createMut.isPending ? 'Creando...' : 'Crear tarea'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -191,12 +370,18 @@ function TaskCard({
   housekeepers,
   onAssign,
   onVerifyClick,
+  onConfirmDepart,
+  onForceUrgent,
+  onToggleDeepClean,
   isAssigning,
 }: {
   task: CleaningTaskDto
   housekeepers: StaffDto[]
   onAssign: (staffId: string) => void
   onVerifyClick: () => void
+  onConfirmDepart: () => void
+  onForceUrgent: () => void
+  onToggleDeepClean: () => void
   isAssigning: boolean
 }) {
   const room = task.unit?.room
@@ -204,6 +389,8 @@ function TaskCard({
   const isPaused = task.status === CleaningStatus.PAUSED
   const isUnassigned = task.status === CleaningStatus.UNASSIGNED
   const isDone = task.status === CleaningStatus.DONE
+  const isPending = task.status === CleaningStatus.PENDING
+  const [menuOpen, setMenuOpen] = useState(false)
 
   const elapsed = useElapsed(task)
 
@@ -270,6 +457,19 @@ function TaskCard({
         </p>
       )}
 
+      {/* Confirmar salida — solo en PENDING (Fase 2 §4 CLAUDE.md).
+          Migrado desde /overrides "Real-Time" tab — recepción confirma que
+          el huésped salió físicamente → PENDING transiciona a READY + push */}
+      {isPending && task.checkoutId && (
+        <button
+          onClick={onConfirmDepart}
+          className="w-full text-center bg-emerald-50 text-emerald-700 rounded py-1.5 hover:bg-emerald-100 font-medium text-xs border border-emerald-200"
+          title="Confirma que el huésped salió físicamente — activa la limpieza"
+        >
+          ✓ Confirmar salida
+        </button>
+      )}
+
       {/* Verify CTA only on DONE */}
       {isDone && (
         <button
@@ -278,6 +478,42 @@ function TaskCard({
         >
           Verificar →
         </button>
+      )}
+
+      {/* Menú contextual de overrides — solo cuando la tarea NO está terminada.
+          DONE/VERIFIED no permite cambiar prioridad o tipo. */}
+      {!isDone && task.status !== CleaningStatus.VERIFIED && (
+        <div className="relative pt-1">
+          <button
+            onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v) }}
+            className="w-full text-center text-[11px] text-gray-500 hover:text-gray-700 hover:bg-gray-50 rounded py-1"
+            title="Acciones de override"
+          >
+            ⋯ Opciones
+          </button>
+          {menuOpen && (
+            <>
+              {/* Overlay para cerrar al click fuera */}
+              <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+              <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg min-w-[180px] py-1">
+                {!isUrgent && (
+                  <button
+                    onClick={() => { setMenuOpen(false); onForceUrgent() }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-red-700 hover:bg-red-50 font-medium"
+                  >
+                    🔴 Forzar URGENT
+                  </button>
+                )}
+                <button
+                  onClick={() => { setMenuOpen(false); onToggleDeepClean() }}
+                  className="w-full text-left px-3 py-1.5 text-xs text-purple-700 hover:bg-purple-50 font-medium"
+                >
+                  ✨ Limpieza profunda
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       )}
     </div>
   )
