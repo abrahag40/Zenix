@@ -527,8 +527,21 @@ async function main() {
   for (const r of tulumRoomIds) {
     const unit = await upsertUnit(r.id, r.number)
     unitMap[r.number] = unit.id
+    // Limpieza: eliminar units extras de esta habitación (legacy del seed antiguo
+    // que creaba 1 Unit con UUID + label "Cama 1"). Hotel = 1 unit por room.
+    // Solo elimina si NO está referenciada por tasks/maintenance (FK safe).
+    const extras = await prisma.unit.findMany({
+      where: { roomId: r.id, NOT: { id: unit.id } },
+      select: { id: true },
+    })
+    for (const e of extras) {
+      const refs = await prisma.cleaningTask.count({ where: { unitId: e.id } })
+      if (refs === 0) {
+        await prisma.unit.delete({ where: { id: e.id } }).catch(() => {})
+      }
+    }
   }
-  console.log(`✅ Units: ${tulumRoomIds.length} unidades Tulum (idempotentes)`)
+  console.log(`✅ Units: ${tulumRoomIds.length} unidades Tulum (idempotentes, 1 por habitación)`)
 
   if (!seedDemoTasks) {
     // Aún limpiamos por si previamente se corrió el seed con tareas demo.
