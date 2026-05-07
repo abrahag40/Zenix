@@ -179,6 +179,14 @@ export class TasksService {
       // Update unit status to CLEANING
       await tx.unit.update({ where: { id: task.unitId }, data: { status: 'CLEANING' } })
 
+      // Sync room.status (CHECKING_OUT → CLEANING) — calendar y kanban muestran
+      // "En limpieza" en tiempo real. Sin esto, el cuarto se queda en
+      // "Esperando limpieza" indefinidamente aunque housekeeper ya esté trabajando.
+      await tx.room.update({
+        where: { id: task.unit.roomId },
+        data: { status: 'CLEANING' },
+      })
+
       return updated
     })
 
@@ -237,6 +245,13 @@ export class TasksService {
 
       // Unit is now AVAILABLE (clean)
       await tx.unit.update({ where: { id: task.unitId }, data: { status: 'AVAILABLE' } })
+
+      // Sync room.status (CLEANING → INSPECTION) — esperando verificación del
+      // supervisor. Cuando supervisor verifica (verifyTask), pasa a AVAILABLE.
+      await tx.room.update({
+        where: { id: task.unit.roomId },
+        data: { status: 'INSPECTION' },
+      })
 
       return updated
     })
@@ -383,6 +398,14 @@ export class TasksService {
         include: TASK_INCLUDE,
       })
       await tx.taskLog.create({ data: { taskId, staffId: actor.sub, event: TaskLogEvent.VERIFIED } })
+
+      // Sync room.status (INSPECTION → AVAILABLE) — el cuarto vuelve al
+      // inventario vendible. Calendar y kanban reflejan disponibilidad real.
+      await tx.room.update({
+        where: { id: task.unit.roomId },
+        data: { status: 'AVAILABLE' },
+      })
+
       return updated
     })
 
