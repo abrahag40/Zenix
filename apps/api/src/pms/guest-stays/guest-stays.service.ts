@@ -28,6 +28,7 @@ import { VoidPaymentDto } from './dto/void-payment.dto'
 import { StayJourneyService } from '../stay-journeys/stay-journeys.service'
 import { ChannexGateway } from '../../integrations/channex/channex.gateway'
 import { NotificationCenterService } from '../../notification-center/notification-center.service'
+import { PushService } from '../../notifications/push.service'
 import { AssignmentService } from '../../assignment/assignment.service'
 
 /** Maps GuestStay.source values to the single-char SRC segment of bookingRef. */
@@ -138,6 +139,7 @@ export class GuestStaysService {
     private readonly channex: ChannexGateway,
     private readonly notifCenter: NotificationCenterService,
     private readonly assignment: AssignmentService,
+    private readonly push: PushService,
   ) {}
 
   /** Generates a globally unique human-readable booking reference.
@@ -646,6 +648,32 @@ export class GuestStaysService {
     for (const taskId of newCleaningTaskIds) {
       this.assignment.autoAssign(taskId).catch((err: Error) =>
         this.logger.warn(`autoAssign failed (checkout) task=${taskId}: ${err.message}`),
+      )
+    }
+
+    // Push al staff asignado por cada task READY (D16 — tier 2/2.5).
+    // Si hasSameDayCheckIn → tier 2.5 (URGENT), si no → tier 2 (notification).
+    // El push del SO + alarma in-app dependen del payload `priority` que
+    // el handler de Expo Notifications interpreta en mobile.
+    const tasksForPush = await this.prisma.cleaningTask.findMany({
+      where: { id: { in: newCleaningTaskIds } },
+      select: { id: true, assignedToId: true, priority: true, hasSameDayCheckIn: true },
+    })
+    for (const t of tasksForPush) {
+      if (!t.assignedToId) continue
+      const isUrgent = t.hasSameDayCheckIn || t.priority === 'URGENT'
+      const title = isUrgent
+        ? `🔴 Limpieza URGENTE — Hab. ${stay.room.number}`
+        : `🧹 Lista para limpiar — Hab. ${stay.room.number}`
+      const body = isUrgent
+        ? `Entra nuevo huésped HOY. ${stay.guestName} ya salió.`
+        : `${stay.guestName} salió. Cuarto disponible para limpieza.`
+      this.push.sendToStaff(t.assignedToId, title, body, {
+        type: 'task:ready',
+        taskId: t.id,
+        priority: isUrgent ? 'urgent' : 'high',
+      }).catch((err: Error) =>
+        this.logger.warn(`Push checkout task=${t.id}: ${err?.message}`),
       )
     }
 

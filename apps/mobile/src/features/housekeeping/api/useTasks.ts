@@ -14,7 +14,18 @@
 import { useEffect, useMemo } from 'react'
 import { useTaskStore } from '../../../store/tasks'
 import { CleaningStatus } from '@zenix/shared'
-import type { CleaningTaskDto } from '@zenix/shared'
+import type { CleaningTaskDto, SseEventType } from '@zenix/shared'
+import { registerSseConsumer } from '../../../api/useGlobalSSEListener'
+
+// Eventos que afectan la lista de tareas — al recibirlos refrescamos.
+// Mantiene mobile sincronizado con web/calendario en tiempo real (foreground).
+const TASK_TRIGGERS: SseEventType[] = [
+  'task:planned', 'task:ready', 'task:started', 'task:paused', 'task:resumed',
+  'task:done', 'task:verified', 'task:cancelled', 'task:deferred',
+  'task:retry-scheduled', 'task:blocked', 'task:rescheduled', 'task:unassigned',
+  // checkout.confirmed dispara creación de tasks via promotion → refrescar
+  'checkout:confirmed', 'checkout:early',
+]
 // 🟡 QA-ONLY MOCK FALLBACK — DELETE BEFORE PRODUCTION
 // Activates only when EXPO_PUBLIC_USE_MOCKS=true AND API returns empty.
 import { MOCK_HOUSEKEEPING_TASKS, MOCKS_ENABLED } from './__mocks__/mockTasks'
@@ -74,9 +85,20 @@ function sortTasks(tasks: CleaningTaskDto[]): CleaningTaskDto[] {
 export function useHousekeepingTasks() {
   const { tasks, loading, fetchTasks } = useTaskStore()
 
-  // Initial fetch on mount.
+  // Refetch SIEMPRE al montar — Zustand persiste el state en AsyncStorage,
+  // si solo refetchamos cuando length===0 podemos mostrar datos obsoletos
+  // de sesiones anteriores (ej. tasks que ya se completaron, room states
+  // que cambiaron, etc.).
   useEffect(() => {
-    if (tasks.length === 0) fetchTasks()
+    fetchTasks()
+  }, [])
+
+  // SSE en foreground (D8): cualquier evento que afecte tasks dispara refetch.
+  // Mantiene mobile sincronizado con calendario web en tiempo real.
+  useEffect(() => {
+    return registerSseConsumer(TASK_TRIGGERS, () => {
+      fetchTasks()
+    })
   }, [])
 
   const groups = useMemo<TaskGroups>(() => {

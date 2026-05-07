@@ -214,15 +214,18 @@ function TaskCard({
       } p-2.5 text-xs space-y-1.5 shadow-sm`}
     >
       {/* Header: room + priority badge */}
-      <div className="flex items-center justify-between">
-        <div className="font-semibold text-gray-900 flex items-center gap-1.5">
-          <span>{room?.number ?? '—'}</span>
-          {task.unit?.label && (
-            <span className="text-gray-400 font-normal text-xs">· {task.unit.label}</span>
+      <div className="flex items-center justify-between gap-2">
+        <div className="font-semibold text-gray-900 flex items-center gap-1.5 min-w-0">
+          <span className="truncate">Hab. {room?.number ?? '—'}</span>
+          {/* Solo mostramos unit.label si difiere significativamente del número
+              de habitación (ej. dorms con "Cama 1", "Cama 2"). En hotel/private
+              rooms suele ser idéntico ("Hab. 103") → ruido visual. */}
+          {task.unit?.label && task.unit.label !== `Hab. ${room?.number}` && task.unit.label !== room?.number && (
+            <span className="text-gray-400 font-normal text-xs truncate">· {task.unit.label}</span>
           )}
         </div>
         {task.priority && (
-          <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide ${PRIORITY_BADGE[task.priority]}`}>
+          <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide flex-shrink-0 ${PRIORITY_BADGE[task.priority]}`}>
             {task.priority === Priority.URGENT ? '🔴 URG' : task.priority}
           </span>
         )}
