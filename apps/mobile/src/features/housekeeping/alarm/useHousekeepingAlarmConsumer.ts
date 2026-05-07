@@ -108,21 +108,29 @@ export function useHousekeepingAlarmConsumer(): void {
 
   // ── Mechanism 2: Task store watcher (fallback for missed SSE events) ─
   // Fires whenever the task list changes (e.g. after SSE reconnect triggers
-  // fetchTasks). Shows alarm for any READY task not in cooldown.
+  // fetchTasks). Shows alarm for the MOST RECENTLY CREATED READY task not
+  // in cooldown — esto evita disparar la alarma de un checkout viejo (C2)
+  // cuando el usuario acaba de hacer checkout de otro cuarto (204).
   useEffect(() => {
     if (!user?.id || user.role !== 'HOUSEKEEPER') return
     if (alarmService.getCurrent()) return  // alarm already active
 
-    const readyTask = tasks.find(
-      (t) => t.status === CleaningStatus.READY && t.assignedToId === user.id,
-    )
+    // Filtrar y ordenar por createdAt DESC. El más reciente representa
+    // el último checkout que hizo recepción — el que el usuario espera
+    // ver en la alarma.
+    const readyTasks = tasks
+      .filter((t) => t.status === CleaningStatus.READY && t.assignedToId === user.id)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+
+    // Pick el más reciente que NO esté en cooldown.
+    const readyTask = readyTasks.find((t) => {
+      const lastShown = lastShownAt.current.get(t.id) ?? 0
+      return Date.now() - lastShown >= RESHOW_COOLDOWN_MS
+    })
     if (!readyTask) return
 
     const roomNumber = readyTask.unit?.room?.number
     if (!roomNumber) return
-
-    const lastShown = lastShownAt.current.get(readyTask.id) ?? 0
-    if (Date.now() - lastShown < RESHOW_COOLDOWN_MS) return
 
     lastShownAt.current.set(readyTask.id, Date.now())
     alarmService.show(
