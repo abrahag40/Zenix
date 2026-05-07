@@ -33,7 +33,7 @@
  *   - Haptic notification:Success al confirmar
  */
 
-import { useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
 import { View, Text, StyleSheet, LayoutChangeEvent } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import * as Haptics from 'expo-haptics'
@@ -42,9 +42,13 @@ import Animated, {
   useAnimatedStyle,
   withSpring,
   withTiming,
+  withRepeat,
+  withSequence,
+  withDelay,
   runOnJS,
   interpolate,
   Extrapolation,
+  Easing,
 } from 'react-native-reanimated'
 import { colors } from '../../../design/colors'
 import { typography } from '../../../design/typography'
@@ -70,6 +74,22 @@ export function SlideToAcknowledge({
 }: SlideToAcknowledgeProps) {
   const trackWidth = useSharedValue(0)
   const offset = useSharedValue(0)
+  // pulse: 0→1 cycling — anima el thumb para invitar a drag (affordance).
+  // Apple HIG: "make interactive elements look interactive". Sin esto el
+  // thumb estático se confunde con un botón a tap-ear.
+  const pulse = useSharedValue(0)
+
+  useEffect(() => {
+    pulse.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 700, easing: Easing.inOut(Easing.quad) }),
+        withDelay(200, withTiming(0, { duration: 600, easing: Easing.inOut(Easing.quad) })),
+      ),
+      -1,
+      false,
+    )
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const onTrackLayout = useCallback((e: LayoutChangeEvent) => {
     trackWidth.value = e.nativeEvent.layout.width
@@ -85,8 +105,12 @@ export function SlideToAcknowledge({
     onConfirm()
   }
 
+  // minDistance(0) — el gesto se claima inmediatamente al primer touch +
+  // mínimo movimiento. Antes activeOffsetX([5,999]) requería 5px de drag
+  // ANTES de claim → user sentía que "no agarraba". Apple HIG: feedback
+  // inmediato al touch.
   const pan = Gesture.Pan()
-    .activeOffsetX([5, 999]) // require horizontal intent before claiming
+    .minDistance(0)
     .onUpdate((e) => {
       'worklet'
       const max = Math.max(0, trackWidth.value - THUMB_SIZE - HORIZONTAL_PAD * 2)
@@ -129,6 +153,23 @@ export function SlideToAcknowledge({
     }
   })
 
+  // Thumb pulse: cuando offset=0, el thumb late suavemente para invitar a
+  // drag (affordance). Una vez user empieza a deslizar, el pulse se detiene
+  // (offset > 0 → escala fija 1).
+  const thumbPulseStyle = useAnimatedStyle(() => {
+    const isResting = offset.value === 0
+    const scale = isResting
+      ? interpolate(pulse.value, [0, 1], [1, 1.06], Extrapolation.CLAMP)
+      : 1
+    return { transform: [{ translateX: offset.value }, { scale }] }
+  })
+
+  // Glyph chevrons: opacity oscila para simular "dirección a la derecha".
+  // Aplaca el problema de tener flecha en el texto (que sugería "tap").
+  const glyphPulseStyle = useAnimatedStyle(() => ({
+    opacity: offset.value === 0 ? interpolate(pulse.value, [0, 1], [0.65, 1], Extrapolation.CLAMP) : 1,
+  }))
+
   return (
     <View style={styles.track} onLayout={onTrackLayout}>
       {/* Filled overlay grows with the slide */}
@@ -141,23 +182,25 @@ export function SlideToAcknowledge({
         pointerEvents="none"
       />
 
-      {/* Instruction label — desplazado hacia la derecha para que NO quede
-          tapado por el thumb (el thumb ocupa los primeros 60dp del track).
-          paddingLeft: THUMB_SIZE + 12 lo coloca después del thumb inicial. */}
+      {/* Instruction label — sin trailing arrow (UX anti-pattern: sugería
+          "tap to advance"). El glyph del thumb ▶▶ es el único cue
+          direccional, alineado con Apple Wallet "Slide to Pay". */}
       <Animated.Text style={[styles.label, labelStyle]} pointerEvents="none">
-        {label}  →
+        {label}
       </Animated.Text>
 
-      {/* Thumb — the draggable element */}
+      {/* Thumb — draggable element. hitSlop expande área táctil 20dp en cada
+          dirección sin alterar visual → easier-to-grab one-handed. */}
       <GestureDetector gesture={pan}>
         <Animated.View
+          hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
           style={[
             styles.thumb,
             { backgroundColor: primaryColor },
-            thumbStyle,
+            thumbPulseStyle,
           ]}
         >
-          <Text style={styles.thumbGlyph}>▶▶</Text>
+          <Animated.Text style={[styles.thumbGlyph, glyphPulseStyle]}>▶▶</Animated.Text>
         </Animated.View>
       </GestureDetector>
     </View>
