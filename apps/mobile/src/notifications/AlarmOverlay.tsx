@@ -224,7 +224,19 @@ const styles = StyleSheet.create({
     lineHeight: typography.size.body * typography.lineHeight.relaxed,
     paddingHorizontal: 12,
   },
+  // Op A — Apple HIG 2024 + Hoober 2013 thumb-zone:
+  //  - alignSelf:center → centro horizontal (no anclado al borde izquierdo)
+  //  - width 72% → reduce travel del slide; thumb arc cómodo de una mano
+  //  - marginBottom 96 → eleva sobre la zona del borde inferior (no thumb-stretch);
+  //    queda en el bottom-third pero dentro del arc natural del pulgar
+  //  - maxWidth 420 → tablets no quedan con slider gigante
+  // Fuentes: Apple HIG Action Sheets ("bottom of screen, easy to reach with thumb"),
+  // UXmatters "How Do Users Really Hold Mobile Devices" (49% one-handed),
+  // CLAUDE.md §13b (motion patterns SwiftUI).
   slideWrap: {
-    paddingBottom: 8,
+    alignSelf: 'center',
+    width: '72%',
+    maxWidth: 420,
+    marginBottom: 96,
   },
 })
