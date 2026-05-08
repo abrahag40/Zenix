@@ -3,7 +3,7 @@ import {
   AppNotificationType,
   AppNotificationCategory,
   AppNotificationPriority,
-  HousekeepingRole,
+  StaffRole,
   NotificationRecipient,
   ApprovalDecision,
 } from '@prisma/client'
@@ -23,7 +23,7 @@ export interface SendNotificationDto {
   actionUrl?: string
   recipientType: NotificationRecipient
   recipientId?: string
-  recipientRole?: HousekeepingRole
+  recipientRole?: StaffRole
   triggeredById?: string
   expiresAt?: Date
 }
@@ -87,7 +87,7 @@ export class NotificationCenterService {
   async listForUser(staffId: string, propertyId: string, limit = 50) {
     const orgId = this.tenant.getOrganizationId()
 
-    const staff = await this.prisma.housekeepingStaff.findFirst({
+    const staff = await this.prisma.staff.findFirst({
       where: { id: staffId, organizationId: orgId },
       select: { role: true },
     })
@@ -158,7 +158,7 @@ export class NotificationCenterService {
 
   async markAllRead(staffId: string, propertyId: string) {
     const orgId = this.tenant.getOrganizationId()
-    const staff = await this.prisma.housekeepingStaff.findFirst({
+    const staff = await this.prisma.staff.findFirst({
       where: { id: staffId, organizationId: orgId },
       select: { role: true },
     })
@@ -248,7 +248,7 @@ export class NotificationCenterService {
 
   async unreadCount(staffId: string, propertyId: string): Promise<number> {
     const orgId = this.tenant.getOrganizationId()
-    const staff = await this.prisma.housekeepingStaff.findFirst({
+    const staff = await this.prisma.staff.findFirst({
       where: { id: staffId, organizationId: orgId },
       select: { role: true },
     })

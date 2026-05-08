@@ -14,7 +14,8 @@ import {
   DiscrepancyType,
   ExtensionFlag,
   GamificationLevel,
-  HousekeepingRole,
+  StaffLevel,
+  StaffRole,
   KeyDeliveryType,
   MaintenanceCategory,
   NoShowChargeStatus,
@@ -41,10 +42,14 @@ export interface PropertyDto {
 export interface JwtPayload {
   sub: string
   email: string
-  role: HousekeepingRole
+  role: StaffRole
   /** Operational area — drives the role-aware module switch in mobile (Sprint 8I AD-011).
    *  Optional for backward-compat with old tokens; backfilled to HOUSEKEEPING by default. */
   department?: Department
+  /** Sprint 9 G1 — eje jerárquico ortogonal a role.
+   *  LEAD = autoridad del área (verifica, asigna, aprueba overrides).
+   *  COLLABORATOR = ejecuta, no gestiona. Default cuando token legacy. */
+  level?: StaffLevel
   propertyId: string
   organizationId: string
 }
@@ -55,7 +60,7 @@ export interface AuthResponse {
     id: string
     name: string
     email: string
-    role: HousekeepingRole
+    role: StaffRole
     department: Department
     propertyId: string
     /** Display name of the property the user is currently scoped to. */
@@ -89,7 +94,7 @@ export interface StaffDto {
   propertyId: string
   name: string
   email: string
-  role: HousekeepingRole
+  role: StaffRole
   department?: Department
   active: boolean
   capabilities: Capability[]
@@ -916,7 +921,7 @@ export interface StaffPreferencesDto {
 export interface OnShiftStaffDto {
   staffId: string
   name: string
-  role: HousekeepingRole
+  role: StaffRole
   capabilities: Capability[]
   shiftStart: string   // "HH:mm"
   shiftEnd: string     // "HH:mm"

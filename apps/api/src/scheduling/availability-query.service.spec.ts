@@ -20,7 +20,7 @@ describe('AvailabilityQueryService', () => {
     propertySettings: { findUnique: jest.fn() },
     staffShiftException: { findMany: jest.fn() },
     staffShift: { findMany: jest.fn() },
-    housekeepingStaff: { findMany: jest.fn() },
+    staff: { findMany: jest.fn() },
   }
 
   beforeEach(async () => {
@@ -149,7 +149,7 @@ describe('AvailabilityQueryService', () => {
         { staffId: 'pedro', type: 'EXTRA', startTime: '08:00', endTime: '12:00' },
       ])
       prismaMock.staffShift.findMany.mockResolvedValue([])
-      prismaMock.housekeepingStaff.findMany.mockResolvedValue([
+      prismaMock.staff.findMany.mockResolvedValue([
         { id: 'pedro', name: 'Pedro', role: 'HOUSEKEEPER', capabilities: ['CLEANING'] },
       ])
 
@@ -172,7 +172,7 @@ describe('AvailabilityQueryService', () => {
           staff: { id: 'maria', name: 'María', role: 'HOUSEKEEPER', capabilities: ['CLEANING'] },
         },
       ])
-      prismaMock.housekeepingStaff.findMany.mockResolvedValue([
+      prismaMock.staff.findMany.mockResolvedValue([
         { id: 'maria', name: 'María', role: 'HOUSEKEEPER', capabilities: ['CLEANING'] },
       ])
 

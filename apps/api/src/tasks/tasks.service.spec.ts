@@ -11,7 +11,7 @@
  */
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
-import { CleaningStatus, HousekeepingRole, TaskLogEvent } from '@zenix/shared'
+import { CleaningStatus, StaffRole, TaskLogEvent } from '@zenix/shared'
 import { TasksService } from './tasks.service'
 import { PrismaService } from '../prisma/prisma.service'
 import { TenantContextService } from '../common/tenant-context.service'
@@ -21,11 +21,11 @@ import { StaffGamificationService } from '../staff-gamification/staff-gamificati
 
 // ─── Helpers para construir datos de prueba ───────────────────────────────────
 
-function makeActor(overrides: Partial<{ sub: string; role: HousekeepingRole; propertyId: string; organizationId: string }> = {}) {
+function makeActor(overrides: Partial<{ sub: string; role: StaffRole; propertyId: string; organizationId: string }> = {}) {
   return {
     sub: 'staff-1',
     email: 'hk@test.com',
-    role: HousekeepingRole.HOUSEKEEPER,
+    role: StaffRole.HOUSEKEEPER,
     propertyId: 'property-1',
     organizationId: 'org-1',
     ...overrides,
@@ -81,7 +81,7 @@ describe('TasksService', () => {
       update: jest.fn(),
     },
     unit: { update: jest.fn() },
-    housekeepingStaff: { findUnique: jest.fn() },
+    staff: { findUnique: jest.fn() },
     taskLog: { create: jest.fn() },
     // $transaction ejecuta la función callback inmediatamente (sin transacción real)
     $transaction: jest.fn((fn) => fn(prismaMock)),
@@ -196,7 +196,7 @@ describe('TasksService', () => {
       prismaMock.unit.update.mockResolvedValue({})
 
       // Act
-      const result = await service.startTask('task-1', makeActor({ role: HousekeepingRole.SUPERVISOR }))
+      const result = await service.startTask('task-1', makeActor({ role: StaffRole.SUPERVISOR }))
 
       // Assert — llegó hasta aquí sin lanzar error
       expect(result.status).toBe(CleaningStatus.IN_PROGRESS)
@@ -309,7 +309,7 @@ describe('TasksService', () => {
       prismaMock.taskLog.create.mockResolvedValue({})
 
       // Act
-      const result = await service.verifyTask('task-1', makeActor({ role: HousekeepingRole.SUPERVISOR }))
+      const result = await service.verifyTask('task-1', makeActor({ role: StaffRole.SUPERVISOR }))
 
       // Assert
       expect(result.status).toBe(CleaningStatus.VERIFIED)
@@ -322,7 +322,7 @@ describe('TasksService', () => {
 
       // Act & Assert
       await expect(
-        service.verifyTask('task-1', makeActor({ role: HousekeepingRole.SUPERVISOR })),
+        service.verifyTask('task-1', makeActor({ role: StaffRole.SUPERVISOR })),
       ).rejects.toThrow(ConflictException)
     })
   })
@@ -337,7 +337,7 @@ describe('TasksService', () => {
       const updatedTask = { ...task, status: CleaningStatus.READY, assignedToId: 'staff-2' }
 
       prismaMock.cleaningTask.findUnique.mockResolvedValue(task)
-      prismaMock.housekeepingStaff.findUnique.mockResolvedValue(staff)
+      prismaMock.staff.findUnique.mockResolvedValue(staff)
       prismaMock.cleaningTask.update.mockResolvedValue(updatedTask)
       prismaMock.taskLog.create.mockResolvedValue({})
       pushMock.sendToStaff.mockResolvedValue(undefined)
@@ -346,7 +346,7 @@ describe('TasksService', () => {
       const result = await service.assignTask(
         'task-1',
         { assignedToId: 'staff-2' },
-        makeActor({ role: HousekeepingRole.SUPERVISOR }),
+        makeActor({ role: StaffRole.SUPERVISOR }),
       )
 
       // Assert
@@ -363,11 +363,11 @@ describe('TasksService', () => {
       // Arrange
       const task = makeTask({ status: CleaningStatus.UNASSIGNED })
       prismaMock.cleaningTask.findUnique.mockResolvedValue(task)
-      prismaMock.housekeepingStaff.findUnique.mockResolvedValue(null) // no existe
+      prismaMock.staff.findUnique.mockResolvedValue(null) // no existe
 
       // Act & Assert
       await expect(
-        service.assignTask('task-1', { assignedToId: 'fantasma' }, makeActor({ role: HousekeepingRole.SUPERVISOR })),
+        service.assignTask('task-1', { assignedToId: 'fantasma' }, makeActor({ role: StaffRole.SUPERVISOR })),
       ).rejects.toThrow(NotFoundException)
     })
 
@@ -378,7 +378,7 @@ describe('TasksService', () => {
 
       // Act & Assert
       await expect(
-        service.assignTask('task-1', { assignedToId: 'staff-2' }, makeActor({ role: HousekeepingRole.SUPERVISOR })),
+        service.assignTask('task-1', { assignedToId: 'staff-2' }, makeActor({ role: StaffRole.SUPERVISOR })),
       ).rejects.toThrow(ConflictException)
     })
   })
@@ -431,8 +431,8 @@ describe('TasksService', () => {
   // ─── deferTask (Sprint 9 / EC-6) ─────────────────────────────────────────
   describe('deferTask', () => {
     beforeEach(() => {
-      // housekeepingStaff.findMany usado para notificar supervisores cuando BLOCKED
-      ;(prismaMock.housekeepingStaff as any).findMany = jest.fn().mockResolvedValue([])
+      // staff.findMany usado para notificar supervisores cuando BLOCKED
+      ;(prismaMock.staff as any).findMany = jest.fn().mockResolvedValue([])
     })
 
     it('marca DEFERRED + retryAt 30min después en primer defer (count=1)', async () => {
@@ -478,7 +478,7 @@ describe('TasksService', () => {
       prismaMock.cleaningTask.update.mockImplementation(({ data }: any) =>
         Promise.resolve({ ...task, ...data }),
       )
-      ;(prismaMock.housekeepingStaff as any).findMany.mockResolvedValue([
+      ;(prismaMock.staff as any).findMany.mockResolvedValue([
         { id: 'supervisor-1' },
         { id: 'supervisor-2' },
       ])
@@ -528,7 +528,7 @@ describe('TasksService', () => {
       const result = await service.deferTask(
         'task-1',
         'GUEST_REQUEST' as any,
-        makeActor({ sub: 'sup-1', role: HousekeepingRole.SUPERVISOR }),
+        makeActor({ sub: 'sup-1', role: StaffRole.SUPERVISOR }),
       )
       expect(result.status).toBe(CleaningStatus.DEFERRED)
     })
@@ -571,7 +571,7 @@ describe('TasksService', () => {
         Promise.resolve({ ...task, ...data }),
       )
 
-      await service.forceUrgent('task-1', makeActor({ role: HousekeepingRole.RECEPTIONIST }))
+      await service.forceUrgent('task-1', makeActor({ role: StaffRole.RECEPTIONIST }))
 
       expect(prismaMock.cleaningTask.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: { priority: 'URGENT' } }),
@@ -721,7 +721,7 @@ describe('TasksService', () => {
           currency: 'USD',
           scheduledCheckout: checkout,
         },
-        makeActor({ role: HousekeepingRole.RECEPTIONIST }),
+        makeActor({ role: StaffRole.RECEPTIONIST }),
       )
 
       expect(result.stay).toBeDefined()

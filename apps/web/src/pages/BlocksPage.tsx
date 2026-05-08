@@ -46,7 +46,7 @@ import {
   BlockSemantic,
   BlockStatus,
   BlockReason,
-  HousekeepingRole,
+  StaffRole,
   type RoomBlockDto,
   type CreateBlockDto,
 } from '@zenix/shared'
@@ -82,9 +82,9 @@ export const REASON_LABELS: Record<BlockReason, string> = {
 }
 
 const ROLE_LABELS: Record<string, string> = {
-  [HousekeepingRole.RECEPTIONIST]: 'Recepción',
-  [HousekeepingRole.SUPERVISOR]:   'Supervisor',
-  [HousekeepingRole.HOUSEKEEPER]:  'Housekeeping',
+  [StaffRole.RECEPTIONIST]: 'Recepción',
+  [StaffRole.SUPERVISOR]:   'Supervisor',
+  [StaffRole.HOUSEKEEPER]:  'Housekeeping',
 }
 
 const STATUS_LABELS: Record<BlockStatus, string> = {
@@ -729,7 +729,7 @@ function BlockCard({
 
   const isAutoApproved =
     block.status === BlockStatus.APPROVED &&
-    requester?.role === HousekeepingRole.SUPERVISOR &&
+    requester?.role === StaffRole.SUPERVISOR &&
     (!block.approvedById || block.approvedById === block.requestedById)
 
   const createdAgo = formatDistanceToNow(parseISO(block.createdAt), { addSuffix: true, locale: es })
@@ -1029,7 +1029,7 @@ type DateFilter = 'all' | '7d' | '30d'
 export function BlocksPage() {
   const user = useAuthStore((s) => s.user)
   const qc   = useQueryClient()
-  const isSupervisor = user?.role === HousekeepingRole.SUPERVISOR
+  const isSupervisor = user?.role === StaffRole.SUPERVISOR
 
   const [mode, setMode]                     = useState<PageMode>(isSupervisor ? 'inbox' : 'history')
   const [historyFilter, setHistoryFilter]   = useState<BlockStatus | 'all'>('all')

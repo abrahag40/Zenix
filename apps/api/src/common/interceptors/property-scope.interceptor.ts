@@ -1,6 +1,6 @@
 import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common'
 import { Observable } from 'rxjs'
-import { HousekeepingRole, JwtPayload } from '@zenix/shared'
+import { StaffRole, JwtPayload } from '@zenix/shared'
 
 /**
  * Allows SUPERVISOR users to switch the active property context at runtime
@@ -20,7 +20,7 @@ export class PropertyScopeInterceptor implements NestInterceptor {
     const overrideId = req.headers['x-property-id'] as string | undefined
     const user: JwtPayload | undefined = req.user
 
-    if (overrideId && user && user.role === HousekeepingRole.SUPERVISOR) {
+    if (overrideId && user && user.role === StaffRole.SUPERVISOR) {
       req.user = { ...user, propertyId: overrideId }
     }
 

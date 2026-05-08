@@ -239,7 +239,7 @@ async function main() {
     propertyId: string
     capabilities?: Array<'CLEANING' | 'SANITIZATION' | 'MAINTENANCE'>
   }) {
-    return prisma.housekeepingStaff.upsert({
+    return prisma.staff.upsert({
       where: { email: args.email },
       update: { propertyId: args.propertyId, organizationId: org.id, name: args.name },
       create: {
@@ -425,7 +425,7 @@ async function main() {
   // 5b. CLEANUP LEGACY (phase 2) ────────────────────────────────────────────
   // Now that Tulum exists and staff have been re-homed via the
   // upsertStaff.update path above, we can delete the retired property.
-  await prisma.housekeepingStaff.updateMany({
+  await prisma.staff.updateMany({
     where: { propertyId: legacyPropertyId },
     data:  { propertyId: tulum.id },
   })

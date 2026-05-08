@@ -18,7 +18,7 @@ import { useAuthStore } from '../store/auth'
 import { SettingsScopeBanner } from '../components/SettingsScopeBanner'
 import { HousekeepingScheduleSection } from '../components/settings/HousekeepingScheduleSection'
 import type { UnitDto, PropertySettingsDto, RoomDto, StaffDto } from '@zenix/shared'
-import { Capability, HousekeepingRole, RoomCategory } from '@zenix/shared'
+import { Capability, StaffRole, RoomCategory } from '@zenix/shared'
 
 type Section = 'rooms' | 'staff' | 'scheduling' | 'property' | 'support'
 
@@ -33,7 +33,7 @@ const TABS: { key: Section; label: string; icon: string }[] = [
 export function SettingsPage() {
   const { section = 'rooms' } = useParams<{ section?: Section }>()
   const user = useAuthStore((s) => s.user)
-  const isSupervisor = user?.role === HousekeepingRole.SUPERVISOR
+  const isSupervisor = user?.role === StaffRole.SUPERVISOR
 
   return (
     <div className="space-y-6">
@@ -466,7 +466,7 @@ function AddStaffForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
   const [name, setName]         = useState('')
   const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
-  const [role, setRole]         = useState<HousekeepingRole>(HousekeepingRole.HOUSEKEEPER)
+  const [role, setRole]         = useState<StaffRole>(StaffRole.HOUSEKEEPER)
   const [caps, setCaps]         = useState<Capability[]>([Capability.CLEANING])
 
   const mutation = useMutation({
@@ -521,12 +521,12 @@ function AddStaffForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
           <label className="form-label">Rol *</label>
           <select
             value={role}
-            onChange={(e) => setRole(e.target.value as HousekeepingRole)}
+            onChange={(e) => setRole(e.target.value as StaffRole)}
             className="input"
           >
-            <option value={HousekeepingRole.HOUSEKEEPER}>Housekeeping</option>
-            <option value={HousekeepingRole.SUPERVISOR}>Supervisor</option>
-            <option value={HousekeepingRole.RECEPTIONIST}>Recepción</option>
+            <option value={StaffRole.HOUSEKEEPER}>Housekeeping</option>
+            <option value={StaffRole.SUPERVISOR}>Supervisor</option>
+            <option value={StaffRole.RECEPTIONIST}>Recepción</option>
           </select>
         </div>
         <div className="col-span-2">
@@ -583,7 +583,7 @@ function EditStaffForm({
   const [name, setName]     = useState(staff.name)
   const [email, setEmail]   = useState(staff.email)
   const [password, setPassword] = useState('') // vacío por defecto — solo si se quiere cambiar
-  const [role, setRole]     = useState<HousekeepingRole>(staff.role as HousekeepingRole)
+  const [role, setRole]     = useState<StaffRole>(staff.role as StaffRole)
   const [caps, setCaps]     = useState<Capability[]>(
     // staff.capabilities puede ser undefined si el DTO no lo incluye — fallback a []
     (staff.capabilities as Capability[] | undefined) ?? [],
@@ -658,12 +658,12 @@ function EditStaffForm({
           <label className="form-label">Rol *</label>
           <select
             value={role}
-            onChange={(e) => setRole(e.target.value as HousekeepingRole)}
+            onChange={(e) => setRole(e.target.value as StaffRole)}
             className="input"
           >
-            <option value={HousekeepingRole.HOUSEKEEPER}>Housekeeping</option>
-            <option value={HousekeepingRole.SUPERVISOR}>Supervisor</option>
-            <option value={HousekeepingRole.RECEPTIONIST}>Recepción</option>
+            <option value={StaffRole.HOUSEKEEPER}>Housekeeping</option>
+            <option value={StaffRole.SUPERVISOR}>Supervisor</option>
+            <option value={StaffRole.RECEPTIONIST}>Recepción</option>
           </select>
         </div>
         <div className="col-span-2">

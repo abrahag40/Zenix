@@ -25,7 +25,7 @@ import toast from 'react-hot-toast'
 import { api } from '../api/client'
 import { useSSE } from '../hooks/useSSE'
 import type { CleaningTaskDto, SseEvent, StaffDto, TaskLogDto } from '@zenix/shared'
-import { CleaningStatus, HousekeepingRole, Priority, TaskLogEvent } from '@zenix/shared'
+import { CleaningStatus, StaffRole, Priority, TaskLogEvent } from '@zenix/shared'
 
 const COLUMNS: { status: CleaningStatus; label: string; ringColor: string; pillBg: string }[] = [
   // PENDING — esperando salida física del huésped (Fase 1 del flujo §4 CLAUDE.md).
@@ -66,7 +66,7 @@ export function KanbanPage() {
     staleTime: 5 * 60_000,
   })
   const housekeepers = useMemo(
-    () => staff.filter((s) => s.role === HousekeepingRole.HOUSEKEEPER && s.active),
+    () => staff.filter((s) => s.role === StaffRole.HOUSEKEEPER && s.active),
     [staff],
   )
 

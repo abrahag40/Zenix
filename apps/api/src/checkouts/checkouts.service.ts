@@ -452,7 +452,7 @@ export class CheckoutsService {
 
     // Alert supervisors for critical in-progress tasks
     if (criticalTasks.length > 0) {
-      const supervisors = await this.prisma.housekeepingStaff.findMany({
+      const supervisors = await this.prisma.staff.findMany({
         where: { propertyId, role: 'SUPERVISOR', active: true, organizationId: orgId },
         select: { id: true },
       })

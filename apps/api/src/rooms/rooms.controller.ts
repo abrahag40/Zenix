@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common'
-import { HousekeepingRole, JwtPayload } from '@zenix/shared'
+import { StaffRole, JwtPayload } from '@zenix/shared'
 import { CurrentUser } from '../common/decorators/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
 import { TenantResource } from '../common/guards/tenant.guard'
@@ -12,7 +12,7 @@ export class RoomsController {
 
   @Post('properties/:propertyId/rooms')
   @TenantResource({ model: 'property', paramName: 'propertyId' })
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   create(@Param('propertyId') propertyId: string, @Body() dto: CreateRoomDto) {
     return this.service.create(propertyId, dto)
   }
@@ -25,7 +25,7 @@ export class RoomsController {
 
   /** Convenience: create a room for the caller's property */
   @Post('rooms')
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   createForProperty(@CurrentUser() actor: JwtPayload, @Body() dto: CreateRoomDto) {
     return this.service.create(actor.propertyId, dto)
   }
@@ -44,14 +44,14 @@ export class RoomsController {
 
   @Patch('rooms/:id')
   @TenantResource({ model: 'room', paramName: 'id' })
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   update(@Param('id') id: string, @Body() dto: Partial<CreateRoomDto>) {
     return this.service.update(id, dto)
   }
 
   @Delete('rooms/:id')
   @TenantResource({ model: 'room', paramName: 'id' })
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   remove(@Param('id') id: string) {
     return this.service.remove(id)
   }

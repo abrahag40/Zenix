@@ -46,7 +46,7 @@ export class CoverageService {
   async create(propertyId: string, dto: CreateCoverageDto) {
     // Verificar que staff y room pertenecen a la propiedad
     const [staff, room] = await Promise.all([
-      this.prisma.housekeepingStaff.findFirst({
+      this.prisma.staff.findFirst({
         where: { id: dto.staffId, propertyId, active: true, deletedAt: null },
         select: { id: true },
       }),

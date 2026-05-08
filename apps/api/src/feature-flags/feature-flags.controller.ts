@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Query } from '@nestjs/common'
-import { HousekeepingRole, JwtPayload } from '@zenix/shared'
+import { StaffRole, JwtPayload } from '@zenix/shared'
 import { CurrentUser } from '../common/decorators/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
 import { FeatureFlagsService } from './feature-flags.service'
@@ -15,7 +15,7 @@ import { UpsertFlagDto } from './dto/upsert-flag.dto'
  * de QA que no deben filtrarse a recepcionistas/housekeepers.
  */
 @Controller('v1/feature-flags')
-@Roles(HousekeepingRole.SUPERVISOR)
+@Roles(StaffRole.SUPERVISOR)
 export class FeatureFlagsController {
   constructor(private readonly service: FeatureFlagsService) {}
 

@@ -13,7 +13,7 @@ export class AuthService {
   ) {}
 
   async login(dto: LoginDto): Promise<AuthResponse> {
-    const staff = await this.prisma.housekeepingStaff.findUnique({
+    const staff = await this.prisma.staff.findUnique({
       where: { email: dto.email.toLowerCase() },
       include: {
         // Include the property so the client knows which operational model
@@ -35,6 +35,8 @@ export class AuthService {
       email: staff.email,
       role: staff.role as any,
       department: staff.department as any,
+      // Sprint 9 G1 — level en JWT habilita @RequiresLevel guards.
+      level: staff.level as any,
       propertyId: staff.propertyId,
       organizationId: staff.organizationId ?? '',
     }
@@ -84,9 +86,9 @@ export class AuthService {
     })
     if (!property) throw new NotFoundException('Sucursal no encontrada o sin acceso')
 
-    const staff = await this.prisma.housekeepingStaff.findUnique({
+    const staff = await this.prisma.staff.findUnique({
       where: { id: actor.sub },
-      select: { id: true, name: true, email: true, role: true, department: true },
+      select: { id: true, name: true, email: true, role: true, department: true, level: true },
     })
     if (!staff) throw new UnauthorizedException('Staff not found')
 
@@ -95,6 +97,7 @@ export class AuthService {
       email: staff.email,
       role: staff.role as any,
       department: staff.department as any,
+      level: staff.level as any,
       propertyId: property.id,
       organizationId: actor.organizationId,
     }

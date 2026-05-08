@@ -26,13 +26,13 @@ export class StaffService {
 
   async create(dto: CreateStaffDto, actor: JwtPayload) {
     const orgId = this.tenant.getOrganizationId()
-    const existing = await this.prisma.housekeepingStaff.findUnique({
+    const existing = await this.prisma.staff.findUnique({
       where: { email: dto.email.toLowerCase() },
     })
     if (existing) throw new ConflictException('Email already in use')
 
     const passwordHash = await bcrypt.hash(dto.password, 12)
-    return this.prisma.housekeepingStaff.create({
+    return this.prisma.staff.create({
       data: {
         organizationId: orgId,
         propertyId: actor.propertyId,
@@ -48,7 +48,7 @@ export class StaffService {
 
   findAll(propertyId: string) {
     const orgId = this.tenant.getOrganizationId()
-    return this.prisma.housekeepingStaff.findMany({
+    return this.prisma.staff.findMany({
       where: { propertyId, organizationId: orgId },
       select: SELECT_SAFE,
       orderBy: { name: 'asc' },
@@ -57,7 +57,7 @@ export class StaffService {
 
   async findOne(id: string) {
     const orgId = this.tenant.getOrganizationId()
-    const staff = await this.prisma.housekeepingStaff.findUnique({
+    const staff = await this.prisma.staff.findUnique({
       where: { id, organizationId: orgId },
       select: SELECT_SAFE,
     })
@@ -78,7 +78,7 @@ export class StaffService {
     if (email) data.email = email.toLowerCase()
     if (password) data.passwordHash = await bcrypt.hash(password, 12)
 
-    return this.prisma.housekeepingStaff.update({
+    return this.prisma.staff.update({
       where: { id },
       data,
       select: SELECT_SAFE,
@@ -88,7 +88,7 @@ export class StaffService {
   async remove(id: string) {
     await this.findOne(id)
     // Soft delete — deactivate instead of hard delete to preserve task history
-    return this.prisma.housekeepingStaff.update({
+    return this.prisma.staff.update({
       where: { id },
       data: { active: false },
       select: SELECT_SAFE,

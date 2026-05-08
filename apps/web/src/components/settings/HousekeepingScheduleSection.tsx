@@ -27,7 +27,7 @@ import { schedulingApi, type CreateShiftInput } from '../../api/scheduling.api'
 import {
   CarryoverPolicy,
   Department,
-  HousekeepingRole,
+  StaffRole,
   ShiftExceptionType,
   type PropertySettingsDto,
   type RoomDto,
@@ -56,7 +56,7 @@ const DAY_LABELS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
 
 export function HousekeepingScheduleSection() {
   const user = useAuthStore((s) => s.user)
-  const isSupervisor = user?.role === HousekeepingRole.SUPERVISOR
+  const isSupervisor = user?.role === StaffRole.SUPERVISOR
   const [searchParams, setSearchParams] = useSearchParams()
   const tab = (searchParams.get('subtab') as SubTab | null) ?? 'shifts'
   const setTab = (key: SubTab) => setSearchParams({ subtab: key }, { replace: true })
@@ -115,7 +115,7 @@ function ShiftsPanel() {
 
   // Show all HOUSEKEEPER-role staff regardless of department (incl. maintenance techs)
   const housekeepers = useMemo(
-    () => (staffQ.data ?? []).filter((s) => s.role === HousekeepingRole.HOUSEKEEPER),
+    () => (staffQ.data ?? []).filter((s) => s.role === StaffRole.HOUSEKEEPER),
     [staffQ.data],
   )
 
@@ -645,7 +645,7 @@ function CoveragePanel() {
   })
 
   const housekeepers = useMemo(
-    () => (staffQ.data ?? []).filter((s) => s.role === HousekeepingRole.HOUSEKEEPER && s.active),
+    () => (staffQ.data ?? []).filter((s) => s.role === StaffRole.HOUSEKEEPER && s.active),
     [staffQ.data],
   )
 

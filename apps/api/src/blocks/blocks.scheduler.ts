@@ -99,7 +99,7 @@ export class BlocksScheduler {
         ? `Cama ${block.unit?.label}`
         : `Habitación ${block.room?.number}`
 
-      const supervisors = await this.prisma.housekeepingStaff.findMany({
+      const supervisors = await this.prisma.staff.findMany({
         where: {
           organizationId: block.organizationId,
           propertyId: block.propertyId,

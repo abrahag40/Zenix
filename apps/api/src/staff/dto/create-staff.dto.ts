@@ -1,5 +1,5 @@
 import { IsArray, IsBoolean, IsEmail, IsEnum, IsOptional, IsString, MinLength } from 'class-validator'
-import { Capability, HousekeepingRole } from '@zenix/shared'
+import { Capability, StaffRole } from '@zenix/shared'
 
 export class CreateStaffDto {
   @IsString()
@@ -13,8 +13,8 @@ export class CreateStaffDto {
   @MinLength(6)
   password: string
 
-  @IsEnum(HousekeepingRole)
-  role: HousekeepingRole
+  @IsEnum(StaffRole)
+  role: StaffRole
 
   @IsOptional()
   @IsArray()
@@ -52,6 +52,6 @@ export class UpdateStaffDto {
   capabilities?: Capability[]
 
   @IsOptional()
-  @IsEnum(HousekeepingRole)
-  role?: HousekeepingRole
+  @IsEnum(StaffRole)
+  role?: StaffRole
 }

@@ -13,7 +13,7 @@ import { EmailService } from '../../common/email/email.service'
 import { CreateGuestStayDto } from './dto/create-guest-stay.dto'
 import { MoveRoomDto } from './dto/move-room.dto'
 import type { AvailabilityConflict, RoomAvailabilityResult } from '@zenix/shared'
-import { PaymentMethod, HousekeepingRole, CleaningStatus, TaskLogEvent } from '@zenix/shared'
+import { PaymentMethod, StaffRole, CleaningStatus, TaskLogEvent } from '@zenix/shared'
 import {
   addDays,
   localYMD,
@@ -2146,7 +2146,7 @@ export class GuestStaysService {
    */
   async getMobileList(
     propertyId: string,
-    actorRole: HousekeepingRole,
+    actorRole: StaffRole,
     query: {
       search?: string
       statusFilter?: string[]
@@ -2199,7 +2199,7 @@ export class GuestStaysService {
       else if (arrivesToday)     status = 'UNCONFIRMED'
       else                       status = 'UPCOMING'
 
-      const isRedacted = actorRole === HousekeepingRole.HOUSEKEEPER
+      const isRedacted = actorRole === StaffRole.HOUSEKEEPER
       return {
         id: stay.id,
         guestName: isRedacted ? `Hab. ${stay.room.number}` : stay.guestName,
@@ -2262,7 +2262,7 @@ export class GuestStaysService {
    * Includes payments history and journey audit trail.
    * PII is redacted for HOUSEKEEPER role.
    */
-  async getMobileDetail(stayId: string, actorRole: HousekeepingRole) {
+  async getMobileDetail(stayId: string, actorRole: StaffRole) {
     const stay = await this.prisma.guestStay.findUnique({
       where: { id: stayId },
       include: {
@@ -2301,7 +2301,7 @@ export class GuestStaysService {
     else if (arrivesToday) status = 'UNCONFIRMED'
     else                   status = 'UPCOMING'
 
-    const isRedacted = actorRole === HousekeepingRole.HOUSEKEEPER
+    const isRedacted = actorRole === StaffRole.HOUSEKEEPER
 
     // Resolve actor names for history events
     const actorIds = [
@@ -2313,7 +2313,7 @@ export class GuestStaysService {
     ]
     const actorNames = new Map<string, string>()
     if (actorIds.length > 0) {
-      const actors = await this.prisma.housekeepingStaff.findMany({
+      const actors = await this.prisma.staff.findMany({
         where: { id: { in: actorIds } },
         select: { id: true, name: true },
       })

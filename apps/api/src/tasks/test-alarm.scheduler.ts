@@ -34,7 +34,7 @@ import { Cron } from '@nestjs/schedule'
 import {
   Capability,
   CleaningStatus,
-  HousekeepingRole,
+  StaffRole,
   Priority,
   TaskLogEvent,
   TaskType,
@@ -92,8 +92,8 @@ export class TestAlarmScheduler {
     const cycleId = `c${this.cycleCount}`
 
     // 1. Localizar housekeeper objetivo
-    const staff = await this.prisma.housekeepingStaff.findFirst({
-      where: { email: targetEmail, role: HousekeepingRole.HOUSEKEEPER },
+    const staff = await this.prisma.staff.findFirst({
+      where: { email: targetEmail, role: StaffRole.HOUSEKEEPER },
       select: { id: true, name: true, email: true, propertyId: true, organizationId: true },
     })
     if (!staff || !staff.propertyId) {

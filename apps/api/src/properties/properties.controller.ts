@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common'
 import { Roles } from '../common/decorators/roles.decorator'
-import { HousekeepingRole } from '@zenix/shared'
+import { StaffRole } from '@zenix/shared'
 import { PropertiesService } from './properties.service'
 import { CreatePropertyDto } from './dto/create-property.dto'
 
@@ -9,7 +9,7 @@ export class PropertiesController {
   constructor(private service: PropertiesService) {}
 
   @Post()
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   create(@Body() dto: CreatePropertyDto) {
     return this.service.create(dto)
   }
@@ -25,13 +25,13 @@ export class PropertiesController {
   }
 
   @Patch(':id')
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   update(@Param('id') id: string, @Body() dto: Partial<CreatePropertyDto>) {
     return this.service.update(id, dto)
   }
 
   @Delete(':id')
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   remove(@Param('id') id: string) {
     return this.service.remove(id)
   }

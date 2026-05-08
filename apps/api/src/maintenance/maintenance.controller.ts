@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common'
-import { HousekeepingRole, JwtPayload } from '@zenix/shared'
+import { StaffRole, JwtPayload } from '@zenix/shared'
 import { CurrentUser } from '../common/decorators/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
 import { MaintenanceService, CreateIssueDto } from './maintenance.service'
@@ -23,7 +23,7 @@ export class MaintenanceController {
   }
 
   @Get('maintenance')
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   findAll(
     @CurrentUser() actor: JwtPayload,
     @Query('resolved') resolved?: string,
@@ -33,7 +33,7 @@ export class MaintenanceController {
   }
 
   @Patch('maintenance/:id/resolve')
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   resolve(@Param('id') id: string) {
     return this.service.resolve(id)
   }

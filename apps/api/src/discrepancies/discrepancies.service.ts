@@ -21,7 +21,7 @@
  *  - SSE complementa el push para que el dashboard web se actualice sin polling.
  */
 import { Injectable, NotFoundException } from '@nestjs/common'
-import { DiscrepancyStatus, HousekeepingRole } from '@zenix/shared'
+import { DiscrepancyStatus, StaffRole } from '@zenix/shared'
 import { PrismaService } from '../prisma/prisma.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import { PushService } from '../notifications/push.service'
@@ -81,11 +81,11 @@ export class DiscrepanciesService {
 
     // Notify supervisors and receptionists via push
     // Se cargan todos los destinatarios en una query antes de enviar notificaciones
-    const recipients = await this.prisma.housekeepingStaff.findMany({
+    const recipients = await this.prisma.staff.findMany({
       where: {
         propertyId,
         // Tanto supervisores como recepcionistas deben saber de la discrepancia
-        role: { in: [HousekeepingRole.SUPERVISOR, HousekeepingRole.RECEPTIONIST] },
+        role: { in: [StaffRole.SUPERVISOR, StaffRole.RECEPTIONIST] },
         active: true, // Excluir personal inactivo (vacaciones, baja, etc.)
       },
       select: { id: true }, // Solo el ID es necesario para sendToStaff

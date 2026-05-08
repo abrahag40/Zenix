@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common'
-import { CleaningDeferReason, HousekeepingRole, JwtPayload } from '@zenix/shared'
+import { CleaningDeferReason, StaffRole, JwtPayload } from '@zenix/shared'
 import { IsEnum, IsISO8601, IsNumber, IsOptional, IsPositive, IsString, MaxLength, MinLength } from 'class-validator'
 import { Type } from 'class-transformer'
 import { CurrentUser } from '../common/decorators/current-user.decorator'
@@ -35,7 +35,7 @@ export class TasksController {
   constructor(private service: TasksService) {}
 
   @Post()
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   create(@Body() dto: CreateTaskDto, @CurrentUser() actor: JwtPayload) {
     return this.service.create(dto, actor)
   }
@@ -81,14 +81,35 @@ export class TasksController {
 
   @Patch(':id/verify')
   @TenantResource({ model: 'cleaningTask', paramName: 'id' })
-  @Roles(HousekeepingRole.SUPERVISOR, HousekeepingRole.RECEPTIONIST)
+  @Roles(StaffRole.SUPERVISOR, StaffRole.RECEPTIONIST)
   verify(@Param('id') id: string, @CurrentUser() actor: JwtPayload) {
     return this.service.verifyTask(id, actor)
   }
 
+  /**
+   * Sprint 9 G1 — Inspection rejection.
+   * Si supervisor encuentra el cuarto sucio o trabajo subóptimo, rechaza
+   * la verificación. La tarea regresa a READY (housekeeper limpia de nuevo).
+   *
+   * Industry standard (Mews/Opera/Cloudbeds): "Failed inspection".
+   * AHLEI sec. 4.4 — chain of command: solo HK Lead puede rechazar.
+   *
+   * Body: { reason: string }  (obligatorio para audit)
+   */
+  @Post(':id/reject')
+  @TenantResource({ model: 'cleaningTask', paramName: 'id' })
+  @Roles(StaffRole.SUPERVISOR)
+  reject(
+    @Param('id') id: string,
+    @Body() body: { reason: string },
+    @CurrentUser() actor: JwtPayload,
+  ) {
+    return this.service.rejectTask(id, body.reason, actor)
+  }
+
   @Patch(':id/assign')
   @TenantResource({ model: 'cleaningTask', paramName: 'id' })
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   assign(@Param('id') id: string, @Body() dto: AssignTaskDto, @CurrentUser() actor: JwtPayload) {
     return this.service.assignTask(id, dto, actor)
   }
@@ -111,21 +132,21 @@ export class TasksController {
 
   @Post(':id/force-urgent')
   @TenantResource({ model: 'cleaningTask', paramName: 'id' })
-  @Roles(HousekeepingRole.SUPERVISOR, HousekeepingRole.RECEPTIONIST)
+  @Roles(StaffRole.SUPERVISOR, StaffRole.RECEPTIONIST)
   forceUrgent(@Param('id') id: string, @CurrentUser() actor: JwtPayload) {
     return this.service.forceUrgent(id, actor)
   }
 
   @Post(':id/toggle-deep-clean')
   @TenantResource({ model: 'cleaningTask', paramName: 'id' })
-  @Roles(HousekeepingRole.SUPERVISOR, HousekeepingRole.RECEPTIONIST)
+  @Roles(StaffRole.SUPERVISOR, StaffRole.RECEPTIONIST)
   toggleDeepClean(@Param('id') id: string, @CurrentUser() actor: JwtPayload) {
     return this.service.toggleDeepClean(id, actor)
   }
 
   @Post(':id/hold')
   @TenantResource({ model: 'cleaningTask', paramName: 'id' })
-  @Roles(HousekeepingRole.SUPERVISOR, HousekeepingRole.RECEPTIONIST)
+  @Roles(StaffRole.SUPERVISOR, StaffRole.RECEPTIONIST)
   hold(
     @Param('id') id: string,
     @Body() dto: HoldCleaningDto,
@@ -136,14 +157,14 @@ export class TasksController {
 
   @Post(':id/release-hold')
   @TenantResource({ model: 'cleaningTask', paramName: 'id' })
-  @Roles(HousekeepingRole.SUPERVISOR, HousekeepingRole.RECEPTIONIST)
+  @Roles(StaffRole.SUPERVISOR, StaffRole.RECEPTIONIST)
   releaseHold(@Param('id') id: string, @CurrentUser() actor: JwtPayload) {
     return this.service.releaseHold(id, actor)
   }
 
   /** D15 — Walk-in checkout. Crea GuestStay + CleaningTask atómicamente. */
   @Post('walk-in')
-  @Roles(HousekeepingRole.SUPERVISOR, HousekeepingRole.RECEPTIONIST)
+  @Roles(StaffRole.SUPERVISOR, StaffRole.RECEPTIONIST)
   walkIn(@Body() dto: WalkInDto, @CurrentUser() actor: JwtPayload) {
     return this.service.createWalkIn(
       {

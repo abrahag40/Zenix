@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
-import { HousekeepingRole, JwtPayload } from '@zenix/shared'
+import { StaffRole, JwtPayload } from '@zenix/shared'
 import { PrismaService } from '../prisma/prisma.service'
 import { TenantContextService } from '../common/tenant-context.service'
 import { CreatePropertyDto } from './dto/create-property.dto'
@@ -29,7 +29,7 @@ export class PropertiesService {
   }
 
   async findMine(actor: JwtPayload) {
-    if (actor.role === HousekeepingRole.SUPERVISOR) {
+    if (actor.role === StaffRole.SUPERVISOR) {
       return this.prisma.property.findMany({ orderBy: { name: 'asc' } })
     }
     const property = await this.findOne(actor.propertyId)
