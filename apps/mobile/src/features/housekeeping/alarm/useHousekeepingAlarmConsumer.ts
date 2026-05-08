@@ -21,7 +21,7 @@
  *      tras acknowledgment; permite re-disparar en ciclos test (≥1 min).
  */
 
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { router } from 'expo-router'
 import { CleaningStatus } from '@zenix/shared'
 import { useAuthStore } from '../../../store/auth'
@@ -30,8 +30,22 @@ import { registerSseConsumer } from '../../../api/useGlobalSSEListener'
 import { alarmService } from '../../../notifications/alarmService'
 import type { AlarmPayload } from '../../../notifications/types'
 
-/** Prevent immediate re-show after acknowledgment. 2 min covers test cycles ≥ 1 min. */
-const RESHOW_COOLDOWN_MS = 2 * 60 * 1000
+/** Cooldown post-acknowledgment para no re-disparar la misma tarea.
+ *  10 min: cubre ciclos de test (>1min) y reload accidental sin re-fire. */
+const RESHOW_COOLDOWN_MS = 10 * 60 * 1000
+
+/** Ventana de "tarea reciente" para Mechanism 2 (fallback).
+ *  Solo dispara alarma para tareas creadas en los últimos 5 min — si la
+ *  tarea es más vieja, asumimos que SSE ya la procesó (el usuario ya la
+ *  vio o la silenció). Sin esta ventana, un reload de Mi día disparaba
+ *  cascada de alarmas viejas (issue reportado por usuario). */
+const RECENT_TASK_WINDOW_MS = 5 * 60 * 1000
+
+/** Module-level cooldown Map — persiste entre remounts del componente.
+ *  Antes era useRef → se reseteaba al recargar Mi día → todas las tareas
+ *  volvían a ser elegibles → alarmas en cascada. Module-level lo evita
+ *  durante la sesión del app (se resetea solo en restart de Metro). */
+const lastShownAt = new Map<string, number>()
 
 function buildAlarmPayload(
   taskId: string,
@@ -80,11 +94,6 @@ export function useHousekeepingAlarmConsumer(): void {
   const user = useAuthStore((s) => s.user)
   const tasks = useTaskStore((s) => s.tasks)
 
-  // Tracks the last time we showed an alarm per taskId.
-  // Prevents immediate re-show after acknowledgment while allowing
-  // re-firing after RESHOW_COOLDOWN_MS (covers test alarm cycles).
-  const lastShownAt = useRef(new Map<string, number>())
-
   // ── Mechanism 1: SSE push (primary, immediate) ────────────────────
   useEffect(() => {
     if (!user?.id || user.role !== 'HOUSEKEEPER') return
@@ -99,7 +108,12 @@ export function useHousekeepingAlarmConsumer(): void {
       if (!d.assignedToId || d.assignedToId !== user.id) return
       if (!d.taskId || !d.roomNumber) return
 
-      lastShownAt.current.set(d.taskId, Date.now())
+      // Respeta cooldown también en el path SSE — evita doble disparo si
+      // el server emite duplicados o si Mechanism 2 ya la disparó.
+      const lastShown = lastShownAt.get(d.taskId) ?? 0
+      if (Date.now() - lastShown < RESHOW_COOLDOWN_MS) return
+
+      lastShownAt.set(d.taskId, Date.now())
       alarmService.show(
         buildAlarmPayload(d.taskId, d.roomNumber, !!d.hasSameDayCheckIn, d.carryoverFromDate),
       )
@@ -107,32 +121,43 @@ export function useHousekeepingAlarmConsumer(): void {
   }, [user?.id, user?.role])
 
   // ── Mechanism 2: Task store watcher (fallback for missed SSE events) ─
-  // Fires whenever the task list changes (e.g. after SSE reconnect triggers
-  // fetchTasks). Shows alarm for the MOST RECENTLY CREATED READY task not
-  // in cooldown — esto evita disparar la alarma de un checkout viejo (C2)
-  // cuando el usuario acaba de hacer checkout de otro cuarto (204).
+  // Caso de uso: app cerrada cuando llegó el evento SSE → al abrirse,
+  // fetchTasks() detecta una task READY recién creada y dispara la alarma.
+  //
+  // CRÍTICO — solo procesa tareas RECIENTES (<5 min):
+  //   - Sin esta ventana, un reload de Mi día disparaba cascada de alarmas
+  //     viejas (cada cambio de tasks fire-aba la siguiente READY que aún no
+  //     estaba en cooldown).
+  //   - Con SSE funcionando bien (commit bcdb72a), las tareas viejas YA
+  //     fueron disparadas o silenciadas por el usuario — no requieren
+  //     re-disparo.
+  //
+  // Cooldown module-level (lastShownAt fuera del hook) → persiste entre
+  // remounts. Antes useRef → se reseteaba al recargar Mi día → re-fire.
   useEffect(() => {
     if (!user?.id || user.role !== 'HOUSEKEEPER') return
     if (alarmService.getCurrent()) return  // alarm already active
 
-    // Filtrar y ordenar por createdAt DESC. El más reciente representa
-    // el último checkout que hizo recepción — el que el usuario espera
-    // ver en la alarma.
+    const now = Date.now()
+
+    // Filtrar tareas recientes + en READY + asignadas al usuario.
+    // Sort DESC por createdAt — la más reciente refleja el último checkout.
     const readyTasks = tasks
       .filter((t) => t.status === CleaningStatus.READY && t.assignedToId === user.id)
+      .filter((t) => now - new Date(t.createdAt).getTime() < RECENT_TASK_WINDOW_MS)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
 
-    // Pick el más reciente que NO esté en cooldown.
+    // Pick la primera que NO esté en cooldown (module-level, persiste).
     const readyTask = readyTasks.find((t) => {
-      const lastShown = lastShownAt.current.get(t.id) ?? 0
-      return Date.now() - lastShown >= RESHOW_COOLDOWN_MS
+      const lastShown = lastShownAt.get(t.id) ?? 0
+      return now - lastShown >= RESHOW_COOLDOWN_MS
     })
     if (!readyTask) return
 
     const roomNumber = readyTask.unit?.room?.number
     if (!roomNumber) return
 
-    lastShownAt.current.set(readyTask.id, Date.now())
+    lastShownAt.set(readyTask.id, now)
     alarmService.show(
       buildAlarmPayload(
         readyTask.id,
