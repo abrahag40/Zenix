@@ -32,20 +32,54 @@ export function useAlarmSensors({
 }: UseAlarmSensorsOptions): void {
   const player = useAudioPlayer(ALARM_SOURCE)
 
+  /**
+   * Stop defensivo:
+   *   1. player.pause()        → detiene reproducción
+   *   2. player.seekTo(0)      → resetea posición (para que próximo
+   *      play() arranque desde el principio, no donde quedó)
+   *   3. player.loop = false   → desactiva loop por si quedó en true
+   *      cuando se llamó otra alarma encadenada
+   *
+   * Sin estos pasos, expo-audio en iOS puede mantener un audio session
+   * activo tras pause() → el sonido continúa hasta que el sistema lo
+   * detiene. Documentado en expo/expo issues #29371 y #31247.
+   */
+  const stopAll = () => {
+    Vibration.cancel()
+    try {
+      player.pause()
+      // Algunas versiones de expo-audio fallan silenciosamente si seekTo
+      // se llama antes de que el player esté listo. Try/catch defensivo.
+      if (typeof (player as any).seekTo === 'function') {
+        (player as any).seekTo(0)
+      }
+      player.loop = false
+    } catch {
+      /* expo-audio puede lanzar si el source no está listo aún */
+    }
+  }
+
   useEffect(() => {
     if (active) {
       Vibration.vibrate(VIBRATION_PATTERN, true)
       if (withSound) {
-        player.loop = true
-        player.play()
+        try {
+          player.loop = true
+          // Reset position before playing — si una alarma anterior dejó
+          // el player a mitad de track, el loop comienza de la mitad.
+          if (typeof (player as any).seekTo === 'function') {
+            (player as any).seekTo(0)
+          }
+          player.play()
+        } catch {
+          /* defensivo */
+        }
       }
     } else {
-      Vibration.cancel()
-      player.pause()
+      stopAll()
     }
     return () => {
-      Vibration.cancel()
-      player.pause()
+      stopAll()
     }
   // player es estable (useAudioPlayer) — seguro omitirlo
   // eslint-disable-next-line react-hooks/exhaustive-deps

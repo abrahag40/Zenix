@@ -78,8 +78,13 @@ export function useSSE(onEvent: Handler) {
         Authorization: `Bearer ${token}`,
         Accept: 'text/event-stream',
       },
-      // Keep connection alive; reconnect on failure with backoff
-      pollingInterval: 0, // 0 = use SSE proper, not long-poll fallback
+      // CRÍTICO: pollingInterval es el delay de RECONNECT (no de "polling"
+      // como sugiere el nombre). Si lo ponemos en 0, _pollAgain(0, false)
+      // jamás reagenda → la conexión NUNCA se reabre tras un disconnect
+      // (timeout, app background→foreground, network blip).
+      // 5000ms = default del lib, recomendado por upstream para mantener
+      // SSE viva en mobile con reconnect automático.
+      pollingInterval: 5000,
     })
 
     if (__DEV__) console.log('[SSE] Connecting to', url.replace(/token=[^&]+/, 'token=***'))
