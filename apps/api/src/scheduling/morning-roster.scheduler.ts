@@ -261,6 +261,20 @@ export class MorningRosterScheduler {
       })
       if (existing) continue
 
+      // Preserva el estado operativo original. Antes hardcodeábamos PENDING,
+      // lo cual era un bug semántico:
+      //   - READY (huésped ya salió, cuarto sucio) → debe seguir READY
+      //   - PENDING (esperando salida) → puede seguir PENDING si stay activo
+      //   - IN_PROGRESS/PAUSED → reset a READY (clean slate, housekeeper
+      //     reanuda desde el inicio del shift, no recupera timer del día anterior)
+      const carryoverStatus =
+        original.status === CleaningStatus.READY
+          ? CleaningStatus.READY
+          : original.status === CleaningStatus.IN_PROGRESS ||
+              original.status === CleaningStatus.PAUSED
+            ? CleaningStatus.READY
+            : CleaningStatus.PENDING
+
       await this.prisma.$transaction(async (tx) => {
         // Crear el clone con priority URGENT y referencia
         const clone = await tx.cleaningTask.create({
@@ -269,7 +283,7 @@ export class MorningRosterScheduler {
             unitId: original.unitId,
             checkoutId: original.checkoutId,
             assignedToId: null,                     // se reasigna por autoAssign
-            status: CleaningStatus.PENDING,
+            status: carryoverStatus,
             taskType: original.taskType,
             requiredCapability: original.requiredCapability,
             priority: Priority.URGENT,              // doble prioridad
@@ -284,9 +298,21 @@ export class MorningRosterScheduler {
             taskId: clone.id,
             staffId: null,
             event: TaskLogEvent.CARRYOVER,
-            note: `from task ${original.id}`,
+            note: `from task ${original.id} (status: ${original.status} → ${carryoverStatus})`,
           },
         })
+        // Si el carryover entró como READY, log explicit READY event para audit
+        // (la tarea ya estaba lista para limpiar desde ayer — preserva trail).
+        if (carryoverStatus === CleaningStatus.READY) {
+          await tx.taskLog.create({
+            data: {
+              taskId: clone.id,
+              staffId: null,
+              event: TaskLogEvent.READY,
+              note: `inherited READY from yesterday's carryover`,
+            },
+          })
+        }
         // Marcar original como CANCELLED con DUPLICATE para no contar dos veces
         await tx.cleaningTask.update({
           where: { id: original.id },
