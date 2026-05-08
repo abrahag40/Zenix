@@ -27,24 +27,39 @@ import { useSSE } from '../hooks/useSSE'
 import type { CleaningTaskDto, SseEvent, StaffDto, TaskLogDto } from '@zenix/shared'
 import { CleaningStatus, StaffRole, Priority, TaskLogEvent } from '@zenix/shared'
 
-const COLUMNS: { status: CleaningStatus; label: string; ringColor: string; pillBg: string }[] = [
-  // PENDING — esperando salida física del huésped (Fase 1 del flujo §4 CLAUDE.md).
-  // Pre-Sprint 9 esto vivía en /overrides "Real-Time" tab. Consolidado aquí
-  // para que el supervisor tenga vista única del día (cron pre-population +
-  // cards confirmar salida → READY).
-  { status: CleaningStatus.PENDING,      label: 'Esperando salida', ringColor: 'border-t-slate-400',  pillBg: 'bg-slate-100 text-slate-600' },
-  { status: CleaningStatus.UNASSIGNED,   label: 'Sin asignar',   ringColor: 'border-t-red-400',     pillBg: 'bg-red-100 text-red-700' },
-  { status: CleaningStatus.READY,        label: 'Lista',         ringColor: 'border-t-amber-400',   pillBg: 'bg-amber-100 text-amber-700' },
-  { status: CleaningStatus.IN_PROGRESS,  label: 'En progreso',   ringColor: 'border-t-blue-400',    pillBg: 'bg-blue-100 text-blue-700' },
-  { status: CleaningStatus.DONE,         label: 'Hecha',         ringColor: 'border-t-emerald-400', pillBg: 'bg-emerald-100 text-emerald-700' },
-  { status: CleaningStatus.VERIFIED,     label: 'Verificada',    ringColor: 'border-t-indigo-400',  pillBg: 'bg-indigo-100 text-indigo-700' },
+/**
+ * Subtítulos en cada columna (NN/g H6 "Recognition over recall"):
+ * personal nuevo entiende el flujo sin entrenamiento. Patrón Linear/Trello.
+ */
+const COLUMNS: {
+  status: CleaningStatus
+  label: string
+  hint: string
+  ringColor: string
+  pillBg: string
+}[] = [
+  { status: CleaningStatus.PENDING,      label: 'Esperando salida', hint: 'Huésped aún en habitación', ringColor: 'border-t-slate-400',  pillBg: 'bg-slate-100 text-slate-600' },
+  { status: CleaningStatus.UNASSIGNED,   label: 'Sin asignar',      hint: 'Asigna a una recamarista', ringColor: 'border-t-red-400',     pillBg: 'bg-red-100 text-red-700' },
+  { status: CleaningStatus.READY,        label: 'Lista',            hint: 'Cuarto sucio, listo para limpiar', ringColor: 'border-t-amber-400',   pillBg: 'bg-amber-100 text-amber-700' },
+  { status: CleaningStatus.IN_PROGRESS,  label: 'En progreso',      hint: 'Recamarista limpiando', ringColor: 'border-t-blue-400',    pillBg: 'bg-blue-100 text-blue-700' },
+  { status: CleaningStatus.DONE,         label: 'Hecha',            hint: 'Esperando verificación del supervisor', ringColor: 'border-t-emerald-400', pillBg: 'bg-emerald-100 text-emerald-700' },
+  { status: CleaningStatus.VERIFIED,     label: 'Verificada',       hint: 'Aprobada — habitación disponible', ringColor: 'border-t-indigo-400',  pillBg: 'bg-indigo-100 text-indigo-700' },
 ]
 
-const PRIORITY_BADGE: Record<Priority, string> = {
-  [Priority.LOW]:    'bg-gray-100 text-gray-500',
-  [Priority.MEDIUM]: 'bg-blue-50 text-blue-600',
-  [Priority.HIGH]:   'bg-orange-50 text-orange-600',
-  [Priority.URGENT]: 'bg-red-100 text-red-700 font-semibold',
+/**
+ * Priority badges — solo se muestran las EXCEPCIONES (no MEDIUM que es default).
+ * Tufte 2001 *Visual Display of Quantitative Information*: "Surface the exceptional,
+ * hide the default — reduce noise."
+ *
+ * Etiquetas en español (consistencia con el resto del sistema). MEDIUM intencional-
+ * mente no aparece para no añadir badge a cada card. URGENT y LOW siempre visibles
+ * (extremos críticos); HIGH visible (advertencia operativa).
+ */
+const PRIORITY_BADGE: Partial<Record<Priority, { label: string; className: string }>> = {
+  [Priority.URGENT]: { label: '🔴 URGENTE', className: 'bg-red-100 text-red-700 font-semibold' },
+  [Priority.HIGH]:   { label: 'ALTA',       className: 'bg-orange-50 text-orange-700' },
+  [Priority.LOW]:    { label: 'BAJA',       className: 'bg-gray-100 text-gray-500' },
+  // MEDIUM omitido a propósito — es el default. No mostrar evita ruido visual.
 }
 
 export function KanbanPage() {
@@ -204,19 +219,25 @@ export function KanbanPage() {
           return (
             <div
               key={col.status}
-              className={`flex-shrink-0 w-72 bg-gray-50 rounded-b-lg border-t-4 ${col.ringColor}`}
+              className={`flex-shrink-0 w-72 bg-gray-50 rounded-b-lg border-t-4 ${col.ringColor} flex flex-col`}
             >
-              <div className="px-3 py-2 border-b border-gray-200 flex items-center justify-between bg-white rounded-t-none">
-                <span className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
-                  {col.label}
-                </span>
-                <span className={`text-xs font-medium rounded-full px-2 ${col.pillBg}`}>
-                  {colTasks.length}
-                </span>
+              {/* Header con label + subtítulo (NN/g H6 — explicar, no obligar a memorizar) */}
+              <div className="px-3 py-2.5 border-b border-gray-200 bg-white">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-gray-800 uppercase tracking-wide truncate">
+                    {col.label}
+                  </span>
+                  <span className={`text-xs font-medium rounded-full px-2 py-0.5 flex-shrink-0 ${col.pillBg}`}>
+                    {colTasks.length}
+                  </span>
+                </div>
+                <p className="text-[10px] text-gray-500 mt-0.5 leading-tight">{col.hint}</p>
               </div>
-              <div className="p-2 space-y-2 min-h-[200px]">
+              {/* Body con altura mínima fija — patrón Trello/Linear/Jira:
+                  columnas con/sin cards mantienen tamaño consistente */}
+              <div className="p-2 space-y-2 min-h-[420px] flex-1">
                 {colTasks.length === 0 ? (
-                  <p className="text-xs text-gray-300 text-center py-6">—</p>
+                  <p className="text-xs text-gray-300 text-center py-12">— Vacío —</p>
                 ) : (
                   colTasks.map((task) => (
                     <TaskCard
@@ -445,45 +466,95 @@ function TaskCard({
       ? 'border-l-4 border-l-blue-400'
       : ''
 
+  // Modern card design — Linear/Notion/Stripe Dashboard 2024 patterns:
+  //   - bg-white sin border (sólo color del leftBorder + shadow elegante)
+  //   - shadow-sm baseline → hover:shadow-md (microinteraction Apple HIG)
+  //   - transition-all 150ms — feel instantáneo
+  //   - p-3 padding más generoso (Tufte: whitespace = legibilidad)
+  //   - rounded-lg (8px) — moderno sin ser excesivo
+  //   - hover:-translate-y-0.5 elevación sutil al pasar el mouse (Material 3)
+  const priorityMeta = task.priority ? PRIORITY_BADGE[task.priority] : null
+  const showOptionsMenu = !isDone && task.status !== CleaningStatus.VERIFIED
+
   return (
     <div
-      className={`bg-white rounded-lg border ${leftBorder} border-gray-200 p-2.5 text-xs space-y-1.5 shadow-sm`}
+      className={`relative bg-white rounded-lg ${leftBorder} p-3 text-xs space-y-2 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 group`}
     >
-      {/* Header: room + priority badge */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="font-semibold text-gray-900 flex items-center gap-1.5 min-w-0">
+      {/* Kebab menu top-right — Material Design 3 + Apple HIG.
+          Sin label "Opciones" — el ⋮ es self-explanatory globally.
+          group-hover muestra solo cuando user pasa por encima (Linear pattern). */}
+      {showOptionsMenu && (
+        <div className="absolute top-2 right-2 z-10">
+          <button
+            onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v) }}
+            className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity"
+            title="Más opciones"
+            aria-label="Opciones de la tarea"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <circle cx="8" cy="3" r="1.5" />
+              <circle cx="8" cy="8" r="1.5" />
+              <circle cx="8" cy="13" r="1.5" />
+            </svg>
+          </button>
+          {menuOpen && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+              <div className="absolute right-0 top-7 z-20 bg-white border border-gray-200 rounded-lg shadow-lg min-w-[180px] py-1">
+                {!isUrgent && (
+                  <button
+                    onClick={() => { setMenuOpen(false); onForceUrgent() }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-red-700 hover:bg-red-50 font-medium"
+                  >
+                    🔴 Forzar URGENTE
+                  </button>
+                )}
+                <button
+                  onClick={() => { setMenuOpen(false); onToggleDeepClean() }}
+                  className="w-full text-left px-3 py-1.5 text-xs text-purple-700 hover:bg-purple-50 font-medium"
+                >
+                  ✨ Limpieza profunda
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Header: room + priority badge (sin MEDIUM — solo excepciones) */}
+      <div className="flex items-center justify-between gap-2 pr-7">
+        <div className="font-semibold text-gray-900 text-sm flex items-center gap-1.5 min-w-0">
           <span className="truncate">Hab. {room?.number ?? '—'}</span>
-          {/* Solo mostramos unit.label si difiere significativamente del número
-              de habitación (ej. dorms con "Cama 1", "Cama 2"). En hotel/private
-              rooms suele ser idéntico ("Hab. 103") → ruido visual. */}
           {task.unit?.label && task.unit.label !== `Hab. ${room?.number}` && task.unit.label !== room?.number && (
             <span className="text-gray-400 font-normal text-xs truncate">· {task.unit.label}</span>
           )}
         </div>
-        {task.priority && (
-          <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide flex-shrink-0 ${PRIORITY_BADGE[task.priority]}`}>
-            {task.priority === Priority.URGENT ? '🔴 URG' : task.priority}
+        {priorityMeta && (
+          <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide flex-shrink-0 ${priorityMeta.className}`}>
+            {priorityMeta.label}
           </span>
         )}
       </div>
 
       {/* Badges: same-day check-in + tipo de tarea (stayover).
           Apple HIG pre-attentive: color + emoji = lectura <250ms. */}
-      <div className="flex flex-wrap gap-1">
-        {task.hasSameDayCheckIn && (
-          <span className="text-[10px] font-semibold text-red-700 bg-red-50 rounded px-1.5 py-0.5">
-            🔴 Hoy entra
-          </span>
-        )}
-        {isStayover && (
-          <span
-            className="text-[10px] font-semibold text-blue-700 bg-blue-50 rounded px-1.5 py-0.5"
-            title="Limpieza de estadía — huésped sigue en casa"
-          >
-            🛏️ Estadía
-          </span>
-        )}
-      </div>
+      {(task.hasSameDayCheckIn || isStayover) && (
+        <div className="flex flex-wrap gap-1">
+          {task.hasSameDayCheckIn && (
+            <span className="text-[10px] font-semibold text-red-700 bg-red-50 rounded px-1.5 py-0.5">
+              🔴 Hoy entra
+            </span>
+          )}
+          {isStayover && (
+            <span
+              className="text-[10px] font-semibold text-blue-700 bg-blue-50 rounded px-1.5 py-0.5"
+              title="Limpieza de estadía — huésped sigue en casa"
+            >
+              🛏️ Estadía
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Assignment row */}
       {isUnassigned ? (
@@ -553,41 +624,7 @@ function TaskCard({
         </div>
       )}
 
-      {/* Menú contextual de overrides — solo cuando la tarea NO está terminada.
-          DONE/VERIFIED no permite cambiar prioridad o tipo. */}
-      {!isDone && task.status !== CleaningStatus.VERIFIED && (
-        <div className="relative pt-1">
-          <button
-            onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v) }}
-            className="w-full text-center text-[11px] text-gray-500 hover:text-gray-700 hover:bg-gray-50 rounded py-1"
-            title="Acciones de override"
-          >
-            ⋯ Opciones
-          </button>
-          {menuOpen && (
-            <>
-              {/* Overlay para cerrar al click fuera */}
-              <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-              <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg min-w-[180px] py-1">
-                {!isUrgent && (
-                  <button
-                    onClick={() => { setMenuOpen(false); onForceUrgent() }}
-                    className="w-full text-left px-3 py-1.5 text-xs text-red-700 hover:bg-red-50 font-medium"
-                  >
-                    🔴 Forzar URGENT
-                  </button>
-                )}
-                <button
-                  onClick={() => { setMenuOpen(false); onToggleDeepClean() }}
-                  className="w-full text-left px-3 py-1.5 text-xs text-purple-700 hover:bg-purple-50 font-medium"
-                >
-                  ✨ Limpieza profunda
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      )}
+      {/* Menú de overrides ahora vive en el kebab top-right de la card */}
     </div>
   )
 }
