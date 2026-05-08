@@ -172,8 +172,20 @@ export class StayoverScheduler {
     const dayEnd = new Date(localDateMidnightUtc.getTime() + 24 * 60 * 60 * 1000 - 1)
     const orgId = settings.property.organizationId
 
-    // ── Estadías in-house: actualCheckin != null, actualCheckout == null,
-    //    sin scheduledCheckout para hoy (esos los maneja MorningRoster).
+    // ── Estadías in-house ACTIVAS:
+    //    1. actualCheckin != null  → huésped confirmado en la habitación
+    //    2. actualCheckout == null → no ha hecho checkout
+    //    3. noShowAt == null       → no es no-show
+    //    4. scheduledCheckout > dayEnd → checkout es FUTURO (estadía activa real)
+    //
+    //    IMPORTANTE: NO incluir scheduledCheckout en el pasado.
+    //    Esas son late-checkouts fantasma que el LateCheckoutScheduler
+    //    debe escalar (tier 1/2/night audit) — NO son estadías activas.
+    //    Antes el filter usaba `OR: [<lt today>, <gt today>]` que incluía
+    //    el pasado por accidente → mobile mostraba stayover para cuartos
+    //    cuyo huésped ya debió haber salido (issue reportado 2026-05-09).
+    //
+    //    MorningRoster cubre los checkout=hoy (excluidos por la condición gt).
     const stays = await this.prisma.guestStay.findMany({
       where: {
         organizationId: orgId ?? undefined,
@@ -182,11 +194,7 @@ export class StayoverScheduler {
         actualCheckin: { not: null },
         actualCheckout: null,
         noShowAt: null,
-        // Excluir estadías cuyo scheduledCheckout es hoy (MorningRoster ya las cubre)
-        OR: [
-          { scheduledCheckout: { lt: localDateMidnightUtc } },
-          { scheduledCheckout: { gt: dayEnd } },
-        ],
+        scheduledCheckout: { gt: dayEnd },  // estadías con checkout en el futuro
       },
       select: {
         id: true,
