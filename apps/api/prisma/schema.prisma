@@ -37,6 +37,12 @@ enum AppNotificationCategory {
   // la habitación. Toast tier-2 (4s lateral) + entrada persistente en panel.
   // Auto-expira a las 4h para limpieza visual del feed (CLAUDE.md §57).
   TASK_VERIFIED_READY
+  // ── Sprint 9 — Late checkout escalation (cron LateCheckoutScheduler) ─
+  // T1: notif al RECEPTIONIST cuando una stay pasa scheduledCheckout +
+  //     lateCheckoutGraceMinutes sin actualCheckout.
+  // T2: notif URGENT al SUPERVISOR cuando pasa lateCheckoutEscalationMinutes.
+  LATE_CHECKOUT_PENDING
+  LATE_CHECKOUT_ESCALATED
 }
 
 enum AppNotificationPriority {
@@ -853,6 +859,15 @@ model PropertySettings {
   // hora, la CleaningTask se programa para el grid del día siguiente — los
   // housekeepers ya están fuera de turno y crear tareas hoy genera ruido.
   housekeepingEndHour           Int       @default(20) @map("housekeeping_end_hour")
+  // Grace period (min) tras scheduledCheckout antes del Tier 1 de notif.
+  // Default 60min — alineado con AHLEI sec. 4.2 + Mews/Cloudbeds (60-90min).
+  lateCheckoutGraceMinutes      Int       @default(60)  @map("late_checkout_grace_minutes")
+  // Escalation period (min) tras scheduledCheckout para Tier 2 (URGENT supervisor).
+  // Default 180min (3h) — Marriott/Hilton internal SOP.
+  lateCheckoutEscalationMinutes Int       @default(180) @map("late_checkout_escalation_minutes")
+  // Idempotencia per-day del LateCheckoutScheduler (mismo patrón que
+  // noShowProcessedDate). Marca la última fecha local procesada.
+  lateCheckoutProcessedDate     DateTime? @db.Date @map("late_checkout_processed_date")
   // Idempotencia del cron — fecha local del último roster procesado.
   // Mismo patrón que noShowProcessedDate (§15 CLAUDE.md). El scheduler corre cada
   // 15 min y solo procesa si esta fecha != localDate actual.
@@ -1006,6 +1021,13 @@ model GuestStay {
   noShowChargeStatus NoShowChargeStatus? @map("no_show_charge_status")
   noShowRevertedAt   DateTime?           @map("no_show_reverted_at")
   noShowRevertedById String?             @map("no_show_reverted_by_id")
+  // ── Late checkout escalation (Sprint 9) ─────────────────────────────────
+  // Tracking de cuál tier de notificación ya se disparó para esta stay.
+  // Evita duplicar notifs en cada corrida del cron. Reset al hacer
+  // confirmDeparture o checkout (la stay sale del flujo de escalación).
+  // 0 = ningún tier disparado; 1 = Tier 1 (RECEPTIONIST); 2 = Tier 2 (SUPERVISOR).
+  lateCheckoutTier        Int?       @default(0) @map("late_checkout_tier")
+  lateCheckoutFlaggedAt   DateTime?  @map("late_checkout_flagged_at")
   // ── Check-in extended fields (Sprint 9) ─────────────────────────────────
   arrivalNotes  String?          @map("arrival_notes")
   keyType       KeyDeliveryType? @map("key_type")

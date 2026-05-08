@@ -3489,6 +3489,7 @@ export function useSoftLock(roomId: string | null) {
 | HK-35 | Web SettingsPage tab "Recamaristas" (3 sub-tabs) | 📋 | Sprint 8J | Admin | Horarios + Cobertura + Reglas |
 | HK-36 | Reportes de productividad self-vs-self | 📋 | Sprint 8K | Housekeeper | D7 — privacidad legal por diseño |
 | HK-37 | Catálogo ≥30 badges con SVG + animaciones | 📋 | Sprint 8K | Housekeeper | Mekler 2017 — feedback significativo > PBL |
+| HK-38 | `LateCheckoutScheduler` — escalación 2 tiers para checkouts olvidados | ✅ | Sprint 9 (2026-05-08) | Sistema | T1 (60min) → RECEPTIONIST · T2 (180min) → SUPERVISOR. Cron 30min multi-timezone, idempotente per-stay vía `lateCheckoutTier`. AHLEI sec. 4.2 + Mews/Cloudbeds/Marriott SOP. Settings: `lateCheckoutGraceMinutes`, `lateCheckoutEscalationMinutes` |
 
 ---
 

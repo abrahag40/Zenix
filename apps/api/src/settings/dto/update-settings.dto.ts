@@ -50,6 +50,28 @@ export class UpdateSettingsDto {
   housekeepingEndHour?: number
 
   /**
+   * Late checkout escalation — Tier 1 (recepción).
+   * Minutos tras scheduledCheckout para notificar a recepción "checkout
+   * pendiente". Default 60min (AHLEI sec. 4.2 + Mews/Cloudbeds standard).
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(720)
+  lateCheckoutGraceMinutes?: number
+
+  /**
+   * Late checkout escalation — Tier 2 (supervisor).
+   * Minutos tras scheduledCheckout para escalar a supervisor URGENT.
+   * Default 180min (3h, Marriott/Hilton SOP). Debe ser > graceMinutes.
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(1440)
+  lateCheckoutEscalationMinutes?: number
+
+  /**
    * Política de carryover de tareas incompletas del día anterior.
    * REASSIGN_TO_TODAY_SHIFT (default) | KEEP_ORIGINAL_ASSIGNEE | ALWAYS_UNASSIGNED.
    */

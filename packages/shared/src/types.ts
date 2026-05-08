@@ -718,6 +718,9 @@ export type SseEventType =
   | 'task:deep-clean-flagged'  // toggled deep clean flag
   | 'task:hold-placed'         // hold por extensión sin formalizar
   | 'task:hold-released'       // hold liberado
+  // Sprint 9 — Late checkout escalation (cron LateCheckoutScheduler)
+  | 'late-checkout:pending'    // T1 — recepción debe revisar
+  | 'late-checkout:escalated'  // T2 — supervisor escalación
 
 // ─── Offline Sync (Mobile) ────────────────────────────────────────────────────
 

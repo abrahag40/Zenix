@@ -557,7 +557,16 @@ export class GuestStaysService {
       // 1. Cerrar GuestStay
       const stayUpdated = await tx.guestStay.update({
         where: { id: stayId },
-        data: { actualCheckout: now, checkedOutById: actorId, paymentStatus: 'PAID' },
+        data: {
+          actualCheckout: now,
+          checkedOutById: actorId,
+          paymentStatus: 'PAID',
+          // Reset late-checkout escalation: una vez que la stay sale del
+          // flujo de "actualCheckout=null", el LateCheckoutScheduler la
+          // excluye automáticamente, pero limpiamos los flags para audit.
+          lateCheckoutTier: 0,
+          lateCheckoutFlaggedAt: null,
+        },
       })
 
       // 2. Room status → CHECKING_OUT (housekeeping verá la transición a DIRTY al confirmar limpia)
@@ -825,6 +834,9 @@ export class GuestStaysService {
           actualCheckout: now,
           checkedOutById: actorId,
           // paymentStatus queda PENDING: puede haber reembolso parcial (Sprint 8)
+          // Reset late-checkout escalation flags
+          lateCheckoutTier: 0,
+          lateCheckoutFlaggedAt: null,
         },
       })
 
