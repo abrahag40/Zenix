@@ -19,13 +19,67 @@
  *   - Heurística H1 Nielsen (visibility): tiempo transcurrido en cada card.
  */
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { api } from '../api/client'
 import { useSSE } from '../hooks/useSSE'
+import { useAuthStore } from '../store/auth'
 import type { CleaningTaskDto, SseEvent, StaffDto, TaskLogDto } from '@zenix/shared'
 import { CleaningStatus, StaffRole, Priority, TaskLogEvent } from '@zenix/shared'
+
+// ── Helpers UX (Sprint 9 final — patterns Linear/Trello/Jira) ──────────────
+
+/**
+ * Avatar circular con iniciales — Linear/Trello pattern.
+ * NN/g 2023: avatares 4× más rápidos de identificar que texto.
+ * Color hash determinístico → mismo housekeeper = mismo color en TODA la app.
+ */
+const AVATAR_PALETTE = [
+  'bg-blue-500', 'bg-emerald-500', 'bg-amber-500', 'bg-purple-500',
+  'bg-pink-500', 'bg-cyan-500', 'bg-indigo-500', 'bg-rose-500',
+]
+function avatarColor(seed: string): string {
+  let hash = 0
+  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) | 0
+  return AVATAR_PALETTE[Math.abs(hash) % AVATAR_PALETTE.length]
+}
+function avatarInitials(name: string): string {
+  const parts = name.trim().split(/\s+/)
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+}
+function Avatar({ name, size = 'sm' }: { name: string; size?: 'xs' | 'sm' | 'md' }) {
+  const dim = size === 'md' ? 'w-7 h-7 text-xs' : size === 'sm' ? 'w-6 h-6 text-[10px]' : 'w-5 h-5 text-[9px]'
+  return (
+    <span
+      className={`inline-flex items-center justify-center rounded-full text-white font-semibold flex-shrink-0 ${dim} ${avatarColor(name)}`}
+      title={name}
+    >
+      {avatarInitials(name)}
+    </span>
+  )
+}
+
+/** Card aging — Trello signature feature.
+ *  Una task que lleva mucho tiempo en su estado actual sugiere atasco.
+ *  >2h en READY/IN_PROGRESS/PAUSED → tinte amber + warning ⏰. */
+const AGING_THRESHOLD_MS = 2 * 60 * 60 * 1000
+function isAged(task: CleaningTaskDto): boolean {
+  if (task.status === CleaningStatus.VERIFIED || task.status === CleaningStatus.DONE) return false
+  const ref = task.updatedAt ? new Date(task.updatedAt).getTime() : new Date(task.createdAt).getTime()
+  return Date.now() - ref > AGING_THRESHOLD_MS
+}
+
+/** Tiempo transcurrido en formato compacto operativo: "2h 15m", "45m", "ahora" */
+function formatElapsed(fromIso: string): string {
+  const min = Math.max(0, Math.round((Date.now() - new Date(fromIso).getTime()) / 60_000))
+  if (min < 1) return 'ahora'
+  if (min < 60) return `${min}m`
+  const h = Math.floor(min / 60)
+  const m = min % 60
+  return m === 0 ? `${h}h` : `${h}h ${m}m`
+}
 
 /**
  * Subtítulos en cada columna (NN/g H6 "Recognition over recall"):
@@ -62,12 +116,41 @@ const PRIORITY_BADGE: Partial<Record<Priority, { label: string; className: strin
   // MEDIUM omitido a propósito — es el default. No mostrar evita ruido visual.
 }
 
+type QuickFilter = 'all' | 'urgent' | 'mine' | 'stayover'
+
 export function KanbanPage() {
   const qc = useQueryClient()
+  const me = useAuthStore((s) => s.user)
   const [filterStaffId, setFilterStaffId] = useState<string>('') // '' = todos
   const [verifying, setVerifying] = useState<string | null>(null) // taskId en modal verify
   const [rejecting, setRejecting] = useState<string | null>(null) // taskId en modal reject
   const [showAdHocModal, setShowAdHocModal] = useState(false)
+  // Sprint 9 final UX (patterns Linear/Trello/Jira):
+  const [search, setSearch] = useState('')          // P2 — search por número
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>('all')
+  const [showShortcuts, setShowShortcuts] = useState(false)
+
+  // Keyboard shortcut "?" abre modal de atajos (Linear pattern)
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === '?' && !(e.target as HTMLElement)?.matches('input,textarea')) {
+        e.preventDefault()
+        setShowShortcuts((v) => !v)
+      } else if (e.key === 'Escape') {
+        setShowShortcuts(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  // Re-render cada minuto para refrescar timers "Hace Xm" sin SSE event.
+  // Card aging es time-based (Trello pattern) — necesita tick continuo.
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 60_000)
+    return () => clearInterval(id)
+  }, [])
 
   const { data: tasks = [], isLoading } = useQuery<CleaningTaskDto[]>({
     queryKey: ['kanban-tasks'],
@@ -138,7 +221,27 @@ export function KanbanPage() {
   useSSE(handleSSE)
 
   const filteredTasks = useMemo(() => {
-    const base = filterStaffId ? tasks.filter((t) => t.assignedTo?.id === filterStaffId) : tasks
+    let base = filterStaffId ? tasks.filter((t) => t.assignedTo?.id === filterStaffId) : tasks
+
+    // Quick filter chips (Linear/Jira pattern)
+    if (quickFilter === 'urgent') {
+      base = base.filter((t) => t.priority === Priority.URGENT || t.hasSameDayCheckIn)
+    } else if (quickFilter === 'mine' && me?.id) {
+      base = base.filter((t) => t.assignedTo?.id === me.id)
+    } else if (quickFilter === 'stayover') {
+      base = base.filter((t) => t.taskType === 'STAYOVER')
+    }
+
+    // Search por número de cuarto (P2). Match parcial case-insensitive.
+    const q = search.trim().toLowerCase()
+    if (q) {
+      base = base.filter((t) => {
+        const num = t.unit?.room?.number?.toLowerCase() ?? ''
+        const label = t.unit?.label?.toLowerCase() ?? ''
+        const guest = t.assignedTo?.name?.toLowerCase() ?? ''
+        return num.includes(q) || label.includes(q) || guest.includes(q)
+      })
+    }
     // Sort prioritario consistente entre kanban (web) y mobile useTasks:
     //   1. URGENT primero (Priority enum) — captura "doble urgente" automáticamente
     //   2. hasSameDayCheckIn (checkout + checkin mismo día) — la más crítica
@@ -163,7 +266,7 @@ export function KanbanPage() {
       // 4. FIFO
       return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     })
-  }, [tasks, filterStaffId])
+  }, [tasks, filterStaffId, quickFilter, search, me?.id])
 
   // PAUSED se renderiza dentro de IN_PROGRESS (es un estado del mismo card).
   const byStatus = (status: CleaningStatus) => {
@@ -179,18 +282,50 @@ export function KanbanPage() {
     return <div className="text-sm text-gray-500 py-12 text-center">Cargando tablero...</div>
   }
 
+  // Counts para quick filter chips (Linear pattern — siempre visible "cuántos hay")
+  const counts = useMemo(() => {
+    const baseTasks = filterStaffId ? tasks.filter((t) => t.assignedTo?.id === filterStaffId) : tasks
+    return {
+      all: baseTasks.length,
+      urgent: baseTasks.filter((t) => t.priority === Priority.URGENT || t.hasSameDayCheckIn).length,
+      mine: me?.id ? baseTasks.filter((t) => t.assignedTo?.id === me.id).length : 0,
+      stayover: baseTasks.filter((t) => t.taskType === 'STAYOVER').length,
+    }
+  }, [tasks, filterStaffId, me?.id])
+
   return (
     <div className="space-y-4">
-      {/* Header + filtros */}
+      {/* Header + acciones primarias */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-lg font-semibold text-gray-900">Tablero de tareas</h1>
           <p className="text-xs text-gray-500 mt-0.5">
             {filteredTasks.length} tarea{filteredTasks.length !== 1 ? 's' : ''}
-            {filterStaffId && ' (filtradas)'}
+            {(filterStaffId || quickFilter !== 'all' || search) && ' (filtradas)'}
+            {' · '}
+            <button
+              onClick={() => setShowShortcuts(true)}
+              className="text-gray-400 hover:text-gray-700 underline-offset-2 hover:underline"
+              title="Ver atajos de teclado"
+            >
+              Pulsa <kbd className="px-1 py-0.5 bg-gray-100 rounded text-[10px] font-mono border border-gray-300">?</kbd> para atajos
+            </button>
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Search por habitación / housekeeper — P2 (Trello/Jira pattern) */}
+          <div className="relative">
+            <svg className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+            </svg>
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar Hab. 103..."
+              className="text-sm border border-gray-300 rounded pl-7 pr-2 py-1 focus:outline-none focus:ring-2 focus:ring-emerald-200 w-48"
+            />
+          </div>
           <button
             onClick={() => setShowAdHocModal(true)}
             className="text-xs px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-medium"
@@ -198,18 +333,28 @@ export function KanbanPage() {
           >
             + Tarea ad-hoc
           </button>
-          <label className="text-xs text-gray-600">Housekeeper</label>
           <select
             value={filterStaffId}
             onChange={(e) => setFilterStaffId(e.target.value)}
             className="text-sm border border-gray-300 rounded px-2 py-1"
+            title="Filtrar por housekeeper"
           >
-            <option value="">Todos</option>
+            <option value="">Todos los housekeepers</option>
             {housekeepers.map((s) => (
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
           </select>
         </div>
+      </div>
+
+      {/* Quick filter chips (Linear/Jira pattern — 1 click = vista filtrada).
+          Siempre muestran counter para que el supervisor sepa cuántos hay
+          sin tener que filtrar y volver a quitar. */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <FilterChip active={quickFilter === 'all'}      onClick={() => setQuickFilter('all')}      label="Todas"      count={counts.all}      tone="gray" />
+        <FilterChip active={quickFilter === 'urgent'}   onClick={() => setQuickFilter('urgent')}   label="🔴 Urgente" count={counts.urgent}   tone="red" />
+        <FilterChip active={quickFilter === 'mine'}     onClick={() => setQuickFilter('mine')}     label="👤 Mías"    count={counts.mine}     tone="emerald" disabled={!me?.id} />
+        <FilterChip active={quickFilter === 'stayover'} onClick={() => setQuickFilter('stayover')} label="🛏️ Estadía" count={counts.stayover} tone="blue" />
       </div>
 
       {/* Columnas */}
@@ -237,7 +382,7 @@ export function KanbanPage() {
                   columnas con/sin cards mantienen tamaño consistente */}
               <div className="p-2 space-y-2 min-h-[420px] flex-1">
                 {colTasks.length === 0 ? (
-                  <p className="text-xs text-gray-300 text-center py-12">— Vacío —</p>
+                  <EmptyColumn status={col.status} />
                 ) : (
                   colTasks.map((task) => (
                     <TaskCard
@@ -283,6 +428,9 @@ export function KanbanPage() {
         />
       )}
 
+      {/* Keyboard shortcuts modal (`?`) */}
+      {showShortcuts && <KeyboardShortcutsModal onClose={() => setShowShortcuts(false)} />}
+
       {/* Modal Rechazar — Sprint 9 G1 */}
       {rejecting && (
         <RejectTaskModal
@@ -306,6 +454,115 @@ export function KanbanPage() {
           }}
         />
       )}
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+/**
+ * EmptyColumn — empty state friendly (Linear pattern).
+ * Mensaje contextual según la columna — no genérico "— Vacío —".
+ * Apple HIG: "Empty states are an opportunity to teach and motivate."
+ */
+function EmptyColumn({ status }: { status: CleaningStatus }) {
+  const meta: Record<string, { icon: string; line1: string; line2: string }> = {
+    [CleaningStatus.PENDING]:     { icon: '⏳', line1: 'Sin checkouts pendientes', line2: 'Día tranquilo en recepción' },
+    [CleaningStatus.UNASSIGNED]:  { icon: '✅', line1: 'Todas asignadas', line2: 'Buen trabajo, supervisor' },
+    [CleaningStatus.READY]:       { icon: '🧘', line1: 'Sin cuartos por limpiar', line2: 'Inventario al día' },
+    [CleaningStatus.IN_PROGRESS]: { icon: '☕', line1: 'Nadie limpiando ahora', line2: 'Pausa o cambio de turno' },
+    [CleaningStatus.DONE]:        { icon: '👁️', line1: 'Nada pendiente de verificar', line2: 'Inspecciones al día' },
+    [CleaningStatus.VERIFIED]:    { icon: '✨', line1: 'Aún sin verificadas hoy', line2: 'Las primeras cerrarán pronto' },
+  }
+  const m = meta[status] ?? { icon: '—', line1: 'Vacío', line2: '' }
+  return (
+    <div className="flex flex-col items-center justify-center py-12 text-center select-none">
+      <div className="text-3xl mb-2 opacity-60">{m.icon}</div>
+      <p className="text-xs font-medium text-gray-500">{m.line1}</p>
+      {m.line2 && <p className="text-[10px] text-gray-400 mt-0.5">{m.line2}</p>}
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+/**
+ * FilterChip — quick filter clickable con count integrado (Linear/Jira pattern).
+ * - active = relleno con tone
+ * - inactive = outline gris
+ * - count siempre visible para no obligar al user a probar el filtro
+ */
+function FilterChip({
+  active,
+  onClick,
+  label,
+  count,
+  tone,
+  disabled,
+}: {
+  active: boolean
+  onClick: () => void
+  label: string
+  count: number
+  tone: 'gray' | 'red' | 'emerald' | 'blue'
+  disabled?: boolean
+}) {
+  const toneActive = {
+    gray:    'bg-gray-900 text-white border-gray-900',
+    red:     'bg-red-600 text-white border-red-600',
+    emerald: 'bg-emerald-600 text-white border-emerald-600',
+    blue:    'bg-blue-600 text-white border-blue-600',
+  }[tone]
+  const toneInactive = {
+    gray:    'bg-white text-gray-700 border-gray-300 hover:bg-gray-50',
+    red:     'bg-white text-red-700 border-red-200 hover:bg-red-50',
+    emerald: 'bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50',
+    blue:    'bg-white text-blue-700 border-blue-200 hover:bg-blue-50',
+  }[tone]
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${active ? toneActive : toneInactive}`}
+    >
+      <span>{label}</span>
+      <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${active ? 'bg-white/20' : 'bg-gray-100 text-gray-600'}`}>
+        {count}
+      </span>
+    </button>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+/**
+ * KeyboardShortcutsModal — atajos del kanban (Linear pattern — `?` siempre).
+ * Aparece al pulsar `?` o al hacer click en el hint del header.
+ */
+function KeyboardShortcutsModal({ onClose }: { onClose: () => void }) {
+  const shortcuts: Array<{ key: string; desc: string }> = [
+    { key: '?',       desc: 'Mostrar/ocultar este panel' },
+    { key: '/',       desc: 'Buscar habitación (próximamente)' },
+    { key: 'Esc',     desc: 'Cerrar modal o panel activo' },
+    { key: 'A',       desc: 'Crear tarea ad-hoc (próximamente)' },
+    { key: '1—4',     desc: 'Cambiar filtro: Todas / Urgente / Mías / Estadía (próx.)' },
+  ]
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
+          <h2 className="font-semibold text-gray-900">⌨️ Atajos de teclado</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+        </div>
+        <div className="p-5 space-y-2">
+          {shortcuts.map((s) => (
+            <div key={s.key} className="flex items-center justify-between text-sm">
+              <span className="text-gray-700">{s.desc}</span>
+              <kbd className="px-2 py-0.5 bg-gray-100 rounded text-xs font-mono border border-gray-300">{s.key}</kbd>
+            </div>
+          ))}
+          <p className="text-[11px] text-gray-400 pt-3 border-t border-gray-100 mt-3">
+            Más atajos próximamente — Sprint Mx-2.
+          </p>
+        </div>
+      </div>
     </div>
   )
 }
@@ -473,12 +730,17 @@ function TaskCard({
   //   - p-3 padding más generoso (Tufte: whitespace = legibilidad)
   //   - rounded-lg (8px) — moderno sin ser excesivo
   //   - hover:-translate-y-0.5 elevación sutil al pasar el mouse (Material 3)
+  //   - Card aging (Trello signature): >2h en columna no-terminal → tinte
+  //     amber, comunica "atascada" sin requerir lectura.
   const priorityMeta = task.priority ? PRIORITY_BADGE[task.priority] : null
   const showOptionsMenu = !isDone && task.status !== CleaningStatus.VERIFIED
+  const aged = isAged(task)
+  const agingBg = aged ? 'bg-amber-50' : 'bg-white'
 
   return (
     <div
-      className={`relative bg-white rounded-lg ${leftBorder} p-3 text-xs space-y-2 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 group`}
+      className={`relative ${agingBg} rounded-lg ${leftBorder} p-3 text-xs space-y-2 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 group`}
+      title={aged ? `Esta tarea lleva más de 2h en ${task.status} — revisa con el housekeeper` : undefined}
     >
       {/* Kebab menu top-right — Material Design 3 + Apple HIG.
           Sin label "Opciones" — el ⋮ es self-explanatory globally.
@@ -576,14 +838,20 @@ function TaskCard({
           </select>
         </div>
       ) : task.assignedTo ? (
-        <p className="text-gray-500 truncate">
-          👤 {task.assignedTo.name}
-        </p>
+        <div className="flex items-center gap-2 min-w-0">
+          {/* Avatar circular con iniciales — escaneabilidad NN/g 2023 */}
+          <Avatar name={task.assignedTo.name} size="sm" />
+          <span className="text-gray-700 text-xs truncate">{task.assignedTo.name}</span>
+        </div>
       ) : null}
 
-      {/* Elapsed time + state hint */}
+      {/* Counter live: tiempo en estado actual + state hint.
+          Aged: warning amber con ⚠️ — alerta operativa Trello-style. */}
       {elapsed && (
-        <p className={`text-[11px] ${isPaused ? 'text-amber-600' : 'text-gray-400'}`}>
+        <p className={`text-[11px] flex items-center gap-1 ${
+          aged ? 'text-amber-700 font-medium' : isPaused ? 'text-amber-600' : 'text-gray-400'
+        }`}>
+          {aged && <span title="Más de 2h en este estado">⚠️</span>}
           {isPaused ? '⏸ Pausada · ' : ''}{elapsed}
         </p>
       )}
