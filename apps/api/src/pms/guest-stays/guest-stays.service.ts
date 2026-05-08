@@ -511,6 +511,19 @@ export class GuestStaysService {
             property: { select: { id: true, settings: true } },
           },
         },
+        // Sprint 9 fix — incluir journey + segments activos para cerrarlos.
+        // Sin esto el frontend renderizaba el bloque como ACTIVE aunque
+        // el stay tuviera actualCheckout (issue reportado: botón checkout
+        // seguía activo en bloque del calendario tras procesar checkout).
+        stayJourney: {
+          select: {
+            id: true,
+            segments: {
+              where: { status: { in: ['ACTIVE', 'PENDING'] } },
+              orderBy: { checkIn: 'asc' },
+            },
+          },
+        },
       },
     })
     if (!stay) throw new NotFoundException()
@@ -650,6 +663,44 @@ export class GuestStaysService {
           })
           newCleaningTaskIds.push(task.id)
         }
+      }
+
+      // Sprint 9 fix — cerrar journey + segment activo. Sin esto el frontend
+      // sigue renderizando el bloque como ACTIVE en el calendario aunque el
+      // stay tenga actualCheckout (issue reportado: botón checkout seguía
+      // activo). Mismo patrón que earlyCheckout().
+      if (stay.stayJourney?.id && stay.stayJourney.segments.length > 0) {
+        const activeSegment = stay.stayJourney.segments[stay.stayJourney.segments.length - 1]
+        if (activeSegment && activeSegment.checkOut > now) {
+          // Recortar segmento al momento real de salida (preserva audit del
+          // tiempo real ocupado, ej. late checkout queda registrado).
+          await tx.staySegment.update({
+            where: { id: activeSegment.id },
+            data: { checkOut: now, status: 'COMPLETED' },
+          })
+        } else if (activeSegment) {
+          // Late checkout (now > segment.checkOut original): solo marcar COMPLETED
+          await tx.staySegment.update({
+            where: { id: activeSegment.id },
+            data: { status: 'COMPLETED' },
+          })
+        }
+        await tx.stayJourney.update({
+          where: { id: stay.stayJourney.id },
+          data: { status: 'CHECKED_OUT', journeyCheckOut: now },
+        })
+        await tx.stayJourneyEvent.create({
+          data: {
+            journeyId: stay.stayJourney.id,
+            eventType: 'CHECKED_OUT',
+            actorId,
+            payload: {
+              stayId,
+              checkoutAt: now.toISOString(),
+              source: 'regular_checkout',
+            },
+          },
+        })
       }
 
       return stayUpdated
