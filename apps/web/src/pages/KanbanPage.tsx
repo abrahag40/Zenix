@@ -278,11 +278,12 @@ export function KanbanPage() {
     return filteredTasks.filter((t) => t.status === status)
   }
 
-  if (isLoading) {
-    return <div className="text-sm text-gray-500 py-12 text-center">Cargando tablero...</div>
-  }
-
-  // Counts para quick filter chips (Linear pattern — siempre visible "cuántos hay")
+  // Counts para quick filter chips (Linear pattern — siempre visible "cuántos hay").
+  // CRÍTICO: este useMemo DEBE ir antes del early return de isLoading.
+  // Rules of Hooks: hooks deben llamarse siempre en el mismo orden cada render.
+  // Antes estaba después del if (isLoading) return → en primer render con
+  // isLoading=true se ejecutaban N hooks; en segundo render con isLoading=false
+  // se ejecutaban N+1 → React error "Rendered more hooks than previous render".
   const counts = useMemo(() => {
     const baseTasks = filterStaffId ? tasks.filter((t) => t.assignedTo?.id === filterStaffId) : tasks
     return {
@@ -292,6 +293,10 @@ export function KanbanPage() {
       stayover: baseTasks.filter((t) => t.taskType === 'STAYOVER').length,
     }
   }, [tasks, filterStaffId, me?.id])
+
+  if (isLoading) {
+    return <div className="text-sm text-gray-500 py-12 text-center">Cargando tablero...</div>
+  }
 
   return (
     <div className="space-y-4">
