@@ -20,6 +20,10 @@ interface ApiJourney {
   id: string
   guestStayId: string
   guestName: string
+  /** ACTIVE | NO_SHOW | CHECKED_OUT — usado para derivar actualCheckout de segments */
+  status?: string
+  /** Set cuando journey.status === 'CHECKED_OUT' — el moment del checkout real */
+  journeyCheckOut?: string
   segments: ApiSegment[]
 }
 
@@ -29,6 +33,14 @@ function adaptJourneys(journeys: ApiJourney[]): GuestStayBlock[] {
   for (const journey of journeys) {
     const activeSegments = journey.segments.filter((s) => s.status !== 'CANCELLED')
     const hasMultiple = activeSegments.length > 1
+    // Si el journey ya cerró (CHECKED_OUT) propagar el momento real del
+    // checkout a TODOS los segments del journey. Sin esto, getStayStatus()
+    // no detecta DEPARTED y el bloque sigue mostrándose como IN_HOUSE
+    // con botón checkout activo (issue reportado por usuario en Marco Rossi 301).
+    const actualCheckoutDate =
+      journey.status === 'CHECKED_OUT' && journey.journeyCheckOut
+        ? new Date(journey.journeyCheckOut)
+        : undefined
 
     // Determine first/last by checkIn/checkOut dates
     const sorted = [...activeSegments].sort(
@@ -83,6 +95,8 @@ function adaptJourneys(journeys: ApiJourney[]): GuestStayBlock[] {
         hasMultipleSegments: hasMultiple,
         roomNumber: seg.room.number,
         originalRoomNumber: isNonOriginal ? originalRoomNumber : undefined,
+        // DEPARTED detection — set solo cuando journey ya cerró
+        actualCheckout: actualCheckoutDate,
       })
     }
   }
