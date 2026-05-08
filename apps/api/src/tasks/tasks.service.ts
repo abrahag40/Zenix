@@ -99,6 +99,25 @@ export class TasksService {
       where.scheduledFor = new Date(`${query.scheduledFor}T00:00:00.000Z`)
     }
 
+    // Filtro auto: VERIFIED solo se muestra si verificada HOY.
+    // Razón: VERIFIED es estado terminal (loop cerrado). Una tarea verificada
+    // ayer no debe aparecer hoy en "Mi día" del housekeeper — genera ruido
+    // visual. Otros estados (PENDING, READY, IN_PROGRESS, PAUSED, DONE,
+    // CANCELLED) se mantienen para carryover natural via `carryoverFromDate`.
+    // SUPERVISOR queries sin scheduledFor explícito ven todo (audit trail).
+    if (!query.scheduledFor && actor.role === HousekeepingRole.HOUSEKEEPER) {
+      const todayLocal = new Date().toISOString().slice(0, 10)
+      const todayStart = new Date(`${todayLocal}T00:00:00.000Z`)
+      where.AND = [
+        {
+          OR: [
+            { status: { not: CleaningStatus.VERIFIED } },
+            { verifiedAt: { gte: todayStart } },
+          ],
+        },
+      ]
+    }
+
     /**
      * Sort prioritario (Sprint 8H — espejo del sort que el mobile aplica visualmente):
      *   1. hasSameDayCheckIn DESC  → "Hoy entra" arriba (independiente de priority enum)
