@@ -299,23 +299,33 @@ export function KanbanPage() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-lg font-semibold text-gray-900">Tablero de tareas</h1>
-          <p className="text-xs text-gray-500 mt-0.5">
-            {filteredTasks.length} tarea{filteredTasks.length !== 1 ? 's' : ''}
-            {(filterStaffId || quickFilter !== 'all' || search) && ' (filtradas)'}
-            {' · '}
+          {/* Pixel-perfect: inline-flex items-center → kbd y texto en
+              baseline idéntico. Antes <p> con <button> inline hacía que
+              el kbd quedara 1-2px fuera de baseline del texto. */}
+          <div className="text-xs text-gray-500 mt-0.5 inline-flex items-center gap-1.5">
+            <span>
+              {filteredTasks.length} tarea{filteredTasks.length !== 1 ? 's' : ''}
+              {(filterStaffId || quickFilter !== 'all' || search) && ' (filtradas)'}
+            </span>
+            <span className="text-gray-300">·</span>
             <button
               onClick={() => setShowShortcuts(true)}
-              className="text-gray-400 hover:text-gray-700 underline-offset-2 hover:underline"
+              className="inline-flex items-center gap-1 text-gray-400 hover:text-gray-700"
               title="Ver atajos de teclado"
             >
-              Pulsa <kbd className="px-1 py-0.5 bg-gray-100 rounded text-[10px] font-mono border border-gray-300">?</kbd> para atajos
+              <span>Pulsa</span>
+              <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-[10px] font-mono border border-gray-300 leading-none">?</kbd>
+              <span>para atajos</span>
             </button>
-          </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Pixel-perfect: TODOS los controles del header con h-8 (32px) +
+              text-sm. Antes search era 28px, button 30px, select 28px →
+              baseline shifts visibles. Ahora alineación perfecta. */}
           {/* Search por habitación / housekeeper — P2 (Trello/Jira pattern) */}
           <div className="relative">
-            <svg className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
               <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
             </svg>
             <input
@@ -323,12 +333,12 @@ export function KanbanPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Buscar Hab. 103..."
-              className="text-sm border border-gray-300 rounded pl-7 pr-2 py-1 focus:outline-none focus:ring-2 focus:ring-emerald-200 w-48"
+              className="h-8 text-sm border border-gray-300 rounded pl-8 pr-2 focus:outline-none focus:ring-2 focus:ring-emerald-200 w-48"
             />
           </div>
           <button
             onClick={() => setShowAdHocModal(true)}
-            className="text-xs px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-medium"
+            className="h-8 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded font-medium"
             title="Crear tarea para walk-in / late checkout sin reserva"
           >
             + Tarea ad-hoc
@@ -336,7 +346,7 @@ export function KanbanPage() {
           <select
             value={filterStaffId}
             onChange={(e) => setFilterStaffId(e.target.value)}
-            className="text-sm border border-gray-300 rounded px-2 py-1"
+            className="h-8 text-sm border border-gray-300 rounded px-2"
             title="Filtrar por housekeeper"
           >
             <option value="">Todos los housekeepers</option>
@@ -366,8 +376,10 @@ export function KanbanPage() {
               key={col.status}
               className={`flex-shrink-0 w-72 bg-gray-50 rounded-b-lg border-t-4 ${col.ringColor} flex flex-col`}
             >
-              {/* Header con label + subtítulo (NN/g H6 — explicar, no obligar a memorizar) */}
-              <div className="px-3 py-2.5 border-b border-gray-200 bg-white">
+              {/* Header con label + subtítulo (NN/g H6 — explicar, no obligar a memorizar).
+                  Pixel-perfect: padding p-3 (12px) idéntico al body para alineación
+                  vertical de elementos entre header y primera card. */}
+              <div className="p-3 border-b border-gray-200 bg-white">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs font-semibold text-gray-800 uppercase tracking-wide truncate">
                     {col.label}
@@ -376,11 +388,11 @@ export function KanbanPage() {
                     {colTasks.length}
                   </span>
                 </div>
-                <p className="text-[10px] text-gray-500 mt-0.5 leading-tight">{col.hint}</p>
+                <p className="text-[10px] text-gray-500 mt-1 leading-tight">{col.hint}</p>
               </div>
               {/* Body con altura mínima fija — patrón Trello/Linear/Jira:
                   columnas con/sin cards mantienen tamaño consistente */}
-              <div className="p-2 space-y-2 min-h-[420px] flex-1">
+              <div className="p-3 space-y-2 min-h-[420px] flex-1 flex flex-col">
                 {colTasks.length === 0 ? (
                   <EmptyColumn status={col.status} />
                 ) : (
@@ -474,9 +486,11 @@ function EmptyColumn({ status }: { status: CleaningStatus }) {
     [CleaningStatus.VERIFIED]:    { icon: '✨', line1: 'Aún sin verificadas hoy', line2: 'Las primeras cerrarán pronto' },
   }
   const m = meta[status] ?? { icon: '—', line1: 'Vacío', line2: '' }
+  // Pixel-perfect: flex-1 + items-center → centrado vertical real en
+  // toda la altura disponible del column body (min-h-[420px]).
   return (
-    <div className="flex flex-col items-center justify-center py-12 text-center select-none">
-      <div className="text-3xl mb-2 opacity-60">{m.icon}</div>
+    <div className="flex-1 flex flex-col items-center justify-center text-center select-none">
+      <div className="text-3xl mb-2 opacity-60 leading-none">{m.icon}</div>
       <p className="text-xs font-medium text-gray-500">{m.line1}</p>
       {m.line2 && <p className="text-[10px] text-gray-400 mt-0.5">{m.line2}</p>}
     </div>
@@ -505,6 +519,8 @@ function FilterChip({
   tone: 'gray' | 'red' | 'emerald' | 'blue'
   disabled?: boolean
 }) {
+  // Pixel-perfect: ambos toneActive y toneInactive incluyen border-{color}
+  // → height idéntico (1px+1px = 2px) sea cual sea el estado.
   const toneActive = {
     gray:    'bg-gray-900 text-white border-gray-900',
     red:     'bg-red-600 text-white border-red-600',
@@ -713,15 +729,6 @@ function TaskCard({
 
   const elapsed = useElapsed(task)
 
-  // Borde izquierdo según prioridad operativa:
-  //   URGENT (rojo)         → checkout + same-day check-in (la más crítica)
-  //   STAYOVER (azul)       → limpieza in-house, baja prioridad
-  //   default (transparente) → checkout regular
-  const leftBorder = isUrgent
-    ? 'border-l-4 border-l-red-500'
-    : isStayover
-      ? 'border-l-4 border-l-blue-400'
-      : ''
 
   // Modern card design — Linear/Notion/Stripe Dashboard 2024 patterns:
   //   - bg-white sin border (sólo color del leftBorder + shadow elegante)
@@ -732,70 +739,84 @@ function TaskCard({
   //   - hover:-translate-y-0.5 elevación sutil al pasar el mouse (Material 3)
   //   - Card aging (Trello signature): >2h en columna no-terminal → tinte
   //     amber, comunica "atascada" sin requerir lectura.
+  // Pixel-perfect (Sprint 9 final audit):
+  //   - SIEMPRE border-l-4 (transparent si no aplica) → sin shift horizontal
+  //   - Kebab inline en header flex → alineación pixel-perfect con título
   const priorityMeta = task.priority ? PRIORITY_BADGE[task.priority] : null
   const showOptionsMenu = !isDone && task.status !== CleaningStatus.VERIFIED
   const aged = isAged(task)
   const agingBg = aged ? 'bg-amber-50' : 'bg-white'
 
+  // Border izquierdo SIEMPRE 4px — color por contexto:
+  //   URGENT (rojo) > STAYOVER (azul) > default (transparent)
+  // Mantiene cards alineadas en X independiente del color.
+  const leftBorderColor = isUrgent
+    ? 'border-l-red-500'
+    : isStayover
+      ? 'border-l-blue-400'
+      : 'border-l-transparent'
+
   return (
     <div
-      className={`relative ${agingBg} rounded-lg ${leftBorder} p-3 text-xs space-y-2 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 group`}
+      className={`relative ${agingBg} rounded-lg border-l-4 ${leftBorderColor} p-3 text-xs space-y-2 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 group`}
       title={aged ? `Esta tarea lleva más de 2h en ${task.status} — revisa con el housekeeper` : undefined}
     >
-      {/* Kebab menu top-right — Material Design 3 + Apple HIG.
-          Sin label "Opciones" — el ⋮ es self-explanatory globally.
-          group-hover muestra solo cuando user pasa por encima (Linear pattern). */}
-      {showOptionsMenu && (
-        <div className="absolute top-2 right-2 z-10">
-          <button
-            onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v) }}
-            className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity"
-            title="Más opciones"
-            aria-label="Opciones de la tarea"
-          >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-              <circle cx="8" cy="3" r="1.5" />
-              <circle cx="8" cy="8" r="1.5" />
-              <circle cx="8" cy="13" r="1.5" />
-            </svg>
-          </button>
-          {menuOpen && (
-            <>
-              <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-              <div className="absolute right-0 top-7 z-20 bg-white border border-gray-200 rounded-lg shadow-lg min-w-[180px] py-1">
-                {!isUrgent && (
-                  <button
-                    onClick={() => { setMenuOpen(false); onForceUrgent() }}
-                    className="w-full text-left px-3 py-1.5 text-xs text-red-700 hover:bg-red-50 font-medium"
-                  >
-                    🔴 Forzar URGENTE
-                  </button>
-                )}
-                <button
-                  onClick={() => { setMenuOpen(false); onToggleDeepClean() }}
-                  className="w-full text-left px-3 py-1.5 text-xs text-purple-700 hover:bg-purple-50 font-medium"
-                >
-                  ✨ Limpieza profunda
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* Header: room + priority badge (sin MEDIUM — solo excepciones) */}
-      <div className="flex items-center justify-between gap-2 pr-7">
+      {/* Header: room + priority badge + kebab menu (todos inline en flex
+          items-center → alineación pixel-perfect garantizada).
+          Pixel-perfect audit fix: kebab antes era absolute top-2 right-2 que
+          no coincidía con el padding del card (p-3 = 12px, top-2 = 8px) →
+          desalineación visual de 4px. Inline lo resuelve. */}
+      <div className="flex items-center justify-between gap-2">
         <div className="font-semibold text-gray-900 text-sm flex items-center gap-1.5 min-w-0">
           <span className="truncate">Hab. {room?.number ?? '—'}</span>
           {task.unit?.label && task.unit.label !== `Hab. ${room?.number}` && task.unit.label !== room?.number && (
             <span className="text-gray-400 font-normal text-xs truncate">· {task.unit.label}</span>
           )}
         </div>
-        {priorityMeta && (
-          <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide flex-shrink-0 ${priorityMeta.className}`}>
-            {priorityMeta.label}
-          </span>
-        )}
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {priorityMeta && (
+            <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide ${priorityMeta.className}`}>
+              {priorityMeta.label}
+            </span>
+          )}
+          {showOptionsMenu && (
+            <div className="relative">
+              <button
+                onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v) }}
+                className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                title="Más opciones"
+                aria-label="Opciones de la tarea"
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                  <circle cx="8" cy="3" r="1.5" />
+                  <circle cx="8" cy="8" r="1.5" />
+                  <circle cx="8" cy="13" r="1.5" />
+                </svg>
+              </button>
+              {menuOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+                  <div className="absolute right-0 top-6 z-20 bg-white border border-gray-200 rounded-lg shadow-lg min-w-[180px] py-1">
+                    {!isUrgent && (
+                      <button
+                        onClick={() => { setMenuOpen(false); onForceUrgent() }}
+                        className="w-full text-left px-3 py-1.5 text-xs text-red-700 hover:bg-red-50 font-medium"
+                      >
+                        🔴 Forzar URGENTE
+                      </button>
+                    )}
+                    <button
+                      onClick={() => { setMenuOpen(false); onToggleDeepClean() }}
+                      className="w-full text-left px-3 py-1.5 text-xs text-purple-700 hover:bg-purple-50 font-medium"
+                    >
+                      ✨ Limpieza profunda
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Badges: same-day check-in + tipo de tarea (stayover).
@@ -846,13 +867,19 @@ function TaskCard({
       ) : null}
 
       {/* Counter live: tiempo en estado actual + state hint.
-          Aged: warning amber con ⚠️ — alerta operativa Trello-style. */}
+          Aged: warning amber con ⚠️ — alerta operativa Trello-style.
+          Pixel-perfect: gap-1.5 + leading-none + ⚠ wrapper text-xs evita
+          baseline shift (emoji nativo es 16px, texto 11px). */}
       {elapsed && (
-        <p className={`text-[11px] flex items-center gap-1 ${
+        <p className={`text-[11px] flex items-center gap-1.5 leading-none ${
           aged ? 'text-amber-700 font-medium' : isPaused ? 'text-amber-600' : 'text-gray-400'
         }`}>
-          {aged && <span title="Más de 2h en este estado">⚠️</span>}
-          {isPaused ? '⏸ Pausada · ' : ''}{elapsed}
+          {aged && (
+            <span className="text-xs leading-none" title="Más de 2h en este estado" aria-label="Atascada">
+              ⚠️
+            </span>
+          )}
+          <span>{isPaused ? '⏸ Pausada · ' : ''}{elapsed}</span>
         </p>
       )}
 
