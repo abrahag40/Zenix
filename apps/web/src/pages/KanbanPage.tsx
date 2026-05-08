@@ -486,10 +486,14 @@ function EmptyColumn({ status }: { status: CleaningStatus }) {
     [CleaningStatus.VERIFIED]:    { icon: '✨', line1: 'Aún sin verificadas hoy', line2: 'Las primeras cerrarán pronto' },
   }
   const m = meta[status] ?? { icon: '—', line1: 'Vacío', line2: '' }
-  // Pixel-perfect: flex-1 + items-center → centrado vertical real en
-  // toda la altura disponible del column body (min-h-[420px]).
+  // UX fix: empty state top-aligned con pt-8 (32px) en vez de centrado
+  // vertical en min-h-[420px]. Razón: en viewports pequeños el centrado
+  // obligaba a hacer scroll para verlo (issue reportado por usuario).
+  // Estándar industria: Trello/Jira top-aligned, Linear centrado solo en
+  // columnas fullscreen. Para Zenix kanban (columnas dentro del page flow),
+  // top-aligned cumple NN/g H1 — visibility of system status sin scroll.
   return (
-    <div className="flex-1 flex flex-col items-center justify-center text-center select-none">
+    <div className="flex flex-col items-center text-center select-none pt-8 pb-4 px-2">
       <div className="text-3xl mb-2 opacity-60 leading-none">{m.icon}</div>
       <p className="text-xs font-medium text-gray-500">{m.line1}</p>
       {m.line2 && <p className="text-[10px] text-gray-400 mt-0.5">{m.line2}</p>}
