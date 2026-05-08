@@ -4,7 +4,7 @@
 > Última actualización: 2026-05-04 (Sprint 8I ✅ Hub Recamarista D14+D12+D18; Sprint 9-HK ✅ backend D14-D18 + EC-3/EC-6 + cleaningStatus aggregation + OperationalOverridesPage; merge con SmartBlock módulo desde main).
 > **Estado de versionado:**
 > - **v1.0.0** (en curso) — siguientes sprints: Mx-1 (Mantenimiento), KP-01 (Kanban), 8J (SettingsPage Recamaristas tab); 8A/8C diferidos a v1.0.x por capital
-> - **v1.1.0** — RBAC UI + partner portal (Diátaxis docs/strategy)
+> - **v1.1.0** — RBAC UI + partner portal (Diátaxis docs/strategy) + **org-tree visualization SuccessFactors-like** (consume `Staff.reportsToId` ya disponible desde Sprint 9 G1)
 > - **v1.2.0** — BI / benchmarks cross-property (k-anonymity, opt-in)
 
 ---

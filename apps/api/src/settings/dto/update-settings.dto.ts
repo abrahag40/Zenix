@@ -1,5 +1,5 @@
 import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Matches, Max, Min } from 'class-validator'
-import { CarryoverPolicy } from '@zenix/shared'
+import { CarryoverPolicy, StayoverFrequency } from '@zenix/shared'
 
 export class UpdateSettingsDto {
   @IsOptional()
@@ -88,4 +88,13 @@ export class UpdateSettingsDto {
   @IsOptional()
   @IsBoolean()
   shiftClockingRequired?: boolean
+
+  /**
+   * Sprint 9 G2 — Frecuencia de limpieza de estadía in-house.
+   * Default por PropertyType en factory: HOTEL→DAILY, HOSTAL/VR→NEVER.
+   * Configurable per-property: NEVER | DAILY | EVERY_2_DAYS | EVERY_3_DAYS | ON_REQUEST.
+   */
+  @IsOptional()
+  @IsEnum(StayoverFrequency)
+  stayoverFrequency?: StayoverFrequency
 }

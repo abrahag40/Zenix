@@ -51,6 +51,7 @@ export function KanbanPage() {
   const qc = useQueryClient()
   const [filterStaffId, setFilterStaffId] = useState<string>('') // '' = todos
   const [verifying, setVerifying] = useState<string | null>(null) // taskId en modal verify
+  const [rejecting, setRejecting] = useState<string | null>(null) // taskId en modal reject
   const [showAdHocModal, setShowAdHocModal] = useState(false)
 
   const { data: tasks = [], isLoading } = useQuery<CleaningTaskDto[]>({
@@ -122,8 +123,31 @@ export function KanbanPage() {
   useSSE(handleSSE)
 
   const filteredTasks = useMemo(() => {
-    if (!filterStaffId) return tasks
-    return tasks.filter((t) => t.assignedTo?.id === filterStaffId)
+    const base = filterStaffId ? tasks.filter((t) => t.assignedTo?.id === filterStaffId) : tasks
+    // Sort prioritario consistente entre kanban (web) y mobile useTasks:
+    //   1. URGENT primero (Priority enum) — captura "doble urgente" automáticamente
+    //   2. hasSameDayCheckIn (checkout + checkin mismo día) — la más crítica
+    //   3. taskType CLEANING (checkout regular) > STAYOVER (in-house diaria)
+    //   4. createdAt ASC — FIFO en empates
+    // Justificación AHLEI sec. 4.2: same-day-checkin es prioridad máxima
+    // (cuarto debe estar listo antes que llegue el huésped); checkouts >
+    // stayovers porque libera inventario vendible.
+    return [...base].sort((a, b) => {
+      // 1. Priority enum (URGENT > HIGH > MEDIUM > LOW)
+      const prioRank = { URGENT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 } as Record<string, number>
+      const dPrio = (prioRank[a.priority] ?? 99) - (prioRank[b.priority] ?? 99)
+      if (dPrio !== 0) return dPrio
+      // 2. Same-day check-in primero
+      if (a.hasSameDayCheckIn !== b.hasSameDayCheckIn) {
+        return a.hasSameDayCheckIn ? -1 : 1
+      }
+      // 3. Tipo de tarea: CLEANING (checkout) antes que STAYOVER
+      const typeRank = { CLEANING: 0, STAYOVER: 1, MAINTENANCE: 2, INSPECTION: 3 } as Record<string, number>
+      const dType = (typeRank[a.taskType] ?? 99) - (typeRank[b.taskType] ?? 99)
+      if (dType !== 0) return dType
+      // 4. FIFO
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    })
   }, [tasks, filterStaffId])
 
   // PAUSED se renderiza dentro de IN_PROGRESS (es un estado del mismo card).
@@ -203,6 +227,7 @@ export function KanbanPage() {
                         assignMutation.mutate({ taskId: task.id, assignedToId: staffId })
                       }
                       onVerifyClick={() => setVerifying(task.id)}
+                      onRejectClick={() => setRejecting(task.id)}
                       onConfirmDepart={() => {
                         if (!task.checkoutId) {
                           toast.error('No hay checkout asociado a esta tarea')
@@ -233,6 +258,19 @@ export function KanbanPage() {
           onVerified={() => {
             setVerifying(null)
             qc.invalidateQueries({ queryKey: ['kanban-tasks'] })
+          }}
+        />
+      )}
+
+      {/* Modal Rechazar — Sprint 9 G1 */}
+      {rejecting && (
+        <RejectTaskModal
+          taskId={rejecting}
+          onClose={() => setRejecting(null)}
+          onRejected={() => {
+            setRejecting(null)
+            qc.invalidateQueries({ queryKey: ['kanban-tasks'] })
+            toast.success('Limpieza rechazada — housekeeper notificado')
           }}
         />
       )}
@@ -370,6 +408,7 @@ function TaskCard({
   housekeepers,
   onAssign,
   onVerifyClick,
+  onRejectClick,
   onConfirmDepart,
   onForceUrgent,
   onToggleDeepClean,
@@ -379,6 +418,7 @@ function TaskCard({
   housekeepers: StaffDto[]
   onAssign: (staffId: string) => void
   onVerifyClick: () => void
+  onRejectClick: () => void
   onConfirmDepart: () => void
   onForceUrgent: () => void
   onToggleDeepClean: () => void
@@ -390,15 +430,24 @@ function TaskCard({
   const isUnassigned = task.status === CleaningStatus.UNASSIGNED
   const isDone = task.status === CleaningStatus.DONE
   const isPending = task.status === CleaningStatus.PENDING
+  const isStayover = task.taskType === 'STAYOVER'
   const [menuOpen, setMenuOpen] = useState(false)
 
   const elapsed = useElapsed(task)
 
+  // Borde izquierdo según prioridad operativa:
+  //   URGENT (rojo)         → checkout + same-day check-in (la más crítica)
+  //   STAYOVER (azul)       → limpieza in-house, baja prioridad
+  //   default (transparente) → checkout regular
+  const leftBorder = isUrgent
+    ? 'border-l-4 border-l-red-500'
+    : isStayover
+      ? 'border-l-4 border-l-blue-400'
+      : ''
+
   return (
     <div
-      className={`bg-white rounded-lg border ${
-        isUrgent ? 'border-l-4 border-l-red-500 border-gray-200' : 'border-gray-200'
-      } p-2.5 text-xs space-y-1.5 shadow-sm`}
+      className={`bg-white rounded-lg border ${leftBorder} border-gray-200 p-2.5 text-xs space-y-1.5 shadow-sm`}
     >
       {/* Header: room + priority badge */}
       <div className="flex items-center justify-between gap-2">
@@ -418,12 +467,23 @@ function TaskCard({
         )}
       </div>
 
-      {/* Same-day check-in badge */}
-      {task.hasSameDayCheckIn && (
-        <div className="text-[10px] font-semibold text-red-700 bg-red-50 rounded px-1.5 py-0.5 inline-block">
-          🔴 Hoy entra
-        </div>
-      )}
+      {/* Badges: same-day check-in + tipo de tarea (stayover).
+          Apple HIG pre-attentive: color + emoji = lectura <250ms. */}
+      <div className="flex flex-wrap gap-1">
+        {task.hasSameDayCheckIn && (
+          <span className="text-[10px] font-semibold text-red-700 bg-red-50 rounded px-1.5 py-0.5">
+            🔴 Hoy entra
+          </span>
+        )}
+        {isStayover && (
+          <span
+            className="text-[10px] font-semibold text-blue-700 bg-blue-50 rounded px-1.5 py-0.5"
+            title="Limpieza de estadía — huésped sigue en casa"
+          >
+            🛏️ Estadía
+          </span>
+        )}
+      </div>
 
       {/* Assignment row */}
       {isUnassigned ? (
@@ -470,14 +530,27 @@ function TaskCard({
         </button>
       )}
 
-      {/* Verify CTA only on DONE */}
+      {/* Verify + Reject CTAs en DONE — Sprint 9 G1.
+          AHLEI sec. 4.4 *Quality Inspection Cycle*: el supervisor decide
+          aprobar (Verificar) o rechazar (re-clean). UI side-by-side, verde
+          a la izquierda (acción positiva esperada — Apple HIG), gris-rojo
+          a la derecha (acción correctiva — menos prominente). */}
       {isDone && (
-        <button
-          onClick={onVerifyClick}
-          className="w-full text-center bg-indigo-50 text-indigo-700 rounded py-1.5 hover:bg-indigo-100 font-medium text-xs"
-        >
-          Verificar →
-        </button>
+        <div className="grid grid-cols-3 gap-1">
+          <button
+            onClick={onVerifyClick}
+            className="col-span-2 text-center bg-indigo-50 text-indigo-700 rounded py-1.5 hover:bg-indigo-100 font-medium text-xs"
+          >
+            Verificar →
+          </button>
+          <button
+            onClick={onRejectClick}
+            className="text-center bg-red-50 text-red-700 rounded py-1.5 hover:bg-red-100 font-medium text-xs"
+            title="Rechazar limpieza — el housekeeper debe limpiar de nuevo"
+          >
+            🔄 Rechazar
+          </button>
+        </div>
       )}
 
       {/* Menú contextual de overrides — solo cuando la tarea NO está terminada.
@@ -688,6 +761,86 @@ function Stat({ label, value }: { label: string; value: string }) {
     <div className="bg-gray-50 rounded p-2">
       <p className="text-[10px] text-gray-500 uppercase tracking-wide">{label}</p>
       <p className="text-gray-900 font-medium truncate">{value}</p>
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+/**
+ * RejectTaskModal — Sprint 9 G1.
+ *
+ * Modal forcing-function (§32 CLAUDE.md) para rechazar inspección.
+ * Backend exige razón mínima 5 char. UI valida client-side antes de POST.
+ *
+ * Patrón Apple HIG "Destructive Actions Require Confirmation":
+ *   - Botón rojo solo se habilita con razón válida
+ *   - Texto explica consecuencia: "el housekeeper deberá limpiar de nuevo"
+ */
+function RejectTaskModal({
+  taskId,
+  onClose,
+  onRejected,
+}: {
+  taskId: string
+  onClose: () => void
+  onRejected: () => void
+}) {
+  const [reason, setReason] = useState('')
+  const trimmed = reason.trim()
+  const isValid = trimmed.length >= 5
+
+  const rejectMut = useMutation({
+    mutationFn: () => api.post(`/tasks/${taskId}/reject`, { reason: trimmed }),
+    onSuccess: onRejected,
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'No se pudo rechazar la tarea'),
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
+        <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
+          <h2 className="font-semibold text-gray-900">🔄 Rechazar limpieza</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="bg-amber-50 border border-amber-200 rounded p-3 text-xs text-amber-900">
+            <strong>⚠️ Acción correctiva.</strong> El housekeeper recibirá una alerta
+            y deberá volver a limpiar la habitación. Esta acción queda en el
+            audit trail con tu razón.
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-700 block mb-1">
+              Razón del rechazo <span className="text-red-600">*</span>
+            </label>
+            <textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Ej. Baño con agua acumulada, sábanas mal puestas, polvo en ventanas..."
+              rows={4}
+              autoFocus
+              className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 resize-none focus:outline-none focus:ring-2 focus:ring-red-200"
+            />
+            <p className="text-[11px] text-gray-500 mt-1">
+              Mínimo 5 caracteres ({trimmed.length}/5)
+            </p>
+          </div>
+        </div>
+        <div className="px-5 py-3 border-t border-gray-200 flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="text-sm px-3 py-1.5 text-gray-700 hover:bg-gray-50 rounded"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={() => rejectMut.mutate()}
+            disabled={!isValid || rejectMut.isPending}
+            className="text-sm px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {rejectMut.isPending ? 'Rechazando...' : '🔄 Rechazar limpieza'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
