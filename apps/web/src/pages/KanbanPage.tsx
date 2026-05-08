@@ -477,15 +477,21 @@ export function KanbanPage() {
  * Apple HIG: "Empty states are an opportunity to teach and motivate."
  */
 function EmptyColumn({ status }: { status: CleaningStatus }) {
+  // UX writing — Jakob Nielsen + Apple HIG + Mailchimp Content Style Guide:
+  //   1. Voz consistente (neutral-positiva), evitar felicitaciones
+  //   2. Reframe positivo en vez de negación cuando posible
+  //   3. Sub-line explica QUÉ pasa cuando aparezcan items, no asume causa
+  //   4. Sin jerga interna ni términos role-específicos
+  //   5. Apple HIG: "Be Concise. Convey only essential info."
   const meta: Record<string, { icon: string; line1: string; line2: string }> = {
-    [CleaningStatus.PENDING]:     { icon: '⏳', line1: 'Sin checkouts pendientes', line2: 'Día tranquilo en recepción' },
-    [CleaningStatus.UNASSIGNED]:  { icon: '✅', line1: 'Todas asignadas', line2: 'Buen trabajo, supervisor' },
-    [CleaningStatus.READY]:       { icon: '🧘', line1: 'Sin cuartos por limpiar', line2: 'Inventario al día' },
-    [CleaningStatus.IN_PROGRESS]: { icon: '☕', line1: 'Nadie limpiando ahora', line2: 'Pausa o cambio de turno' },
-    [CleaningStatus.DONE]:        { icon: '👁️', line1: 'Nada pendiente de verificar', line2: 'Inspecciones al día' },
-    [CleaningStatus.VERIFIED]:    { icon: '✨', line1: 'Aún sin verificadas hoy', line2: 'Las primeras cerrarán pronto' },
+    [CleaningStatus.PENDING]:     { icon: '⏳', line1: 'Sin salidas pendientes',       line2: 'Todos los huéspedes en flujo' },
+    [CleaningStatus.UNASSIGNED]:  { icon: '✅', line1: 'Equipo asignado',              line2: 'Todas las tareas tienen housekeeper' },
+    [CleaningStatus.READY]:       { icon: '🧘', line1: 'Sin cuartos por limpiar',     line2: 'El equipo está al día con la operación' },
+    [CleaningStatus.IN_PROGRESS]: { icon: '☕', line1: 'Sin limpiezas activas',        line2: 'Aparecerán cuando el equipo inicie' },
+    [CleaningStatus.DONE]:        { icon: '👁️', line1: 'Sin verificaciones pendientes', line2: 'Las tareas terminadas aparecerán aquí' },
+    [CleaningStatus.VERIFIED]:    { icon: '✨', line1: 'Aún sin verificadas',          line2: 'Aparecerán al aprobar tareas terminadas' },
   }
-  const m = meta[status] ?? { icon: '—', line1: 'Vacío', line2: '' }
+  const m = meta[status] ?? { icon: '—', line1: 'Sin elementos', line2: '' }
   // UX fix: empty state top-aligned con pt-8 (32px) en vez de centrado
   // vertical en min-h-[420px]. Razón: en viewports pequeños el centrado
   // obligaba a hacer scroll para verlo (issue reportado por usuario).
