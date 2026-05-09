@@ -1,7 +1,7 @@
 # CLAUDE.md — Zenix PMS
 
 > Guía para retomar el proyecto desde cero. Lee esto antes de tocar código.
-> Última actualización: 2026-05-04 (Sprint 8I ✅ Hub Recamarista D14+D12+D18; Sprint 9-HK ✅ backend D14-D18 + EC-3/EC-6 + cleaningStatus aggregation + OperationalOverridesPage; merge con SmartBlock módulo desde main).
+> Última actualización: 2026-05-09 (PR #8 mergeado a `main` — 42 commits cerrando Sprint 9-HK extended: bug fixes `hasSameDayCheckIn` per-task-date + carryover re-eval, `LateCheckoutScheduler` 2-tier, Mi día alarm cascade fix, journey blocks CHECKED_OUT, KP-01 Kanban UX overhaul completo — cards 3-zonas + scrollbar Trello/Jira/GitHub pattern + contexto descriptivo + pixel-perfect audit).
 > **Estado de versionado:**
 > - **v1.0.0** (en curso) — siguientes sprints: Mx-1 (Mantenimiento), KP-01 (Kanban), 8J (SettingsPage Recamaristas tab); 8A/8C diferidos a v1.0.x por capital
 > - **v1.1.0** — RBAC UI + partner portal (Diátaxis docs/strategy) + **org-tree visualization SuccessFactors-like** (consume `Staff.reportsToId` ya disponible desde Sprint 9 G1)
@@ -1883,7 +1883,23 @@ OPEN → ACKNOWLEDGED → IN_PROGRESS → RESOLVED → VERIFIED → CLOSED
 
 ## Known Issues & Edge Cases
 
-### Resueltos en Sprint 8H (sesión actual)
+### Resueltos en Sprint 9-HK ext + KP-01 (PR #8 — 2026-05-09)
+
+| Issue | Causa | Fix |
+|-------|-------|-----|
+| Checkout post-`housekeepingEndHour` con check-in nuevo Día 2 NO se marcaba URGENT | `hasSameDayCheckIn` se calculaba contra `now` en `checkout()` y `earlyCheckout()` aunque la tarea ya iba al grid de mañana por el cutoff | Derivar el rango de query desde `taskCheckoutAt` (que respeta `housekeepingEndHour`), no desde `now` |
+| Carryover priority MAL: HIGH cuando hoy SÍ había check-in nuevo en el mismo room | `processCarryover()` copiaba `original.hasSameDayCheckIn` (computado con datos de ayer) en vez de re-evaluar contra hoy | Re-query `guestStay.count` para la fecha de carryover; recomputar `hasSameDayCheckIn` + priority. URGENT solo si combinación carryover + same-day; carryover solo = HIGH |
+| Tareas de stayover "fantasma" en Mi día — habitaciones con `scheduledCheckout` ya pasado generaban tareas | `StayoverScheduler` filtro incluía pasado | `gt: dayEnd` only — solo stays con checkout futuro generan stayover |
+| Cascada de alarmas al recargar Mi día — todas las tareas READY disparaban audio simultáneamente | Mecanismo 2 detectaba todas las tareas como "nuevas READY" después del fetch | Module-level `lastShownAt: Map<taskId, timestamp>` + ventana de recencia 5 min. Solo dispara si la tarea no se mostró en los últimos 5 min |
+| Marco Rossi 301 desaparecía del calendario tras checkout (3 fixes encadenados) | (1) checkout no cerraba `StayJourney` + segment activo; (2) `findActiveForTimeline` excluía `CHECKED_OUT`; (3) `adaptJourneys` no propagaba `journeyCheckOut` a todos los segmentos | Cierre completo en checkout + filtro `status: { in: ['ACTIVE', 'CHECKED_OUT', 'NO_SHOW'] }` + propagación de `actualCheckoutDate` cuando `journey.status === 'CHECKED_OUT'` en `useStayJourneys.adaptJourneys` |
+| Cancelaciones HK/PMS no aparecían sin refresh — SSE `task:ready` nunca llegaba al frontend | Backend emitía `data:` sin header `event: <type>` → `EventSource.addEventListener('task:ready', ...)` no recibía nada | Backend SSE serializa con header `event: <type>\n` antes del `data:` |
+| Tareas verificadas (VERIFIED) desaparecían del Mi día housekeeper al día siguiente | Filtro mobile excluía VERIFIED después del cambio de fecha | Mantener VERIFIED visible hasta fin de turno + sort distinto |
+| Kanban: dos kebab menus abiertos al mismo tiempo | Cada `TaskCard` tenía `useState(menuOpen)` local | State único `openMenuTaskId` en padre `KanbanPage`; props `isMenuOpen`/`onToggleMenu`/`onCloseMenu` |
+| Kanban: 204 y C2 aparecían como URGENT incorrectamente | `processCarryover` hardcodeaba `priority: URGENT` para todo carryover | Conditional basado en `hasSameDayCheckIn` re-evaluado (ver fix carryover arriba) |
+| Kanban: scroll horizontal invisible para nuevos usuarios | `overflow-x-auto` con scrollbar auto-hide en macOS | Scrollbar siempre visible (Trello/Jira/GitHub/Asana pattern). Edge fades probados primero pero descartados — manchaban el header (NN/g 2020: scrollbar permanente + partial column = 95% discoverability vs 67% del fade aislado) |
+| Kanban: cards confusas para nuevos usuarios — 204 en kanban pero NO en calendario hoy | Ningún chip explicaba el ORIGEN de la tarea (carryover de ayer) | Helper `getTaskContext()` con chip inline: 📋 Pendiente desde ayer / 🛏️ Estadía / ✨ Extensión / 🚪 Salida |
+
+### Resueltos en Sprint 8H
 
 | Issue | Causa | Fix |
 |-------|-------|-----|
@@ -2796,15 +2812,16 @@ enum StayoverFrequency {
 
 ### Sprints restantes para v1.0.0
 
-> **Reordenamiento 2026-05-04**: Stripe (8A) y Channex.io (8C) están **diferidos a v1.0.x post-release** porque requieren capital de inversión inmediata para cuentas comerciales + setup. En su lugar, **Mx-1 (Mantenimiento)** y **KP-01 (Kanban)** son los siguientes sprints prioritarios. Mantenimiento por ser el caso real del Hotel Monica Tulum (deuda comprometida) y Kanban porque sin él el supervisor opera ciego.
+> **Reordenamiento 2026-05-09 (post PR #8)**: Sprint 9-HK extended y KP-01 cerrados con merge a `main`. Stripe (8A) y Channex.io (8C) siguen **diferidos a v1.0.x post-release** (requieren capital comercial + setup). Sprint **Mx-1 (Mantenimiento)** queda como siguiente bloqueante de v1.0.0 — caso real Hotel Monica Tulum (Bongaloo B2 vendido en encerado).
 
 | Sprint | Alcance | Owner | Estado | Bloquea release | Orden |
 |--------|---------|-------|--------|-----------------|-------|
 | **8I** | Mobile Hub Recamarista (4 secciones priorizadas + Estadías D14 + D12 + D18) | Mobile | ✅ | Sí | — completado 2026-05-04 |
 | **9-HK** | Housekeeping flow refactor (D14-D18, EC-3/EC-6, Ajustes del día) | Backend/Web | ✅ | Sí | — completado 2026-05-04 |
+| **9-HK ext** | Bug fixes housekeeping (`hasSameDayCheckIn` per-task-date, carryover re-eval), `LateCheckoutScheduler` 2-tier, journey blocks CHECKED_OUT, Mi día alarm cascade, SSE named events, rename `HousekeepingStaff→Staff` G1 | Backend/Mobile | ✅ | Sí | — completado 2026-05-09 (PR #8) |
+| **KP-01** | KanbanPage completo: cards 3-zonas (Linear/Trello/Jira), scrollbar permanente (Trello/Jira/GitHub/Asana pattern), chip de contexto descriptivo, single-open menu, pixel-perfect audit, consolidación D15 | Web | ✅ | Sí | — completado 2026-05-09 (PR #8) |
 | **Mx-1** | **Módulo de Mantenimiento (nueva rama git, completo end-to-end)** | Backend/Web/Mobile | ⏳ | **Sí** | **1 — siguiente** |
-| **KP-01** | KanbanPage completo (vista supervisor de tareas) | Web | ⏳ | Sí | **2** |
-| **8J** | Web SettingsPage tab "Recamaristas" (Horarios + Cobertura + Reglas) | Web | ⏳ | Sí | 3 |
+| **8J** | Web SettingsPage tab "Recamaristas" (Horarios + Cobertura + Reglas) | Web | ⏳ | Sí | 2 |
 | **8K** | Productividad self-vs-self + Clock UI + Verificación con foto + Gamificación capa 2 | Web/Mobile | ⏳ | No (post-release) | post |
 | **8B** | Filtro "Ocultar no-shows" en calendario | Web | ⏳ | No | post |
 | **8A** | Payment processing (Stripe/Conekta) + UI cobrar/perdonar no-show | Backend/Web | 🔁 **diferido** | v1.0.x | requiere capital comercial |
@@ -3490,6 +3507,16 @@ export function useSoftLock(roomId: string | null) {
 | HK-36 | Reportes de productividad self-vs-self | 📋 | Sprint 8K | Housekeeper | D7 — privacidad legal por diseño |
 | HK-37 | Catálogo ≥30 badges con SVG + animaciones | 📋 | Sprint 8K | Housekeeper | Mekler 2017 — feedback significativo > PBL |
 | HK-38 | `LateCheckoutScheduler` — escalación 2 tiers para checkouts olvidados | ✅ | Sprint 9 (2026-05-08) | Sistema | T1 (60min) → RECEPTIONIST · T2 (180min) → SUPERVISOR. Cron 30min multi-timezone, idempotente per-stay vía `lateCheckoutTier`. AHLEI sec. 4.2 + Mews/Cloudbeds/Marriott SOP. Settings: `lateCheckoutGraceMinutes`, `lateCheckoutEscalationMinutes` |
+| HK-39 | Fix `hasSameDayCheckIn` evaluado contra fecha operativa de la tarea (no `now`) | ✅ | PR #8 (2026-05-09) | Sistema | `checkout()`/`earlyCheckout()` derivan rango de query desde `taskCheckoutAt`. Corrige checkout post-cutoff con check-in nuevo Día 2 → ahora se marca URGENT correctamente |
+| HK-40 | Carryover re-evalúa `hasSameDayCheckIn` contra HOY (no copia stale de ayer) | ✅ | PR #8 (2026-05-09) | Sistema | `processCarryover` hace `guestStay.count` para la fecha de carryover. URGENT solo si carryover + same-day checkin; carryover solo = HIGH |
+| HK-41 | Mi día reload — alarmas en cascada bloqueado | ✅ | PR #8 (2026-05-09) | Mobile | Module-level `lastShownAt` Map + 5-min recency window; mecanismo 2 ya no dispara para tasks recientemente mostradas |
+| HK-42 | Stayover scheduler excluye `scheduledCheckout` pasado (sin fantasmas) | ✅ | PR #8 (2026-05-09) | Sistema | Filtro `gt: dayEnd` only |
+| HK-43 | Kanban: TaskCard reestructurada en 3 zonas (identity / action / footer) | ✅ | PR #8 / KP-01 (2026-05-09) | Supervisor | Pattern Linear/Trello/Jira. Title `text-base font-bold`, contexto inline, footer con avatar + elapsed agrupados. NN/g 2023 *Card Patterns*: 3-zone layout |
+| HK-44 | Kanban: chip de contexto descriptivo en cada card | ✅ | PR #8 / KP-01 (2026-05-09) | Supervisor | `getTaskContext()` con 6 razones (📋 carryover, ✨ extensión con limpieza, ⊘ extensión sin, 🛏️ stayover, 🔧 mantenimiento, 🚪 default). Resuelve confusión "aparece en kanban pero no en calendario" |
+| HK-45 | Kanban: scrollbar permanente (Trello/Jira/GitHub/Asana pattern) | ✅ | PR #8 / KP-01 (2026-05-09) | Supervisor | Reemplaza edge fades — descartados porque manchaban el header. Cross-browser: `scrollbar-width: thin` + `::-webkit-scrollbar h-2`. NN/g 2020 (n=300): scrollbar + partial column = 95% discoverability |
+| HK-46 | Kanban: single-open kebab menu state (lifted al padre) | ✅ | PR #8 / KP-01 (2026-05-09) | Supervisor | `openMenuTaskId` en `KanbanPage`; al abrir B se cierra A automáticamente. Antes cada card tenía `useState(menuOpen)` local |
+| HK-47 | Kanban: pixel-perfect audit (13 issues corregidos) | ✅ | PR #8 / KP-01 (2026-05-09) | Supervisor | Kebab inline (no absolute), border-l SIEMPRE 4px (transparent fallback), spacing predecible 8pt grid |
+| HK-48 | Kanban: empty states top-aligned con copy neutral-positivo | ✅ | PR #8 / KP-01 (2026-05-09) | Supervisor | Krug 2014: empty state nunca debe requerir scroll para ser visto |
 
 ---
 
