@@ -19,7 +19,17 @@ import { api } from './api/client'
  * breaking auth flow during demos.
  */
 const IS_EXPO_GO = Constants.appOwnership === 'expo'
-const EAS_PROJECT_ID = Constants.expoConfig?.extra?.eas?.projectId as string | undefined
+// EAS projectId — leído en este orden (priorizado para flexibilidad dev/prod):
+//  1. Env var EXPO_PUBLIC_EAS_PROJECT_ID (override por sesión, útil para testing)
+//  2. app.json extra.eas.projectId (canonical — populated by `eas init`)
+// Setup steps (cuando contrates Apple Developer + cuenta Expo):
+//   $ npm i -g eas-cli && eas login
+//   $ cd apps/mobile && eas init    → escribe el projectId en app.json
+//   $ eas build:configure
+//   $ eas build --profile development --platform ios   (development build)
+const ENV_PROJECT_ID = (process.env.EXPO_PUBLIC_EAS_PROJECT_ID || '').trim()
+const CONFIG_PROJECT_ID = ((Constants.expoConfig?.extra?.eas?.projectId as string | undefined) || '').trim()
+const EAS_PROJECT_ID = ENV_PROJECT_ID || CONFIG_PROJECT_ID || undefined
 
 // Notification handler — controls presentation while the app is in the FOREGROUND.
 // When the phone is locked the OS ignores this handler entirely and always shows
@@ -75,15 +85,35 @@ export async function requestNotificationPermissions(): Promise<boolean> {
         importance: Notifications.AndroidImportance.MAX,
         vibrationPattern: [0, 250, 250, 250],
       })
-      // High-priority alarm channel for task:ready events.
-      // bypassDnd: true ensures the alarm rings even in Do Not Disturb mode
-      // (same behavior as alarm clock apps — critical for housekeeping ops).
+      // Canal alarma — task:ready URGENT con overlay tipo SO.
+      // Comportamiento como alarma del despertador:
+      //   - importance MAX → heads-up notification (overlay sobre cualquier app)
+      //   - bypassDnd:true → suena incluso en No molestar
+      //   - lockscreenVisibility PUBLIC → visible en pantalla bloqueada
+      //   - lightColor + showBadge → señales adicionales
+      //   - vibrationPattern aggressive → 500ms on/off, 5 ciclos
+      //
+      // En Android 11+ con USE_FULL_SCREEN_INTENT permission (declarada en
+      // app.json), el SO lanza la activity full-screen incluso con pantalla
+      // bloqueada. AlarmOverlay.tsx ocupa toda la pantalla = comportamiento
+      // alarma despertador.
+      //
+      // Nota iOS: Apple requiere "Critical Alerts" entitlement (apply via
+      // developer.apple.com/contact) para bypass DnD + sonido en silent mode.
+      // Sin él, las notificaciones siguen las reglas estándar (silent → mute).
+      // Con EAS build + entitlement aprobado, Expo soporta payload
+      // `interruption-level: 'critical'` automáticamente.
       await Notifications.setNotificationChannelAsync('task-alarm', {
         name: 'Alarma de tarea',
+        description: 'Notificación urgente cuando una habitación está lista para limpiar',
         importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 500, 300, 500, 300, 500],
+        vibrationPattern: [0, 500, 300, 500, 300, 500, 300, 500],
         enableVibrate: true,
         bypassDnd: true,
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        lightColor: '#EF4444',
+        showBadge: true,
+        sound: 'default',
       })
     }
 

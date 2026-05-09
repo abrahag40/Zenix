@@ -37,7 +37,7 @@ import type {
   DashboardNoShowItemDto,
   FxRateRowDto,
   TickerInsightDto,
-  HousekeepingRole,
+  StaffRole,
 } from '@zenix/shared'
 import {
   localStartOfDay,
@@ -67,7 +67,7 @@ export class DashboardOverviewService {
    */
   async getOverview(
     propertyId: string,
-    actorRole: HousekeepingRole,
+    actorRole: StaffRole,
   ): Promise<DashboardOverviewDto> {
     const settings = await this.prisma.propertySettings.findUnique({
       where: { propertyId },
@@ -255,11 +255,11 @@ export class DashboardOverviewService {
         where: { id: { in: roomIds } },
         select: { id: true, number: true },
       }),
-      this.prisma.housekeepingStaff.findMany({
+      this.prisma.staff.findMany({
         where: { id: { in: requestedIds } },
         select: { id: true, name: true },
       }),
-      this.prisma.housekeepingStaff.findMany({
+      this.prisma.staff.findMany({
         where: { id: { in: approvedIds } },
         select: { id: true, name: true },
       }),
@@ -505,7 +505,7 @@ export class DashboardOverviewService {
 
   private redactGuestName(
     name: string | null,
-    role: HousekeepingRole,
+    role: StaffRole,
   ): string | null {
     if (role === 'HOUSEKEEPER') return null
     return name ?? null
@@ -545,7 +545,7 @@ export class DashboardOverviewService {
 
   private async fetchMovements(
     propertyId: string,
-    actorRole: HousekeepingRole,
+    actorRole: StaffRole,
     kind: 'arrivals' | 'departures',
     todayStart: Date,
     todayEnd: Date,

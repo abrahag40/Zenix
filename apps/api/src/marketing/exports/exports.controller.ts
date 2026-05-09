@@ -20,12 +20,12 @@
 // import { Response } from 'express'
 // import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 // import { Roles } from '../../common/decorators/roles.decorator'
-// import { HousekeepingRole } from '@zenix/shared'
+// import { StaffRole } from '@zenix/shared'
 // import { SegmentsService } from '../segments/segments.service'
 // import { ExportsService } from './exports.service'
 //
 // @UseGuards(JwtAuthGuard)
-// @Roles(HousekeepingRole.SUPERVISOR, HousekeepingRole.MANAGER)
+// @Roles(StaffRole.SUPERVISOR, StaffRole.MANAGER)
 // @Controller('v1/marketing/exports')
 // export class ExportsController {
 //   constructor(

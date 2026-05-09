@@ -26,7 +26,11 @@ const STATUS_CONFIG: Record<RoomStatus, {
     dotColor: 'bg-room-occupied',
   },
   CHECKING_OUT: {
-    label: 'Por salir',
+    // Antes: "Por salir" — confundía con "huésped próximo a salir hoy".
+    // En realidad: el huésped YA salió, el cuarto espera limpieza (transición
+    // post-checkout antes de que housekeeping inicie). Ver §1 CLAUDE.md
+    // (visibility of system status — no ambiguity).
+    label: 'Esperando limpieza',
     className: 'bg-room-checking-out-light text-room-checking-out-dark border-room-checking-out/20',
     dotColor: 'bg-room-checking-out',
   },

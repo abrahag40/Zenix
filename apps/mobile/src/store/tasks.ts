@@ -40,7 +40,11 @@ export const useTaskStore = create<TaskStore>()(
         set({ loading: true })
         try {
           const tasks = await api.get<CleaningTaskDto[]>(
-            '/tasks?status=PENDING,READY,UNASSIGNED,IN_PROGRESS,PAUSED,DONE',
+            // Incluye VERIFIED — la tarea verificada se mantiene visible en
+            // la lista bajo "Finalizadas" con badge "Verificada", en vez de
+            // desaparecer. Cumple Nielsen H1 (visibility of system status):
+            // el housekeeper SIEMPRE sabe qué le pasó a su trabajo del día.
+            '/tasks?status=PENDING,READY,UNASSIGNED,IN_PROGRESS,PAUSED,DONE,VERIFIED',
           )
           set({ tasks, loading: false })
         } catch {

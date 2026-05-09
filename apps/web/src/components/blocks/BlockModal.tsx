@@ -21,7 +21,7 @@ import { useQuery } from '@tanstack/react-query'
 import {
   BlockSemantic,
   BlockReason,
-  HousekeepingRole,
+  StaffRole,
   PropertyType,
   type CreateBlockDto,
   type RoomDto,
@@ -129,7 +129,7 @@ export function BlockModal({
   prefillEndDate,
 }: BlockModalProps) {
   const user         = useAuthStore((s) => s.user)
-  const isSupervisor = user?.role === HousekeepingRole.SUPERVISOR
+  const isSupervisor = user?.role === StaffRole.SUPERVISOR
   const { propertyType } = usePropertySettings()
   const isHotel = propertyType === PropertyType.HOTEL
 

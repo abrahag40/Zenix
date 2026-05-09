@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common'
-import { HousekeepingRole, JwtPayload } from '@zenix/shared'
+import { StaffRole, JwtPayload } from '@zenix/shared'
 import { CurrentUser } from '../common/decorators/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
 import { TenantResource } from '../common/guards/tenant.guard'
@@ -13,7 +13,7 @@ export class CheckoutsController {
 
   /** Individual ad-hoc checkout */
   @Post('checkouts')
-  @Roles(HousekeepingRole.SUPERVISOR, HousekeepingRole.RECEPTIONIST)
+  @Roles(StaffRole.SUPERVISOR, StaffRole.RECEPTIONIST)
   create(@Body() dto: CreateCheckoutDto, @CurrentUser() actor: JwtPayload) {
     return this.service.processCheckout({
       roomId: dto.roomId,
@@ -29,7 +29,7 @@ export class CheckoutsController {
 
   /** Morning batch planning */
   @Post('checkouts/batch')
-  @Roles(HousekeepingRole.SUPERVISOR, HousekeepingRole.RECEPTIONIST)
+  @Roles(StaffRole.SUPERVISOR, StaffRole.RECEPTIONIST)
   batchCheckout(@Body() dto: BatchCheckoutDto, @CurrentUser() actor: JwtPayload) {
     return this.service.batchCheckout(dto, actor.sub, actor.propertyId)
   }
@@ -49,7 +49,7 @@ export class CheckoutsController {
   /** Cancel checkout (guest extended stay) */
   @Patch('checkouts/:id/cancel')
   @TenantResource({ model: 'checkout', paramName: 'id' })
-  @Roles(HousekeepingRole.SUPERVISOR, HousekeepingRole.RECEPTIONIST)
+  @Roles(StaffRole.SUPERVISOR, StaffRole.RECEPTIONIST)
   cancel(@Param('id') id: string, @Body() body: CancelCheckoutDto, @CurrentUser() actor: JwtPayload) {
     return this.service.cancelCheckout(id, actor.propertyId, body.unitId, body.reason)
   }
@@ -71,7 +71,7 @@ export class CheckoutsController {
    */
   @Post('checkouts/:id/undo-depart')
   @TenantResource({ model: 'checkout', paramName: 'id' })
-  @Roles(HousekeepingRole.SUPERVISOR, HousekeepingRole.RECEPTIONIST)
+  @Roles(StaffRole.SUPERVISOR, StaffRole.RECEPTIONIST)
   undoDeparture(
     @Param('id') id: string,
     @CurrentUser() actor: JwtPayload,
@@ -82,7 +82,7 @@ export class CheckoutsController {
 
   @Post('checkouts/:id/depart')
   @TenantResource({ model: 'checkout', paramName: 'id' })
-  @Roles(HousekeepingRole.SUPERVISOR, HousekeepingRole.RECEPTIONIST)
+  @Roles(StaffRole.SUPERVISOR, StaffRole.RECEPTIONIST)
   confirmDeparture(
     @Param('id') id: string,
     @CurrentUser() actor: JwtPayload,

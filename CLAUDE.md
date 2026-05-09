@@ -4,7 +4,7 @@
 > Última actualización: 2026-05-04 (Sprint 8I ✅ Hub Recamarista D14+D12+D18; Sprint 9-HK ✅ backend D14-D18 + EC-3/EC-6 + cleaningStatus aggregation + OperationalOverridesPage; merge con SmartBlock módulo desde main).
 > **Estado de versionado:**
 > - **v1.0.0** (en curso) — siguientes sprints: Mx-1 (Mantenimiento), KP-01 (Kanban), 8J (SettingsPage Recamaristas tab); 8A/8C diferidos a v1.0.x por capital
-> - **v1.1.0** — RBAC UI + partner portal (Diátaxis docs/strategy)
+> - **v1.1.0** — RBAC UI + partner portal (Diátaxis docs/strategy) + **org-tree visualization SuccessFactors-like** (consume `Staff.reportsToId` ya disponible desde Sprint 9 G1)
 > - **v1.2.0** — BI / benchmarks cross-property (k-anonymity, opt-in)
 
 ---
@@ -2627,25 +2627,28 @@ enum StayoverFrequency {
 
 **Por qué configurable:** mercado actual de Zenix es LATAM hostal (default `NEVER`). Onboarding de cliente hotel se cubre cambiando 1 setting. Cumple Bounded Contexts (Evans 2003) — la política es del dominio property, no del módulo housekeeping.
 
-### §55. D15 — `DailyPlanningPage` se renombra a `OperationalOverridesPage` (no se elimina)
+### §55. D15 — Kanban consolida Ajustes del día (revisión Sprint 9 Fase 1)
 
-**Contexto:** análisis identificó que el cron 7 AM cubre el 95% de casos, pero NO cubre 3 escenarios documentados:
+**Versión original (descartada — preserved here as historical reference):**
+> DailyPlanningPage se renombró a OperationalOverridesPage; ambas pantallas
+> (overrides + kanban) coexistirían como vistas paralelas del mismo dominio.
 
-1. **Walk-in con checkout mismo día** — huésped sin reserva previa. No existe en BD a las 7 AM.
-2. **Checkout adelantado anunciado a las 8 AM** — "nos vamos en 1 hora". Cron ya corrió.
-3. **Override manual** — limpieza profunda, cambio total de blancos, tarea ad-hoc.
+**Por qué se revisó:** durante testing E2E del Sprint 9 (2026-05-07) el usuario operativo identificó:
+- Dos entradas de menú para housekeeping ("Ajustes del día" + "Tareas") generan ambigüedad sobre dónde tomar acción
+- Nielsen H4 "Consistency and standards" — un único lugar para acciones operativas
+- Cognitive Load (Sweller 1988) — cada item de menú extra consume slot mental
+- Mews/Cloudbeds tienen UNA sola housekeeping board con filtros + acciones inline; Opera tiene sub-menú único
 
-Cloudbeds eliminó la planificación → quejas documentadas en su community forum sobre "tasks appearing late" (search: "cloudbeds tasks late walk-in").
+**Decisión Sprint 9 Fase 1 (autorizada 2026-05-07):** el `KanbanPage` absorbe las acciones operativas de override:
+- Nueva columna `PENDING` al inicio (esperando salida física) — cubre el caso "ver el día por venir"
+- Botón `✓ Confirmar salida` en cards PENDING → dispara `confirmDeparture` (Fase 2 §4)
+- Botón `+ Tarea ad-hoc` en header → modal para walk-in / late checkout sin reserva
+- Menú contextual `⋯ Opciones` por card: `🔴 Forzar URGENT` + `✨ Limpieza profunda`
+- `/overrides` removido del menú lateral; ruta hace redirect a `/kanban` por 1-2 semanas (deep-links)
 
-**Decisión:** la página existe como **vista read-only auditable** del estado generado por cron + acciones de override:
-- "Forzar URGENT" (delta visual rojo)
-- "Limpieza profunda" (cambia template de checklist)
-- "Crear tarea ad-hoc" (walk-in / late checkout sin reserva previa)
-- "Pausar limpieza" (huésped extiende sin formalizar)
+**OperationalOverridesPage.tsx (1959 líneas) NO se borra** — preservado en `apps/web/src/pages/` por si necesitamos rollback rápido. Eliminar definitivamente cuando la nueva UX se valide en pilot.
 
-**Acceso:** menú lateral "Operación → Ajustes del día" — visible solo para SUPERVISOR/RECEPTIONIST. No es la pantalla principal — ahora la principal es el Kanban (CLAUDE.md decisión Sprint 8H pendiente).
-
-**Cumple:** NN/g H6 "Recognition over recall" (override visible cuando se necesita) + §32 CLAUDE.md "forcing function para mutaciones destructivas" + ergonomía operativa real (no se puede operar sin walk-ins en LATAM).
+**Cumple:** NN/g H4 (consistency) + Sweller (cognitive load) + Hick's Law (menos opciones = decisión más rápida) + Mews/Cloudbeds reference pattern.
 
 ### §56. D16 — Disciplina de Niveles de Notificación (Notification Tier Discipline)
 
@@ -2687,7 +2690,7 @@ Cloudbeds eliminó la planificación → quejas documentadas en su community for
 
 #### EC-1. Walk-in con checkout mismo día
 **Caso:** huésped sin reserva previa que paga 1 noche y se va el mismo día.
-**Decisión:** desde "Ajustes del día" (D15), recepcionista hace "Crear tarea ad-hoc" → genera `GuestStay` con `actualCheckin === scheduledCheckout` (1 día) + dispara `batchCheckout` flow normal. La tarea ya queda PENDING y entra al hub del housekeeper en su próximo refresh.
+**Decisión:** desde "Tareas" (`/kanban`, post-Sprint 9 D15 consolidación), recepcionista hace "+ Tarea ad-hoc" → modal con selector de unit + prioridad + notas → POST `/v1/tasks` crea CleaningTask directamente. La tarea aparece en kanban + dispara SSE → se sincroniza con mobile.
 **SSE:** `task:planned` (ya existe).
 
 #### EC-2. Checkout adelantado anunciado post-cron
@@ -3486,6 +3489,7 @@ export function useSoftLock(roomId: string | null) {
 | HK-35 | Web SettingsPage tab "Recamaristas" (3 sub-tabs) | 📋 | Sprint 8J | Admin | Horarios + Cobertura + Reglas |
 | HK-36 | Reportes de productividad self-vs-self | 📋 | Sprint 8K | Housekeeper | D7 — privacidad legal por diseño |
 | HK-37 | Catálogo ≥30 badges con SVG + animaciones | 📋 | Sprint 8K | Housekeeper | Mekler 2017 — feedback significativo > PBL |
+| HK-38 | `LateCheckoutScheduler` — escalación 2 tiers para checkouts olvidados | ✅ | Sprint 9 (2026-05-08) | Sistema | T1 (60min) → RECEPTIONIST · T2 (180min) → SUPERVISOR. Cron 30min multi-timezone, idempotente per-stay vía `lateCheckoutTier`. AHLEI sec. 4.2 + Mews/Cloudbeds/Marriott SOP. Settings: `lateCheckoutGraceMinutes`, `lateCheckoutEscalationMinutes` |
 
 ---
 

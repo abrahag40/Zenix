@@ -27,8 +27,9 @@ import { schedulingApi, type CreateShiftInput } from '../../api/scheduling.api'
 import {
   CarryoverPolicy,
   Department,
-  HousekeepingRole,
+  StaffRole,
   ShiftExceptionType,
+  StayoverFrequency,
   type PropertySettingsDto,
   type RoomDto,
   type StaffCoverageDto,
@@ -56,7 +57,7 @@ const DAY_LABELS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
 
 export function HousekeepingScheduleSection() {
   const user = useAuthStore((s) => s.user)
-  const isSupervisor = user?.role === HousekeepingRole.SUPERVISOR
+  const isSupervisor = user?.role === StaffRole.SUPERVISOR
   const [searchParams, setSearchParams] = useSearchParams()
   const tab = (searchParams.get('subtab') as SubTab | null) ?? 'shifts'
   const setTab = (key: SubTab) => setSearchParams({ subtab: key }, { replace: true })
@@ -115,7 +116,7 @@ function ShiftsPanel() {
 
   // Show all HOUSEKEEPER-role staff regardless of department (incl. maintenance techs)
   const housekeepers = useMemo(
-    () => (staffQ.data ?? []).filter((s) => s.role === HousekeepingRole.HOUSEKEEPER),
+    () => (staffQ.data ?? []).filter((s) => s.role === StaffRole.HOUSEKEEPER),
     [staffQ.data],
   )
 
@@ -645,7 +646,7 @@ function CoveragePanel() {
   })
 
   const housekeepers = useMemo(
-    () => (staffQ.data ?? []).filter((s) => s.role === HousekeepingRole.HOUSEKEEPER && s.active),
+    () => (staffQ.data ?? []).filter((s) => s.role === StaffRole.HOUSEKEEPER && s.active),
     [staffQ.data],
   )
 
@@ -893,6 +894,8 @@ function RulesPanel() {
     carryoverPolicy:       CarryoverPolicy.REASSIGN_TO_TODAY_SHIFT,
     autoAssignmentEnabled: true,
     shiftClockingRequired: false,
+    // Sprint 9 G2 — limpieza de estadía in-house (D14 / CLAUDE.md §54)
+    stayoverFrequency:     StayoverFrequency.NEVER,
   })
 
   // Hydrate from server when data lands. We track a tiny pristine flag so a
@@ -904,6 +907,9 @@ function RulesPanel() {
       carryoverPolicy:       settingsQ.data.carryoverPolicy ?? CarryoverPolicy.REASSIGN_TO_TODAY_SHIFT,
       autoAssignmentEnabled: settingsQ.data.autoAssignmentEnabled ?? true,
       shiftClockingRequired: settingsQ.data.shiftClockingRequired ?? false,
+      stayoverFrequency:
+        ((settingsQ.data as unknown as { stayoverFrequency?: StayoverFrequency }).stayoverFrequency)
+        ?? StayoverFrequency.NEVER,
     })
     setPristine(false)
   }
@@ -1029,6 +1035,51 @@ function RulesPanel() {
           checked={form.shiftClockingRequired}
           onChange={(v) => setForm({ ...form, shiftClockingRequired: v })}
         />
+      </div>
+
+      {/* Sprint 9 G2 — Limpieza de estadía in-house.
+          AHLEI Sec. 4.2.1: hoteles tradicionales = DAILY. Hostal LATAM
+          (encuesta 2023) = NEVER. Configurable per-property. */}
+      <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-3">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900">
+            Limpieza de estadía (in-house)
+          </h3>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Frecuencia con que las recamaristas limpian habitaciones cuyo huésped
+            sigue alojado (sin checkout planificado). Hotel tradicional: diaria.
+            Hostal LATAM: nunca. Eco-friendly: cada 2-3 días.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {[
+            { value: StayoverFrequency.NEVER,        label: '🚫 Nunca',          hint: 'Solo limpieza de checkout (hostal default)' },
+            { value: StayoverFrequency.DAILY,        label: '📅 Diaria',         hint: 'Hotel tradicional (AHLEI / Marriott / Hilton)' },
+            { value: StayoverFrequency.EVERY_2_DAYS, label: '🌿 Cada 2 días',     hint: 'Eco-friendly (Marriott Bonvoy "Make a Green Choice")' },
+            { value: StayoverFrequency.EVERY_3_DAYS, label: '🌱 Cada 3 días',     hint: 'Extended-stay / hostel premium' },
+            { value: StayoverFrequency.ON_REQUEST,   label: '🤝 A solicitud',    hint: 'Huésped opt-in (Marriott Bonvoy 2022 standard)' },
+          ].map((opt) => (
+            <label
+              key={opt.value}
+              className={`flex items-start gap-2 border rounded-lg p-3 cursor-pointer transition-colors ${
+                form.stayoverFrequency === opt.value
+                  ? 'border-emerald-400 bg-emerald-50'
+                  : 'border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              <input
+                type="radio"
+                checked={form.stayoverFrequency === opt.value}
+                onChange={() => setForm({ ...form, stayoverFrequency: opt.value })}
+                className="mt-0.5"
+              />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-900">{opt.label}</p>
+                <p className="text-[11px] text-gray-500 mt-0.5">{opt.hint}</p>
+              </div>
+            </label>
+          ))}
+        </div>
       </div>
 
       <div className="flex justify-end">

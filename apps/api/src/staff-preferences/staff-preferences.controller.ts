@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Patch } from '@nestjs/common'
-import { HousekeepingRole, JwtPayload } from '@zenix/shared'
+import { StaffRole, JwtPayload } from '@zenix/shared'
 import { CurrentUser } from '../common/decorators/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
 import { StaffPreferencesService } from './staff-preferences.service'
@@ -32,7 +32,7 @@ export class StaffPreferencesController {
   }
 
   @Get('log')
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   getLog(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     return this.service.getLog(id, {
       staffId: user.sub,

@@ -94,7 +94,7 @@ describe('Tenant Isolation (e2e)', () => {
     })
     taskIdOrgA = task.id
 
-    await prisma.housekeepingStaff.create({
+    await prisma.staff.create({
       data: {
         organizationId: orgA.id,
         propertyId: propertyA.id,
@@ -120,7 +120,7 @@ describe('Tenant Isolation (e2e)', () => {
       },
     })
 
-    await prisma.housekeepingStaff.create({
+    await prisma.staff.create({
       data: {
         organizationId: orgB.id,
         propertyId: propertyB.id,
@@ -158,7 +158,7 @@ describe('Tenant Isolation (e2e)', () => {
     await prisma.room.deleteMany({
       where: { organizationId: { in: testOrgIds } },
     })
-    await prisma.housekeepingStaff.deleteMany({
+    await prisma.staff.deleteMany({
       where: { email: { endsWith: '@isolation-test.com' } },
     })
     await prisma.property.deleteMany({

@@ -1,5 +1,5 @@
 import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Matches, Max, Min } from 'class-validator'
-import { CarryoverPolicy } from '@zenix/shared'
+import { CarryoverPolicy, StayoverFrequency } from '@zenix/shared'
 
 export class UpdateSettingsDto {
   @IsOptional()
@@ -39,6 +39,39 @@ export class UpdateSettingsDto {
   morningRosterHour?: number
 
   /**
+   * Hora local (0-23) a la que termina el turno operativo de housekeeping.
+   * Default 20 (8 PM). Si un checkout (regular o early) ocurre a partir de esta
+   * hora, la tarea se programa para el grid de mañana (housekeepers fuera de turno).
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(23)
+  housekeepingEndHour?: number
+
+  /**
+   * Late checkout escalation — Tier 1 (recepción).
+   * Minutos tras scheduledCheckout para notificar a recepción "checkout
+   * pendiente". Default 60min (AHLEI sec. 4.2 + Mews/Cloudbeds standard).
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(720)
+  lateCheckoutGraceMinutes?: number
+
+  /**
+   * Late checkout escalation — Tier 2 (supervisor).
+   * Minutos tras scheduledCheckout para escalar a supervisor URGENT.
+   * Default 180min (3h, Marriott/Hilton SOP). Debe ser > graceMinutes.
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(1440)
+  lateCheckoutEscalationMinutes?: number
+
+  /**
    * Política de carryover de tareas incompletas del día anterior.
    * REASSIGN_TO_TODAY_SHIFT (default) | KEEP_ORIGINAL_ASSIGNEE | ALWAYS_UNASSIGNED.
    */
@@ -55,4 +88,13 @@ export class UpdateSettingsDto {
   @IsOptional()
   @IsBoolean()
   shiftClockingRequired?: boolean
+
+  /**
+   * Sprint 9 G2 — Frecuencia de limpieza de estadía in-house.
+   * Default por PropertyType en factory: HOTEL→DAILY, HOSTAL/VR→NEVER.
+   * Configurable per-property: NEVER | DAILY | EVERY_2_DAYS | EVERY_3_DAYS | ON_REQUEST.
+   */
+  @IsOptional()
+  @IsEnum(StayoverFrequency)
+  stayoverFrequency?: StayoverFrequency
 }

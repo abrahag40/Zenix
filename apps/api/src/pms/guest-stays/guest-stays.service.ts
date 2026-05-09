@@ -13,7 +13,7 @@ import { EmailService } from '../../common/email/email.service'
 import { CreateGuestStayDto } from './dto/create-guest-stay.dto'
 import { MoveRoomDto } from './dto/move-room.dto'
 import type { AvailabilityConflict, RoomAvailabilityResult } from '@zenix/shared'
-import { PaymentMethod, HousekeepingRole, CleaningStatus, TaskLogEvent } from '@zenix/shared'
+import { PaymentMethod, StaffRole, CleaningStatus, TaskLogEvent } from '@zenix/shared'
 import {
   addDays,
   localYMD,
@@ -28,6 +28,8 @@ import { VoidPaymentDto } from './dto/void-payment.dto'
 import { StayJourneyService } from '../stay-journeys/stay-journeys.service'
 import { ChannexGateway } from '../../integrations/channex/channex.gateway'
 import { NotificationCenterService } from '../../notification-center/notification-center.service'
+import { PushService } from '../../notifications/push.service'
+import { NotificationsService } from '../../notifications/notifications.service'
 import { AssignmentService } from '../../assignment/assignment.service'
 
 /** Maps GuestStay.source values to the single-char SRC segment of bookingRef. */
@@ -138,6 +140,8 @@ export class GuestStaysService {
     private readonly channex: ChannexGateway,
     private readonly notifCenter: NotificationCenterService,
     private readonly assignment: AssignmentService,
+    private readonly push: PushService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** Generates a globally unique human-readable booking reference.
@@ -475,25 +479,286 @@ export class GuestStaysService {
     }))
   }
 
+  /**
+   * POST /v1/guest-stays/:id/checkout
+   *
+   * Checkout regular: el huésped sale en su fecha programada o después.
+   *
+   * A diferencia de earlyCheckout():
+   *  - paymentStatus → PAID (estadía completada, sin refund pendiente)
+   *  - No se notifica freedFrom/freedTo a Channex (inventario ya en su última noche)
+   *  - Notificación es INFORMATIONAL (no ACTION_REQUIRED)
+   *
+   * Comparte con earlyCheckout (unificado por decisión de negocio):
+   *  - Crea CleaningTask(READY) — el clic en checkout = confirmación física de salida
+   *    (AHLEI sec. 4.1: "front desk closes checkout = physical departure confirmed")
+   *  - Auto-asigna via AssignmentService según cobertura
+   *  - hasSameDayCheckIn detection automática → priority URGENT si hay nuevo huésped hoy
+   *  - housekeepingEndHour cutoff (default 20): si checkout es post-cutoff, tarea va al
+   *    grid de mañana (housekeepers fuera de turno)
+   *  - Push al asignado + SSE task:ready para tiempo real (calendario, kanban, mobile)
+   */
   async checkout(stayId: string, actorId: string) {
     const orgId = this.tenant.getOrganizationId()
     const stay = await this.prisma.guestStay.findUnique({
       where: { id: stayId, organizationId: orgId },
-      include: { room: { include: { property: true } } },
+      include: {
+        room: {
+          select: {
+            id: true,
+            number: true,
+            units: { select: { id: true } },
+            property: { select: { id: true, settings: true } },
+          },
+        },
+        // Sprint 9 fix — incluir journey + segments activos para cerrarlos.
+        // Sin esto el frontend renderizaba el bloque como ACTIVE aunque
+        // el stay tuviera actualCheckout (issue reportado: botón checkout
+        // seguía activo en bloque del calendario tras procesar checkout).
+        stayJourney: {
+          select: {
+            id: true,
+            segments: {
+              where: { status: { in: ['ACTIVE', 'PENDING'] } },
+              orderBy: { checkIn: 'asc' },
+            },
+          },
+        },
+      },
     })
     if (!stay) throw new NotFoundException()
+    if (stay.actualCheckout) {
+      throw new BadRequestException('El huésped ya realizó checkout')
+    }
+    if (stay.noShowAt) {
+      throw new BadRequestException('No se puede realizar checkout de un no-show')
+    }
 
     const now = new Date()
-    const [updated] = await this.prisma.$transaction([
-      this.prisma.guestStay.update({
+    const tz = stay.room.property.settings?.timezone ?? 'UTC'
+    const localHour = toLocalHour(now, tz)
+    const housekeepingEndHour = stay.room.property.settings?.housekeepingEndHour ?? 20
+
+    // Cutoff de turno HK: si checkout es post-cutoff, la tarea va al grid de mañana.
+    let taskCheckoutAt: Date
+    if (localHour < housekeepingEndHour) {
+      taskCheckoutAt = now
+    } else {
+      const tomorrowLocal = toLocalDate(new Date(now.getTime() + 86_400_000), tz)
+      taskCheckoutAt = new Date(`${tomorrowLocal}T09:00:00.000Z`)
+    }
+
+    // Detección automática de URGENT: ¿hay otra reserva con check-in en la fecha
+    // operativa de la tarea? Usamos taskCheckoutAt (que puede ser hoy o mañana
+    // según housekeepingEndHour), NO `now` — sin esto un checkout post-cutoff
+    // del Día 1 con check-in nuevo el Día 2 no se marcaría URGENT.
+    const taskDateLocal = toLocalDate(taskCheckoutAt, tz)
+    const taskDayStart = new Date(`${taskDateLocal}T00:00:00.000Z`)
+    const taskDayEnd   = new Date(`${taskDateLocal}T23:59:59.999Z`)
+    const sameDayCheckInCount = await this.prisma.guestStay.count({
+      where: {
+        organizationId: orgId,
+        roomId: stay.roomId,
+        actualCheckin: null,
+        noShowAt: null,
+        checkinAt: { gte: taskDayStart, lte: taskDayEnd },
+        id: { not: stayId },
+      },
+    })
+    const hasSameDayCheckIn = sameDayCheckInCount > 0
+    const taskPriority = hasSameDayCheckIn ? 'URGENT' : 'MEDIUM'
+
+    const newCleaningTaskIds: string[] = []
+    const updated = await this.prisma.$transaction(async (tx) => {
+      // 1. Cerrar GuestStay
+      const stayUpdated = await tx.guestStay.update({
         where: { id: stayId },
-        data: { actualCheckout: now, checkedOutById: actorId, paymentStatus: 'PAID' },
-      }),
-      this.prisma.room.update({
+        data: {
+          actualCheckout: now,
+          checkedOutById: actorId,
+          paymentStatus: 'PAID',
+          // Reset late-checkout escalation: una vez que la stay sale del
+          // flujo de "actualCheckout=null", el LateCheckoutScheduler la
+          // excluye automáticamente, pero limpiamos los flags para audit.
+          lateCheckoutTier: 0,
+          lateCheckoutFlaggedAt: null,
+        },
+      })
+
+      // 2. Room status → CHECKING_OUT (housekeeping verá la transición a DIRTY al confirmar limpia)
+      await tx.room.update({
         where: { id: stay.roomId },
         data: { status: 'CHECKING_OUT' },
-      }),
-    ])
+      })
+
+      // 3. Checkout record para HK
+      const checkout = await tx.checkout.create({
+        data: {
+          organizationId: orgId,
+          roomId: stay.roomId,
+          guestName: stay.guestName,
+          actualCheckoutAt: taskCheckoutAt,
+          source: 'MANUAL',
+          isEarlyCheckout: false,
+        },
+      })
+
+      // 4. Por cada unit:
+      //    - Si existe PENDING (creada por cron 7am o por extension/move) → PROMOVER a READY
+      //      preservando audit trail (carryoverFromTaskId, asignación previa, etc.)
+      //    - Si NO existe → crear nueva READY (caso walk-in / super-early sin cron)
+      //    Esto evita duplicados (1 PENDING del cron + 1 READY del checkout endpoint).
+      const scheduledFor = new Date(`${taskCheckoutAt.toISOString().slice(0, 10)}T00:00:00.000Z`)
+      for (const unit of stay.room.units) {
+        const existing = await tx.cleaningTask.findFirst({
+          where: {
+            unitId: unit.id,
+            status: { in: ['PENDING', 'UNASSIGNED'] },
+          },
+          orderBy: { createdAt: 'desc' },
+        })
+
+        if (existing) {
+          // Promover PENDING → READY. Mantiene assignedToId, priority, hasSameDayCheckIn
+          // del cron (que ya hizo auto-assign + URGENT detection en su momento). Solo
+          // actualizamos checkoutId para vincularla a esta salida física.
+          const updated = await tx.cleaningTask.update({
+            where: { id: existing.id },
+            data: {
+              status: 'READY',
+              checkoutId: checkout.id,
+              // Re-evaluar URGENT por si entró un nuevo huésped same-day post-cron
+              priority: hasSameDayCheckIn ? 'URGENT' : existing.priority,
+              hasSameDayCheckIn: hasSameDayCheckIn || existing.hasSameDayCheckIn,
+            },
+          })
+          await tx.taskLog.create({
+            data: {
+              organizationId: orgId,
+              taskId: updated.id,
+              staffId: actorId,
+              event: 'READY',
+              note: 'Salida física confirmada por recepción',
+            },
+          })
+          // No re-asignamos: ya está asignada por el cron. autoAssign() en post-tx
+          // verificará y solo asigna si está sin asignar.
+          newCleaningTaskIds.push(updated.id)
+        } else {
+          // Walk-in o super-early sin pre-population del cron: crear desde cero.
+          const task = await tx.cleaningTask.create({
+            data: {
+              organizationId: orgId,
+              unitId: unit.id,
+              checkoutId: checkout.id,
+              status: 'READY',
+              taskType: 'CLEANING',
+              priority: taskPriority,
+              hasSameDayCheckIn,
+              scheduledFor,
+            },
+          })
+          await tx.taskLog.create({
+            data: { organizationId: orgId, taskId: task.id, staffId: actorId, event: 'CREATED' },
+          })
+          await tx.taskLog.create({
+            data: { organizationId: orgId, taskId: task.id, staffId: actorId, event: 'READY' },
+          })
+          newCleaningTaskIds.push(task.id)
+        }
+      }
+
+      // Sprint 9 fix — cerrar journey + segment activo. Sin esto el frontend
+      // sigue renderizando el bloque como ACTIVE en el calendario aunque el
+      // stay tenga actualCheckout (issue reportado: botón checkout seguía
+      // activo). Mismo patrón que earlyCheckout().
+      if (stay.stayJourney?.id && stay.stayJourney.segments.length > 0) {
+        const activeSegment = stay.stayJourney.segments[stay.stayJourney.segments.length - 1]
+        if (activeSegment && activeSegment.checkOut > now) {
+          // Recortar segmento al momento real de salida (preserva audit del
+          // tiempo real ocupado, ej. late checkout queda registrado).
+          await tx.staySegment.update({
+            where: { id: activeSegment.id },
+            data: { checkOut: now, status: 'COMPLETED' },
+          })
+        } else if (activeSegment) {
+          // Late checkout (now > segment.checkOut original): solo marcar COMPLETED
+          await tx.staySegment.update({
+            where: { id: activeSegment.id },
+            data: { status: 'COMPLETED' },
+          })
+        }
+        await tx.stayJourney.update({
+          where: { id: stay.stayJourney.id },
+          data: { status: 'CHECKED_OUT', journeyCheckOut: now },
+        })
+        await tx.stayJourneyEvent.create({
+          data: {
+            journeyId: stay.stayJourney.id,
+            eventType: 'CHECKED_OUT',
+            actorId,
+            payload: {
+              stayId,
+              checkoutAt: now.toISOString(),
+              source: 'regular_checkout',
+            },
+          },
+        })
+      }
+
+      return stayUpdated
+    })
+
+    // Post-tx: auto-asignar (D10) — fire-and-forget
+    for (const taskId of newCleaningTaskIds) {
+      this.assignment.autoAssign(taskId).catch((err: Error) =>
+        this.logger.warn(`autoAssign failed (checkout) task=${taskId}: ${err.message}`),
+      )
+    }
+
+    // SSE task:ready por cada task — alimenta:
+    //   * AlarmHost mobile (alarmService.show + AlarmOverlay)
+    //   * useRoomSSE web (refresca calendar + kanban en tiempo real)
+    //   * useTasks mobile (refresca lista "Mi día")
+    // Sin esta emisión, mobile solo se entera vía pull-to-refresh.
+    const tasksForPush = await this.prisma.cleaningTask.findMany({
+      where: { id: { in: newCleaningTaskIds } },
+      select: { id: true, assignedToId: true, priority: true, hasSameDayCheckIn: true },
+    })
+    for (const t of tasksForPush) {
+      this.notifications.emit(stay.propertyId, 'task:ready', {
+        taskId: t.id,
+        roomNumber: stay.room.number,
+        unitId: undefined,
+        assignedToId: t.assignedToId,
+        hasSameDayCheckIn: t.hasSameDayCheckIn,
+        priority: t.priority,
+        carryoverFromDate: null,
+      })
+    }
+
+    // Push al staff asignado por cada task READY (D16 — tier 2/2.5).
+    // Si hasSameDayCheckIn → tier 2.5 (URGENT), si no → tier 2 (notification).
+    // El push del SO + alarma in-app dependen del payload `priority` que
+    // el handler de Expo Notifications interpreta en mobile.
+    for (const t of tasksForPush) {
+      if (!t.assignedToId) continue
+      const isUrgent = t.hasSameDayCheckIn || t.priority === 'URGENT'
+      const title = isUrgent
+        ? `🔴 Limpieza URGENTE — Hab. ${stay.room.number}`
+        : `🧹 Lista para limpiar — Hab. ${stay.room.number}`
+      const body = isUrgent
+        ? `Entra nuevo huésped HOY. ${stay.guestName} ya salió.`
+        : `${stay.guestName} salió. Cuarto disponible para limpieza.`
+      this.push.sendToStaff(t.assignedToId, title, body, {
+        type: 'task:ready',
+        taskId: t.id,
+        priority: isUrgent ? 'urgent' : 'high',
+        alarm: true,
+      }).catch((err: Error) =>
+        this.logger.warn(`Push checkout task=${t.id}: ${err?.message}`),
+      )
+    }
 
     this.events.emit('checkout.confirmed', {
       roomId: stay.roomId,
@@ -501,6 +766,22 @@ export class GuestStaysService {
       orgId,
       guestName: stay.guestName,
     })
+
+    void this.notifCenter.send({
+      propertyId:    stay.propertyId,
+      type:          'INFORMATIONAL',
+      category:      'CHECKOUT_COMPLETE',
+      priority:      hasSameDayCheckIn ? 'HIGH' : 'MEDIUM',
+      title:         `Checkout — ${stay.guestName}`,
+      body:          `Hab. ${stay.room.number} liberada. Limpieza ${localHour < housekeepingEndHour ? 'disponible hoy' : 'programada para mañana'}${hasSameDayCheckIn ? ' · 🔴 entra nuevo huésped hoy' : ''}.`,
+      metadata:      { stayId, roomId: stay.roomId, hasSameDayCheckIn },
+      actionUrl:     `/reservations/${stayId}`,
+      recipientType: 'ROLE',
+      recipientRole: 'SUPERVISOR',
+      triggeredById: actorId,
+    }).catch((err: Error) =>
+      this.logger.warn(`[Checkout] notification failed: ${err?.message}`),
+    )
 
     return updated
   }
@@ -524,12 +805,6 @@ export class GuestStaysService {
    */
   async earlyCheckout(stayId: string, actorId: string, notes?: string) {
     const orgId = this.tenant.getOrganizationId()
-
-    // Constante de corte de turno de housekeeping (hora local).
-    // Si el early checkout ocurre ANTES de esta hora, la tarea aparece en el grid de hoy.
-    // Si ocurre DESPUÉS, la tarea queda para el grid de mañana.
-    // TODO(cfg): hacer configurable via PropertySettings.housekeepingEndHour
-    const HOUSEKEEPING_END_HOUR = 20
 
     const stay = await this.prisma.guestStay.findUnique({
       where: { id: stayId, organizationId: orgId },
@@ -572,6 +847,7 @@ export class GuestStaysService {
 
     const tz = stay.room.property.settings?.timezone ?? 'UTC'
     const localHour = toLocalHour(now, tz)
+    const HOUSEKEEPING_END_HOUR = stay.room.property.settings?.housekeepingEndHour ?? 20
 
     // Determinar la fecha del Checkout record para el grid de housekeeping
     let taskCheckoutAt: Date
@@ -585,6 +861,26 @@ export class GuestStaysService {
       taskCheckoutAt = new Date(`${tomorrowLocal}T09:00:00.000Z`)
     }
 
+    // Detección automática de URGENT: ¿hay otra reserva con check-in en la fecha
+    // operativa de la tarea? Usamos taskCheckoutAt (hoy o mañana según cutoff)
+    // — si usáramos `now`, un early-checkout post-cutoff con check-in nuevo
+    // mañana no se marcaría URGENT.
+    const taskDateLocal = toLocalDate(taskCheckoutAt, tz)
+    const taskDayStart = new Date(`${taskDateLocal}T00:00:00.000Z`)
+    const taskDayEnd   = new Date(`${taskDateLocal}T23:59:59.999Z`)
+    const sameDayCheckInCount = await this.prisma.guestStay.count({
+      where: {
+        organizationId: orgId,
+        roomId: stay.roomId,
+        actualCheckin: null,
+        noShowAt: null,
+        checkinAt: { gte: taskDayStart, lte: taskDayEnd },
+        id: { not: stayId },
+      },
+    })
+    const hasSameDayCheckIn = sameDayCheckInCount > 0
+    const taskPriority = hasSameDayCheckIn ? 'URGENT' : 'MEDIUM'
+
     // Transacción principal: actualizar stay + crear housekeeping records
     const newCleaningTaskIds: string[] = []
     await this.prisma.$transaction(async (tx) => {
@@ -595,6 +891,9 @@ export class GuestStaysService {
           actualCheckout: now,
           checkedOutById: actorId,
           // paymentStatus queda PENDING: puede haber reembolso parcial (Sprint 8)
+          // Reset late-checkout escalation flags
+          lateCheckoutTier: 0,
+          lateCheckoutFlaggedAt: null,
         },
       })
 
@@ -617,33 +916,62 @@ export class GuestStaysService {
         },
       })
 
-      // 4. Crear CleaningTask(PENDING) por cada unidad (cama) de la habitación
-      //    Misma lógica que batchCheckout: PENDING porque el housekeeper aún
-      //    debe confirmar salida física (Fase 2 del flujo de 2 fases).
+      // 4. Por cada unit: promover PENDING existente a READY o crear nueva.
+      //    Misma lógica que checkout regular — evita duplicados con cron 7am.
       const scheduledFor = new Date(`${taskCheckoutAt.toISOString().slice(0, 10)}T00:00:00.000Z`)
       for (const unit of stay.room.units) {
-        const task = await tx.cleaningTask.create({
-          data: {
-            organizationId: orgId,
-            unitId: unit.id,
-            checkoutId: checkout.id,
-            status: 'PENDING',
-            taskType: 'CLEANING',
-            priority: 'MEDIUM',
-            hasSameDayCheckIn: false,
-            scheduledFor,
-          },
+        const existing = await tx.cleaningTask.findFirst({
+          where: { unitId: unit.id, status: { in: ['PENDING', 'UNASSIGNED'] } },
+          orderBy: { createdAt: 'desc' },
         })
-        await tx.taskLog.create({
-          data: {
-            organizationId: orgId,
-            taskId: task.id,
-            staffId: actorId,
-            event: 'CREATED',
-            note: `Early checkout registrado${notes ? ` — ${notes}` : ''}`,
-          },
-        })
-        newCleaningTaskIds.push(task.id)
+
+        if (existing) {
+          const updated = await tx.cleaningTask.update({
+            where: { id: existing.id },
+            data: {
+              status: 'READY',
+              checkoutId: checkout.id,
+              priority: hasSameDayCheckIn ? 'URGENT' : existing.priority,
+              hasSameDayCheckIn: hasSameDayCheckIn || existing.hasSameDayCheckIn,
+            },
+          })
+          await tx.taskLog.create({
+            data: {
+              organizationId: orgId,
+              taskId: updated.id,
+              staffId: actorId,
+              event: 'READY',
+              note: `Early checkout — salida física confirmada${notes ? ` (${notes})` : ''}`,
+            },
+          })
+          newCleaningTaskIds.push(updated.id)
+        } else {
+          const task = await tx.cleaningTask.create({
+            data: {
+              organizationId: orgId,
+              unitId: unit.id,
+              checkoutId: checkout.id,
+              status: 'READY',
+              taskType: 'CLEANING',
+              priority: taskPriority,
+              hasSameDayCheckIn,
+              scheduledFor,
+            },
+          })
+          await tx.taskLog.create({
+            data: {
+              organizationId: orgId,
+              taskId: task.id,
+              staffId: actorId,
+              event: 'CREATED',
+              note: `Early checkout registrado${notes ? ` — ${notes}` : ''}`,
+            },
+          })
+          await tx.taskLog.create({
+            data: { organizationId: orgId, taskId: task.id, staffId: actorId, event: 'READY' },
+          })
+          newCleaningTaskIds.push(task.id)
+        }
       }
 
       // 5. Si hay journey activo, recortar el segmento activo a la fecha de hoy
@@ -1875,7 +2203,7 @@ export class GuestStaysService {
    */
   async getMobileList(
     propertyId: string,
-    actorRole: HousekeepingRole,
+    actorRole: StaffRole,
     query: {
       search?: string
       statusFilter?: string[]
@@ -1928,7 +2256,7 @@ export class GuestStaysService {
       else if (arrivesToday)     status = 'UNCONFIRMED'
       else                       status = 'UPCOMING'
 
-      const isRedacted = actorRole === HousekeepingRole.HOUSEKEEPER
+      const isRedacted = actorRole === StaffRole.HOUSEKEEPER
       return {
         id: stay.id,
         guestName: isRedacted ? `Hab. ${stay.room.number}` : stay.guestName,
@@ -1991,7 +2319,7 @@ export class GuestStaysService {
    * Includes payments history and journey audit trail.
    * PII is redacted for HOUSEKEEPER role.
    */
-  async getMobileDetail(stayId: string, actorRole: HousekeepingRole) {
+  async getMobileDetail(stayId: string, actorRole: StaffRole) {
     const stay = await this.prisma.guestStay.findUnique({
       where: { id: stayId },
       include: {
@@ -2030,7 +2358,7 @@ export class GuestStaysService {
     else if (arrivesToday) status = 'UNCONFIRMED'
     else                   status = 'UPCOMING'
 
-    const isRedacted = actorRole === HousekeepingRole.HOUSEKEEPER
+    const isRedacted = actorRole === StaffRole.HOUSEKEEPER
 
     // Resolve actor names for history events
     const actorIds = [
@@ -2042,7 +2370,7 @@ export class GuestStaysService {
     ]
     const actorNames = new Map<string, string>()
     if (actorIds.length > 0) {
-      const actors = await this.prisma.housekeepingStaff.findMany({
+      const actors = await this.prisma.staff.findMany({
         where: { id: { in: actorIds } },
         select: { id: true, name: true },
       })

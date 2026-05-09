@@ -62,9 +62,14 @@ export class StayJourneyService {
     return this.prisma.stayJourney.findMany({
       where: {
         propertyId,
-        // Include NO_SHOW journeys so their segments appear in the calendar as
-        // NS stripe blocks. The frontend filters them when hideNoShows=true.
-        status: { in: ['ACTIVE', 'NO_SHOW'] },
+        // Include CHECKED_OUT journeys so segments de huéspedes que ya hicieron
+        // checkout sigan visibles como bloques DEPARTED en el calendario
+        // (mismo comportamiento que GuestStay con actualCheckout — preserva
+        // contexto histórico, no oculta el bloque).
+        // Include NO_SHOW journeys so their segments appear as NS stripe blocks
+        // (frontend filters them when hideNoShows=true).
+        // Date window filter abajo previene saturar con journeys antiguas.
+        status: { in: ['ACTIVE', 'NO_SHOW', 'CHECKED_OUT'] },
         journeyCheckIn: { lt: to },
         journeyCheckOut: { gt: from },
       },

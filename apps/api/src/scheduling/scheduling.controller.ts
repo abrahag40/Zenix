@@ -8,7 +8,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common'
-import { HousekeepingRole, JwtPayload } from '@zenix/shared'
+import { StaffRole, JwtPayload } from '@zenix/shared'
 import { CurrentUser } from '../common/decorators/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
 import { ShiftsService } from './shifts/shifts.service'
@@ -55,19 +55,19 @@ export class SchedulingController {
   }
 
   @Post('shifts')
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   createShift(@CurrentUser() user: JwtPayload, @Body() dto: CreateShiftDto) {
     return this.shifts.createShift(user.propertyId, dto)
   }
 
   @Patch('shifts/:id')
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   updateShift(@Param('id') id: string, @Body() dto: UpdateShiftDto) {
     return this.shifts.updateShift(id, dto)
   }
 
   @Delete('shifts/:id')
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   deleteShift(@Param('id') id: string) {
     return this.shifts.deleteShift(id)
   }
@@ -84,7 +84,7 @@ export class SchedulingController {
   }
 
   @Post('exceptions')
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   createException(
     @CurrentUser() user: JwtPayload,
     @Body() dto: CreateShiftExceptionDto,
@@ -98,7 +98,7 @@ export class SchedulingController {
    * NO cancela tareas IN_PROGRESS (D11).
    */
   @Post('absences')
-  @Roles(HousekeepingRole.SUPERVISOR, HousekeepingRole.RECEPTIONIST)
+  @Roles(StaffRole.SUPERVISOR, StaffRole.RECEPTIONIST)
   async markAbsence(@CurrentUser() user: JwtPayload, @Body() dto: CreateAbsenceDto) {
     const exception = await this.shifts.markAbsence(user.propertyId, dto, user.sub)
     // Reasignar las tareas elegibles del día — fire-and-forget para no bloquear.
@@ -109,7 +109,7 @@ export class SchedulingController {
   }
 
   @Delete('exceptions/:id')
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   deleteException(@Param('id') id: string) {
     return this.shifts.deleteException(id)
   }
@@ -132,19 +132,19 @@ export class SchedulingController {
   }
 
   @Post('coverage')
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   createCoverage(@CurrentUser() user: JwtPayload, @Body() dto: CreateCoverageDto) {
     return this.coverage.create(user.propertyId, dto)
   }
 
   @Patch('coverage/:id')
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   updateCoverage(@Param('id') id: string, @Body() dto: UpdateCoverageDto) {
     return this.coverage.update(id, dto)
   }
 
   @Delete('coverage/:id')
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   deleteCoverage(@Param('id') id: string) {
     return this.coverage.remove(id)
   }
@@ -167,7 +167,7 @@ export class SchedulingController {
   }
 
   @Get('clock/staff/:staffId')
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   listClocksForStaff(
     @Param('staffId') staffId: string,
     @Query('from') from?: string,
@@ -180,7 +180,7 @@ export class SchedulingController {
   // Útil para testing y disaster recovery (servidor caído durante el cron 7am).
 
   @Post('run-roster')
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   async runRoster(@CurrentUser() user: JwtPayload) {
     return this.roster.runForProperty(user.propertyId, { force: true })
   }
@@ -191,7 +191,7 @@ export class SchedulingController {
    * stayoverFrequency.
    */
   @Post('run-stayover')
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   async runStayover(@CurrentUser() user: JwtPayload) {
     return this.stayover.runForProperty(user.propertyId, { force: true })
   }

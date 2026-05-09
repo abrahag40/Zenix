@@ -8,7 +8,8 @@ import { LoginPage } from './pages/LoginPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { RoomsPage } from './pages/RoomsPage'
 import { RoomsPage as PmsPage } from './modules/rooms/pages/RoomsPage'
-import { OperationalOverridesPage } from './pages/OperationalOverridesPage'
+// OperationalOverridesPage import retirado (Sprint 9 D15) — la página existe
+// en /pages/ pero ya no se enruta. Las acciones se migraron a KanbanPage.
 import { KanbanPage } from './pages/KanbanPage'
 import { CheckoutsPage } from './pages/CheckoutsPage'
 import { ReportsPage } from './pages/ReportsPage'
@@ -62,9 +63,12 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/dashboard"       element={<ProtectedLayout><DashboardPage /></ProtectedLayout>} />
-          <Route path="/overrides"       element={<ProtectedLayout><OperationalOverridesPage /></ProtectedLayout>} />
-          {/* Legacy redirect — old "/planning" now points to overrides (D15) */}
-          <Route path="/planning"        element={<Navigate to="/overrides" replace />} />
+          {/* Sprint 9 D15 consolidación: /overrides y /planning → /kanban.
+              Acciones operativas (confirmar salida, ad-hoc, forzar URGENT,
+              limpieza profunda) viven en kanban. Redirects mantenidos
+              1-2 semanas por deep-links externos. Eliminar después. */}
+          <Route path="/overrides"       element={<Navigate to="/kanban" replace />} />
+          <Route path="/planning"        element={<Navigate to="/kanban" replace />} />
           <Route path="/rooms"           element={<ProtectedLayout><RoomsPage /></ProtectedLayout>} />
           <Route path="/pms"             element={<PmsLayout><PmsPage /></PmsLayout>} />
           <Route path="/kanban"          element={<ProtectedLayout><KanbanPage /></ProtectedLayout>} />

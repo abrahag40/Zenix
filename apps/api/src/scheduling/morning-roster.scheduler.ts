@@ -261,19 +261,61 @@ export class MorningRosterScheduler {
       })
       if (existing) continue
 
+      // Preserva el estado operativo original. Antes hardcodeábamos PENDING,
+      // lo cual era un bug semántico:
+      //   - READY (huésped ya salió, cuarto sucio) → debe seguir READY
+      //   - PENDING (esperando salida) → puede seguir PENDING si stay activo
+      //   - IN_PROGRESS/PAUSED → reset a READY (clean slate, housekeeper
+      //     reanuda desde el inicio del shift, no recupera timer del día anterior)
+      const carryoverStatus =
+        original.status === CleaningStatus.READY
+          ? CleaningStatus.READY
+          : original.status === CleaningStatus.IN_PROGRESS ||
+              original.status === CleaningStatus.PAUSED
+            ? CleaningStatus.READY
+            : CleaningStatus.PENDING
+
+      // Priority semantics (fix issue reportado por usuario):
+      //   URGENT    = checkout + checkin del mismo día (huésped llegando, presión de tiempo)
+      //   HIGH      = importante pero sin presión inmediata (carryover sin same-day checkin)
+      //   MEDIUM    = default (checkout normal del día)
+      //   LOW       = stayover (in-house cleaning)
+      //
+      // Carryover por sí solo NO es URGENT — solo si TAMBIÉN tiene
+      // hasSameDayCheckIn (combinación "doble urgente": ayer no se limpió
+      // Y hoy llega huésped nuevo). Sin huésped llegando, carryover es HIGH.
+      //
+      // IMPORTANTE: re-evaluar hasSameDayCheckIn contra HOY (la fecha de
+      // carryover), no copiar `original.hasSameDayCheckIn` (que fue computado
+      // con datos de ayer). Sin esto, una tarea creada ayer cuando NO había
+      // check-in para hoy se quedaría como HIGH aunque hoy sí haya un huésped
+      // llegando al mismo room — perdiendo la urgencia operativa real.
+      const dayEnd = new Date(localDateMidnightUtc.getTime() + 86_400_000 - 1)
+      const todayCheckinCount = await this.prisma.guestStay.count({
+        where: {
+          roomId: original.unit.roomId,
+          actualCheckin: null,
+          noShowAt: null,
+          checkinAt: { gte: localDateMidnightUtc, lte: dayEnd },
+        },
+      })
+      const hasSameDayCheckIn = todayCheckinCount > 0
+      const carryoverPriority = hasSameDayCheckIn
+        ? Priority.URGENT  // doble: carryover + same-day checkin
+        : Priority.HIGH    // solo carryover: importante pero sin presión de tiempo
+
       await this.prisma.$transaction(async (tx) => {
-        // Crear el clone con priority URGENT y referencia
         const clone = await tx.cleaningTask.create({
           data: {
             organizationId: orgId,
             unitId: original.unitId,
             checkoutId: original.checkoutId,
             assignedToId: null,                     // se reasigna por autoAssign
-            status: CleaningStatus.PENDING,
+            status: carryoverStatus,
             taskType: original.taskType,
             requiredCapability: original.requiredCapability,
-            priority: Priority.URGENT,              // doble prioridad
-            hasSameDayCheckIn: original.hasSameDayCheckIn,
+            priority: carryoverPriority,
+            hasSameDayCheckIn,
             scheduledFor: localDateMidnightUtc,
             carryoverFromDate: original.scheduledFor,
             carryoverFromTaskId: original.id,
@@ -284,9 +326,21 @@ export class MorningRosterScheduler {
             taskId: clone.id,
             staffId: null,
             event: TaskLogEvent.CARRYOVER,
-            note: `from task ${original.id}`,
+            note: `from task ${original.id} (status: ${original.status} → ${carryoverStatus})`,
           },
         })
+        // Si el carryover entró como READY, log explicit READY event para audit
+        // (la tarea ya estaba lista para limpiar desde ayer — preserva trail).
+        if (carryoverStatus === CleaningStatus.READY) {
+          await tx.taskLog.create({
+            data: {
+              taskId: clone.id,
+              staffId: null,
+              event: TaskLogEvent.READY,
+              note: `inherited READY from yesterday's carryover`,
+            },
+          })
+        }
         // Marcar original como CANCELLED con DUPLICATE para no contar dos veces
         await tx.cleaningTask.update({
           where: { id: original.id },

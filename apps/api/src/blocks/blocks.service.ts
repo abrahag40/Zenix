@@ -12,7 +12,7 @@ import {
   BlockSemantic,
   BlockStatus,
   CleaningStatus,
-  HousekeepingRole,
+  StaffRole,
   JwtPayload,
   TaskType,
   Priority,
@@ -93,7 +93,7 @@ export class BlocksService {
     // Solo supervisores pueden crear OOI
     if (
       semantic === BlockSemantic.OUT_OF_INVENTORY &&
-      actor.role !== HousekeepingRole.SUPERVISOR
+      actor.role !== StaffRole.SUPERVISOR
     ) {
       throw new ForbiddenException('Solo los supervisores pueden crear bloqueos OUT_OF_INVENTORY')
     }
@@ -149,7 +149,7 @@ export class BlocksService {
     // OOS + HOUSE_USE creados por SUPERVISOR → auto-aprobados
     const requiresApproval =
       ALWAYS_REQUIRES_APPROVAL.has(semantic) ||
-      actor.role !== HousekeepingRole.SUPERVISOR
+      actor.role !== StaffRole.SUPERVISOR
 
     const initialStatus = requiresApproval ? BlockStatus.PENDING_APPROVAL : BlockStatus.APPROVED
 
@@ -223,7 +223,7 @@ export class BlocksService {
         orgId,
         propertyId,
         `🔒 Solicitud de bloqueo pendiente de aprobación`,
-        `${actor.role === HousekeepingRole.RECEPTIONIST ? 'Recepción' : 'Staff'} solicitó bloquear ${dto.unitId ? 'unidad' : 'habitación'}. Motivo: ${dto.reason}`,
+        `${actor.role === StaffRole.RECEPTIONIST ? 'Recepción' : 'Staff'} solicitó bloquear ${dto.unitId ? 'unidad' : 'habitación'}. Motivo: ${dto.reason}`,
         block.id,
       )
     }
@@ -699,11 +699,11 @@ export class BlocksService {
     body: string,
     blockId: string,
   ) {
-    const supervisors = await this.prisma.housekeepingStaff.findMany({
+    const supervisors = await this.prisma.staff.findMany({
       where: {
         organizationId: orgId,
         propertyId,
-        role: HousekeepingRole.SUPERVISOR,
+        role: StaffRole.SUPERVISOR,
         active: true,
       },
     })

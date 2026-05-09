@@ -359,6 +359,25 @@ function BookingBlockInner({
         role="button"
         tabIndex={0}
         onMouseDown={handleMouseDown}
+        // Fallback: si el navegador / input no dispara mousedown→mouseup naturalmente
+        // (ciertos trackpads, eventos sintéticos, accesibilidad por teclado), el
+        // onClick aquí abre el panel igual. handleMouseDown ya stopPropaga, por lo
+        // que en flujo normal este onClick NO se dispara — solo en el caso edge.
+        onClick={(e) => {
+          // Solo si NO hubo drag y NO se manejó por mousedown
+          if (didDrag.current) return
+          if (mouseDownPos.current === null && !isDragging) {
+            // mousedown no se procesó (caso edge) — abrir panel directamente
+            e.stopPropagation()
+            onClick()
+          }
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onClick()
+          }
+        }}
         data-stay-id={stay.id}
         data-journey-id={stay.journeyId}
         data-segment-id={stay.segmentId}

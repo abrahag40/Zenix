@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common'
-import { HousekeepingRole } from '@zenix/shared'
+import { StaffRole } from '@zenix/shared'
 import { Roles } from '../common/decorators/roles.decorator'
 import { TenantResource } from '../common/guards/tenant.guard'
 import { UnitsService } from './units.service'
@@ -11,7 +11,7 @@ export class UnitsController {
 
   @Post('rooms/:roomId/units')
   @TenantResource({ model: 'room', paramName: 'roomId' })
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   create(@Param('roomId') roomId: string, @Body() dto: CreateUnitDto) {
     return this.service.create(roomId, dto)
   }
@@ -30,14 +30,14 @@ export class UnitsController {
 
   @Patch('units/:id')
   @TenantResource({ model: 'unit', paramName: 'id' })
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   update(@Param('id') id: string, @Body() dto: Partial<CreateUnitDto>) {
     return this.service.update(id, dto)
   }
 
   @Delete('units/:id')
   @TenantResource({ model: 'unit', paramName: 'id' })
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   remove(@Param('id') id: string) {
     return this.service.remove(id)
   }

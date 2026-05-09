@@ -47,7 +47,7 @@ export class ShiftsService {
     }
 
     // Verify staff belongs to property
-    const staff = await this.prisma.housekeepingStaff.findFirst({
+    const staff = await this.prisma.staff.findFirst({
       where: { id: dto.staffId, propertyId, active: true, deletedAt: null },
       select: { id: true },
     })
@@ -109,7 +109,7 @@ export class ShiftsService {
   }
 
   async createException(propertyId: string, dto: CreateShiftExceptionDto, approvedById: string) {
-    const staff = await this.prisma.housekeepingStaff.findFirst({
+    const staff = await this.prisma.staff.findFirst({
       where: { id: dto.staffId, propertyId, active: true, deletedAt: null },
       select: { id: true },
     })

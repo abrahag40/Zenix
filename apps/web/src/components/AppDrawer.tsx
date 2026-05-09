@@ -61,9 +61,15 @@ const NAV: NavItem[] = [
     label: 'Housekeeping',
     defaultOpen: true,
     children: [
-      { to: '/overrides',     icon: '🛠️', label: 'Ajustes del día' },
+      // /overrides ocultado del menú (Sprint 9 — D15 consolidación):
+      // sus acciones operativas (confirmar salida, ad-hoc, forzar URGENT,
+      // limpieza profunda) migradas al kanban. Ruta preservada como redirect
+      // a /kanban por 1-2 semanas para deep-links externos; eliminar después.
       { to: '/kanban',        icon: '🗂️', label: 'Tareas' },
-      { to: '/checkouts',     icon: '🚪', label: 'Checkouts' },
+      // /checkouts ocultado del menú: legacy, duplicado por
+      // ReservationDetailPage (historial) + OperationalOverridesPage (walk-in)
+      // + BookingDetailSheet (early-checkout). Mantener route por 2-3 semanas
+      // por deep-links externos; eliminar después.
       { to: '/discrepancies', icon: '⚠️', label: 'Discrepancias', showDiscrepancyBadge: true },
     ],
   },

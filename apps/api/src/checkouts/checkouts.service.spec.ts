@@ -108,7 +108,7 @@ describe('CheckoutsService', () => {
     unit:            { findMany: jest.fn(), update: jest.fn() },
     cleaningTask:    { findFirst: jest.fn(), findMany: jest.fn(), create: jest.fn(), update: jest.fn() },
     taskLog:         { create: jest.fn() },
-    housekeepingStaff: { findMany: jest.fn() },
+    staff: { findMany: jest.fn() },
     $transaction:    jest.fn((fn) => fn(prismaMock)),
   }
 

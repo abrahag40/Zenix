@@ -3,12 +3,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { api } from '../api/client'
 import type { StaffDto } from '@zenix/shared'
-import { HousekeepingRole, Capability } from '@zenix/shared'
+import { StaffRole, Capability } from '@zenix/shared'
 
-const ROLE_LABELS: Record<HousekeepingRole, string> = {
-  [HousekeepingRole.HOUSEKEEPER]: 'Housekeeper',
-  [HousekeepingRole.SUPERVISOR]: 'Supervisor',
-  [HousekeepingRole.RECEPTIONIST]: 'Recepción',
+const ROLE_LABELS: Record<StaffRole, string> = {
+  [StaffRole.HOUSEKEEPER]: 'Housekeeper',
+  [StaffRole.SUPERVISOR]: 'Supervisor',
+  [StaffRole.RECEPTIONIST]: 'Recepción',
 }
 
 export function StaffPage() {
@@ -75,7 +75,7 @@ export function StaffPage() {
                 <td className="px-4 py-3 text-gray-600">{s.email}</td>
                 <td className="px-4 py-3">
                   <span className="text-xs bg-gray-100 text-gray-700 rounded-full px-2 py-0.5">
-                    {ROLE_LABELS[s.role as HousekeepingRole]}
+                    {ROLE_LABELS[s.role as StaffRole]}
                   </span>
                 </td>
                 <td className="px-4 py-3">
@@ -138,7 +138,7 @@ function StaffForm({
   const [name, setName] = useState(initial?.name ?? '')
   const [email, setEmail] = useState(initial?.email ?? '')
   const [password, setPassword] = useState('')
-  const [role, setRole] = useState<HousekeepingRole>(initial?.role as HousekeepingRole ?? HousekeepingRole.HOUSEKEEPER)
+  const [role, setRole] = useState<StaffRole>(initial?.role as StaffRole ?? StaffRole.HOUSEKEEPER)
   const [capabilities, setCapabilities] = useState<Capability[]>(
     (initial?.capabilities as Capability[]) ?? [Capability.CLEANING],
   )
@@ -189,9 +189,9 @@ function StaffForm({
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">Rol *</label>
-          <select value={role} onChange={(e) => setRole(e.target.value as HousekeepingRole)}
+          <select value={role} onChange={(e) => setRole(e.target.value as StaffRole)}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-            {Object.values(HousekeepingRole).map((r) => (
+            {Object.values(StaffRole).map((r) => (
               <option key={r} value={r}>{ROLE_LABELS[r]}</option>
             ))}
           </select>

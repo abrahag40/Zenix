@@ -17,7 +17,7 @@
  *   varias veces por minuto en horarios pico. Cache opcional puede agregarse después.
  */
 import { Injectable, Logger } from '@nestjs/common'
-import { Capability, HousekeepingRole, OnShiftStaffDto } from '@zenix/shared'
+import { Capability, StaffRole, OnShiftStaffDto } from '@zenix/shared'
 import { PrismaService } from '../prisma/prisma.service'
 
 function toLocalDate(date: Date, timezone: string): string {
@@ -138,7 +138,7 @@ export class AvailabilityQueryService {
       onShift.push({
         staffId: shift.staff.id,
         name: shift.staff.name,
-        role: shift.staff.role as HousekeepingRole,
+        role: shift.staff.role as StaffRole,
         capabilities: shift.staff.capabilities as Capability[],
         shiftStart: shift.startTime,
         shiftEnd: shift.endTime,
@@ -152,7 +152,7 @@ export class AvailabilityQueryService {
         .filter(e => e.type !== 'OFF')
         .map(e => e.staffId)
       if (exceptionStaffIds.length > 0) {
-        const exceptionStaffRows = await this.prisma.housekeepingStaff.findMany({
+        const exceptionStaffRows = await this.prisma.staff.findMany({
           where: {
             id: { in: exceptionStaffIds },
             propertyId,
@@ -174,7 +174,7 @@ export class AvailabilityQueryService {
           onShift.push({
             staffId: staff.id,
             name: staff.name,
-            role: staff.role as HousekeepingRole,
+            role: staff.role as StaffRole,
             capabilities: staff.capabilities as Capability[],
             shiftStart: exc.startTime,
             shiftEnd: exc.endTime,
@@ -249,7 +249,7 @@ export class AvailabilityQueryService {
         result.push({
           staffId: shift.staff.id,
           name: shift.staff.name,
-          role: shift.staff.role as HousekeepingRole,
+          role: shift.staff.role as StaffRole,
           capabilities: shift.staff.capabilities as Capability[],
           shiftStart: exc.startTime,
           shiftEnd: exc.endTime,
@@ -262,7 +262,7 @@ export class AvailabilityQueryService {
       result.push({
         staffId: shift.staff.id,
         name: shift.staff.name,
-        role: shift.staff.role as HousekeepingRole,
+        role: shift.staff.role as StaffRole,
         capabilities: shift.staff.capabilities as Capability[],
         shiftStart: shift.startTime,
         shiftEnd: shift.endTime,
@@ -273,7 +273,7 @@ export class AvailabilityQueryService {
     // Add EXTRA shifts (staff on overtime today)
     const extras = exceptions.filter(e => e.type === 'EXTRA')
     if (extras.length > 0) {
-      const staffRows = await this.prisma.housekeepingStaff.findMany({
+      const staffRows = await this.prisma.staff.findMany({
         where: {
           id: { in: extras.map(e => e.staffId) },
           propertyId,
@@ -293,7 +293,7 @@ export class AvailabilityQueryService {
         result.push({
           staffId: staff.id,
           name: staff.name,
-          role: staff.role as HousekeepingRole,
+          role: staff.role as StaffRole,
           capabilities: staff.capabilities as Capability[],
           shiftStart: exc.startTime,
           shiftEnd: exc.endTime,

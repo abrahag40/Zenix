@@ -27,10 +27,22 @@ export enum CleaningDeferReason {
   GUEST_REQUEST = 'GUEST_REQUEST',
 }
 
-export enum HousekeepingRole {
+export enum StaffRole {
   HOUSEKEEPER = 'HOUSEKEEPER',
   SUPERVISOR = 'SUPERVISOR',
   RECEPTIONIST = 'RECEPTIONIST',
+}
+
+/**
+ * StaffLevel — eje jerárquico ortogonal a Department/StaffRole (Sprint 9 G1).
+ *
+ * Cada Department tiene N COLLABORATORs y 1+ LEADs. El LEAD ejerce autoridad
+ * sobre su área (asignar, aprobar, verificar). Combinado con `Staff.reportsToId`
+ * habilita árbol jerárquico (visualización tipo SuccessFactors) — futuro post-v1.0.
+ */
+export enum StaffLevel {
+  LEAD = 'LEAD',
+  COLLABORATOR = 'COLLABORATOR',
 }
 
 /**

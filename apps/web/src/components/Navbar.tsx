@@ -1,14 +1,14 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/auth'
-import { HousekeepingRole } from '@zenix/shared'
+import { StaffRole } from '@zenix/shared'
 
 const links = [
-  { to: '/rooms', label: 'Habitaciones', roles: [HousekeepingRole.RECEPTIONIST, HousekeepingRole.SUPERVISOR] },
-  { to: '/overrides', label: 'Ajustes del día', roles: [HousekeepingRole.RECEPTIONIST, HousekeepingRole.SUPERVISOR] },
-  { to: '/kanban', label: 'Kanban', roles: [HousekeepingRole.SUPERVISOR] },
-  { to: '/checkouts', label: 'Checkouts', roles: [HousekeepingRole.RECEPTIONIST, HousekeepingRole.SUPERVISOR] },
-  { to: '/staff', label: 'Personal', roles: [HousekeepingRole.SUPERVISOR] },
-  { to: '/maintenance', label: 'Mantenimiento', roles: [HousekeepingRole.SUPERVISOR] },
+  { to: '/rooms', label: 'Habitaciones', roles: [StaffRole.RECEPTIONIST, StaffRole.SUPERVISOR] },
+  { to: '/overrides', label: 'Ajustes del día', roles: [StaffRole.RECEPTIONIST, StaffRole.SUPERVISOR] },
+  { to: '/kanban', label: 'Kanban', roles: [StaffRole.SUPERVISOR] },
+  { to: '/checkouts', label: 'Checkouts', roles: [StaffRole.RECEPTIONIST, StaffRole.SUPERVISOR] },
+  { to: '/staff', label: 'Personal', roles: [StaffRole.SUPERVISOR] },
+  { to: '/maintenance', label: 'Mantenimiento', roles: [StaffRole.SUPERVISOR] },
 ]
 
 export function Navbar() {
@@ -16,7 +16,7 @@ export function Navbar() {
   const location = useLocation()
   const navigate = useNavigate()
 
-  const visibleLinks = links.filter((l) => user && l.roles.includes(user.role as HousekeepingRole))
+  const visibleLinks = links.filter((l) => user && l.roles.includes(user.role as StaffRole))
 
   function handleLogout() {
     logout()

@@ -82,7 +82,7 @@ export class StreakScheduler {
     const yesterdayEnd   = new Date(`${localDate}T00:00:00.000Z`)
 
     // Fetch all staff in this property with at least 1 streak row
-    const staffList = await this.prisma.housekeepingStaff.findMany({
+    const staffList = await this.prisma.staff.findMany({
       where: { propertyId, active: true, deletedAt: null },
       select: { id: true },
     })

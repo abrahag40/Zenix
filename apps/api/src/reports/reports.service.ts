@@ -14,7 +14,7 @@
  *    todos los registros del día sin depender de zonas horarias en el cliente.
  */
 import { Injectable } from '@nestjs/common'
-import { CleaningStatus, HousekeepingRole } from '@zenix/shared'
+import { CleaningStatus, StaffRole } from '@zenix/shared'
 import { SegmentReason } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { Decimal } from '@prisma/client/runtime/library'
@@ -129,8 +129,8 @@ export class ReportsService {
 
     // Una sola query carga todo el personal con sus tareas filtradas por período y estado.
     // Ordenar por createdAt asc es útil para posible análisis cronológico futuro.
-    const staff = await this.prisma.housekeepingStaff.findMany({
-      where: { propertyId, role: HousekeepingRole.HOUSEKEEPER, active: true },
+    const staff = await this.prisma.staff.findMany({
+      where: { propertyId, role: StaffRole.HOUSEKEEPER, active: true },
       select: {
         id: true,
         name: true,

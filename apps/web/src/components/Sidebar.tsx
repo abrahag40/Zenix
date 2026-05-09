@@ -67,10 +67,19 @@ function GlobalTopBar() {
             size="icon"
             className="h-8 w-8 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white"
             aria-label="Nueva reserva"
+            title="Nueva reserva"
+            onClick={() => navigate('/pms?new=1')}
           >
             <Plus className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-600" aria-label="Ir a fecha">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-slate-600"
+            aria-label="Calendario PMS"
+            title="Calendario PMS"
+            onClick={() => navigate('/pms')}
+          >
             <Calendar className="h-4 w-4" />
           </Button>
 

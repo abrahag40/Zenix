@@ -13,14 +13,14 @@
  * find-or-create: si el staff no tiene preferences, se crea on-demand con defaults.
  */
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
-import { GamificationLevel, HousekeepingRole } from '@zenix/shared'
+import { GamificationLevel, StaffRole } from '@zenix/shared'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { UpdateStaffPreferencesDto } from './dto/staff-preferences.dto'
 
 interface ActorContext {
   staffId: string         // actor.sub
-  role: HousekeepingRole
+  role: StaffRole
   propertyId: string
 }
 
@@ -31,7 +31,7 @@ export class StaffPreferencesService {
   async findOrCreate(staffId: string) {
     let prefs = await this.prisma.staffPreferences.findUnique({ where: { staffId } })
     if (!prefs) {
-      const staff = await this.prisma.housekeepingStaff.findUnique({
+      const staff = await this.prisma.staff.findUnique({
         where: { id: staffId },
         select: { id: true },
       })
@@ -43,12 +43,12 @@ export class StaffPreferencesService {
 
   async getForStaff(staffId: string, actor: ActorContext) {
     // Authorization: owner OR supervisor in same property
-    if (actor.staffId !== staffId && actor.role !== HousekeepingRole.SUPERVISOR) {
+    if (actor.staffId !== staffId && actor.role !== StaffRole.SUPERVISOR) {
       throw new ForbiddenException('Cannot read preferences of another staff member')
     }
-    if (actor.role === HousekeepingRole.SUPERVISOR && actor.staffId !== staffId) {
+    if (actor.role === StaffRole.SUPERVISOR && actor.staffId !== staffId) {
       // Verify staff belongs to supervisor's property
-      const target = await this.prisma.housekeepingStaff.findUnique({
+      const target = await this.prisma.staff.findUnique({
         where: { id: staffId },
         select: { propertyId: true },
       })
@@ -66,14 +66,14 @@ export class StaffPreferencesService {
    */
   async update(staffId: string, dto: UpdateStaffPreferencesDto, actor: ActorContext) {
     // Validate target staff exists + belongs to actor's property (if supervisor)
-    const target = await this.prisma.housekeepingStaff.findUnique({
+    const target = await this.prisma.staff.findUnique({
       where: { id: staffId },
       select: { id: true, propertyId: true },
     })
     if (!target) throw new NotFoundException('Staff not found')
 
     const isOwner = actor.staffId === staffId
-    const isSupervisor = actor.role === HousekeepingRole.SUPERVISOR
+    const isSupervisor = actor.role === StaffRole.SUPERVISOR
 
     if (!isOwner && !isSupervisor) {
       throw new ForbiddenException('Cannot update preferences of another staff member')
@@ -151,10 +151,10 @@ export class StaffPreferencesService {
 
   /** Audit log query — supervisor only. */
   async getLog(staffId: string, actor: ActorContext) {
-    if (actor.role !== HousekeepingRole.SUPERVISOR) {
+    if (actor.role !== StaffRole.SUPERVISOR) {
       throw new ForbiddenException('Only supervisors can read preference change logs')
     }
-    const target = await this.prisma.housekeepingStaff.findUnique({
+    const target = await this.prisma.staff.findUnique({
       where: { id: staffId },
       select: { propertyId: true },
     })

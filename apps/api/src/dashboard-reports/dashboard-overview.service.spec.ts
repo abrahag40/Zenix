@@ -37,7 +37,7 @@ function makePrismaMock(overrides: Record<string, any> = {}) {
       count: jest.fn().mockResolvedValue(0),
       findMany: jest.fn().mockResolvedValue([]),
     },
-    housekeepingStaff: {
+    staff: {
       findMany: jest.fn().mockResolvedValue([]),
     },
     ...overrides,
@@ -131,7 +131,7 @@ describe('DashboardOverviewService', () => {
       },
     ])
     prisma.room.findMany.mockResolvedValue([{ id: 'r1', number: '105' }])
-    prisma.housekeepingStaff.findMany
+    prisma.staff.findMany
       .mockResolvedValueOnce([{ id: 'staff-1', name: 'Carlos R.' }])
       .mockResolvedValueOnce([{ id: 'staff-2', name: 'Ana G.' }])
 

@@ -26,16 +26,24 @@ export class NotificationsService {
 
   emit<T>(propertyId: string, type: SseEventType, data: T) {
     const event: SseEvent<T> = { type, data }
-    const payload = `data: ${JSON.stringify(event)}\n\n`
+    // Formato SSE estándar W3C: incluir `event: <type>` ANTES de `data:`.
+    // Sin esto, el cliente dispatch como 'message' genérico, lo cual rompe
+    // listeners nombrados (web useSSE ALL_SSE_TYPES, mobile useSSE idem).
+    // Antes solo escribíamos `data:` → web funcionaba por fallback 'message'
+    // pero mobile no recibía el evento de manera reconocible.
+    const payload = `event: ${type}\ndata: ${JSON.stringify(event)}\n\n`
 
+    let delivered = 0
     for (const client of this.clients) {
       if (client.propertyId === propertyId) {
         try {
           client.res.write(payload)
+          delivered++
         } catch {
           this.clients.delete(client)
         }
       }
     }
+    this.logger.debug(`SSE emit ${type} → property ${propertyId}: ${delivered}/${this.clients.size} clients`)
   }
 }

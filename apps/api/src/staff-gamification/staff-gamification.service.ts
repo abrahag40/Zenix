@@ -97,15 +97,51 @@ export class StaffGamificationService {
       where: { staffId_date: { staffId: targetStaffId, date: dateObj } },
     })
 
-    // Defaults: 6 tasks · 240 min · 4 verified — adjustable per-property
-    // in Sprint 9+. For Sprint 8I-J these are sane operational averages.
-    const tasksTarget = row?.tasksTarget ?? 6
+    // Target dinámico: si no hay configuración explícita en la BD, calcula
+    // tareas asignadas al staff para el día → refleja la realidad operativa
+    // (NO una meta arbitraria). Antes era hardcoded 6 que confundía a las
+    // recamaristas con 3 tareas reales ("5 pendientes" cuando solo había 2).
+    let dynamicTasksTarget = row?.tasksTarget
+    if (dynamicTasksTarget == null) {
+      const dateNext = new Date(dateObj.getTime() + 86_400_000)
+      const assignedToday = await this.prisma.cleaningTask.count({
+        where: {
+          assignedToId: targetStaffId,
+          scheduledFor: { gte: dateObj, lt: dateNext },
+          status: { notIn: ['CANCELLED'] },
+        },
+      })
+      // Si no hay tareas asignadas hoy, target=0 (UI muestra "Día completo" o similar)
+      dynamicTasksTarget = assignedToday
+    }
+    const tasksTarget = dynamicTasksTarget
     const minutesTarget = row?.minutesTarget ?? 240
-    const verifiedTarget = row?.verifiedTarget ?? 4
+    const verifiedTarget = row?.verifiedTarget ?? Math.max(1, Math.floor(tasksTarget * 0.7))
 
-    const tasks = row?.tasksCompleted ?? 0
+    // tasksCompleted: si no hay row aún, derivar de CleaningTask (DONE/VERIFIED hoy)
+    let tasks = row?.tasksCompleted
+    if (tasks == null) {
+      const dateNext = new Date(dateObj.getTime() + 86_400_000)
+      tasks = await this.prisma.cleaningTask.count({
+        where: {
+          assignedToId: targetStaffId,
+          scheduledFor: { gte: dateObj, lt: dateNext },
+          status: { in: ['DONE', 'VERIFIED'] },
+        },
+      })
+    }
     const minutes = row?.totalCleaningMinutes ?? 0
-    const verified = row?.tasksVerified ?? 0
+    let verified = row?.tasksVerified
+    if (verified == null) {
+      const dateNext = new Date(dateObj.getTime() + 86_400_000)
+      verified = await this.prisma.cleaningTask.count({
+        where: {
+          assignedToId: targetStaffId,
+          scheduledFor: { gte: dateObj, lt: dateNext },
+          status: 'VERIFIED',
+        },
+      })
+    }
 
     const safePct = (v: number, t: number) =>
       t === 0 ? 0 : Math.min(100, Math.round((v / t) * 100))

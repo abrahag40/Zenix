@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import { CleaningStatus, CleaningDeferReason, HousekeepingRole, JwtPayload, TaskLogEvent } from '@zenix/shared'
+import { CleaningStatus, CleaningDeferReason, StaffRole, JwtPayload, TaskLogEvent } from '@zenix/shared'
 import { PrismaService } from '../prisma/prisma.service'
 import { TenantContextService } from '../common/tenant-context.service'
 import { NotificationsService } from '../notifications/notifications.service'
@@ -37,7 +37,7 @@ export class TasksService {
     if (!unit) throw new NotFoundException('Unit not found')
 
     if (dto.assignedToId) {
-      const staff = await this.prisma.housekeepingStaff.findUnique({
+      const staff = await this.prisma.staff.findUnique({
         where: { id: dto.assignedToId, organizationId: orgId },
       })
       if (!staff || !staff.active) throw new NotFoundException('Staff not found or inactive')
@@ -79,7 +79,7 @@ export class TasksService {
     const where: any = { organizationId: orgId, unit: { room: { propertyId: actor.propertyId } } }
 
     // Housekeepers only see their own tasks
-    if (actor.role === HousekeepingRole.HOUSEKEEPER) {
+    if (actor.role === StaffRole.HOUSEKEEPER) {
       where.assignedToId = actor.sub
     } else if (query.assignedToId) {
       where.assignedToId = query.assignedToId
@@ -97,6 +97,25 @@ export class TasksService {
     // Filtro scheduledFor (Sprint 8H — mobile roster diario)
     if (query.scheduledFor) {
       where.scheduledFor = new Date(`${query.scheduledFor}T00:00:00.000Z`)
+    }
+
+    // Filtro auto: VERIFIED solo se muestra si verificada HOY.
+    // Razón: VERIFIED es estado terminal (loop cerrado). Una tarea verificada
+    // ayer no debe aparecer hoy en "Mi día" del housekeeper — genera ruido
+    // visual. Otros estados (PENDING, READY, IN_PROGRESS, PAUSED, DONE,
+    // CANCELLED) se mantienen para carryover natural via `carryoverFromDate`.
+    // SUPERVISOR queries sin scheduledFor explícito ven todo (audit trail).
+    if (!query.scheduledFor && actor.role === StaffRole.HOUSEKEEPER) {
+      const todayLocal = new Date().toISOString().slice(0, 10)
+      const todayStart = new Date(`${todayLocal}T00:00:00.000Z`)
+      where.AND = [
+        {
+          OR: [
+            { status: { not: CleaningStatus.VERIFIED } },
+            { verifiedAt: { gte: todayStart } },
+          ],
+        },
+      ]
     }
 
     /**
@@ -145,14 +164,14 @@ export class TasksService {
 
     // Only the assigned housekeeper (or a supervisor) can start the task
     if (
-      actor.role === HousekeepingRole.HOUSEKEEPER &&
+      actor.role === StaffRole.HOUSEKEEPER &&
       task.assignedToId !== actor.sub
     ) {
       throw new ForbiddenException('You are not assigned to this task')
     }
 
     // Prevent starting if housekeeper already has an IN_PROGRESS task
-    if (actor.role === HousekeepingRole.HOUSEKEEPER) {
+    if (actor.role === StaffRole.HOUSEKEEPER) {
       const activeTask = await this.prisma.cleaningTask.findFirst({
         where: { assignedToId: actor.sub, status: CleaningStatus.IN_PROGRESS, organizationId: orgId },
       })
@@ -178,6 +197,14 @@ export class TasksService {
 
       // Update unit status to CLEANING
       await tx.unit.update({ where: { id: task.unitId }, data: { status: 'CLEANING' } })
+
+      // Sync room.status (CHECKING_OUT → CLEANING) — calendar y kanban muestran
+      // "En limpieza" en tiempo real. Sin esto, el cuarto se queda en
+      // "Esperando limpieza" indefinidamente aunque housekeeper ya esté trabajando.
+      await tx.room.update({
+        where: { id: task.unit.roomId },
+        data: { status: 'CLEANING' },
+      })
 
       return updated
     })
@@ -207,7 +234,7 @@ export class TasksService {
       throw new ConflictException(`Cannot end task with status: ${task.status}`)
     }
 
-    if (actor.role === HousekeepingRole.HOUSEKEEPER && task.assignedToId !== actor.sub) {
+    if (actor.role === StaffRole.HOUSEKEEPER && task.assignedToId !== actor.sub) {
       throw new ForbiddenException('You are not assigned to this task')
     }
 
@@ -237,6 +264,13 @@ export class TasksService {
 
       // Unit is now AVAILABLE (clean)
       await tx.unit.update({ where: { id: task.unitId }, data: { status: 'AVAILABLE' } })
+
+      // Sync room.status (CLEANING → INSPECTION) — esperando verificación del
+      // supervisor. Cuando supervisor verifica (verifyTask), pasa a AVAILABLE.
+      await tx.room.update({
+        where: { id: task.unit.roomId },
+        data: { status: 'INSPECTION' },
+      })
 
       return updated
     })
@@ -293,7 +327,7 @@ export class TasksService {
     if (task.status !== CleaningStatus.IN_PROGRESS) {
       throw new ConflictException('Can only pause an in-progress task')
     }
-    if (actor.role === HousekeepingRole.HOUSEKEEPER && task.assignedToId !== actor.sub) {
+    if (actor.role === StaffRole.HOUSEKEEPER && task.assignedToId !== actor.sub) {
       throw new ForbiddenException('You are not assigned to this task')
     }
 
@@ -329,14 +363,14 @@ export class TasksService {
     if (task.status !== CleaningStatus.PAUSED) {
       throw new ConflictException('Can only resume a paused task')
     }
-    if (actor.role === HousekeepingRole.HOUSEKEEPER && task.assignedToId !== actor.sub) {
+    if (actor.role === StaffRole.HOUSEKEEPER && task.assignedToId !== actor.sub) {
       throw new ForbiddenException('You are not assigned to this task')
     }
 
     // Same guard as startTask: a housekeeper cannot have two IN_PROGRESS tasks.
     // Resuming a PAUSED task moves it to IN_PROGRESS, which would violate the
     // single-active-task invariant if another task is already in progress.
-    if (actor.role === HousekeepingRole.HOUSEKEEPER) {
+    if (actor.role === StaffRole.HOUSEKEEPER) {
       const activeTask = await this.prisma.cleaningTask.findFirst({
         where: { assignedToId: actor.sub, status: CleaningStatus.IN_PROGRESS, organizationId: orgId },
       })
@@ -383,6 +417,14 @@ export class TasksService {
         include: TASK_INCLUDE,
       })
       await tx.taskLog.create({ data: { taskId, staffId: actor.sub, event: TaskLogEvent.VERIFIED } })
+
+      // Sync room.status (INSPECTION → AVAILABLE) — el cuarto vuelve al
+      // inventario vendible. Calendar y kanban reflejan disponibilidad real.
+      await tx.room.update({
+        where: { id: task.unit.roomId },
+        data: { status: 'AVAILABLE' },
+      })
+
       return updated
     })
 
@@ -411,6 +453,89 @@ export class TasksService {
   }
 
   /**
+   * Sprint 9 G1 — Rechazo de inspección.
+   *
+   * Cuando el supervisor encuentra que la limpieza no cumple estándar,
+   * rechaza la tarea: DONE → READY. El housekeeper recibe push de aviso
+   * y tiene que limpiar de nuevo. Audit trail con razón obligatoria.
+   *
+   * Industry standard (Mews/Opera/Cloudbeds): "Failed Inspection".
+   * AHLEI sec. 4.4 *Quality Inspection Cycle*.
+   */
+  async rejectTask(taskId: string, reason: string, actor: JwtPayload) {
+    if (!reason || reason.trim().length < 5) {
+      throw new ConflictException('La razón del rechazo es obligatoria (mín. 5 caracteres)')
+    }
+    const orgId = this.tenant.getOrganizationId()
+    const task = await this.prisma.cleaningTask.findUnique({
+      where: { id: taskId, organizationId: orgId },
+      include: { unit: { include: { room: { include: { property: true } } } } },
+    })
+    if (!task) throw new NotFoundException('Task not found')
+    if (task.status !== CleaningStatus.DONE) {
+      throw new ConflictException('Solo se pueden rechazar tareas en estado DONE')
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Devolver a READY — housekeeper limpia de nuevo. Mantener assignedToId
+      // (re-trabajo va al mismo housekeeper) salvo que el supervisor lo reasigne.
+      const updated = await tx.cleaningTask.update({
+        where: { id: taskId },
+        data: {
+          status: CleaningStatus.READY,
+          finishedAt: null,         // resetea timer del intento previo
+        },
+        include: TASK_INCLUDE,
+      })
+      await tx.taskLog.create({
+        data: {
+          taskId,
+          staffId: actor.sub,
+          event: TaskLogEvent.READY,
+          note: `🔄 Rechazada por supervisor: ${reason}`,
+        },
+      })
+      // Room vuelve a CLEANING (no INSPECTION — la inspección falló).
+      await tx.room.update({
+        where: { id: task.unit.roomId },
+        data: { status: 'CLEANING' },
+      })
+      // Unit DIRTY otra vez
+      await tx.unit.update({
+        where: { id: task.unitId },
+        data: { status: 'DIRTY' },
+      })
+      return updated
+    })
+
+    // SSE — kanban + mobile reaccionan en tiempo real
+    this.notifications.emit(task.unit.room.property.id, 'task:ready', {
+      taskId,
+      unitId: task.unitId,
+      roomId: task.unit.roomId,
+      roomNumber: task.unit.room.number,
+      assignedToId: task.assignedToId,
+      rejectedBy: actor.sub,
+      rejectionReason: reason,
+    })
+
+    // Push al housekeeper — debe re-trabajar el cuarto
+    if (task.assignedToId) {
+      this.push.sendToStaff(
+        task.assignedToId,
+        `🔄 Limpieza rechazada — Hab. ${task.unit.room.number}`,
+        `Supervisor pide re-limpiar. Razón: ${reason}`,
+        { type: 'task:rejected', taskId, alarm: true, priority: 'high' },
+      ).catch((err: Error) =>
+        // eslint-disable-next-line no-console
+        console.warn(`Push reject task=${taskId}: ${err?.message}`),
+      )
+    }
+
+    return result
+  }
+
+  /**
    * EC-6 (CLAUDE.md §58) — Skip-and-retry para casos AHLEI Sec. 4.3.
    *
    * El housekeeper toca y nadie responde, o el chip "no molestar" está
@@ -433,7 +558,7 @@ export class TasksService {
 
     // Permisos: housekeeper asignado o supervisor
     const isOwner = task.assignedToId === actor.sub
-    const isSupervisor = actor.role === HousekeepingRole.SUPERVISOR
+    const isSupervisor = actor.role === StaffRole.SUPERVISOR
     if (!isOwner && !isSupervisor) {
       throw new ForbiddenException('Only the assigned housekeeper or a supervisor can defer this task')
     }
@@ -488,7 +613,7 @@ export class TasksService {
         deferredCount: newCount,
       })
       // Notif tier-2.5 al supervisor (push) — acción manual requerida
-      const supervisors = await this.prisma.housekeepingStaff.findMany({
+      const supervisors = await this.prisma.staff.findMany({
         where: { propertyId, organizationId: orgId, role: 'SUPERVISOR', active: true },
         select: { id: true },
       })
@@ -899,7 +1024,7 @@ export class TasksService {
       throw new ConflictException('Cannot assign a completed or cancelled task')
     }
 
-    const staff = await this.prisma.housekeepingStaff.findUnique({
+    const staff = await this.prisma.staff.findUnique({
       where: { id: dto.assignedToId, organizationId: orgId },
     })
     if (!staff || !staff.active) throw new NotFoundException('Staff not found or inactive')

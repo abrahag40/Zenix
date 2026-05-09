@@ -51,8 +51,22 @@ export class SettingsService {
     if (!settings) {
       const property = await this.prisma.property.findUnique({ where: { id: propertyId } })
       if (!property) throw new NotFoundException('Property not found')
+      // D14 (CLAUDE.md §54) — default stayoverFrequency por PropertyType:
+      //   HOTEL/BOUTIQUE/GLAMPING/ECO_LODGE → DAILY (estándar AHLEI/Marriott)
+      //   HOSTAL → NEVER (encuesta LATAM 2023: 87% no limpian stayovers)
+      //   VACATION_RENTAL → NEVER (solo limpieza pre-checkout)
+      // El schema tiene @default(NEVER) pero ese default es inadecuado para
+      // HOTEL — sobrescribir aquí en la creación.
+      const isHotel =
+        property.type === 'HOTEL' ||
+        property.type === 'BOUTIQUE' ||
+        property.type === 'GLAMPING' ||
+        property.type === 'ECO_LODGE'
       settings = await this.prisma.propertySettings.create({
-        data: { propertyId },
+        data: {
+          propertyId,
+          stayoverFrequency: isHotel ? 'DAILY' : 'NEVER',
+        },
         include,
       })
     }

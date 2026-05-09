@@ -28,7 +28,7 @@ describe('MorningRosterScheduler', () => {
       create: jest.fn(),
       update: jest.fn(),
     },
-    guestStay: { findMany: jest.fn() },
+    guestStay: { findMany: jest.fn(), count: jest.fn() },
     taskLog: { create: jest.fn() },
     $transaction: jest.fn((fn) => fn(prismaMock)),
   }
@@ -57,6 +57,7 @@ describe('MorningRosterScheduler', () => {
     prismaMock.cleaningTask.findMany.mockResolvedValue([])
     prismaMock.cleaningTask.findFirst.mockResolvedValue(null)
     prismaMock.guestStay.findMany.mockResolvedValue([])
+    prismaMock.guestStay.count.mockResolvedValue(0)
   })
 
   // ── Idempotencia / hora ──────────────────────────────────────────────────
@@ -125,7 +126,7 @@ describe('MorningRosterScheduler', () => {
   // ── Carryover ────────────────────────────────────────────────────────────
 
   describe('processCarryover', () => {
-    it('clona tareas incompletas de ayer con priority URGENT y carryoverFromTaskId', async () => {
+    it('clona tareas incompletas de ayer con priority HIGH (sin same-day) y carryoverFromTaskId', async () => {
       prismaMock.propertySettings.findUnique.mockResolvedValue({
         propertyId: 'p1',
         timezone: 'UTC',
@@ -160,11 +161,14 @@ describe('MorningRosterScheduler', () => {
       const result = await scheduler.runForProperty('p1')
 
       expect(result.carryoverTasks).toBe(1)
+      // Sprint 9 fix — carryover sin hasSameDayCheckIn = HIGH (no URGENT).
+      // URGENT reservado para combinación carryover + same-day checkin
+      // (ver test "marca priority URGENT cuando hay same-day check-in").
       expect(prismaMock.cleaningTask.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             unitId: 'u1',
-            priority: 'URGENT',
+            priority: 'HIGH',
             carryoverFromTaskId: 'old-task',
             carryoverFromDate: yesterday,
             status: 'PENDING',
@@ -178,6 +182,49 @@ describe('MorningRosterScheduler', () => {
           data: expect.objectContaining({
             status: 'CANCELLED',
             cancelledReason: 'DUPLICATE',
+          }),
+        }),
+      )
+      jest.useRealTimers()
+    })
+
+    it('re-evalúa hasSameDayCheckIn contra HOY: tarea de ayer (sin same-day) → URGENT si hoy hay check-in en el mismo room', async () => {
+      // Bug fix: antes copiábamos original.hasSameDayCheckIn (computed ayer).
+      // Ahora re-query para hoy. Escenario: ayer no había check-in nuevo, hoy sí.
+      prismaMock.propertySettings.findUnique.mockResolvedValue({
+        propertyId: 'p1',
+        timezone: 'UTC',
+        morningRosterHour: 7,
+        morningRosterDate: null,
+        carryoverPolicy: 'REASSIGN_TO_TODAY_SHIFT',
+        autoAssignmentEnabled: true,
+        property: { isActive: true, organizationId: 'org-1' },
+      })
+
+      prismaMock.cleaningTask.findMany.mockResolvedValueOnce([
+        {
+          id: 'old-task', unitId: 'u1', checkoutId: null,
+          taskType: 'CLEANING', requiredCapability: 'CLEANING',
+          hasSameDayCheckIn: false,                       // ayer: NO había same-day
+          scheduledFor: new Date('2026-04-28T00:00:00Z'),
+          unit: { id: 'u1', roomId: 'r1' }, checkout: null,
+        },
+      ])
+      prismaMock.cleaningTask.findFirst.mockResolvedValue(null)
+      prismaMock.cleaningTask.create.mockResolvedValue({ id: 'new-task' })
+      prismaMock.cleaningTask.update.mockResolvedValue({})
+      prismaMock.taskLog.create.mockResolvedValue({})
+      // Hoy SÍ hay check-in nuevo en el room → re-eval lo detecta
+      prismaMock.guestStay.count.mockResolvedValue(1)
+
+      jest.useFakeTimers().setSystemTime(new Date('2026-04-29T08:00:00Z'))
+      await scheduler.runForProperty('p1')
+
+      expect(prismaMock.cleaningTask.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            priority: 'URGENT',                            // re-evaluado: doble urgente
+            hasSameDayCheckIn: true,
           }),
         }),
       )

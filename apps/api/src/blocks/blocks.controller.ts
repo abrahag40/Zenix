@@ -7,7 +7,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common'
-import { BlockSemantic, BlockStatus, HousekeepingRole, JwtPayload } from '@zenix/shared'
+import { BlockSemantic, BlockStatus, StaffRole, JwtPayload } from '@zenix/shared'
 import { CurrentUser } from '../common/decorators/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
@@ -32,7 +32,7 @@ export class BlocksController {
    * Solo SUPERVISOR puede crear OOI.
    */
   @Post()
-  @Roles(HousekeepingRole.RECEPTIONIST, HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.RECEPTIONIST, StaffRole.SUPERVISOR)
   create(@Body() dto: CreateBlockDto, @CurrentUser() actor: JwtPayload) {
     return this.service.createBlock(dto, actor)
   }
@@ -44,7 +44,7 @@ export class BlocksController {
    * "check-availability" como un param dinámico.
    */
   @Get('check-availability')
-  @Roles(HousekeepingRole.RECEPTIONIST, HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.RECEPTIONIST, StaffRole.SUPERVISOR)
   checkAvailability(
     @CurrentUser() actor: JwtPayload,
     @Query('roomId') roomId: string,
@@ -59,7 +59,7 @@ export class BlocksController {
    * Listar bloqueos de la propiedad con filtros opcionales.
    */
   @Get()
-  @Roles(HousekeepingRole.RECEPTIONIST, HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.RECEPTIONIST, StaffRole.SUPERVISOR)
   findAll(
     @CurrentUser() actor: JwtPayload,
     @Query('status') status?: BlockStatus,
@@ -75,7 +75,7 @@ export class BlocksController {
    * Detalle de un bloqueo con historial completo.
    */
   @Get(':id')
-  @Roles(HousekeepingRole.RECEPTIONIST, HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.RECEPTIONIST, StaffRole.SUPERVISOR)
   findOne(@Param('id') id: string, @CurrentUser() actor: JwtPayload) {
     return this.service.findOne(id, actor)
   }
@@ -87,7 +87,7 @@ export class BlocksController {
    * crea una CleaningTask(MAINTENANCE, UNASSIGNED).
    */
   @Post(':id/approve')
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   approve(
     @Param('id') id: string,
     @Body() dto: ApproveBlockDto,
@@ -102,7 +102,7 @@ export class BlocksController {
    * Se notifica al solicitante por push.
    */
   @Post(':id/reject')
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   reject(
     @Param('id') id: string,
     @Body() dto: RejectBlockDto,
@@ -117,7 +117,7 @@ export class BlocksController {
    * Requiere reason. No cancela tareas IN_PROGRESS o DONE.
    */
   @Post(':id/cancel')
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   cancel(
     @Param('id') id: string,
     @Body() dto: CancelBlockDto,
@@ -132,7 +132,7 @@ export class BlocksController {
    * La nueva fecha debe ser posterior a la actual.
    */
   @Post(':id/extend')
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   extend(
     @Param('id') id: string,
     @Body() dto: ExtendBlockDto,
@@ -147,7 +147,7 @@ export class BlocksController {
    * Cancela la tarea de mantenimiento si aún no inició, restaura cama a AVAILABLE.
    */
   @Post(':id/release')
-  @Roles(HousekeepingRole.SUPERVISOR)
+  @Roles(StaffRole.SUPERVISOR)
   release(@Param('id') id: string, @CurrentUser() actor: JwtPayload) {
     return this.service.earlyRelease(id, actor)
   }

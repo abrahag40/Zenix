@@ -20,7 +20,7 @@ import type {
   RevenueSnapshotDto,
   RevenueFrameDto,
   RevenueBreakdownRowDto,
-  HousekeepingRole,
+  StaffRole,
 } from '@zenix/shared'
 import {
   localStartOfDay,
@@ -48,7 +48,7 @@ export class RevenueReportService {
 
   async getSnapshot(
     propertyId: string,
-    actorRole: HousekeepingRole,
+    actorRole: StaffRole,
   ): Promise<RevenueSnapshotDto> {
     if (actorRole === 'HOUSEKEEPER') {
       throw new ForbiddenException(
