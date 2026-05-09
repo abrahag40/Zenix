@@ -1053,6 +1053,82 @@ async function main() {
     ratePerNight: 250, nights: 3, paxCount: 4, source: 'AIRBNB',
   })
 
+  // ── Sprint Mx-1 — Pool seed de 24 templates de mantenimiento preventivo ────
+  // Fuentes: AHLEI Hospitality Facilities Management 4ª ed., ASHRAE Guideline
+  // 4-2019 (HVAC hotelero), NFPA 25/72 (seguridad pasiva), USALI 12ª ed.
+  const maintenanceTemplates: Array<{
+    name: string
+    category:
+      | 'PLUMBING'
+      | 'ELECTRICAL'
+      | 'FURNITURE'
+      | 'APPLIANCE'
+      | 'HVAC'
+      | 'STRUCTURAL'
+      | 'COSMETIC'
+      | 'SAFETY'
+      | 'PEST'
+      | 'DEEP_CLEANING'
+      | 'OTHER'
+    defaultPriority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+    intervalDays: number
+    scope: 'PER_ROOM' | 'PER_ASSET' | 'PER_PROPERTY' | 'COMMON_AREAS'
+    defaultAssetTag?: string
+  }> = [
+    { name: 'Limpieza de filtros A/C habitación', category: 'HVAC', defaultPriority: 'LOW', intervalDays: 30, scope: 'PER_ROOM' },
+    { name: 'Inspección de fugas en plomería (lavabo, ducha, inodoro)', category: 'PLUMBING', defaultPriority: 'LOW', intervalDays: 90, scope: 'PER_ROOM' },
+    { name: 'Calibración de termostatos', category: 'HVAC', defaultPriority: 'LOW', intervalDays: 180, scope: 'PER_ROOM' },
+    { name: 'Cambio de baterías cerraduras electrónicas', category: 'SAFETY', defaultPriority: 'MEDIUM', intervalDays: 180, scope: 'PER_ROOM' },
+    { name: 'Revisión y prueba de detectores de humo', category: 'SAFETY', defaultPriority: 'HIGH', intervalDays: 30, scope: 'PER_ROOM' },
+    { name: 'Inspección de extintores (presión, vencimiento)', category: 'SAFETY', defaultPriority: 'HIGH', intervalDays: 30, scope: 'PER_ASSET', defaultAssetTag: 'Extintor' },
+    { name: 'Limpieza profunda de persianas/cortinas', category: 'DEEP_CLEANING', defaultPriority: 'LOW', intervalDays: 90, scope: 'PER_ROOM' },
+    { name: 'Lavado de cobertores y almohadas', category: 'DEEP_CLEANING', defaultPriority: 'LOW', intervalDays: 30, scope: 'PER_ROOM' },
+    { name: 'Revisión y engrase de bisagras de puertas', category: 'FURNITURE', defaultPriority: 'LOW', intervalDays: 180, scope: 'PER_ROOM' },
+    { name: 'Inspección eléctrica (tomacorrientes, lámparas, GFCI baño)', category: 'ELECTRICAL', defaultPriority: 'MEDIUM', intervalDays: 90, scope: 'PER_ROOM' },
+    { name: 'Mantenimiento de minibar', category: 'APPLIANCE', defaultPriority: 'LOW', intervalDays: 60, scope: 'PER_ROOM' },
+    { name: 'Mantenimiento de TV/Smart TV (firmware, conexiones)', category: 'APPLIANCE', defaultPriority: 'LOW', intervalDays: 180, scope: 'PER_ROOM' },
+    { name: 'Bombas de alberca (filtración, cloro, pH)', category: 'STRUCTURAL', defaultPriority: 'HIGH', intervalDays: 7, scope: 'PER_ASSET', defaultAssetTag: 'Alberca' },
+    { name: 'Fumigación preventiva', category: 'PEST', defaultPriority: 'MEDIUM', intervalDays: 90, scope: 'PER_PROPERTY' },
+    { name: 'Limpieza de trampas de grasa cocina', category: 'PLUMBING', defaultPriority: 'MEDIUM', intervalDays: 30, scope: 'PER_ASSET', defaultAssetTag: 'Cocina' },
+    { name: 'Inspección de calderas/calentadores', category: 'HVAC', defaultPriority: 'HIGH', intervalDays: 180, scope: 'PER_ASSET', defaultAssetTag: 'Caldera' },
+    { name: 'Revisión de luces de emergencia y señalización', category: 'SAFETY', defaultPriority: 'HIGH', intervalDays: 90, scope: 'COMMON_AREAS' },
+    { name: 'Mantenimiento generador eléctrico (prueba bajo carga)', category: 'ELECTRICAL', defaultPriority: 'HIGH', intervalDays: 30, scope: 'PER_ASSET', defaultAssetTag: 'Generador' },
+    { name: 'Inspección de techos / impermeabilización', category: 'STRUCTURAL', defaultPriority: 'MEDIUM', intervalDays: 365, scope: 'PER_PROPERTY' },
+    { name: 'Pintura de retoque (fachada, áreas comunes)', category: 'COSMETIC', defaultPriority: 'LOW', intervalDays: 365, scope: 'COMMON_AREAS' },
+    { name: 'Mantenimiento de elevadores (contrato externo)', category: 'STRUCTURAL', defaultPriority: 'HIGH', intervalDays: 30, scope: 'PER_ASSET', defaultAssetTag: 'Elevador' },
+    { name: 'Limpieza de tanques de agua', category: 'PLUMBING', defaultPriority: 'MEDIUM', intervalDays: 180, scope: 'PER_ASSET', defaultAssetTag: 'Cisterna' },
+    { name: 'Lavado y desinfección de A/C central', category: 'HVAC', defaultPriority: 'MEDIUM', intervalDays: 365, scope: 'COMMON_AREAS' },
+    { name: 'Inspección de escaleras de emergencia y rutas de evacuación', category: 'SAFETY', defaultPriority: 'HIGH', intervalDays: 180, scope: 'PER_PROPERTY' },
+  ]
+  for (const tpl of maintenanceTemplates) {
+    const id = `seed-mx-tpl-${tpl.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 60)}`
+    await prisma.maintenanceRecurrenceTemplate.upsert({
+      where: { id },
+      update: {
+        organizationId: org.id,
+        name: tpl.name,
+        category: tpl.category,
+        defaultPriority: tpl.defaultPriority,
+        intervalDays: tpl.intervalDays,
+        scope: tpl.scope,
+        defaultAssetTag: tpl.defaultAssetTag ?? null,
+        isActive: true,
+      },
+      create: {
+        id,
+        organizationId: org.id,
+        name: tpl.name,
+        category: tpl.category,
+        defaultPriority: tpl.defaultPriority,
+        intervalDays: tpl.intervalDays,
+        scope: tpl.scope,
+        defaultAssetTag: tpl.defaultAssetTag ?? null,
+        isActive: true,
+      },
+    })
+  }
+  console.log(`✅ Maintenance recurrence templates seeded: ${maintenanceTemplates.length} (Sprint Mx-1)`)
+
   console.log('✅ Cancún checkout stays: 201/202 (hoy) · 301 (mañana) · 401 (pasado)')
   console.log(`\n📅 Fechas de checkout (UTC):
      HOY         ${TODAY_STR}  → Tulum: A1, A2, B1  | Cancún: 201, 202

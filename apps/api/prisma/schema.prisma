@@ -32,6 +32,12 @@ enum AppNotificationCategory {
   MAINTENANCE_TICKET_CREATED // ticket nuevo (MEDIUM/HIGH) — solo INFORMATIONAL
   MAINTENANCE_TICKET_UPDATED // cambio de estado relevante (asignado, resuelto)
   MAINTENANCE_TICKET_CRITICAL // CRITICAL → habitación bloqueada — ACTION_REQUIRED
+  MAINTENANCE_TICKET_NEEDS_APPROVAL // Flujo B — supervisor debe aprobar/rechazar
+  MAINTENANCE_TICKET_ASSIGNED // técnico recibe asignación (manual o auto)
+  MAINTENANCE_TICKET_RESOLVED // supervisor recibe RESOLVED para verificación
+  MAINTENANCE_TICKET_VERIFIED // técnico recibe que su trabajo fue verificado
+  MAINTENANCE_TICKET_QUEUED // ticket entró a la cola sin asignar (pool)
+  MAINTENANCE_SLA_BREACH // scheduler — supervisor recibe SLA vencido
   // ── Sprint 9 — D17 dual toast+panel persistence ──────────────────────────
   // TASK_VERIFIED_READY: housekeeping ciclo completado, recepción puede entregar
   // la habitación. Toast tier-2 (4s lateral) + entrada persistente en panel.
@@ -361,6 +367,11 @@ enum TicketLogEvent {
   CREATED // ticket nuevo
   ACKNOWLEDGED // técnico marcó como visto
   ASSIGNED // assignedToId cambió
+  AUTO_ASSIGNED // sistema asignó por load-balancing (Mx-1 D4 + D44)
+  CLAIMED // técnico tomó voluntariamente de la cola (voluntary pickup)
+  QUEUED // ticket entró a la cola (sin asignar inicialmente)
+  APPROVED // supervisor aprobó ticket bottom-up (Flujo B)
+  REJECTED // supervisor rechazó ticket bottom-up (cierra con razón)
   STARTED // status → IN_PROGRESS
   WAITING_PARTS // status → WAITING_PARTS
   RESOLVED // status → RESOLVED
@@ -371,6 +382,19 @@ enum TicketLogEvent {
   PHOTO_ADDED // nueva TicketPhoto
   BLOCK_AUTO_CREATED // CRITICAL → RoomBlock auto-creado
   BLOCK_AUTO_RELEASED // ticket VERIFIED/CLOSED → RoomBlock liberado
+  SLA_BREACH // scheduler detectó que pasó el umbral sin acknowledgment
+}
+
+// Alcance de un template de mantenimiento preventivo recurrente.
+// PER_ROOM: una instancia por habitación de la propiedad (ej. limpieza filtros A/C).
+// PER_ASSET: una instancia por asset identificado por defaultAssetTag (ej. lavadora-1).
+// PER_PROPERTY: una sola instancia para toda la propiedad (ej. fumigación general).
+// COMMON_AREAS: una instancia para áreas comunes — sin roomId, sin assetTag.
+enum RecurrenceScope {
+  PER_ROOM
+  PER_ASSET
+  PER_PROPERTY
+  COMMON_AREAS
 }
 
 // ======================= MULTI-TENANT FOUNDATION =======================
@@ -414,7 +438,8 @@ model Organization {
   // ── Sprint 9 ──────────────────────────────────────────────────────────────
   channelCommissions ChannelCommission[]
   // ── Sprint Mx-1 — Mantenimiento ──────────────────────────────────────────
-  maintenanceTickets MaintenanceTicket[]
+  maintenanceTickets   MaintenanceTicket[]
+  recurrenceTemplates  MaintenanceRecurrenceTemplate[]
 
   @@map("organizations")
 }
@@ -652,6 +677,7 @@ model Staff {
   ticketsAssigned         MaintenanceTicket[]        @relation("TicketsAssigned")
   ticketsResolved         MaintenanceTicket[]        @relation("TicketsResolved")
   ticketsVerified         MaintenanceTicket[]        @relation("TicketsVerified")
+  ticketsApproved         MaintenanceTicket[]        @relation("TicketsApproved")
   ticketPhotosUploaded    MaintenanceTicketPhoto[]   @relation("TicketPhotoUploader")
   ticketCommentsAuthored  MaintenanceTicketComment[] @relation("TicketCommentAuthor")
   ticketLogsBy            MaintenanceTicketLog[]     @relation("TicketLogActor")
@@ -946,6 +972,12 @@ model PropertySettings {
   // Currency por defecto para revenue reports (no para folios — esos vienen
   // de la reserva). Default MXN. ISO 4217.
   reportCurrency        String            @default("MXN") @map("report_currency")
+  // ── Sprint Mx-1 — Mantenimiento ──────────────────────────────────────────
+  // Si true, el MaintenanceService.autoAssignMaintenance asigna automáticamente
+  // tickets nuevos al técnico con menor carga. Si false, los tickets sin assignee
+  // explícito quedan en cola para voluntary pickup (default — más común en
+  // boutique LATAM, respeta autonomía Self-Determination Theory §43 D9).
+  maintenanceAutoAssignEnabled Boolean   @default(false) @map("maintenance_auto_assign_enabled")
   deletedAt             DateTime?         @map("deleted_at")
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
@@ -2344,8 +2376,9 @@ model MaintenanceTicket {
   id             String  @id @default(uuid())
   organizationId String  @map("organization_id")
   propertyId     String  @map("property_id")
-  roomId         String  @map("room_id") // ticket SIEMPRE vincula a habitación
+  roomId         String? @map("room_id") // OPCIONAL — null = ticket no-de-habitación (lobby, alberca, vehículos, equipo)
   unitId         String? @map("unit_id") // opcional — solo cuando aplica a unidad específica
+  assetTag       String? @map("asset_tag") // identificador libre para tickets no-de-habitación: "Lavadora-2", "Generador", "Camioneta-blanca"
 
   category TicketCategory
   priority TicketPriority @default(MEDIUM)
@@ -2360,6 +2393,27 @@ model MaintenanceTicket {
   assignedToId String? @map("assigned_to_id") // técnico (Staff con department=MAINTENANCE)
   resolvedById String? @map("resolved_by_id") // quien marcó RESOLVED
   verifiedById String? @map("verified_by_id") // supervisor que confirmó VERIFIED
+
+  // ── Workflow de aprobación (Flujo B — bottom-up) ─────────────────────────
+  // requiresApproval=true → ticket creado por housekeeper/técnico requiere aprobación
+  // del supervisor antes de pasar a ACKNOWLEDGED. El supervisor lo revisa y
+  // aprueba (asigna técnico) o rechaza (cierra con razón).
+  // Mientras requiresApproval=true && approvedById=null && status=OPEN → "pendiente"
+  requiresApproval Boolean   @default(false) @map("requires_approval")
+  approvedById     String?   @map("approved_by_id") // supervisor que aprobó
+  approvedAt       DateTime? @map("approved_at")
+  rejectedReason   String?   @map("rejected_reason") // razón si fue cerrado por rechazo
+
+  // ── Mantenimiento preventivo recurrente (Sprint Mx-2 implementa el cron) ─
+  // Si != null, este ticket fue creado por el scheduler de mantenimiento
+  // preventivo a partir de un template. Sprint Mx-1 deja el campo + endpoint
+  // READ-ONLY de templates; el scheduler queda para Mx-2.
+  recurrenceTemplateId String? @map("recurrence_template_id")
+
+  // ── SLA tracking (idempotencia del scheduler) ────────────────────────────
+  // Cuando MaintenanceSlaScheduler detecta breach, registra timestamp aquí.
+  // Evita re-notificar al supervisor cada 5 minutos.
+  slaBreachAt DateTime? @map("sla_breach_at")
 
   // ── Estimación y tiempo real ─────────────────────────────────────────────
   estimatedMinutes Int? @map("estimated_minutes") // estimación al crear/asignar
@@ -2386,13 +2440,16 @@ model MaintenanceTicket {
   // ── Relations ────────────────────────────────────────────────────────────
   organization Organization  @relation(fields: [organizationId], references: [id])
   property     Property      @relation(fields: [propertyId], references: [id])
-  room         Room          @relation("TicketRoom", fields: [roomId], references: [id])
+  room         Room?         @relation("TicketRoom", fields: [roomId], references: [id])
   unit         Unit?         @relation("TicketUnit", fields: [unitId], references: [id])
   reportedBy   Staff         @relation("TicketsReported", fields: [reportedById], references: [id])
   assignedTo   Staff?        @relation("TicketsAssigned", fields: [assignedToId], references: [id])
   resolvedBy   Staff?        @relation("TicketsResolved", fields: [resolvedById], references: [id])
   verifiedBy   Staff?        @relation("TicketsVerified", fields: [verifiedById], references: [id])
+  approvedBy   Staff?        @relation("TicketsApproved", fields: [approvedById], references: [id])
   sourceTask   CleaningTask? @relation("TicketSourceTask", fields: [sourceTaskId], references: [id])
+
+  recurrenceTemplate MaintenanceRecurrenceTemplate? @relation("TemplateTickets", fields: [recurrenceTemplateId], references: [id])
 
   // Reverse relations — hijos del ticket
   photos         MaintenanceTicketPhoto[]
@@ -2407,11 +2464,53 @@ model MaintenanceTicket {
 
   @@index([organizationId, propertyId, status])
   @@index([organizationId, propertyId, priority, status])
+  @@index([organizationId, propertyId, requiresApproval, status])
   @@index([assignedToId, status])
   @@index([roomId, status])
+  @@index([assetTag])
   @@index([category, status])
   @@index([createdAt])
   @@map("maintenance_tickets")
+}
+
+// ─── MaintenanceRecurrenceTemplate ──────────────────────────────────────────
+// Pool de templates de mantenimiento preventivo recurrente. Se carga via seed
+// con el catálogo estándar de la industria hotelera (24 templates basados en
+// AHLEI Hospitality Facilities Management 4ª ed., ASHRAE Guideline 4-2019,
+// NFPA 25/72, USALI 12ª ed.).
+//
+// Sprint Mx-1 entrega:
+//   ✅ Modelo + seed de 24 templates
+//   ✅ Endpoint GET /v1/maintenance/recurrence-templates (read-only)
+//
+// Sprint Mx-2 entrega:
+//   - MaintenancePreventiveScheduler (cron diario per-property timezone-aware)
+//   - UI de gestión de templates (admin puede activar/desactivar/personalizar)
+//   - Auto-generación de tickets con priority configurable
+// ──────────────────────────────────────────────────────────────────────────
+model MaintenanceRecurrenceTemplate {
+  id             String  @id @default(uuid())
+  organizationId String  @map("organization_id")
+
+  name        String // "Limpieza de filtros A/C"
+  description String? @db.Text
+
+  category        TicketCategory
+  defaultPriority TicketPriority @default(LOW) @map("default_priority")
+  intervalDays    Int            @map("interval_days") // 7, 30, 90, 180, 365
+
+  scope           RecurrenceScope @default(PER_ROOM)
+  defaultAssetTag String?         @map("default_asset_tag") // p.ej. "Generador" para PER_ASSET
+
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization Organization        @relation(fields: [organizationId], references: [id])
+  tickets      MaintenanceTicket[] @relation("TemplateTickets")
+
+  @@index([organizationId, isActive])
+  @@map("maintenance_recurrence_templates")
 }
 
 // ── Fotos antes/después de la reparación ─────────────────────────────────

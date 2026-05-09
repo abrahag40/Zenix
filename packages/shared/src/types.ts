@@ -726,6 +726,24 @@ export type SseEventType =
   // Sprint 9 — Late checkout escalation (cron LateCheckoutScheduler)
   | 'late-checkout:pending'    // T1 — recepción debe revisar
   | 'late-checkout:escalated'  // T2 — supervisor escalación
+  // Sprint Mx-1 — Maintenance ticketing (work orders)
+  | 'maintenance:ticket:created'        // ticket nuevo (cualquier flujo)
+  | 'maintenance:ticket:approved'       // supervisor aprobó (Flujo B)
+  | 'maintenance:ticket:rejected'       // supervisor rechazó (Flujo B → CLOSED)
+  | 'maintenance:ticket:claimed'        // técnico tomó voluntariamente
+  | 'maintenance:ticket:assigned'       // asignación manual o auto
+  | 'maintenance:ticket:auto-assigned'  // load-balancing automático
+  | 'maintenance:ticket:acknowledged'
+  | 'maintenance:ticket:started'
+  | 'maintenance:ticket:waiting-parts'
+  | 'maintenance:ticket:resumed'
+  | 'maintenance:ticket:resolved'
+  | 'maintenance:ticket:verified'       // libera RoomBlock + crea CleaningTask post-clean
+  | 'maintenance:ticket:closed'
+  | 'maintenance:ticket:reopened'
+  | 'maintenance:ticket:commented'
+  | 'maintenance:ticket:photo-added'
+  | 'maintenance:ticket:sla-breach'     // scheduler detectó SLA vencido
 
 // ─── Offline Sync (Mobile) ────────────────────────────────────────────────────
 
@@ -944,4 +962,237 @@ export interface DailyRosterSummaryDto {
   sameDayCheckInTasks: number
   carryoverTasks: number
   doubleUrgentTasks: number     // carryover && hasSameDayCheckIn
+}
+
+// ============================================================================
+// Sprint Mx-1 — Maintenance Ticketing DTOs
+// ============================================================================
+
+export type TicketStatusValue =
+  | 'OPEN'
+  | 'ACKNOWLEDGED'
+  | 'IN_PROGRESS'
+  | 'WAITING_PARTS'
+  | 'RESOLVED'
+  | 'VERIFIED'
+  | 'CLOSED'
+
+export type TicketPriorityValue = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+
+export type TicketCategoryValue =
+  | 'PLUMBING'
+  | 'ELECTRICAL'
+  | 'FURNITURE'
+  | 'APPLIANCE'
+  | 'HVAC'
+  | 'STRUCTURAL'
+  | 'COSMETIC'
+  | 'SAFETY'
+  | 'PEST'
+  | 'DEEP_CLEANING'
+  | 'OTHER'
+
+export type TicketLogEventValue =
+  | 'CREATED'
+  | 'ACKNOWLEDGED'
+  | 'ASSIGNED'
+  | 'AUTO_ASSIGNED'
+  | 'CLAIMED'
+  | 'QUEUED'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'STARTED'
+  | 'WAITING_PARTS'
+  | 'RESOLVED'
+  | 'VERIFIED'
+  | 'CLOSED'
+  | 'REOPENED'
+  | 'COMMENT_ADDED'
+  | 'PHOTO_ADDED'
+  | 'BLOCK_AUTO_CREATED'
+  | 'BLOCK_AUTO_RELEASED'
+  | 'SLA_BREACH'
+
+export type RecurrenceScopeValue = 'PER_ROOM' | 'PER_ASSET' | 'PER_PROPERTY' | 'COMMON_AREAS'
+
+/**
+ * Public DTO for a maintenance ticket — used in lists and SSE payloads.
+ * Excludes photos/comments/logs (loaded on demand via detail endpoint).
+ */
+export interface MaintenanceTicketDto {
+  id: string
+  organizationId: string
+  propertyId: string
+  roomId: string | null
+  unitId: string | null
+  assetTag: string | null
+  category: TicketCategoryValue
+  priority: TicketPriorityValue
+  status: TicketStatusValue
+  title: string
+  description: string | null
+  guestImpact: string | null
+  reportedById: string
+  assignedToId: string | null
+  resolvedById: string | null
+  verifiedById: string | null
+  approvedById: string | null
+  approvedAt: string | null
+  rejectedReason: string | null
+  requiresApproval: boolean
+  /** Derived: requiresApproval && !approvedById && status === 'OPEN'. */
+  pendingApproval: boolean
+  recurrenceTemplateId: string | null
+  estimatedMinutes: number | null
+  actualMinutes: number | null
+  acknowledgedAt: string | null
+  startedAt: string | null
+  waitingPartsAt: string | null
+  resolvedAt: string | null
+  verifiedAt: string | null
+  closedAt: string | null
+  slaBreachAt: string | null
+  sourceTaskId: string | null
+  createdAt: string
+  updatedAt: string
+  // Lightweight expansions used in list rendering
+  roomNumber: string | null
+  reportedByName: string | null
+  assignedToName: string | null
+  hasAutoBlock: boolean
+}
+
+export interface MaintenanceTicketDetailDto extends MaintenanceTicketDto {
+  photos: MaintenanceTicketPhotoDto[]
+  comments: MaintenanceTicketCommentDto[]
+  logs: MaintenanceTicketLogDto[]
+  /** Latest active RoomBlock id when hasAutoBlock=true, null otherwise. */
+  activeBlockId: string | null
+}
+
+export interface MaintenanceTicketPhotoDto {
+  id: string
+  ticketId: string
+  url: string
+  caption: string | null
+  isAfterPhoto: boolean
+  uploadedById: string
+  uploadedByName: string | null
+  createdAt: string
+}
+
+export interface MaintenanceTicketCommentDto {
+  id: string
+  ticketId: string
+  authorId: string
+  authorName: string | null
+  content: string
+  createdAt: string
+}
+
+export interface MaintenanceTicketLogDto {
+  id: string
+  ticketId: string
+  event: TicketLogEventValue
+  staffId: string | null
+  staffName: string | null
+  metadata: Record<string, unknown> | null
+  createdAt: string
+}
+
+export interface MaintenanceRecurrenceTemplateDto {
+  id: string
+  organizationId: string
+  name: string
+  description: string | null
+  category: TicketCategoryValue
+  defaultPriority: TicketPriorityValue
+  intervalDays: number
+  scope: RecurrenceScopeValue
+  defaultAssetTag: string | null
+  isActive: boolean
+}
+
+/**
+ * Input shape for POST /v1/maintenance/tickets.
+ * Workflow inference at the service layer:
+ *   - If `assignedToId` provided → Flujo A (top-down) → status=ACKNOWLEDGED
+ *   - If `requiresApproval=true` → Flujo B (bottom-up) → status=OPEN, pendingApproval
+ *   - Else → Cola → status=OPEN, no assignee, optionally auto-assigned per setting
+ */
+export interface CreateMaintenanceTicketInput {
+  roomId?: string | null
+  unitId?: string | null
+  assetTag?: string | null
+  category: TicketCategoryValue
+  priority?: TicketPriorityValue
+  title: string
+  description?: string
+  guestImpact?: string
+  estimatedMinutes?: number
+  sourceTaskId?: string
+  requiresApproval?: boolean
+  assignedToId?: string
+  /** Multiple URLs already uploaded via /v1/uploads — attached as initial photos. */
+  initialPhotoUrls?: string[]
+}
+
+export interface ApproveMaintenanceTicketInput {
+  /** If supplied, the ticket is assigned to this staff atomically with approval. */
+  assignedToId?: string
+  comment?: string
+}
+
+export interface RejectMaintenanceTicketInput {
+  reason: string
+}
+
+export interface AssignMaintenanceTicketInput {
+  assigneeId: string
+}
+
+export interface ResolveMaintenanceTicketInput {
+  resolutionSummary?: string
+  /** URL of "after" photo. Strongly suggested by UI but not required (D-Mx7). */
+  afterPhotoUrl?: string
+}
+
+export interface VerifyMaintenanceTicketInput {
+  note?: string
+  /** When false, supervisor rejects the resolution → reopens to IN_PROGRESS. */
+  approved?: boolean
+  rejectionReason?: string
+}
+
+export interface ReopenMaintenanceTicketInput {
+  reason: string
+}
+
+export interface AddMaintenanceCommentInput {
+  content: string
+}
+
+export interface AddMaintenancePhotoInput {
+  url: string
+  caption?: string
+  isAfterPhoto?: boolean
+}
+
+export interface MaintenanceTicketListQuery {
+  status?: TicketStatusValue | TicketStatusValue[]
+  priority?: TicketPriorityValue | TicketPriorityValue[]
+  category?: TicketCategoryValue | TicketCategoryValue[]
+  assignedToId?: string
+  roomId?: string
+  assetTag?: string
+  /** ISO date YYYY-MM-DD inclusive */
+  fromDate?: string
+  toDate?: string
+  /** Convenience filters */
+  queueOnly?: boolean             // assignedToId IS NULL
+  pendingApprovalOnly?: boolean   // requiresApproval && !approvedById && status=OPEN
+  includeRoomTickets?: boolean    // default true
+  includeAssetTickets?: boolean   // default true
+  /** Active = not in CLOSED|VERIFIED. Default true. */
+  activeOnly?: boolean
 }

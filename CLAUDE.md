@@ -3618,19 +3618,27 @@ export function useSoftLock(roomId: string | null) {
 
 | # | Funcionalidad | Estado | Sprint | Rol que lo usa | Notas |
 |---|---------------|--------|--------|----------------|-------|
-| MT-00 | Schema completo (`MaintenanceTicket` + Photo + Comment + Log) | ✅ | Sprint Mx-1 | Sistema | Bridge `RoomBlock.maintenanceTicketId` resuelto |
-| MT-01 | Reporte de ticket desde mobile (housekeeper) | ⏳ | Sprint Mx-1 | Housekeeper | Foto + categoría + descripción + sourceTaskId |
-| MT-02 | Kanban + lista de tickets de mantenimiento (web) | ⏳ | Sprint Mx-1 | Supervisor/Mantenimiento | `MaintenancePage.tsx` 2 vistas |
-| MT-03 | Ciclo de vida de ticket completo (OPEN → CLOSED) | ⏳ | Sprint Mx-1 | Mantenimiento | 7 estados + REOPENED |
-| MT-04 | Badge "🔧 Mtto pendiente" en DailyPlanningGrid | ⏳ | Sprint Mx-1 | Recepcionista | Comunicación HK ↔ Mantenimiento |
-| MT-05 | Foto antes/después de reparación | ⏳ | Sprint Mx-1 | Mantenimiento | S3/Cloudinary upload via `/v1/uploads` |
-| MT-06 | **CRITICAL ticket → auto-bloqueo de habitación** | ⏳ | Sprint Mx-1 | Sistema | D-Mx2: bridge crítico inventario, resuelve caso Hotel Monica Tulum |
-| MT-07 | VERIFIED → auto-liberación de bloque + push limpieza | ⏳ | Sprint Mx-1 | Sistema | D-Mx3: cierra ciclo end-to-end |
-| MT-08 | Audit trail inmutable (`MaintenanceTicketLog`) | ⏳ | Sprint Mx-1 | Sistema | D-Mx4: append-only, fuente reportes USALI |
-| MT-09 | Notificaciones automáticas (CRITICAL → manager) | ⏳ | Sprint Mx-1 | Manager/Supervisor | `AppNotificationCategory.MAINTENANCE_TICKET_CRITICAL` |
-| MT-10 | Comentarios técnico ↔ supervisor | ⏳ | Sprint Mx-1 | Mantenimiento/Supervisor | `MaintenanceTicketComment` |
-| MT-11 | Hub mobile para técnicos (`department=MAINTENANCE`) | ⏳ | Sprint Mx-1 | Técnico | Reusa infraestructura `HousekeepingStaff` |
-| MT-12 | Métricas de tiempo de respuesta y resolución | ⏳ | Sprint Mx-1 | Supervisor/Manager | Derivado de `TicketLog` timestamps |
+| MT-00 | Schema completo (`MaintenanceTicket` + Photo + Comment + Log + RecurrenceTemplate) | ✅ | Sprint Mx-1 | Sistema | Bridge `RoomBlock.maintenanceTicketId` resuelto + workflow fields + 24 templates seed |
+| MT-01 | Reporte de ticket (POST `/v1/maintenance/tickets`) | ✅ backend | Sprint Mx-1 | Housekeeper / Recepcionista / Técnico | Endpoint listo. UI mobile `ReportProblem.tsx` aplazada a Mx-1B |
+| MT-02 | Listar / filtrar tickets (web Kanban) | ✅ backend | Sprint Mx-1 | Supervisor | Endpoint `GET /v1/maintenance/tickets` con filtros completos. UI web aplazada a Mx-1B |
+| MT-03 | Ciclo de vida completo (OPEN → CLOSED) | ✅ | Sprint Mx-1 | Mantenimiento | State machine 7 estados + REOPENED + claim + reject. 19 tests verdes |
+| MT-04 | Badge "🔧 Mtto pendiente" en DailyPlanningGrid | ⏳ | Sprint Mx-1B | Recepcionista | Aplazado — depende de UI web |
+| MT-05 | Foto antes/después de reparación | ✅ | Sprint Mx-1 | Mantenimiento | `POST /v1/maintenance/tickets/:id/photos` + `isAfterPhoto` flag (D-Mx7) |
+| MT-06 | **CRITICAL ticket → auto-bloqueo de habitación (D-Mx2)** | ✅ | Sprint Mx-1 | Sistema | RoomBlock auto-creado en la misma transacción. Channex `notifyReservation` fire-and-forget |
+| MT-07 | VERIFIED → auto-liberación de bloque + post-clean (D-Mx3) | ✅ | Sprint Mx-1 | Sistema | Block CANCELLED + CleaningTask MAINTENANCE creada + `notifyRelease` |
+| MT-08 | Audit trail inmutable (`MaintenanceTicketLog`) | ✅ | Sprint Mx-1 | Sistema | Append-only con 19 eventos (CREATED, ASSIGNED, AUTO_ASSIGNED, CLAIMED, APPROVED, REJECTED, etc.) |
+| MT-09 | Notificaciones automáticas multi-categoría | ✅ | Sprint Mx-1 | Multi-rol | 9 categorías (CRITICAL, NEEDS_APPROVAL, ASSIGNED, RESOLVED, VERIFIED, QUEUED, SLA_BREACH, …) vía `NotificationCenterService` |
+| MT-10 | Comentarios técnico ↔ supervisor | ✅ | Sprint Mx-1 | Mantenimiento/Supervisor | `POST /v1/maintenance/tickets/:id/comments` + audit log |
+| MT-11 | Hub mobile para técnicos (`department=MAINTENANCE`) | ⏳ | Sprint Mx-1B | Técnico | Aplazado — depende de UI mobile |
+| MT-12 | Métricas tiempo respuesta y resolución | ⏳ | Sprint 8K-Mx2 | Supervisor/Manager | Derivable de `MaintenanceTicketLog` timestamps; reportes en sprint posterior |
+| MT-13 | **3 flujos de creación (Top-down / Bottom-up con aprobación / Cola)** | ✅ | Sprint Mx-1 | Multi-rol | Flujo A asignación directa, B con `requiresApproval`, C cola con `claim` voluntario |
+| MT-14 | Auto-asignación load-balanced (per-property opcional) | ✅ | Sprint Mx-1 | Sistema | `PropertySettings.maintenanceAutoAssignEnabled`. Algoritmo elige técnico con menor carga activa |
+| MT-15 | SLA scheduler 2 tiers (CRITICAL 15min / HIGH 60min) | ✅ | Sprint Mx-1 | Sistema | Cron `*/5 * * * *`, idempotente vía `slaBreachAt`, notif tier-2.5 al supervisor |
+| MT-16 | Histórico por habitación / asset (gap mercado #3) | ✅ | Sprint Mx-1 | Supervisor | `GET /v1/maintenance/rooms/:id/history` y `/assets/:tag/history` |
+| MT-17 | Tickets no-de-habitación (assets, áreas comunes) | ✅ | Sprint Mx-1 | Multi-rol | Campo `assetTag`, `roomId` opcional. NO toca inventario ni Channex |
+| MT-18 | Pool seed de 24 templates de mantenimiento preventivo | ✅ | Sprint Mx-1 | Admin | AHLEI/ASHRAE/NFPA/USALI. Endpoint READ-ONLY `GET /v1/maintenance/recurrence-templates`. Cron en Mx-2 |
+| MT-19 | Reject ticket bottom-up con razón obligatoria | ✅ | Sprint Mx-1 | Supervisor | `PATCH /v1/maintenance/tickets/:id/reject` cierra con `rejectedReason` |
+| MT-20 | Verify con rechazo de calidad (regresa a IN_PROGRESS) | ✅ | Sprint Mx-1 | Supervisor | `verify { approved: false, rejectionReason }` no cierra — exige re-trabajo |
 
 ---
 
