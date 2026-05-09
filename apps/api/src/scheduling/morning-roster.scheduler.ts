@@ -275,8 +275,20 @@ export class MorningRosterScheduler {
             ? CleaningStatus.READY
             : CleaningStatus.PENDING
 
+      // Priority semantics (fix issue reportado por usuario):
+      //   URGENT    = checkout + checkin del mismo día (huésped llegando, presión de tiempo)
+      //   HIGH      = importante pero sin presión inmediata (carryover sin same-day checkin)
+      //   MEDIUM    = default (checkout normal del día)
+      //   LOW       = stayover (in-house cleaning)
+      //
+      // Carryover por sí solo NO es URGENT — solo si TAMBIÉN tiene
+      // hasSameDayCheckIn (combinación "doble urgente": ayer no se limpió
+      // Y hoy llega huésped nuevo). Sin huésped llegando, carryover es HIGH.
+      const carryoverPriority = original.hasSameDayCheckIn
+        ? Priority.URGENT  // doble: carryover + same-day checkin
+        : Priority.HIGH    // solo carryover: importante pero sin presión de tiempo
+
       await this.prisma.$transaction(async (tx) => {
-        // Crear el clone con priority URGENT y referencia
         const clone = await tx.cleaningTask.create({
           data: {
             organizationId: orgId,
@@ -286,7 +298,7 @@ export class MorningRosterScheduler {
             status: carryoverStatus,
             taskType: original.taskType,
             requiredCapability: original.requiredCapability,
-            priority: Priority.URGENT,              // doble prioridad
+            priority: carryoverPriority,
             hasSameDayCheckIn: original.hasSameDayCheckIn,
             scheduledFor: localDateMidnightUtc,
             carryoverFromDate: original.scheduledFor,

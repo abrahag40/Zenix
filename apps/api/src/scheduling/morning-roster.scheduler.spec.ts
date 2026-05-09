@@ -125,7 +125,7 @@ describe('MorningRosterScheduler', () => {
   // ── Carryover ────────────────────────────────────────────────────────────
 
   describe('processCarryover', () => {
-    it('clona tareas incompletas de ayer con priority URGENT y carryoverFromTaskId', async () => {
+    it('clona tareas incompletas de ayer con priority HIGH (sin same-day) y carryoverFromTaskId', async () => {
       prismaMock.propertySettings.findUnique.mockResolvedValue({
         propertyId: 'p1',
         timezone: 'UTC',
@@ -160,11 +160,14 @@ describe('MorningRosterScheduler', () => {
       const result = await scheduler.runForProperty('p1')
 
       expect(result.carryoverTasks).toBe(1)
+      // Sprint 9 fix — carryover sin hasSameDayCheckIn = HIGH (no URGENT).
+      // URGENT reservado para combinación carryover + same-day checkin
+      // (ver test "marca priority URGENT cuando hay same-day check-in").
       expect(prismaMock.cleaningTask.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             unitId: 'u1',
-            priority: 'URGENT',
+            priority: 'HIGH',
             carryoverFromTaskId: 'old-task',
             carryoverFromDate: yesterday,
             status: 'PENDING',
