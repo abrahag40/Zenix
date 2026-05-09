@@ -125,6 +125,10 @@ export function KanbanPage() {
   const [verifying, setVerifying] = useState<string | null>(null) // taskId en modal verify
   const [rejecting, setRejecting] = useState<string | null>(null) // taskId en modal reject
   const [showAdHocModal, setShowAdHocModal] = useState(false)
+  // Menú contextual ⋮ — solo UN abierto a la vez (state al padre, no
+  // local de cada TaskCard). Antes cada card tenía su propio menuOpen
+  // → al abrir B, A quedaba abierto (issue reportado por usuario).
+  const [openMenuTaskId, setOpenMenuTaskId] = useState<string | null>(null)
   // Sprint 9 final UX (patterns Linear/Trello/Jira):
   const [search, setSearch] = useState('')          // P2 — search por número
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('all')
@@ -424,6 +428,9 @@ export function KanbanPage() {
                       onForceUrgent={() => forceUrgentMutation.mutate(task.id)}
                       onToggleDeepClean={() => deepCleanMutation.mutate(task.id)}
                       isAssigning={assignMutation.isPending && assignMutation.variables?.taskId === task.id}
+                      isMenuOpen={openMenuTaskId === task.id}
+                      onToggleMenu={() => setOpenMenuTaskId(openMenuTaskId === task.id ? null : task.id)}
+                      onCloseMenu={() => setOpenMenuTaskId(null)}
                     />
                   ))
                 )}
@@ -722,6 +729,9 @@ function TaskCard({
   onForceUrgent,
   onToggleDeepClean,
   isAssigning,
+  isMenuOpen,
+  onToggleMenu,
+  onCloseMenu,
 }: {
   task: CleaningTaskDto
   housekeepers: StaffDto[]
@@ -732,6 +742,11 @@ function TaskCard({
   onForceUrgent: () => void
   onToggleDeepClean: () => void
   isAssigning: boolean
+  // Menú contextual ⋮ — controlled state desde el padre KanbanPage
+  // para que solo UN menú esté abierto a la vez en todo el board.
+  isMenuOpen: boolean
+  onToggleMenu: () => void
+  onCloseMenu: () => void
 }) {
   const room = task.unit?.room
   const isUrgent = task.priority === Priority.URGENT
@@ -740,7 +755,6 @@ function TaskCard({
   const isDone = task.status === CleaningStatus.DONE
   const isPending = task.status === CleaningStatus.PENDING
   const isStayover = task.taskType === 'STAYOVER'
-  const [menuOpen, setMenuOpen] = useState(false)
 
   const elapsed = useElapsed(task)
 
@@ -796,11 +810,22 @@ function TaskCard({
           )}
           {showOptionsMenu && (
             <div className="relative">
+              {/* Pixel-perfect: kebab visibilidad mejorada (Linear/GitHub pattern):
+                  - Default: text-gray-300 (visible pero sutil, no opacity-0)
+                  - Hover de la card: text-gray-500 (más prominente)
+                  - Hover directo del botón: text-gray-700 + bg-gray-100
+                  - Open: text-gray-700 + bg-gray-100 (estado activo)
+                  Antes era opacity-0 → opacity-100 (jarring + invisible inicial). */}
               <button
-                onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v) }}
-                className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                onClick={(e) => { e.stopPropagation(); onToggleMenu() }}
+                className={`w-6 h-6 flex items-center justify-center rounded transition-colors ${
+                  isMenuOpen
+                    ? 'text-gray-700 bg-gray-100'
+                    : 'text-gray-300 group-hover:text-gray-500 hover:!text-gray-700 hover:!bg-gray-100'
+                }`}
                 title="Más opciones"
                 aria-label="Opciones de la tarea"
+                aria-expanded={isMenuOpen}
               >
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
                   <circle cx="8" cy="3" r="1.5" />
@@ -808,20 +833,20 @@ function TaskCard({
                   <circle cx="8" cy="13" r="1.5" />
                 </svg>
               </button>
-              {menuOpen && (
+              {isMenuOpen && (
                 <>
-                  <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-                  <div className="absolute right-0 top-6 z-20 bg-white border border-gray-200 rounded-lg shadow-lg min-w-[180px] py-1">
+                  <div className="fixed inset-0 z-10" onClick={onCloseMenu} />
+                  <div className="absolute right-0 top-7 z-20 bg-white border border-gray-200 rounded-lg shadow-lg min-w-[180px] py-1">
                     {!isUrgent && (
                       <button
-                        onClick={() => { setMenuOpen(false); onForceUrgent() }}
+                        onClick={() => { onCloseMenu(); onForceUrgent() }}
                         className="w-full text-left px-3 py-1.5 text-xs text-red-700 hover:bg-red-50 font-medium"
                       >
                         🔴 Forzar URGENTE
                       </button>
                     )}
                     <button
-                      onClick={() => { setMenuOpen(false); onToggleDeepClean() }}
+                      onClick={() => { onCloseMenu(); onToggleDeepClean() }}
                       className="w-full text-left px-3 py-1.5 text-xs text-purple-700 hover:bg-purple-50 font-medium"
                     >
                       ✨ Limpieza profunda
