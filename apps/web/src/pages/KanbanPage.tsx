@@ -504,17 +504,19 @@ export function KanbanPage() {
           Treisman 1980 pre-attentive: el gradiente se procesa <250ms sin
           lectura consciente — affordance pura. */}
       <div className="relative">
-        {/* Edge fade IZQUIERDA (visible solo si hay scroll a la izquierda) */}
+        {/* Edge fade IZQUIERDA (visible solo si hay scroll a la izquierda).
+            Gris oscuro a baja opacidad — actúa como SOMBRA, no como wash.
+            Antes era from-white → invisible sobre body blanco. */}
         <div
           aria-hidden
-          className={`pointer-events-none absolute left-0 top-0 bottom-4 w-8 z-10 transition-opacity duration-200 bg-gradient-to-r from-white to-transparent ${
+          className={`pointer-events-none absolute left-0 top-0 bottom-4 w-16 z-10 transition-opacity duration-200 bg-gradient-to-r from-gray-900/20 via-gray-900/5 to-transparent ${
             showLeftFade ? 'opacity-100' : 'opacity-0'
           }`}
         />
         {/* Edge fade DERECHA (visible solo si hay overflow a la derecha) */}
         <div
           aria-hidden
-          className={`pointer-events-none absolute right-0 top-0 bottom-4 w-12 z-10 transition-opacity duration-200 bg-gradient-to-l from-white via-white/80 to-transparent ${
+          className={`pointer-events-none absolute right-0 top-0 bottom-4 w-16 z-10 transition-opacity duration-200 bg-gradient-to-l from-gray-900/20 via-gray-900/5 to-transparent ${
             showRightFade ? 'opacity-100' : 'opacity-0'
           }`}
         />
