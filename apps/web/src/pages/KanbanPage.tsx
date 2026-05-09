@@ -478,7 +478,7 @@ export function KanbanPage() {
               </div>
               {/* Body con altura mínima fija — patrón Trello/Linear/Jira:
                   columnas con/sin cards mantienen tamaño consistente */}
-              <div className="p-3 space-y-2 min-h-[420px] flex-1 flex flex-col">
+              <div className="p-3 space-y-3 min-h-[420px] flex-1 flex flex-col">
                 {colTasks.length === 0 ? (
                   <EmptyColumn status={col.status} />
                 ) : (
