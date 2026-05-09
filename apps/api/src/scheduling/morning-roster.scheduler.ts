@@ -284,7 +284,23 @@ export class MorningRosterScheduler {
       // Carryover por sí solo NO es URGENT — solo si TAMBIÉN tiene
       // hasSameDayCheckIn (combinación "doble urgente": ayer no se limpió
       // Y hoy llega huésped nuevo). Sin huésped llegando, carryover es HIGH.
-      const carryoverPriority = original.hasSameDayCheckIn
+      //
+      // IMPORTANTE: re-evaluar hasSameDayCheckIn contra HOY (la fecha de
+      // carryover), no copiar `original.hasSameDayCheckIn` (que fue computado
+      // con datos de ayer). Sin esto, una tarea creada ayer cuando NO había
+      // check-in para hoy se quedaría como HIGH aunque hoy sí haya un huésped
+      // llegando al mismo room — perdiendo la urgencia operativa real.
+      const dayEnd = new Date(localDateMidnightUtc.getTime() + 86_400_000 - 1)
+      const todayCheckinCount = await this.prisma.guestStay.count({
+        where: {
+          roomId: original.unit.roomId,
+          actualCheckin: null,
+          noShowAt: null,
+          checkinAt: { gte: localDateMidnightUtc, lte: dayEnd },
+        },
+      })
+      const hasSameDayCheckIn = todayCheckinCount > 0
+      const carryoverPriority = hasSameDayCheckIn
         ? Priority.URGENT  // doble: carryover + same-day checkin
         : Priority.HIGH    // solo carryover: importante pero sin presión de tiempo
 
@@ -299,7 +315,7 @@ export class MorningRosterScheduler {
             taskType: original.taskType,
             requiredCapability: original.requiredCapability,
             priority: carryoverPriority,
-            hasSameDayCheckIn: original.hasSameDayCheckIn,
+            hasSameDayCheckIn,
             scheduledFor: localDateMidnightUtc,
             carryoverFromDate: original.scheduledFor,
             carryoverFromTaskId: original.id,

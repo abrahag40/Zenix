@@ -548,17 +548,20 @@ export class GuestStaysService {
       taskCheckoutAt = new Date(`${tomorrowLocal}T09:00:00.000Z`)
     }
 
-    // Detección automática de URGENT: ¿hay otra reserva con check-in hoy en este room?
-    const todayLocal = toLocalDate(now, tz)
-    const todayStart = new Date(`${todayLocal}T00:00:00.000Z`)
-    const todayEnd   = new Date(`${todayLocal}T23:59:59.999Z`)
+    // Detección automática de URGENT: ¿hay otra reserva con check-in en la fecha
+    // operativa de la tarea? Usamos taskCheckoutAt (que puede ser hoy o mañana
+    // según housekeepingEndHour), NO `now` — sin esto un checkout post-cutoff
+    // del Día 1 con check-in nuevo el Día 2 no se marcaría URGENT.
+    const taskDateLocal = toLocalDate(taskCheckoutAt, tz)
+    const taskDayStart = new Date(`${taskDateLocal}T00:00:00.000Z`)
+    const taskDayEnd   = new Date(`${taskDateLocal}T23:59:59.999Z`)
     const sameDayCheckInCount = await this.prisma.guestStay.count({
       where: {
         organizationId: orgId,
         roomId: stay.roomId,
         actualCheckin: null,
         noShowAt: null,
-        checkinAt: { gte: todayStart, lte: todayEnd },
+        checkinAt: { gte: taskDayStart, lte: taskDayEnd },
         id: { not: stayId },
       },
     })
@@ -846,23 +849,6 @@ export class GuestStaysService {
     const localHour = toLocalHour(now, tz)
     const HOUSEKEEPING_END_HOUR = stay.room.property.settings?.housekeepingEndHour ?? 20
 
-    // Detección automática de URGENT: ¿hay otra reserva con check-in hoy en este room?
-    const todayLocal = toLocalDate(now, tz)
-    const todayStart = new Date(`${todayLocal}T00:00:00.000Z`)
-    const todayEnd   = new Date(`${todayLocal}T23:59:59.999Z`)
-    const sameDayCheckInCount = await this.prisma.guestStay.count({
-      where: {
-        organizationId: orgId,
-        roomId: stay.roomId,
-        actualCheckin: null,
-        noShowAt: null,
-        checkinAt: { gte: todayStart, lte: todayEnd },
-        id: { not: stayId },
-      },
-    })
-    const hasSameDayCheckIn = sameDayCheckInCount > 0
-    const taskPriority = hasSameDayCheckIn ? 'URGENT' : 'MEDIUM'
-
     // Determinar la fecha del Checkout record para el grid de housekeeping
     let taskCheckoutAt: Date
     if (localHour < HOUSEKEEPING_END_HOUR) {
@@ -874,6 +860,26 @@ export class GuestStaysService {
       // Fijamos a las 09:00 UTC para que quede dentro del rango UTC del día local de mañana
       taskCheckoutAt = new Date(`${tomorrowLocal}T09:00:00.000Z`)
     }
+
+    // Detección automática de URGENT: ¿hay otra reserva con check-in en la fecha
+    // operativa de la tarea? Usamos taskCheckoutAt (hoy o mañana según cutoff)
+    // — si usáramos `now`, un early-checkout post-cutoff con check-in nuevo
+    // mañana no se marcaría URGENT.
+    const taskDateLocal = toLocalDate(taskCheckoutAt, tz)
+    const taskDayStart = new Date(`${taskDateLocal}T00:00:00.000Z`)
+    const taskDayEnd   = new Date(`${taskDateLocal}T23:59:59.999Z`)
+    const sameDayCheckInCount = await this.prisma.guestStay.count({
+      where: {
+        organizationId: orgId,
+        roomId: stay.roomId,
+        actualCheckin: null,
+        noShowAt: null,
+        checkinAt: { gte: taskDayStart, lte: taskDayEnd },
+        id: { not: stayId },
+      },
+    })
+    const hasSameDayCheckIn = sameDayCheckInCount > 0
+    const taskPriority = hasSameDayCheckIn ? 'URGENT' : 'MEDIUM'
 
     // Transacción principal: actualizar stay + crear housekeeping records
     const newCleaningTaskIds: string[] = []
