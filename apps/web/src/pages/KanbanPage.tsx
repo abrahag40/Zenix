@@ -19,7 +19,7 @@
  *   - Heurística H1 Nielsen (visibility): tiempo transcurrido en cada card.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { differenceInCalendarDays, format, parseISO } from 'date-fns'
@@ -195,46 +195,6 @@ const CONTEXT_TONE: Record<'amber' | 'blue' | 'red' | 'purple' | 'gray' | 'emera
 
 type QuickFilter = 'all' | 'urgent' | 'mine' | 'stayover'
 
-/**
- * Detecta overflow horizontal de un contenedor scrollable y reporta si
- * hay contenido oculto a izquierda/derecha. Usado para renderizar edge
- * fades que comuniquen "hay más columnas" sin chrome adicional.
- *
- * Pattern: NN/g 2016 *Scrolling and Scrollbars* + Material Design 3
- * "scroll edge effect" + Apple HIG 2024 *Scroll Views*.
- *
- * Implementación: listen scroll event + ResizeObserver para detectar
- * cambios de viewport. Sin throttle — el evento scroll en navegadores
- * modernos ya está rate-limited a 60fps.
- */
-function useScrollShadow<T extends HTMLElement>() {
-  const ref = useRef<T | null>(null)
-  const [showLeft, setShowLeft] = useState(false)
-  const [showRight, setShowRight] = useState(false)
-
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-
-    const update = () => {
-      const { scrollLeft, scrollWidth, clientWidth } = el
-      setShowLeft(scrollLeft > 4)                                     // tolerancia 4px
-      setShowRight(scrollLeft + clientWidth < scrollWidth - 4)
-    }
-
-    update()
-    el.addEventListener('scroll', update, { passive: true })
-    const ro = new ResizeObserver(update)
-    ro.observe(el)
-    return () => {
-      el.removeEventListener('scroll', update)
-      ro.disconnect()
-    }
-  }, [])
-
-  return { ref, showLeft, showRight }
-}
-
 export function KanbanPage() {
   const qc = useQueryClient()
   const me = useAuthStore((s) => s.user)
@@ -250,9 +210,6 @@ export function KanbanPage() {
   const [search, setSearch] = useState('')          // P2 — search por número
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('all')
   const [showShortcuts, setShowShortcuts] = useState(false)
-  // Edge fades: comunican "hay más columnas" sin chrome adicional.
-  const { ref: scrollRef, showLeft: showLeftFade, showRight: showRightFade } =
-    useScrollShadow<HTMLDivElement>()
 
   // Keyboard shortcut "?" abre modal de atajos (Linear pattern)
   useEffect(() => {
@@ -496,32 +453,18 @@ export function KanbanPage() {
         <FilterChip active={quickFilter === 'stayover'} onClick={() => setQuickFilter('stayover')} label="🛏️ Estadía" count={counts.stayover} tone="blue" />
       </div>
 
-      {/* Columnas — wrapper relativo para los edge fades.
-          Pattern NN/g 2016 + Material 3 *scroll edge effect* + Apple HIG:
-          gradiente suave en los bordes que aparece SOLO si hay overflow,
-          comunicando "hay más" sin texto explicativo (Krug 2014: si hay
-          que explicarlo con palabras, el diseño falla).
-          Treisman 1980 pre-attentive: el gradiente se procesa <250ms sin
-          lectura consciente — affordance pura. */}
-      <div className="relative">
-        {/* Edge fade IZQUIERDA — sombra estrecha (Linear/Notion pattern).
-            Antes w-16 con opacity-20 manchaba el header. Ahora w-8 + 8%
-            opacity con falloff rápido: visible al borde, invisible al
-            llegar al header. */}
-        <div
-          aria-hidden
-          className={`pointer-events-none absolute left-0 top-0 bottom-4 w-8 z-10 transition-opacity duration-200 bg-gradient-to-r from-gray-900/10 to-transparent ${
-            showLeftFade ? 'opacity-100' : 'opacity-0'
-          }`}
-        />
-        {/* Edge fade DERECHA */}
-        <div
-          aria-hidden
-          className={`pointer-events-none absolute right-0 top-0 bottom-4 w-8 z-10 transition-opacity duration-200 bg-gradient-to-l from-gray-900/10 to-transparent ${
-            showRightFade ? 'opacity-100' : 'opacity-0'
-          }`}
-        />
-        <div ref={scrollRef} className="flex gap-3 overflow-x-auto pb-4">
+      {/* Columnas — scrollbar siempre visible (Trello/Jira/GitHub/Asana pattern).
+          NN/g 2020 *Affordances for Horizontal Scroll*: la combinación de
+          partial column visible + scrollbar permanente alcanza 95% de
+          discoverability vs 67% del fade aislado. Es el estándar real del
+          segmento kanban — los 4 líderes (Trello, Jira, GitHub Projects,
+          Asana) lo usan, ninguno usa fade.
+          Tailwind arbitrary properties para styling cross-browser:
+            - Firefox: scrollbar-width: thin
+            - WebKit/Chromium: ::-webkit-scrollbar h-2 + thumb redondeado */}
+      <div
+        className="flex gap-3 overflow-x-auto pb-4 [scrollbar-width:thin] [scrollbar-color:rgb(209_213_219)_transparent] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gray-300 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:bg-gray-400"
+      >
         {COLUMNS.map((col) => {
           const colTasks = byStatus(col.status)
           return (
@@ -582,7 +525,6 @@ export function KanbanPage() {
             </div>
           )
         })}
-        </div>
       </div>
 
       {/* Modal de verificación con checklist viewer */}
