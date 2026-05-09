@@ -177,13 +177,20 @@ function getTaskContext(task: CleaningTaskDto): { icon: string; label: string; t
   return { icon: '🚪', label: 'Salida del día', tone: 'emerald' }
 }
 
+/**
+ * Estilo del contexto inline — solo color de texto, SIN bg/border.
+ * Patrón Linear/Trello/Jira: metadata = inline label, no boxed chip.
+ * Justificación: el chip con caja competía visualmente con los botones
+ * de acción (también full-width con bg+border). Texto inline reduce ruido
+ * y refuerza que es METADATA, no acción (Tufte: data-ink ratio).
+ */
 const CONTEXT_TONE: Record<'amber' | 'blue' | 'red' | 'purple' | 'gray' | 'emerald', string> = {
-  amber:   'text-amber-700 bg-amber-50 border-amber-200',
-  blue:    'text-blue-700 bg-blue-50 border-blue-200',
-  red:     'text-red-700 bg-red-50 border-red-200',
-  purple:  'text-purple-700 bg-purple-50 border-purple-200',
-  gray:    'text-gray-600 bg-gray-50 border-gray-200',
-  emerald: 'text-emerald-700 bg-emerald-50 border-emerald-200',
+  amber:   'text-amber-700',
+  blue:    'text-blue-700',
+  red:     'text-red-700',
+  purple:  'text-purple-700',
+  gray:    'text-gray-500',
+  emerald: 'text-emerald-700',
 }
 
 type QuickFilter = 'all' | 'urgent' | 'mine' | 'stayover'
@@ -855,145 +862,112 @@ function TaskCard({
       ? 'border-l-blue-400'
       : 'border-l-transparent'
 
+  const ctx = getTaskContext(task)
+  const showFooter = !isUnassigned && (task.assignedTo || elapsed)
+
   return (
     <div
-      className={`relative ${agingBg} rounded-lg border-l-4 ${leftBorderColor} p-3 text-xs space-y-2 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 group`}
+      className={`relative ${agingBg} rounded-lg border-l-4 ${leftBorderColor} p-3 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 group space-y-2.5`}
       title={aged ? `Esta tarea lleva más de 2h en ${task.status} — revisa con el housekeeper` : undefined}
     >
-      {/* Header: room + priority badge + kebab menu (todos inline en flex
-          items-center → alineación pixel-perfect garantizada).
-          Pixel-perfect audit fix: kebab antes era absolute top-2 right-2 que
-          no coincidía con el padding del card (p-3 = 12px, top-2 = 8px) →
-          desalineación visual de 4px. Inline lo resuelve. */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="font-semibold text-gray-900 text-sm flex items-center gap-1.5 min-w-0">
-          <span className="truncate">Hab. {room?.number ?? '—'}</span>
-          {task.unit?.label && task.unit.label !== `Hab. ${room?.number}` && task.unit.label !== room?.number && (
-            <span className="text-gray-400 font-normal text-xs truncate">· {task.unit.label}</span>
-          )}
-        </div>
-        <div className="flex items-center gap-1.5 flex-shrink-0">
-          {priorityMeta && (
-            <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide ${priorityMeta.className}`}>
-              {priorityMeta.label}
-            </span>
-          )}
-          {showOptionsMenu && (
-            <div className="relative">
-              {/* Pixel-perfect: kebab visibilidad mejorada (Linear/GitHub pattern):
-                  - Default: text-gray-300 (visible pero sutil, no opacity-0)
-                  - Hover de la card: text-gray-500 (más prominente)
-                  - Hover directo del botón: text-gray-700 + bg-gray-100
-                  - Open: text-gray-700 + bg-gray-100 (estado activo)
-                  Antes era opacity-0 → opacity-100 (jarring + invisible inicial). */}
-              <button
-                onClick={(e) => { e.stopPropagation(); onToggleMenu() }}
-                className={`w-6 h-6 flex items-center justify-center rounded transition-colors ${
-                  isMenuOpen
-                    ? 'text-gray-700 bg-gray-100'
-                    : 'text-gray-300 group-hover:text-gray-500 hover:!text-gray-700 hover:!bg-gray-100'
-                }`}
-                title="Más opciones"
-                aria-label="Opciones de la tarea"
-                aria-expanded={isMenuOpen}
-              >
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                  <circle cx="8" cy="3" r="1.5" />
-                  <circle cx="8" cy="8" r="1.5" />
-                  <circle cx="8" cy="13" r="1.5" />
-                </svg>
-              </button>
-              {isMenuOpen && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={onCloseMenu} />
-                  <div className="absolute right-0 top-7 z-20 bg-white border border-gray-200 rounded-lg shadow-lg min-w-[180px] py-1">
-                    {!isUrgent && (
+      {/* ─── ZONA 1 — IDENTITY ──────────────────────────────────────────
+          Title block: número de habitación + contexto inline.
+          Patrón Linear/Trello: title prominente forma bloque visual con
+          su metadata descriptiva (separación interna 4px, no 8px).
+          Apple HIG: jerarquía clara — el título domina (text-base bold),
+          la descripción es subordinada (text-[11px] color semántico).
+          NN/g visual hierarchy: peso visual proporcional a importancia. */}
+      <div className="space-y-1">
+        <div className="flex items-start justify-between gap-2">
+          <div className="font-bold text-gray-900 text-base leading-tight flex items-baseline gap-1.5 min-w-0 flex-1">
+            <span className="truncate">Hab. {room?.number ?? '—'}</span>
+            {task.unit?.label && task.unit.label !== `Hab. ${room?.number}` && task.unit.label !== room?.number && (
+              <span className="text-gray-400 font-normal text-xs truncate">· {task.unit.label}</span>
+            )}
+          </div>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {priorityMeta && (
+              <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide ${priorityMeta.className}`}>
+                {priorityMeta.label}
+              </span>
+            )}
+            {showOptionsMenu && (
+              <div className="relative">
+                <button
+                  onClick={(e) => { e.stopPropagation(); onToggleMenu() }}
+                  className={`w-6 h-6 flex items-center justify-center rounded transition-colors ${
+                    isMenuOpen
+                      ? 'text-gray-700 bg-gray-100'
+                      : 'text-gray-300 group-hover:text-gray-500 hover:!text-gray-700 hover:!bg-gray-100'
+                  }`}
+                  title="Más opciones"
+                  aria-label="Opciones de la tarea"
+                  aria-expanded={isMenuOpen}
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                    <circle cx="8" cy="3" r="1.5" />
+                    <circle cx="8" cy="8" r="1.5" />
+                    <circle cx="8" cy="13" r="1.5" />
+                  </svg>
+                </button>
+                {isMenuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={onCloseMenu} />
+                    <div className="absolute right-0 top-7 z-20 bg-white border border-gray-200 rounded-lg shadow-lg min-w-[180px] py-1">
+                      {!isUrgent && (
+                        <button
+                          onClick={() => { onCloseMenu(); onForceUrgent() }}
+                          className="w-full text-left px-3 py-1.5 text-xs text-red-700 hover:bg-red-50 font-medium"
+                        >
+                          🔴 Forzar URGENTE
+                        </button>
+                      )}
                       <button
-                        onClick={() => { onCloseMenu(); onForceUrgent() }}
-                        className="w-full text-left px-3 py-1.5 text-xs text-red-700 hover:bg-red-50 font-medium"
+                        onClick={() => { onCloseMenu(); onToggleDeepClean() }}
+                        className="w-full text-left px-3 py-1.5 text-xs text-purple-700 hover:bg-purple-50 font-medium"
                       >
-                        🔴 Forzar URGENTE
+                        ✨ Limpieza profunda
                       </button>
-                    )}
-                    <button
-                      onClick={() => { onCloseMenu(); onToggleDeepClean() }}
-                      className="w-full text-left px-3 py-1.5 text-xs text-purple-700 hover:bg-purple-50 font-medium"
-                    >
-                      ✨ Limpieza profunda
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Context inline — explica el ORIGEN de la tarea hoy.
+            Ya NO es un chip con caja: es metadata inline (Linear pattern).
+            Resuelve confusión "204 está en kanban pero no en calendario hoy". */}
+        <div className={`text-[11px] font-medium flex items-center gap-1 ${CONTEXT_TONE[ctx.tone]}`} title={ctx.label}>
+          <span aria-hidden className="text-xs leading-none">{ctx.icon}</span>
+          <span className="truncate">{ctx.label}</span>
         </div>
       </div>
 
-      {/* Contexto descriptivo — explica POR QUÉ esta tarea está en el kanban hoy.
-          Resuelve confusión cuando una hab. aparece en kanban pero NO tiene
-          checkout en el calendario hoy (caso típico: carryover de ayer).
-          Apple HIG pre-attentive: icon + color + texto breve = lectura <250ms.
-          Heurística H1 NN/g (visibility of system status). */}
-      {(() => {
-        const ctx = getTaskContext(task)
-        return (
-          <div
-            className={`text-[11px] font-medium rounded px-1.5 py-1 border flex items-center gap-1 ${CONTEXT_TONE[ctx.tone]}`}
-            title={ctx.label}
-          >
-            <span aria-hidden>{ctx.icon}</span>
-            <span className="truncate">{ctx.label}</span>
-          </div>
-        )
-      })()}
+      {/* ─── ZONA 2 — ACTION (condicional) ──────────────────────────────
+          Solo aparece cuando el supervisor tiene una decisión que tomar:
+            UNASSIGNED → assign select (acción primaria del estado)
+            PENDING    → confirmar salida (Fase 2)
+            DONE       → verify / reject (AHLEI 4.4)
+          Apple HIG: action zone separada de identity por espaciado.       */}
 
-      {/* Assignment row */}
-      {isUnassigned ? (
-        <div className="pt-1">
-          <select
-            defaultValue=""
-            onChange={(e) => {
-              if (e.target.value) onAssign(e.target.value)
-            }}
-            disabled={isAssigning}
-            className="w-full text-xs border border-gray-300 rounded px-1.5 py-1 bg-white"
-          >
-            <option value="" disabled>
-              {isAssigning ? 'Asignando...' : 'Asignar housekeeper...'}
-            </option>
-            {housekeepers.map((h) => (
-              <option key={h.id} value={h.id}>{h.name}</option>
-            ))}
-          </select>
-        </div>
-      ) : task.assignedTo ? (
-        <div className="flex items-center gap-2 min-w-0">
-          {/* Avatar circular con iniciales — escaneabilidad NN/g 2023 */}
-          <Avatar name={task.assignedTo.name} size="sm" />
-          <span className="text-gray-700 text-xs truncate">{task.assignedTo.name}</span>
-        </div>
-      ) : null}
-
-      {/* Counter live: tiempo en estado actual + state hint.
-          Aged: warning amber con ⚠️ — alerta operativa Trello-style.
-          Pixel-perfect: gap-1.5 + leading-none + ⚠ wrapper text-xs evita
-          baseline shift (emoji nativo es 16px, texto 11px). */}
-      {elapsed && (
-        <p className={`text-[11px] flex items-center gap-1.5 leading-none ${
-          aged ? 'text-amber-700 font-medium' : isPaused ? 'text-amber-600' : 'text-gray-400'
-        }`}>
-          {aged && (
-            <span className="text-xs leading-none" title="Más de 2h en este estado" aria-label="Atascada">
-              ⚠️
-            </span>
-          )}
-          <span>{isPaused ? '⏸ Pausada · ' : ''}{elapsed}</span>
-        </p>
+      {isUnassigned && (
+        <select
+          defaultValue=""
+          onChange={(e) => { if (e.target.value) onAssign(e.target.value) }}
+          disabled={isAssigning}
+          className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 bg-white font-medium"
+        >
+          <option value="" disabled>
+            {isAssigning ? 'Asignando...' : '👤 Asignar housekeeper…'}
+          </option>
+          {housekeepers.map((h) => (
+            <option key={h.id} value={h.id}>{h.name}</option>
+          ))}
+        </select>
       )}
 
-      {/* Confirmar salida — solo en PENDING (Fase 2 §4 CLAUDE.md).
-          Migrado desde /overrides "Real-Time" tab — recepción confirma que
-          el huésped salió físicamente → PENDING transiciona a READY + push */}
       {isPending && task.checkoutId && (
         <button
           onClick={onConfirmDepart}
@@ -1027,7 +1001,41 @@ function TaskCard({
         </div>
       )}
 
-      {/* Menú de overrides ahora vive en el kebab top-right de la card */}
+      {/* ─── ZONA 3 — FOOTER METADATA ───────────────────────────────────
+          Assignee + elapsed agrupados en una sola línea (Linear/Trello/Jira).
+          Gestalt proximity: ambos son metadata pasiva (lectura, no acción)
+          → forman un bloque visual único.
+          Patrón: avatar+nombre a la izq, tiempo a la derecha.
+          Solo se renderiza si hay algo que mostrar (no UNASSIGNED).        */}
+      {showFooter && (
+        <div className="flex items-center justify-between gap-2 pt-0.5 border-t border-gray-100">
+          {/* Assignee (izquierda) */}
+          {task.assignedTo ? (
+            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+              <Avatar name={task.assignedTo.name} size="xs" />
+              <span className="text-[11px] text-gray-600 truncate">{task.assignedTo.name}</span>
+            </div>
+          ) : (
+            <span aria-hidden className="flex-1" />
+          )}
+
+          {/* Elapsed (derecha) — color según estado.
+              Pixel-perfect: leading-none + emoji ⚠ wrapper para evitar
+              baseline shift entre emoji nativo (16px) y texto (11px). */}
+          {elapsed && (
+            <span className={`text-[11px] flex items-center gap-1 leading-none flex-shrink-0 ${
+              aged ? 'text-amber-700 font-medium' : isPaused ? 'text-amber-600' : 'text-gray-400'
+            }`}>
+              {aged && (
+                <span className="text-xs leading-none" title="Más de 2h en este estado" aria-label="Atascada">
+                  ⚠️
+                </span>
+              )}
+              <span>{isPaused ? '⏸ ' : ''}{elapsed}</span>
+            </span>
+          )}
+        </div>
+      )}
     </div>
   )
 }
