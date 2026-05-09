@@ -22,6 +22,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
+import { differenceInCalendarDays, format, parseISO } from 'date-fns'
+import { es } from 'date-fns/locale'
 import { api } from '../api/client'
 import { useSSE } from '../hooks/useSSE'
 import { useAuthStore } from '../store/auth'
@@ -114,6 +116,74 @@ const PRIORITY_BADGE: Partial<Record<Priority, { label: string; className: strin
   [Priority.HIGH]:   { label: 'ALTA',       className: 'bg-orange-50 text-orange-700' },
   [Priority.LOW]:    { label: 'BAJA',       className: 'bg-gray-100 text-gray-500' },
   // MEDIUM omitido a propósito — es el default. No mostrar evita ruido visual.
+}
+
+/**
+ * Contexto descriptivo de la tarea — explica POR QUÉ está en el kanban hoy.
+ *
+ * Justificación UX: cuando un usuario nuevo ve la 204/C2 en el kanban pero no
+ * ve checkout en el calendario, la card debe explicar el origen ("Pendiente
+ * desde ayer" para carryover, "Limpieza durante estadía" para stayover, etc.).
+ * Sin esto, falla la heurística H1 de Nielsen (visibility of system status):
+ * el usuario no puede mapear lo que ve en kanban con lo que ve en calendario.
+ *
+ * Prioridad de razones (la más específica gana):
+ *   1. Carryover (atascada de día anterior — el caso más confuso)
+ *   2. Extensión sin/con limpieza (re-etiquetada por D12)
+ *   3. Stayover (huésped en casa)
+ *   4. Same-day check-in (huésped llega hoy en este mismo cuarto)
+ *   5. Mantenimiento
+ *   6. Default — checkout del día
+ */
+function getTaskContext(task: CleaningTaskDto): { icon: string; label: string; tone: 'amber' | 'blue' | 'red' | 'purple' | 'gray' | 'emerald' } {
+  // 1. Carryover — la razón más confusa para un nuevo usuario
+  if (task.carryoverFromDate) {
+    const carryoverDate = parseISO(task.carryoverFromDate.slice(0, 10))
+    const today = new Date()
+    const daysAgo = differenceInCalendarDays(today, carryoverDate)
+    const label =
+      daysAgo === 1
+        ? 'Pendiente desde ayer'
+        : daysAgo > 1
+          ? `Pendiente desde hace ${daysAgo} días`
+          : `Pendiente desde ${format(carryoverDate, 'd MMM', { locale: es })}`
+    return { icon: '📋', label, tone: 'amber' }
+  }
+
+  // 2. Extensión re-etiquetada (D12 §46 CLAUDE.md)
+  if (task.extensionFlag === 'WITH_CLEANING') {
+    return { icon: '✨', label: 'Solicitada en extensión', tone: 'purple' }
+  }
+  if (task.extensionFlag === 'WITHOUT_CLEANING') {
+    return { icon: '⊘', label: 'Extensión sin limpieza', tone: 'gray' }
+  }
+
+  // 3. Stayover (huésped sigue en casa)
+  if (task.taskType === 'STAYOVER') {
+    return { icon: '🛏️', label: 'Limpieza durante estadía', tone: 'blue' }
+  }
+
+  // 4. Mantenimiento
+  if (task.taskType === 'MAINTENANCE') {
+    return { icon: '🔧', label: 'Mantenimiento', tone: 'red' }
+  }
+
+  // 5. Same-day check-in (checkout normal pero con huésped llegando hoy)
+  if (task.hasSameDayCheckIn) {
+    return { icon: '🚪', label: 'Salida + nuevo huésped hoy', tone: 'red' }
+  }
+
+  // 6. Default — checkout normal del día
+  return { icon: '🚪', label: 'Salida del día', tone: 'emerald' }
+}
+
+const CONTEXT_TONE: Record<'amber' | 'blue' | 'red' | 'purple' | 'gray' | 'emerald', string> = {
+  amber:   'text-amber-700 bg-amber-50 border-amber-200',
+  blue:    'text-blue-700 bg-blue-50 border-blue-200',
+  red:     'text-red-700 bg-red-50 border-red-200',
+  purple:  'text-purple-700 bg-purple-50 border-purple-200',
+  gray:    'text-gray-600 bg-gray-50 border-gray-200',
+  emerald: 'text-emerald-700 bg-emerald-50 border-emerald-200',
 }
 
 type QuickFilter = 'all' | 'urgent' | 'mine' | 'stayover'
@@ -859,25 +929,23 @@ function TaskCard({
         </div>
       </div>
 
-      {/* Badges: same-day check-in + tipo de tarea (stayover).
-          Apple HIG pre-attentive: color + emoji = lectura <250ms. */}
-      {(task.hasSameDayCheckIn || isStayover) && (
-        <div className="flex flex-wrap gap-1">
-          {task.hasSameDayCheckIn && (
-            <span className="text-[10px] font-semibold text-red-700 bg-red-50 rounded px-1.5 py-0.5">
-              🔴 Hoy entra
-            </span>
-          )}
-          {isStayover && (
-            <span
-              className="text-[10px] font-semibold text-blue-700 bg-blue-50 rounded px-1.5 py-0.5"
-              title="Limpieza de estadía — huésped sigue en casa"
-            >
-              🛏️ Estadía
-            </span>
-          )}
-        </div>
-      )}
+      {/* Contexto descriptivo — explica POR QUÉ esta tarea está en el kanban hoy.
+          Resuelve confusión cuando una hab. aparece en kanban pero NO tiene
+          checkout en el calendario hoy (caso típico: carryover de ayer).
+          Apple HIG pre-attentive: icon + color + texto breve = lectura <250ms.
+          Heurística H1 NN/g (visibility of system status). */}
+      {(() => {
+        const ctx = getTaskContext(task)
+        return (
+          <div
+            className={`text-[11px] font-medium rounded px-1.5 py-1 border flex items-center gap-1 ${CONTEXT_TONE[ctx.tone]}`}
+            title={ctx.label}
+          >
+            <span aria-hidden>{ctx.icon}</span>
+            <span className="truncate">{ctx.label}</span>
+          </div>
+        )
+      })()}
 
       {/* Assignment row */}
       {isUnassigned ? (
