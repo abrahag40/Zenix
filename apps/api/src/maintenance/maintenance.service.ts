@@ -1434,9 +1434,20 @@ export class MaintenanceService {
     }
   }
 
+  /**
+   * Friendly ID estable derivado del UUID. Formato `MT-XXXXXX` (6 hex upper).
+   * Sirve para auditoría humana ("ticket MT-38A5AA") sin schema delta. Si en
+   * el futuro se requiere ID secuencial fiscal (propCode-MT-####), añadir
+   * campo dedicado en Mx-2 — derivar de UUID es suficiente para v1.0.0.
+   */
+  private friendlyId(uuid: string): string {
+    return 'MT-' + uuid.replace(/-/g, '').slice(0, 6).toUpperCase()
+  }
+
   private toListDto(t: any): any {
     return {
       id: t.id,
+      friendlyId: this.friendlyId(t.id),
       organizationId: t.organizationId,
       propertyId: t.propertyId,
       roomId: t.roomId ?? null,

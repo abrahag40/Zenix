@@ -18,9 +18,10 @@
  * El PropertySwitcher es heredado del GlobalTopBar — `/maintenance` no está
  * en `ROUTES_WITHOUT_SWITCHER` así que aparece automáticamente.
  */
-import { useState } from 'react'
-import { Plus } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Plus, Search, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAuthStore } from '../store/auth'
 import {
@@ -54,11 +55,25 @@ export function MaintenancePage() {
 
   // KPI activo (filtro aplicado al Kanban)
   const [activeKpi, setActiveKpi] = useState<KpiCard | null>(null)
+  // Búsqueda local por friendlyId / título / habitación / asset.
+  const [search, setSearch] = useState('')
+
   const queryFilter: MaintenanceTicketListQuery = activeKpi?.filter ?? { activeOnly: true }
 
-  const { data: tickets = [], isLoading } = useMaintenanceTickets(queryFilter)
+  const { data: rawTickets = [], isLoading } = useMaintenanceTickets(queryFilter)
   // Para los KPIs queremos el universo completo, no el filtrado.
   const { data: allTickets = [] } = useMaintenanceTickets({ activeOnly: true })
+
+  // Filtro local — case-insensitive sobre friendlyId, título, habitación, asset.
+  const tickets = useMemo(() => {
+    if (!search.trim()) return rawTickets
+    const q = search.trim().toLowerCase()
+    return rawTickets.filter((t) =>
+      [t.friendlyId, t.title, t.roomNumber, t.assetTag, t.assignedToName, t.reportedByName]
+        .filter(Boolean)
+        .some((s) => String(s).toLowerCase().includes(q)),
+    )
+  }, [rawTickets, search])
 
   if (!user || !token) {
     return null
@@ -84,21 +99,47 @@ export function MaintenancePage() {
   return (
     <div className="space-y-5">
       {/* ── Header ────────────────────────────────────────────────────── */}
-      <header className="flex items-end justify-between gap-3">
+      <header className="flex items-end justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-xl font-semibold text-slate-900">Mantenimiento</h1>
           <p className="text-xs text-slate-500 mt-0.5">
             {roleSubtitle(user.role)}
           </p>
         </div>
-        <Button
-          size="sm"
-          onClick={() => setCreateOpen(true)}
-          className="bg-emerald-600 hover:bg-emerald-700 text-white"
-        >
-          <Plus className="h-4 w-4 mr-1.5" />
-          Nuevo ticket
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* Búsqueda local — friendlyId / título / habitación / asset */}
+          <div className="relative">
+            <Search
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none"
+              aria-hidden
+            />
+            <Input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar por ID, título, hab. o asset…"
+              className="pl-8 pr-8 h-9 w-64 text-sm"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                aria-label="Limpiar búsqueda"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+          <Button
+            size="sm"
+            onClick={() => setCreateOpen(true)}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white"
+          >
+            <Plus className="h-4 w-4 mr-1.5" />
+            Nuevo ticket
+          </Button>
+        </div>
       </header>
 
       {/* ── KPI Bar adaptativa ────────────────────────────────────────── */}

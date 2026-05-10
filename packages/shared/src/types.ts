@@ -1021,6 +1021,8 @@ export type RecurrenceScopeValue = 'PER_ROOM' | 'PER_ASSET' | 'PER_PROPERTY' | '
  */
 export interface MaintenanceTicketDto {
   id: string
+  /** Friendly ID derivado del UUID — formato MT-XXXXXX para auditoría humana. */
+  friendlyId: string
   organizationId: string
   propertyId: string
   roomId: string | null

@@ -41,6 +41,7 @@ import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Skeleton } from '@/components/ui/skeleton'
+import { cn } from '@/lib/utils'
 import type { JwtPayload, MaintenanceTicketLogDto } from '@zenix/shared'
 import {
   CATEGORY_ICON,
@@ -49,6 +50,12 @@ import {
   PRIORITY_PILL,
   formatElapsed,
 } from '../utils/maintenance.constants'
+import {
+  STATUS_LABEL,
+  LOG_EVENT_LABEL,
+  humanize,
+  humanizeLogMetadata,
+} from '../utils/humanize'
 import {
   useMaintenanceTicket,
   useApproveTicket,
@@ -125,11 +132,11 @@ export function TicketDetailDrawer({ ticketId, actor, onClose }: Props) {
           </div>
         )}
 
-        {/* ── Banner CRITICAL bloqueada ───────────────────────────────── */}
+        {/* ── Banner CRITICAL bloqueada — texto user-friendly sin jargon ─ */}
         {ticket?.hasAutoBlock && (
           <div className="px-5 py-2 bg-red-50 border-b border-red-200 text-xs text-red-800 inline-flex items-center gap-2">
             <Lock className="h-3.5 w-3.5" aria-hidden />
-            Habitación bloqueada automáticamente · Channex notificado
+            Habitación fuera de venta · Disponibilidad cerrada en OTAs (Booking, Airbnb, etc.)
           </div>
         )}
 
@@ -206,6 +213,17 @@ function HeaderContent({
         <span className="text-[10px] text-slate-400 uppercase tracking-wide flex items-center gap-1">
           <Icon className="h-3 w-3" aria-hidden />
           {CATEGORY_LABEL[ticket.category]}
+        </span>
+        {ticket.friendlyId && (
+          <span
+            className="text-[10px] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded"
+            title="Identificador único del ticket (para auditoría)"
+          >
+            {ticket.friendlyId}
+          </span>
+        )}
+        <span className="text-[10px] text-slate-400 ml-auto">
+          {STATUS_LABEL[ticket.status]}
         </span>
       </div>
       <h2 className="mt-1 text-base font-semibold text-slate-900 leading-snug">
@@ -355,48 +373,59 @@ function LogList({ logs }: { logs: MaintenanceTicketLogDto[] }) {
   }
   return (
     <ol className="space-y-3 mt-3 border-l-2 border-slate-200 pl-4">
-      {logs.map((l) => (
-        <li key={l.id} className="text-xs">
-          <div className="absolute -ml-[21px] mt-0.5 h-2.5 w-2.5 rounded-full bg-slate-300 ring-2 ring-white" />
-          <div className="font-semibold text-slate-700">{logEventLabel(l.event)}</div>
-          <div className="text-[10px] text-slate-500">
-            {l.staffName ?? 'Sistema'} ·{' '}
-            {format(parseISO(l.createdAt), "d MMM HH:mm:ss", { locale: es })}
-          </div>
-          {l.metadata && Object.keys(l.metadata).length > 0 && (
-            <pre className="mt-0.5 text-[10px] text-slate-400 whitespace-pre-wrap font-mono">
-              {JSON.stringify(l.metadata, null, 2)}
-            </pre>
-          )}
-        </li>
-      ))}
+      {logs.map((l) => {
+        const metaLines = humanizeLogMetadata(l.metadata)
+        return (
+          <li key={l.id} className="text-xs relative">
+            <div className="absolute -ml-[21px] mt-0.5 h-2.5 w-2.5 rounded-full bg-slate-300 ring-2 ring-white" />
+            <div className="font-semibold text-slate-700">{logEventLabel(l.event)}</div>
+            <div className="text-[10px] text-slate-500">
+              {l.staffName ?? 'Sistema'} ·{' '}
+              {format(parseISO(l.createdAt), "d MMM HH:mm:ss", { locale: es })}
+            </div>
+            {metaLines.length > 0 && (
+              <ul className="mt-1 space-y-0.5">
+                {metaLines.map((line, i) => (
+                  <li key={i} className="text-[10px] text-slate-500 leading-snug">
+                    <span className="text-slate-400 mr-1">·</span>
+                    {line}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </li>
+        )
+      })}
     </ol>
   )
 }
 
+const LOG_EMOJI: Partial<Record<MaintenanceTicketLogDto['event'], string>> = {
+  CREATED: '🆕',
+  APPROVED: '✅',
+  REJECTED: '❌',
+  QUEUED: '📥',
+  CLAIMED: '✋',
+  ASSIGNED: '👤',
+  AUTO_ASSIGNED: '🤖',
+  ACKNOWLEDGED: '👁',
+  STARTED: '▶',
+  WAITING_PARTS: '⏸',
+  RESOLVED: '✅',
+  VERIFIED: '✓',
+  CLOSED: '🗄',
+  REOPENED: '🔄',
+  COMMENT_ADDED: '💬',
+  PHOTO_ADDED: '📷',
+  BLOCK_AUTO_CREATED: '🔒',
+  BLOCK_AUTO_RELEASED: '🔓',
+  SLA_BREACH: '⏰',
+}
+
 function logEventLabel(ev: MaintenanceTicketLogDto['event']): string {
-  const map: Partial<Record<MaintenanceTicketLogDto['event'], string>> = {
-    CREATED: '🆕 Ticket creado',
-    APPROVED: '✅ Aprobado',
-    REJECTED: '❌ Rechazado',
-    QUEUED: '📥 Entró a cola',
-    CLAIMED: '✋ Tomado voluntariamente',
-    ASSIGNED: '👤 Asignado',
-    AUTO_ASSIGNED: '🤖 Auto-asignado',
-    ACKNOWLEDGED: '👁 Visto',
-    STARTED: '▶ Trabajo iniciado',
-    WAITING_PARTS: '⏸ Esperando refacciones',
-    RESOLVED: '✅ Resuelto',
-    VERIFIED: '✓ Verificado',
-    CLOSED: '🗄 Cerrado',
-    REOPENED: '🔄 Reabierto',
-    COMMENT_ADDED: '💬 Comentario añadido',
-    PHOTO_ADDED: '📷 Foto añadida',
-    BLOCK_AUTO_CREATED: '🔒 Habitación bloqueada',
-    BLOCK_AUTO_RELEASED: '🔓 Habitación liberada',
-    SLA_BREACH: '⏰ SLA vencido',
-  }
-  return map[ev] ?? ev
+  const emoji = LOG_EMOJI[ev] ?? '•'
+  const label = LOG_EVENT_LABEL[ev] ?? humanize(ev)
+  return `${emoji} ${label}`
 }
 
 function Section({ label, children }: { label: string; children: React.ReactNode }) {

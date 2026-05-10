@@ -66,7 +66,7 @@ export function TicketCard({ ticket, onClick, compact = false }: Props) {
         compact ? 'p-3 gap-1.5' : 'p-3.5 gap-2',
       ].filter(Boolean).join(' ')}
     >
-      {/* ── Zone 1: Identity ──────────────────────────────────────────── */}
+      {/* ── Zone 1: Identity — chips + friendlyId visible para auditoría ─ */}
       <div className="flex items-start gap-2">
         <Icon
           className="h-4 w-4 text-slate-500 shrink-0 mt-0.5"
@@ -84,6 +84,14 @@ export function TicketCard({ ticket, onClick, compact = false }: Props) {
             <span className="text-[10px] text-slate-400 uppercase tracking-wide">
               {CATEGORY_LABEL[ticket.category]}
             </span>
+            {ticket.friendlyId && (
+              <span
+                className="text-[10px] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded ml-auto"
+                title="Identificador único del ticket (para auditoría)"
+              >
+                {ticket.friendlyId}
+              </span>
+            )}
           </div>
           <h3
             className={`mt-1 ${
@@ -131,21 +139,27 @@ export function TicketCard({ ticket, onClick, compact = false }: Props) {
         )}
       </div>
 
-      {/* ── Zone 3: Footer ────────────────────────────────────────────── */}
+      {/* ── Zone 3: Footer — avatar + nombre completo (NN/g: iniciales solas
+            no bastan cuando hay homónimos como "Javier R." vs "Javier Q.") ─ */}
       <div className="flex items-center gap-2 pt-1 mt-auto text-[11px] text-slate-500">
         {ticket.assignedToName ? (
-          <span
-            className={`inline-flex items-center justify-center rounded-full text-white font-semibold w-5 h-5 text-[9px] ${avatarColor(
-              ticket.assignedToName,
-            )}`}
-            title={ticket.assignedToName}
-          >
-            {avatarInitials(ticket.assignedToName)}
+          <span className="inline-flex items-center gap-1.5 min-w-0 max-w-[60%]">
+            <span
+              className={`inline-flex items-center justify-center rounded-full text-white font-semibold w-5 h-5 text-[9px] shrink-0 ${avatarColor(
+                ticket.assignedToName,
+              )}`}
+              aria-hidden
+            >
+              {avatarInitials(ticket.assignedToName)}
+            </span>
+            <span className="truncate text-slate-700 font-medium" title={ticket.assignedToName}>
+              {ticket.assignedToName}
+            </span>
           </span>
         ) : (
           <span className="text-slate-400 italic">Sin asignar</span>
         )}
-        <span className="ml-auto inline-flex items-center gap-0.5">
+        <span className="ml-auto inline-flex items-center gap-0.5 shrink-0">
           <Clock className="h-3 w-3" aria-hidden />
           {formatElapsed(ticket.createdAt)}
         </span>

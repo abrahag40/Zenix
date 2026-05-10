@@ -164,13 +164,14 @@ export function CreateTicketDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o: boolean) => !o && onClose()}>
-      <DialogContent className="sm:max-w-md p-0 gap-0 overflow-hidden">
+      <DialogContent showCloseButton={false} className="sm:max-w-md p-0 gap-0 overflow-hidden">
         <DialogTitle className="sr-only">Nuevo ticket de mantenimiento</DialogTitle>
         <DialogDescription className="sr-only">
           Wizard de 3 pasos para levantar un ticket
         </DialogDescription>
 
-        {/* Header con stepper */}
+        {/* Header con stepper. showCloseButton:false evita la X duplicada
+            que Radix añade por default — tenemos nuestra propia X custom. */}
         <header className="px-5 pt-4 pb-3 border-b border-slate-200 flex items-center gap-3">
           <h2 className="text-base font-semibold text-slate-900 flex-1">
             Nuevo ticket
@@ -327,24 +328,11 @@ function Step1({
 
       {/* Body por kind */}
       {locationKind === 'ROOM' && (
-        <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1.5">
-            Selecciona habitación
-          </label>
-          <select
-            value={roomId ?? ''}
-            onChange={(e) => setRoomId(e.target.value || null)}
-            className="w-full text-sm border border-slate-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          >
-            <option value="">— Selecciona —</option>
-            {rooms.map((r) => (
-              <option key={r.id} value={r.id}>
-                Hab. {r.number}
-                {r.floor != null ? ` · Piso ${r.floor}` : ''}
-              </option>
-            ))}
-          </select>
-        </div>
+        <RoomCombobox
+          rooms={rooms}
+          value={roomId}
+          onChange={setRoomId}
+        />
       )}
 
       {locationKind === 'ASSET' && (
@@ -462,16 +450,16 @@ function Step2({
         </div>
       </div>
 
-      {/* Banner CRITICAL */}
+      {/* Banner CRITICAL — texto user-friendly sin jargon de sistema */}
       {roomBlocked && (
         <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 flex gap-2 text-[11px] text-red-800">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
           <div>
-            <div className="font-semibold">CRITICAL bloquea la habitación</div>
+            <div className="font-semibold">Prioridad Crítica bloquea la habitación</div>
             <div className="opacity-90">
-              La habitación se marcará OUT_OF_ORDER y se cerrará en Channel
-              Manager (Booking.com / Hostelworld). Si tiene huésped activo,
-              el sistema bloqueará la creación con un error explícito.
+              La habitación quedará fuera de servicio y dejará de estar disponible
+              en Booking, Airbnb y demás OTAs por el período estimado. Si tiene
+              huésped activo, el sistema rechazará la creación con una razón clara.
             </div>
           </div>
         </div>
@@ -487,8 +475,23 @@ function Step2({
           placeholder="Ej. Grifo gotea en baño"
           maxLength={160}
         />
-        <p className="text-[10px] text-slate-400 mt-0.5">
-          {title.length}/160 caracteres
+        <p className="text-[10px] mt-0.5 flex items-center justify-between">
+          <span
+            className={
+              title.trim().length === 0
+                ? 'text-slate-400'
+                : title.trim().length < 3
+                ? 'text-amber-600 font-medium'
+                : 'text-emerald-600'
+            }
+          >
+            {title.trim().length === 0
+              ? 'Mínimo 3 caracteres para continuar'
+              : title.trim().length < 3
+              ? `Faltan ${3 - title.trim().length} carácter(es)`
+              : '✓ Listo'}
+          </span>
+          <span className="text-slate-400">{title.length}/160</span>
         </p>
       </div>
 
@@ -610,6 +613,81 @@ function Step3({
             </select>
           )}
         </div>
+      )}
+    </div>
+  )
+}
+
+// ─── RoomCombobox — searchable selector (NN/g 2022 Combobox vs Dropdown) ──
+
+function RoomCombobox({
+  rooms,
+  value,
+  onChange,
+}: {
+  rooms: RoomDto[]
+  value: string | null
+  onChange: (id: string | null) => void
+}) {
+  const [query, setQuery] = useState('')
+  const selected = rooms.find((r) => r.id === value) ?? null
+  const filtered = useMemo(() => {
+    if (!query.trim()) return rooms
+    const q = query.trim().toLowerCase()
+    return rooms.filter((r) =>
+      [r.number, String(r.floor ?? ''), r.category].some((s) =>
+        String(s).toLowerCase().includes(q),
+      ),
+    )
+  }, [rooms, query])
+
+  return (
+    <div>
+      <label className="block text-xs font-medium text-slate-700 mb-1.5">
+        Selecciona habitación
+      </label>
+      <Input
+        type="search"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder={`Buscar entre ${rooms.length} habitaciones…`}
+        className="text-sm mb-2"
+      />
+      <div className="max-h-44 overflow-y-auto rounded-md border border-slate-200 divide-y divide-slate-100">
+        {filtered.length === 0 ? (
+          <p className="px-3 py-3 text-xs text-slate-400 text-center">
+            Sin coincidencias para "{query}".
+          </p>
+        ) : (
+          filtered.map((r) => {
+            const isActive = r.id === value
+            return (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => onChange(r.id)}
+                className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between transition-colors ${
+                  isActive
+                    ? 'bg-emerald-50 text-emerald-900 font-medium'
+                    : 'hover:bg-slate-50 text-slate-700'
+                }`}
+              >
+                <span>
+                  Hab. {r.number}
+                  {r.floor != null && (
+                    <span className="text-xs text-slate-400 ml-2">Piso {r.floor}</span>
+                  )}
+                </span>
+                {isActive && <span className="text-emerald-600">✓</span>}
+              </button>
+            )
+          })
+        )}
+      </div>
+      {selected && (
+        <p className="text-[10px] text-emerald-700 mt-1.5">
+          ✓ Seleccionada: Hab. {selected.number}
+        </p>
       )}
     </div>
   )
