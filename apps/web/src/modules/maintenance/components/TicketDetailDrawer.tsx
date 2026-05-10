@@ -175,16 +175,39 @@ export function TicketDetailDrawer({ ticketId, actor, onClose }: Props) {
           />
         )}
 
-        {/* ── Tabs: Detalle | Log ──────────────────────────────────────── */}
+        {/* ── Tabs: estilo unificado con BookingDetailSheet (Apple HIG +
+            consistencia §13 — un solo standard de tabs en panels laterales).
+            Pattern: TabsList full-width + h-9 + bg-slate-100 rounded-xl p-1 +
+            data-[state=active]:bg-white shadow-sm ─────────────────────── */}
         <Tabs defaultValue="detail" className="flex-1 flex flex-col min-h-0">
-          <TabsList className="mx-5 my-3 grid grid-cols-2 w-fit">
-            <TabsTrigger value="detail" className="text-xs">
-              <FileText className="h-3.5 w-3.5 mr-1.5" /> Detalle
-            </TabsTrigger>
-            <TabsTrigger value="log" className="text-xs">
-              <History className="h-3.5 w-3.5 mr-1.5" /> Log
-            </TabsTrigger>
-          </TabsList>
+          <div className="px-5 py-3 shrink-0">
+            <TabsList className="w-full h-9 bg-slate-100 rounded-xl p-1 grid grid-cols-2">
+              <TabsTrigger
+                value="detail"
+                className={cn(
+                  'rounded-lg text-xs font-medium transition-all',
+                  'text-slate-500',
+                  'data-[state=active]:bg-white data-[state=active]:shadow-sm',
+                  'data-[state=active]:text-slate-900 data-[state=active]:font-semibold',
+                )}
+              >
+                <FileText className="h-3.5 w-3.5 mr-1.5" />
+                Detalle
+              </TabsTrigger>
+              <TabsTrigger
+                value="log"
+                className={cn(
+                  'rounded-lg text-xs font-medium transition-all',
+                  'text-slate-500',
+                  'data-[state=active]:bg-white data-[state=active]:shadow-sm',
+                  'data-[state=active]:text-slate-900 data-[state=active]:font-semibold',
+                )}
+              >
+                <History className="h-3.5 w-3.5 mr-1.5" />
+                Historial
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
           <TabsContent
             value="detail"

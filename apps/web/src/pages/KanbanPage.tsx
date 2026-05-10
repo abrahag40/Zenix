@@ -468,27 +468,28 @@ export function KanbanPage() {
         {COLUMNS.map((col) => {
           const colTasks = byStatus(col.status)
           return (
-            <div
+            <section
               key={col.status}
-              className={`flex-shrink-0 w-72 bg-gray-50 rounded-b-lg border-t-4 ${col.ringColor} flex flex-col`}
+              className={`flex-shrink-0 w-72 rounded-xl bg-slate-50/60 border-t-4 ${col.ringColor} ring-1 ring-slate-200/70 flex flex-col`}
             >
-              {/* Header con label + subtítulo (NN/g H6 — explicar, no obligar a memorizar).
-                  Pixel-perfect: padding p-3 (12px) idéntico al body para alineación
-                  vertical de elementos entre header y primera card. */}
-              <div className="p-3 border-b border-gray-200 bg-white">
+              {/* Header — pattern unificado con Maintenance Kanban (Sprint Mx-1B-W1.1):
+                  sticky top con backdrop-blur, count pill, hint inline.
+                  Reemplaza header viejo "white block separado" por diseño curvo
+                  consistente entre los dos kanbans del PMS (NN/g H4 consistency). */}
+              <header className="sticky top-0 z-[1] bg-slate-50/95 backdrop-blur-sm rounded-t-xl px-3 pt-3 pb-2 border-b border-slate-200/60">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-semibold text-gray-800 uppercase tracking-wide truncate">
+                  <h3 className="text-[11px] font-semibold uppercase tracking-wider text-slate-700 truncate">
                     {col.label}
-                  </span>
-                  <span className={`text-xs font-medium rounded-full px-2 py-0.5 flex-shrink-0 ${col.pillBg}`}>
+                  </h3>
+                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${col.pillBg}`}>
                     {colTasks.length}
                   </span>
                 </div>
-                <p className="text-[10px] text-gray-500 mt-1 leading-tight">{col.hint}</p>
-              </div>
+                <p className="text-[10px] text-slate-500 mt-0.5 leading-tight">{col.hint}</p>
+              </header>
               {/* Body con altura mínima fija — patrón Trello/Linear/Jira:
                   columnas con/sin cards mantienen tamaño consistente */}
-              <div className="p-3 space-y-3 min-h-[420px] flex-1 flex flex-col">
+              <div className="px-2 py-2 space-y-3 min-h-[420px] flex-1 flex flex-col">
                 {colTasks.length === 0 ? (
                   <EmptyColumn status={col.status} />
                 ) : (
@@ -522,7 +523,7 @@ export function KanbanPage() {
                   ))
                 )}
               </div>
-            </div>
+            </section>
           )
         })}
       </div>
