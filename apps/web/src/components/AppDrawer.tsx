@@ -73,6 +73,7 @@ const NAV: NavItem[] = [
       { to: '/discrepancies', icon: '⚠️', label: 'Discrepancias', showDiscrepancyBadge: true },
     ],
   },
+  { kind: 'leaf', to: '/maintenance',    icon: '🔧', label: 'Mantenimiento' },
   { kind: 'leaf', to: '/reports',       icon: '📊', label: 'Reportes' },
   { kind: 'leaf', to: '/settings/rooms', icon: '⚙️', label: 'Configuración' },
 ]

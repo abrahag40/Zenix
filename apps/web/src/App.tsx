@@ -16,6 +16,7 @@ import { ReportsPage } from './pages/ReportsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { DiscrepanciesPage } from './pages/DiscrepanciesPage'
 import { BlocksPage } from './pages/BlocksPage'
+import { MaintenancePage } from './pages/MaintenancePage'
 import { ReservationDetailPage } from './pages/ReservationDetailPage'
 
 const queryClient = new QueryClient({
@@ -75,6 +76,7 @@ export default function App() {
           <Route path="/checkouts"       element={<ProtectedLayout><CheckoutsPage /></ProtectedLayout>} />
           <Route path="/discrepancies"   element={<ProtectedLayout><DiscrepanciesPage /></ProtectedLayout>} />
           <Route path="/blocks"          element={<ProtectedLayout><BlocksPage /></ProtectedLayout>} />
+          <Route path="/maintenance"     element={<ProtectedLayout><MaintenancePage /></ProtectedLayout>} />
           <Route path="/reports"         element={<ProtectedLayout><ReportsPage /></ProtectedLayout>} />
           <Route path="/settings/:section?" element={<ProtectedLayout><SettingsPage /></ProtectedLayout>} />
           <Route path="/reservations/:id"  element={<ProtectedLayout><ReservationDetailPage /></ProtectedLayout>} />

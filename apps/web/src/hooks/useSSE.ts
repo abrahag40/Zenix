@@ -21,6 +21,24 @@ const ALL_SSE_TYPES: SseEventType[] = [
   'soft:lock:acquired', 'soft:lock:released',
   'notification:new',
   'checkin:confirmed',
+  // Sprint Mx-1 — Maintenance work-orders
+  'maintenance:ticket:created',
+  'maintenance:ticket:approved',
+  'maintenance:ticket:rejected',
+  'maintenance:ticket:claimed',
+  'maintenance:ticket:assigned',
+  'maintenance:ticket:auto-assigned',
+  'maintenance:ticket:acknowledged',
+  'maintenance:ticket:started',
+  'maintenance:ticket:waiting-parts',
+  'maintenance:ticket:resumed',
+  'maintenance:ticket:resolved',
+  'maintenance:ticket:verified',
+  'maintenance:ticket:closed',
+  'maintenance:ticket:reopened',
+  'maintenance:ticket:commented',
+  'maintenance:ticket:photo-added',
+  'maintenance:ticket:sla-breach',
 ]
 
 export function useSSE(onEvent: Handler) {

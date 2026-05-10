@@ -1,0 +1,637 @@
+/**
+ * CreateTicketDialog.tsx — Sprint Mx-1B-W1
+ *
+ * Wizard de 3 pasos para levantar un ticket. Aplica Hick's Law (1 decisión
+ * a la vez) + Sweller 1988 (cognitive load < 7±2 inputs visibles a la vez).
+ *
+ * Pasos:
+ *   1. ¿De dónde es?  → Habitación / Asset / Área general
+ *   2. ¿Qué pasa?     → Categoría + priority + título + descripción
+ *   3. ¿Quién y cuándo? → Asignar / Cola / Pedir aprobación
+ *
+ * Apple HIG 2024: progressive form disclosure reduce abandono 31%
+ * (Baymard 2022 — forms B2B con >7 campos visibles).
+ */
+import { useEffect, useMemo, useState } from 'react'
+import {
+  ChevronRight,
+  ChevronLeft,
+  X,
+  AlertTriangle,
+  ArrowRight,
+} from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import type {
+  CreateMaintenanceTicketInput,
+  RoomDto,
+  StaffDto,
+  TicketCategoryValue,
+  TicketPriorityValue,
+} from '@zenix/shared'
+import {
+  CATEGORY_ICON,
+  CATEGORY_LABEL,
+  PRIORITY_LABEL,
+  PRIORITY_PILL,
+} from '../utils/maintenance.constants'
+import { useCreateTicket } from '../hooks/useMaintenanceTickets'
+import { useQuery } from '@tanstack/react-query'
+import { api } from '../../../api/client'
+
+type LocationKind = 'ROOM' | 'ASSET' | 'GENERAL'
+type AssignmentMode = 'ASSIGN' | 'QUEUE' | 'NEEDS_APPROVAL'
+
+interface Props {
+  open: boolean
+  onClose: () => void
+  /** Pre-fill — desde RoomColumn del calendario, BookingDetailSheet, etc. */
+  initialRoomId?: string | null
+  /** Por default `true` para housekeeper/recepción. Solo SUPERVISOR puede asignar directamente. */
+  defaultRequireApproval?: boolean
+}
+
+const CATEGORIES: TicketCategoryValue[] = [
+  'PLUMBING',
+  'ELECTRICAL',
+  'HVAC',
+  'APPLIANCE',
+  'FURNITURE',
+  'STRUCTURAL',
+  'COSMETIC',
+  'SAFETY',
+  'PEST',
+  'DEEP_CLEANING',
+  'OTHER',
+]
+const PRIORITIES: TicketPriorityValue[] = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
+
+export function CreateTicketDialog({
+  open,
+  onClose,
+  initialRoomId,
+  defaultRequireApproval = false,
+}: Props) {
+  const create = useCreateTicket()
+
+  // ── Wizard state ──
+  const [step, setStep] = useState<1 | 2 | 3>(1)
+  const [locationKind, setLocationKind] = useState<LocationKind>(
+    initialRoomId ? 'ROOM' : 'ROOM',
+  )
+  const [roomId, setRoomId] = useState<string | null>(initialRoomId ?? null)
+  const [assetTag, setAssetTag] = useState('')
+  const [category, setCategory] = useState<TicketCategoryValue>('PLUMBING')
+  const [priority, setPriority] = useState<TicketPriorityValue>('MEDIUM')
+  const [title, setTitle] = useState('')
+  const [description, setDescription] = useState('')
+  const [mode, setMode] = useState<AssignmentMode>(
+    defaultRequireApproval ? 'NEEDS_APPROVAL' : 'QUEUE',
+  )
+  const [assignedToId, setAssignedToId] = useState<string | null>(null)
+
+  // Reset al abrir (no al cerrar — preserva mid-edit si hubo error)
+  useEffect(() => {
+    if (open) {
+      setStep(1)
+      setLocationKind(initialRoomId ? 'ROOM' : 'ROOM')
+      setRoomId(initialRoomId ?? null)
+      setAssetTag('')
+      setCategory('PLUMBING')
+      setPriority('MEDIUM')
+      setTitle('')
+      setDescription('')
+      setMode(defaultRequireApproval ? 'NEEDS_APPROVAL' : 'QUEUE')
+      setAssignedToId(null)
+    }
+  }, [open, initialRoomId, defaultRequireApproval])
+
+  // ── Datos auxiliares ──
+  const { data: rooms = [] } = useQuery<RoomDto[]>({
+    queryKey: ['rooms'],
+    queryFn: () => api.get<RoomDto[]>('/rooms'),
+    staleTime: 5 * 60_000,
+    enabled: open && locationKind === 'ROOM',
+  })
+  const { data: staffList = [] } = useQuery<StaffDto[]>({
+    queryKey: ['staff'],
+    queryFn: () => api.get<StaffDto[]>('/staff'),
+    staleTime: 5 * 60_000,
+    enabled: open && step === 3,
+  })
+  const maintenanceStaff = useMemo(
+    () =>
+      staffList.filter(
+        (s) => s.department === 'MAINTENANCE' && s.active !== false,
+      ),
+    [staffList],
+  )
+
+  const canStep2 =
+    (locationKind === 'ROOM' && !!roomId) ||
+    (locationKind === 'ASSET' && assetTag.trim().length > 0) ||
+    locationKind === 'GENERAL'
+  const canStep3 = title.trim().length >= 3
+  const canSubmit =
+    canStep2 &&
+    canStep3 &&
+    (mode !== 'ASSIGN' || !!assignedToId)
+
+  async function handleSubmit() {
+    const dto: CreateMaintenanceTicketInput = {
+      roomId: locationKind === 'ROOM' ? roomId : null,
+      assetTag: locationKind === 'ASSET' ? assetTag.trim() : null,
+      category,
+      priority,
+      title: title.trim(),
+      description: description.trim() || undefined,
+      requiresApproval: mode === 'NEEDS_APPROVAL',
+      assignedToId: mode === 'ASSIGN' && assignedToId ? assignedToId : undefined,
+    }
+    try {
+      await create.mutateAsync(dto)
+      onClose()
+    } catch {
+      // toast already handled by hook
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o: boolean) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md p-0 gap-0 overflow-hidden">
+        <DialogTitle className="sr-only">Nuevo ticket de mantenimiento</DialogTitle>
+        <DialogDescription className="sr-only">
+          Wizard de 3 pasos para levantar un ticket
+        </DialogDescription>
+
+        {/* Header con stepper */}
+        <header className="px-5 pt-4 pb-3 border-b border-slate-200 flex items-center gap-3">
+          <h2 className="text-base font-semibold text-slate-900 flex-1">
+            Nuevo ticket
+          </h2>
+          <Stepper current={step} />
+          <button
+            onClick={onClose}
+            aria-label="Cerrar"
+            className="text-slate-500 hover:text-slate-700"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </header>
+
+        {/* Body */}
+        <div className="px-5 py-4 min-h-[300px]">
+          {step === 1 && (
+            <Step1
+              locationKind={locationKind}
+              setLocationKind={setLocationKind}
+              roomId={roomId}
+              setRoomId={setRoomId}
+              assetTag={assetTag}
+              setAssetTag={setAssetTag}
+              rooms={rooms}
+            />
+          )}
+          {step === 2 && (
+            <Step2
+              category={category}
+              setCategory={setCategory}
+              priority={priority}
+              setPriority={setPriority}
+              title={title}
+              setTitle={setTitle}
+              description={description}
+              setDescription={setDescription}
+              roomBlocked={priority === 'CRITICAL' && !!roomId}
+            />
+          )}
+          {step === 3 && (
+            <Step3
+              mode={mode}
+              setMode={setMode}
+              assignedToId={assignedToId}
+              setAssignedToId={setAssignedToId}
+              maintenanceStaff={maintenanceStaff}
+            />
+          )}
+        </div>
+
+        {/* Footer */}
+        <footer className="px-5 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between gap-2">
+          <div className="text-[11px] text-slate-500">
+            Paso {step} de 3
+          </div>
+          <div className="flex gap-2">
+            {step > 1 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setStep((s) => (s === 3 ? 2 : 1))}
+              >
+                <ChevronLeft className="h-3.5 w-3.5 mr-1" />
+                Atrás
+              </Button>
+            )}
+            {step < 3 && (
+              <Button
+                size="sm"
+                disabled={(step === 1 && !canStep2) || (step === 2 && !canStep3)}
+                onClick={() => setStep((s) => (s === 1 ? 2 : 3))}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                Siguiente
+                <ChevronRight className="h-3.5 w-3.5 ml-1" />
+              </Button>
+            )}
+            {step === 3 && (
+              <Button
+                size="sm"
+                disabled={!canSubmit || create.isPending}
+                onClick={handleSubmit}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                {create.isPending ? 'Creando…' : 'Crear ticket'}
+                <ArrowRight className="h-3.5 w-3.5 ml-1" />
+              </Button>
+            )}
+          </div>
+        </footer>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ─── Step 1: ¿De dónde es? ──────────────────────────────────────────────
+
+function Step1({
+  locationKind,
+  setLocationKind,
+  roomId,
+  setRoomId,
+  assetTag,
+  setAssetTag,
+  rooms,
+}: {
+  locationKind: LocationKind
+  setLocationKind: (k: LocationKind) => void
+  roomId: string | null
+  setRoomId: (id: string | null) => void
+  assetTag: string
+  setAssetTag: (s: string) => void
+  rooms: RoomDto[]
+}) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold text-slate-900 mb-0.5">
+          ¿De dónde es el problema?
+        </h3>
+        <p className="text-xs text-slate-500">
+          Si afecta una habitación, el sistema puede bloquearla automáticamente.
+        </p>
+      </div>
+
+      {/* Pill selector */}
+      <div className="grid grid-cols-3 gap-2">
+        {(
+          [
+            { id: 'ROOM', emoji: '🛏', label: 'Habitación' },
+            { id: 'ASSET', emoji: '🔧', label: 'Asset/Equipo' },
+            { id: 'GENERAL', emoji: '📍', label: 'Área general' },
+          ] as const
+        ).map((opt) => {
+          const active = locationKind === opt.id
+          return (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => setLocationKind(opt.id)}
+              className={`text-xs rounded-lg px-2 py-3 ring-1 transition-all ${
+                active
+                  ? 'ring-emerald-500 bg-emerald-50 text-emerald-800 ring-2'
+                  : 'ring-slate-200 bg-white text-slate-600 hover:ring-slate-300'
+              }`}
+            >
+              <div className="text-xl mb-1">{opt.emoji}</div>
+              <div className="font-medium">{opt.label}</div>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Body por kind */}
+      {locationKind === 'ROOM' && (
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1.5">
+            Selecciona habitación
+          </label>
+          <select
+            value={roomId ?? ''}
+            onChange={(e) => setRoomId(e.target.value || null)}
+            className="w-full text-sm border border-slate-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          >
+            <option value="">— Selecciona —</option>
+            {rooms.map((r) => (
+              <option key={r.id} value={r.id}>
+                Hab. {r.number}
+                {r.floor != null ? ` · Piso ${r.floor}` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {locationKind === 'ASSET' && (
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1.5">
+            Identificador del asset
+          </label>
+          <Input
+            value={assetTag}
+            onChange={(e) => setAssetTag(e.target.value)}
+            placeholder="Ej. Lavadora-2, Generador, Camioneta blanca…"
+          />
+          <p className="text-[10px] text-slate-400 mt-1">
+            No tocará inventario PMS ni Channex. Solo el módulo de mantenimiento.
+          </p>
+        </div>
+      )}
+
+      {locationKind === 'GENERAL' && (
+        <p className="text-xs text-slate-600 bg-slate-50 rounded-md px-3 py-2.5">
+          Ticket genérico — no asociado a habitación ni asset específico.
+          Apto para áreas comunes (lobby, pasillos, exteriores).
+        </p>
+      )}
+    </div>
+  )
+}
+
+// ─── Step 2: ¿Qué pasa? ─────────────────────────────────────────────────
+
+function Step2({
+  category,
+  setCategory,
+  priority,
+  setPriority,
+  title,
+  setTitle,
+  description,
+  setDescription,
+  roomBlocked,
+}: {
+  category: TicketCategoryValue
+  setCategory: (c: TicketCategoryValue) => void
+  priority: TicketPriorityValue
+  setPriority: (p: TicketPriorityValue) => void
+  title: string
+  setTitle: (s: string) => void
+  description: string
+  setDescription: (s: string) => void
+  roomBlocked: boolean
+}) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold text-slate-900 mb-0.5">
+          ¿Qué está pasando?
+        </h3>
+        <p className="text-xs text-slate-500">
+          Categoría e idea general. El detalle puede ir en la descripción.
+        </p>
+      </div>
+
+      {/* Categoría — pill grid */}
+      <div>
+        <label className="block text-xs font-medium text-slate-700 mb-1.5">
+          Categoría
+        </label>
+        <div className="grid grid-cols-4 gap-1.5">
+          {CATEGORIES.map((c) => {
+            const active = category === c
+            const Icon = CATEGORY_ICON[c]
+            return (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setCategory(c)}
+                className={`text-[10px] rounded-md px-1.5 py-2 ring-1 transition-all flex flex-col items-center gap-0.5 ${
+                  active
+                    ? 'ring-emerald-500 bg-emerald-50 text-emerald-800 ring-2'
+                    : 'ring-slate-200 bg-white text-slate-600 hover:ring-slate-300'
+                }`}
+                title={CATEGORY_LABEL[c]}
+              >
+                <Icon className="h-4 w-4" aria-hidden />
+                <span className="leading-tight">{CATEGORY_LABEL[c]}</span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Priority — chips de color */}
+      <div>
+        <label className="block text-xs font-medium text-slate-700 mb-1.5">
+          Prioridad
+        </label>
+        <div className="flex gap-1.5 flex-wrap">
+          {PRIORITIES.map((p) => {
+            const active = priority === p
+            return (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setPriority(p)}
+                className={`text-[11px] font-medium rounded-md px-2.5 py-1.5 transition-all ${
+                  active
+                    ? `${PRIORITY_PILL[p]} ring-2 ring-offset-1`
+                    : 'ring-1 ring-slate-200 bg-white text-slate-600 hover:ring-slate-300'
+                }`}
+              >
+                {PRIORITY_LABEL[p]}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Banner CRITICAL */}
+      {roomBlocked && (
+        <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 flex gap-2 text-[11px] text-red-800">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+          <div>
+            <div className="font-semibold">CRITICAL bloquea la habitación</div>
+            <div className="opacity-90">
+              La habitación se marcará OUT_OF_ORDER y se cerrará en Channel
+              Manager (Booking.com / Hostelworld). Si tiene huésped activo,
+              el sistema bloqueará la creación con un error explícito.
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div>
+        <label className="block text-xs font-medium text-slate-700 mb-1.5">
+          Título corto
+        </label>
+        <Input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Ej. Grifo gotea en baño"
+          maxLength={160}
+        />
+        <p className="text-[10px] text-slate-400 mt-0.5">
+          {title.length}/160 caracteres
+        </p>
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium text-slate-700 mb-1.5">
+          Descripción (opcional)
+        </label>
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Detalle, contexto, qué se ha intentado…"
+          className="w-full text-sm border border-slate-300 rounded-md px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          rows={3}
+          maxLength={2000}
+        />
+      </div>
+    </div>
+  )
+}
+
+// ─── Step 3: ¿Quién y cuándo? ───────────────────────────────────────────
+
+function Step3({
+  mode,
+  setMode,
+  assignedToId,
+  setAssignedToId,
+  maintenanceStaff,
+}: {
+  mode: AssignmentMode
+  setMode: (m: AssignmentMode) => void
+  assignedToId: string | null
+  setAssignedToId: (id: string | null) => void
+  maintenanceStaff: StaffDto[]
+}) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold text-slate-900 mb-0.5">
+          ¿Cómo manejamos el ticket?
+        </h3>
+        <p className="text-xs text-slate-500">
+          Elige el flujo que mejor encaja con tu rol y la situación.
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        {(
+          [
+            {
+              id: 'ASSIGN',
+              icon: '👤',
+              title: 'Asignar a un técnico ahora',
+              hint: 'El técnico recibe push inmediato. Status inicial ACKNOWLEDGED.',
+            },
+            {
+              id: 'QUEUE',
+              icon: '📥',
+              title: 'Dejar en cola',
+              hint: 'Cualquier técnico de mantenimiento puede tomarlo voluntariamente.',
+            },
+            {
+              id: 'NEEDS_APPROVAL',
+              icon: '🟡',
+              title: 'Pedir aprobación al supervisor',
+              hint: 'Útil cuando housekeeper o recepción reporta algo que requiere visto bueno antes de actuar.',
+            },
+          ] as const
+        ).map((opt) => {
+          const active = mode === opt.id
+          return (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => setMode(opt.id)}
+              className={`w-full text-left rounded-lg px-3 py-3 ring-1 transition-all flex items-start gap-3 ${
+                active
+                  ? 'ring-emerald-500 bg-emerald-50 ring-2'
+                  : 'ring-slate-200 bg-white hover:ring-slate-300'
+              }`}
+            >
+              <span className="text-lg leading-none">{opt.icon}</span>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium text-slate-900">
+                  {opt.title}
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">
+                  {opt.hint}
+                </div>
+              </div>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Selector de técnico cuando ASSIGN */}
+      {mode === 'ASSIGN' && (
+        <div className="pt-1 border-t border-slate-100">
+          <label className="block text-xs font-medium text-slate-700 mb-1.5">
+            Técnico asignado
+          </label>
+          {maintenanceStaff.length === 0 ? (
+            <p className="text-xs text-slate-500 bg-amber-50 rounded-md px-3 py-2">
+              No hay staff con department=MAINTENANCE en esta sucursal. Cambia
+              a "Dejar en cola" o crea técnicos en Configuración.
+            </p>
+          ) : (
+            <select
+              value={assignedToId ?? ''}
+              onChange={(e) => setAssignedToId(e.target.value || null)}
+              className="w-full text-sm border border-slate-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            >
+              <option value="">— Selecciona —</option>
+              {maintenanceStaff.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Stepper ─────────────────────────────────────────────────────────────
+
+function Stepper({ current }: { current: 1 | 2 | 3 }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      {[1, 2, 3].map((n) => (
+        <span
+          key={n}
+          className={`h-1.5 rounded-full transition-all ${
+            n === current
+              ? 'w-6 bg-emerald-500'
+              : n < current
+              ? 'w-3 bg-emerald-300'
+              : 'w-3 bg-slate-200'
+          }`}
+        />
+      ))}
+    </div>
+  )
+}

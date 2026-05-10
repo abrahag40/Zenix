@@ -2820,8 +2820,11 @@ enum StayoverFrequency {
 | **9-HK** | Housekeeping flow refactor (D14-D18, EC-3/EC-6, Ajustes del día) | Backend/Web | ✅ | Sí | — completado 2026-05-04 |
 | **9-HK ext** | Bug fixes housekeeping (`hasSameDayCheckIn` per-task-date, carryover re-eval), `LateCheckoutScheduler` 2-tier, journey blocks CHECKED_OUT, Mi día alarm cascade, SSE named events, rename `HousekeepingStaff→Staff` G1 | Backend/Mobile | ✅ | Sí | — completado 2026-05-09 (PR #8) |
 | **KP-01** | KanbanPage completo: cards 3-zonas (Linear/Trello/Jira), scrollbar permanente (Trello/Jira/GitHub/Asana pattern), chip de contexto descriptivo, single-open menu, pixel-perfect audit, consolidación D15 | Web | ✅ | Sí | — completado 2026-05-09 (PR #8) |
-| **Mx-1** | **Módulo de Mantenimiento (nueva rama git, completo end-to-end)** | Backend/Web/Mobile | ⏳ | **Sí** | **1 — siguiente** |
-| **8J** | Web SettingsPage tab "Recamaristas" (Horarios + Cobertura + Reglas) | Web | ⏳ | Sí | 2 |
+| **Mx-1** | **Módulo de Mantenimiento — backend tickets work-orders (3 flujos + auto-block + SLA)** | Backend | ✅ | **Sí** | — completado 2026-05-10 (commit `1436f6c`) |
+| **Mx-1B-W** | Web Mantenimiento: vista raíz adaptativa + Kanban + drawer + CreateDialog wizard + cross-integraciones (3 sub-fases W1/W2/W3) | Web | ⏳ | **Sí** | **1 — siguiente** |
+| **Mx-1B-M** | Mobile Mantenimiento: MaintenanceHub + ReportProblem + TicketDetail + reemplazo del ModuleStub | Mobile | ⏳ | **Sí** | 2 |
+| **Mx-1C** | Image upload infrastructure (S3 + Sharp + lifecycle) — extrae el placeholder de Mx-1B-W2 | Backend | ⏳ | No (v1.0.x) | post-release |
+| **8J** | Web SettingsPage tab "Recamaristas" (Horarios + Cobertura + Reglas) | Web | ⏳ | Sí | 3 |
 | **8K** | Productividad self-vs-self + Clock UI + Verificación con foto + Gamificación capa 2 | Web/Mobile | ⏳ | No (post-release) | post |
 | **8B** | Filtro "Ocultar no-shows" en calendario | Web | ⏳ | No | post |
 | **8A** | Payment processing (Stripe/Conekta) + UI cobrar/perdonar no-show | Backend/Web | 🔁 **diferido** | v1.0.x | requiere capital comercial |
@@ -2843,6 +2846,87 @@ Cada métrica se verifica en staging antes del cutover a producción:
 | Multi-tenancy isolation | 0 queries cross-org en producción | Audit con `TenantContextService` en logs |
 | Audit trail completo | 100% mutaciones críticas con actor | Inspección de `TaskLog`, `BlockLog`, `TicketLog`, `StayJourneyEvent`, `PaymentLog` |
 | Documentación consulting-grade | Todos los archivos en `docs/` con frontmatter `Audiencia` | Lint manual |
+
+### Multi-tenant — Gaps mapeados (mantener visibles, no perder)
+
+> Inventario tomado durante el diseño UX/UI del módulo de Mantenimiento web (2026-05-10). El schema multi-tenant **ya está bien diseñado** (`Organization → Property` + `User × Property × SystemRole` vía tabla pivote `UserPropertyRole`). Los gaps siguientes son de UI/feature, no de schema.
+
+| ID | Gap | Estado | Impacto | Sprint donde se cierra |
+|----|-----|--------|---------|------------------------|
+| **G1** | Property switcher web (cambiar de sucursal sin re-login) | ✅ **Resuelto** — ya es global | 0 | Implementado en `apps/web/src/components/PropertySwitcher.tsx`. Vive en `Sidebar.tsx > GlobalTopBar`. Visible en `/dashboard`, `/planning`, `/kanban`, `/checkouts`, `/discrepancies`, `/reports`. Oculto solo en `/settings/*` por diseño consciente (NN/g modes principle). `/maintenance` lo hereda automáticamente. Usa `POST /auth/switch-property` para emitir JWT scoped + `qc.clear()` para refetch. |
+| **G2** | JWT no incluye `SystemRole` — solo `StaffRole` y `Department` | ⏳ Pendiente | Frontend no puede decidir vista adaptativa cross-property sin un fallback (hoy infiere por StaffRole) | v1.1 RBAC UI |
+| **G3** | Endpoint cross-organization tipo `findByOrganization` para owners | ⏳ Pendiente | OWNER no puede ver dashboard agregado de N sucursales — debe cambiar de propiedad serial con el switcher | v1.1 RBAC UI + cross-property dashboard |
+| **G4** | `StaffRole.TECHNICIAN` no existe — los técnicos usan `StaffRole.HOUSEKEEPER + Department.MAINTENANCE` como workaround | ⏳ Deuda técnica | Funciona end-to-end pero el rol semántico está enmascarado | v1.1 RBAC UI (renombrado de StaffRole a algo más expresivo) |
+| **G5** | `SystemRole.AUDITOR` y `OWNER` están en schema pero sin endpoints / UI propia | ⏳ Pendiente | Auditor no puede entrar al sistema en modo read-only | v1.1 RBAC UI |
+
+**Decisión para v1.0.0:** Owner/Manager cross-property opera serial (cambia de sucursal con switcher → ve sucursal A → cambia → ve sucursal B). Vista agregada cross-property es Sprint v1.1. Mismo modelo que Mews Standard tier; solo Mews Multi-Property o Opera Cloud Multi-Property tienen vista agregada y cuestan $50K+/año.
+
+### Sprint Mx-1C — Image Upload Infrastructure (post-release v1.0.x)
+
+> Extracted del placeholder temporal de Mx-1B-W2. Este sprint reemplaza el data URI base64 inline con pipeline de storage profesional. **No bloquea v1.0.0** — la compresión cliente cubre el 80% del problema en piloto pequeño.
+
+**Trigger:** cuando el piloto crezca a >2 propiedades activas o el total de fotos supere ~500. Con compresión cliente (Capa A — `browser-image-compression`, max 1920px / JPEG 0.85 / strip EXIF), una BD con 500 fotos pesa ~140MB en data URI base64 — manejable. Pasando ese punto, el storage dedicado es obligatorio.
+
+**Diseño en 3 capas (referencia: Instagram Engineering Blog 2017 + 2023):**
+
+| Capa | Responsabilidad | Tooling |
+|------|-----------------|---------|
+| **A — Cliente** | Compresión + resize + strip EXIF antes de subir. Cap 1920px lado largo, JPEG 0.85, WebP cuando soportado | `browser-image-compression` (~14KB gzipped). Implementado YA en Mx-1B-W2 |
+| **B — Backend** | Endpoint `POST /v1/uploads`, multipart/form-data, guards (5MB max + MIME whitelist), Sharp genera 2 sizes (display 1080px / thumb 200px), upload a S3, retorna URL firmada | `multer` + `sharp` + `@aws-sdk/client-s3`. NUEVO en Mx-1C |
+| **C — Lifecycle** | Cron diario: photos de tickets CLOSED+90d → S3 IA (50% más barato), CLOSED+365d → Glacier (90% más barato), huérfanas (sin ticket) → delete | Cron NestJS + AWS S3 Lifecycle Policy. NUEVO en Mx-1C |
+
+**Alternativas consideradas:**
+- **S3 + CloudFront + Sharp** (recomendado) — control total, costo bajo, vendor-neutral. ~3-4 días setup
+- **Cloudinary SDK** — más simple, $89/mes plan Plus, vendor lock-in. ~1 día setup
+- **Mantener data URI base64 indefinidamente** — anti-pattern. NO recomendado fuera de piloto
+
+**Endpoints futuros:**
+```
+POST /v1/uploads
+  → multipart/form-data { file, scope: 'maintenance' | 'readiness' | 'avatar' }
+  → guards: actor.organizationId, max 5MB, MIME whitelist
+  → Sharp procesa, S3 upload con prefix `org-{id}/scope-{name}/{uuid}.{ext}`
+  → retorna { id, url, thumbUrl, expiresAt }
+
+GET /v1/uploads/:id
+  → responde 302 redirect a S3 signed URL (1h TTL)
+
+DELETE /v1/uploads/:id   (admin only)
+  → tombstone + delete async
+```
+
+**Schema delta para Mx-1C:**
+```prisma
+model UploadedFile {
+  id             String   @id @default(uuid())
+  organizationId String
+  scope          UploadScope                 // MAINTENANCE | READINESS | AVATAR
+  s3Key          String   @unique
+  thumbS3Key     String?
+  mimeType       String
+  sizeBytes      Int
+  uploadedById   String
+  createdAt      DateTime @default(now())
+  archivedAt     DateTime?                   // movido a Glacier
+  deletedAt      DateTime?                   // soft-delete
+
+  @@index([organizationId, scope])
+  @@index([uploadedById])
+}
+```
+
+**Migración del schema actual:** `MaintenanceTicketPhoto.url` (string) → `MaintenanceTicketPhoto.uploadedFileId` (FK). Script de migración mueve data URIs a S3, actualiza FKs.
+
+**Variables de entorno futuras:**
+```
+S3_BUCKET=zenix-uploads-prod
+S3_REGION=us-east-1
+AWS_ACCESS_KEY_ID=…
+AWS_SECRET_ACCESS_KEY=…
+CLOUDFRONT_DOMAIN=cdn.zenix.app
+CLOUDFRONT_KEY_PAIR_ID=…
+CLOUDFRONT_PRIVATE_KEY=…   # firmar URLs
+```
 
 ### Criterios de aceptación (cualitativos)
 
