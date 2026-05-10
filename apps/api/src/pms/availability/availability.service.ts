@@ -188,38 +188,57 @@ export class AvailabilityService {
    * this so a Channex outage cannot block the business operation.
    */
   async notifyReservation(n: ReservationNotification): Promise<void> {
-    try {
-      await this.channex.pushInventory({
-        roomTypeId: n.roomId,
-        dateFrom: n.from.toISOString().slice(0, 10),
-        dateTo: n.to.toISOString().slice(0, 10),
-        delta: -1,
-        reason: n.reason,
-        traceId: n.traceId,
-      })
-    } catch (err) {
-      this.logger.error(
-        `notifyReservation failed trace=${n.traceId}: ${(err as Error).message}`,
-      )
-    }
+    await this.notifyChannex(n, -1)
   }
 
   /**
    * Notify Channex that a room is freed (opposite of notifyReservation).
    */
   async notifyRelease(n: ReservationNotification): Promise<void> {
+    await this.notifyChannex(n, +1)
+  }
+
+  /**
+   * Resuelve los IDs Channex correctos antes de hacer push. Sin este paso,
+   * `notifyReservation` enviaba `roomId` interno (UUID Zenix) como
+   * `room_type_id` de Channex — Channex respondería 404 al activar la
+   * integración. Pattern alineado con `computeAndPushInventory` (que ya
+   * resuelve IDs correctamente para el modelo absoluto de hostal).
+   *
+   * Skip silencioso si:
+   *   - Channex no está enabled (sin CHANNEX_API_KEY)
+   *   - Room no tiene channexRoomTypeId configurado
+   *   - PropertySettings no tiene channexPropertyId configurado
+   *
+   * §31 fail-soft: nunca lanza excepción. La operación local ya está commiteada.
+   */
+  private async notifyChannex(n: ReservationNotification, delta: -1 | 1): Promise<void> {
+    if (!this.channex.enabled) return
     try {
+      const room = await this.prisma.room.findUnique({
+        where: { id: n.roomId },
+        select: { propertyId: true, channexRoomTypeId: true },
+      })
+      if (!room?.channexRoomTypeId) return
+
+      const settings = await this.prisma.propertySettings.findUnique({
+        where: { propertyId: room.propertyId },
+        select: { channexPropertyId: true },
+      })
+      if (!settings?.channexPropertyId) return
+
       await this.channex.pushInventory({
-        roomTypeId: n.roomId,
+        channexPropertyId: settings.channexPropertyId,
+        roomTypeId: room.channexRoomTypeId,
         dateFrom: n.from.toISOString().slice(0, 10),
         dateTo: n.to.toISOString().slice(0, 10),
-        delta: +1,
+        delta,
         reason: n.reason,
         traceId: n.traceId,
       })
     } catch (err) {
       this.logger.error(
-        `notifyRelease failed trace=${n.traceId}: ${(err as Error).message}`,
+        `notifyChannex (delta=${delta}) failed trace=${n.traceId}: ${(err as Error).message}`,
       )
     }
   }

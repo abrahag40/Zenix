@@ -146,9 +146,13 @@ export function humanizeLogMetadata(metadata: Record<string, unknown> | null): s
       value = BLOCK_SEMANTIC_LABEL[raw] ?? humanize(raw)
     } else if (key === 'reason' && typeof raw === 'string' && BLOCK_REASON_LABEL[raw]) {
       value = BLOCK_REASON_LABEL[raw]
-    } else if ((key === 'priority' || key === 'fromStatus' || key === 'toStatus') && typeof raw === 'string') {
-      value = humanize(raw)
-    } else if (key === 'flow' && typeof raw === 'string') {
+    } else if (key === 'priority' && typeof raw === 'string') {
+      value = PRIORITY_LABEL_ES[raw as keyof typeof PRIORITY_LABEL_ES] ?? humanize(raw)
+    } else if (key === 'category' && typeof raw === 'string') {
+      value = CATEGORY_LABEL_ES[raw as keyof typeof CATEGORY_LABEL_ES] ?? humanize(raw)
+    } else if ((key === 'fromStatus' || key === 'toStatus' || key === 'from' || key === 'to') && typeof raw === 'string') {
+      value = STATUS_LABEL[raw as keyof typeof STATUS_LABEL] ?? humanize(raw)
+    } else if ((key === 'flow' || key === 'mode' || key === 'rule') && typeof raw === 'string') {
       value = FLOW_LABEL[raw] ?? humanize(raw)
     } else if (typeof raw === 'string' && raw.length > 24 && raw.includes('-')) {
       // UUID — abreviar
