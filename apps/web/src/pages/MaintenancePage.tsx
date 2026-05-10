@@ -25,6 +25,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useAuthStore } from '../store/auth'
 import {
   useMaintenanceTickets,
+  useMaintenanceSSE,
 } from '../modules/maintenance/hooks/useMaintenanceTickets'
 import {
   useMaintenanceKpis,
@@ -46,6 +47,10 @@ export function MaintenancePage() {
   // Drawer + dialog state
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
+
+  // SSE subscription — UNA sola vez por página. NO mover dentro de hooks
+  // hijos: cada useSSE abre EventSource y Chrome agota su pool HTTP/1.1.
+  useMaintenanceSSE()
 
   // KPI activo (filtro aplicado al Kanban)
   const [activeKpi, setActiveKpi] = useState<KpiCard | null>(null)

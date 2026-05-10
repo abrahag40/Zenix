@@ -7,6 +7,11 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // Apuntar @zenix/shared directamente al source TS evita el problema de
+      // ESM/CJS interop con el dist commonjs (Sprint Mx-1B-W1). Vite/esbuild
+      // transforma TS → ESM al vuelo y los named exports (enums, types)
+      // funcionan limpios. apps/api sigue usando dist via node_modules.
+      '@zenix/shared': path.resolve(__dirname, '../../packages/shared/src/index.ts'),
     },
     dedupe: ['react', 'react-dom'],
   },

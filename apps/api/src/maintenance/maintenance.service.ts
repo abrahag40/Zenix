@@ -154,10 +154,18 @@ export class MaintenanceService {
       const farFuture = new Date('2099-12-31T00:00:00.000Z')
       const today = new Date()
       today.setHours(0, 0, 0, 0)
+      // Solo bloquear si hay huéspedes activos HOY (no en el futuro).
+      // Un huésped futuro con check-in en N días puede coordinarse al
+      // momento — el sistema lo notificará cuando intente confirmar la
+      // llegada y vea la habitación bloqueada. Usar farFuture aquí sería
+      // demasiado estricto (impide CRITICAL para reservas con meses de
+      // anticipación incluso si la habitación está libre HOY).
+      const tomorrow = new Date(today)
+      tomorrow.setDate(tomorrow.getDate() + 1)
       const avail = await this.availability.check({
         roomId: dto.roomId,
         from: today,
-        to: farFuture,
+        to: tomorrow,
       })
       const guestConflicts = avail.conflicts.filter(
         (c) => c.source === 'LOCAL_STAY' || c.source === 'LOCAL_SEGMENT',

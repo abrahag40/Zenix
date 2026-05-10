@@ -5,7 +5,6 @@
  * SSE invalida queries automáticamente cuando llega cualquier evento
  * `maintenance:ticket:*` — el supervisor ve cambios en tiempo real sin refresh.
  */
-import { useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import type {
@@ -31,23 +30,30 @@ const KEY_ONE = 'maintenance-ticket'
 const KEY_QUEUE = 'maintenance-queue'
 const KEY_TEMPLATES = 'maintenance-recurrence-templates'
 
-/** Lista filtrada de tickets — refresca automáticamente con SSE. */
-export function useMaintenanceTickets(query: MaintenanceTicketListQuery = {}) {
+/**
+ * Suscripción SSE → invalidación de queries de mantenimiento.
+ *
+ * IMPORTANTE — llamar este hook UNA SOLA VEZ por página (en MaintenancePage).
+ * NUNCA dentro de useMaintenanceTickets ni en componentes hijos. Cada `useSSE`
+ * abre una EventSource y Chrome solo permite 6 conexiones HTTP/1.1 por host;
+ * múltiples instancias saturan el pool y dejan otros endpoints (/api/rooms,
+ * /api/staff) en cola eterna (Sprint Mx-1B-W1 bug detectado en E2E testing).
+ */
+export function useMaintenanceSSE() {
   const qc = useQueryClient()
-
-  // Suscripción SSE → invalidación. Cada evento maintenance:ticket:* trae
-  // un payload distinto pero todos invalidan la misma query (lista).
   useSSE((event: SseEvent) => {
     if (typeof event.type === 'string' && event.type.startsWith('maintenance:ticket:')) {
       void qc.invalidateQueries({ queryKey: [KEY_LIST] })
       void qc.invalidateQueries({ queryKey: [KEY_QUEUE] })
-      // Si llega un evento sobre un ticket específico, invalidamos su detalle.
       const data = event.data as { id?: string; ticketId?: string } | undefined
       const id = data?.id ?? data?.ticketId
       if (id) void qc.invalidateQueries({ queryKey: [KEY_ONE, id] })
     }
   })
+}
 
+/** Lista filtrada de tickets. Combinar con useMaintenanceSSE() en la página. */
+export function useMaintenanceTickets(query: MaintenanceTicketListQuery = {}) {
   return useQuery<MaintenanceTicketDto[]>({
     queryKey: [KEY_LIST, query],
     queryFn: () => maintenanceApi.list(query),
