@@ -48,6 +48,25 @@ import { api } from '../../../api/client'
 type LocationKind = 'ROOM' | 'ASSET' | 'GENERAL'
 type AssignmentMode = 'ASSIGN' | 'QUEUE' | 'NEEDS_APPROVAL'
 
+/**
+ * Días estimados default por categoría — research 2026-05-10:
+ * Hotel Facility Guide + Clock PMS+ + Flexkeeping recomendaciones operativas.
+ * El usuario puede editar; estos defaults solo aplican cuando NO ha tocado el input.
+ */
+const DEFAULT_DAYS_BY_CATEGORY: Record<TicketCategoryValue, number> = {
+  PLUMBING: 3,
+  ELECTRICAL: 3,
+  HVAC: 2,
+  APPLIANCE: 2,
+  FURNITURE: 2,
+  STRUCTURAL: 7,
+  COSMETIC: 2,
+  SAFETY: 1,
+  PEST: 2,
+  DEEP_CLEANING: 1,
+  OTHER: 3,
+}
+
 interface Props {
   open: boolean
   onClose: () => void
@@ -91,6 +110,11 @@ export function CreateTicketDialog({
   const [priority, setPriority] = useState<TicketPriorityValue>('MEDIUM')
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
+  // Días estimados — default por categoría (research 2026-05-10 PMS comparativa),
+  // editable por el usuario. Se propaga a RoomBlock.endDate + Channex.
+  const [estimatedDays, setEstimatedDays] = useState<number>(3)
+  // Track si el usuario ya tocó el input — para no sobrescribir al cambiar categoría.
+  const [estimatedDaysDirty, setEstimatedDaysDirty] = useState(false)
   const [mode, setMode] = useState<AssignmentMode>(
     defaultRequireApproval ? 'NEEDS_APPROVAL' : 'QUEUE',
   )
@@ -109,8 +133,17 @@ export function CreateTicketDialog({
       setDescription('')
       setMode(defaultRequireApproval ? 'NEEDS_APPROVAL' : 'QUEUE')
       setAssignedToId(null)
+      setEstimatedDays(DEFAULT_DAYS_BY_CATEGORY.PLUMBING)
+      setEstimatedDaysDirty(false)
     }
   }, [open, initialRoomId, defaultRequireApproval])
+
+  // Auto-update días estimados cuando cambia categoría (solo si user no lo tocó)
+  useEffect(() => {
+    if (!estimatedDaysDirty) {
+      setEstimatedDays(DEFAULT_DAYS_BY_CATEGORY[category])
+    }
+  }, [category, estimatedDaysDirty])
 
   // ── Datos auxiliares ──
   const { data: rooms = [] } = useQuery<RoomDto[]>({
@@ -151,6 +184,7 @@ export function CreateTicketDialog({
       priority,
       title: title.trim(),
       description: description.trim() || undefined,
+      estimatedEndDays: estimatedDays,
       requiresApproval: mode === 'NEEDS_APPROVAL',
       assignedToId: mode === 'ASSIGN' && assignedToId ? assignedToId : undefined,
     }
@@ -210,6 +244,11 @@ export function CreateTicketDialog({
               description={description}
               setDescription={setDescription}
               roomBlocked={priority === 'CRITICAL' && !!roomId}
+              estimatedDays={estimatedDays}
+              setEstimatedDays={(d) => {
+                setEstimatedDays(d)
+                setEstimatedDaysDirty(true)
+              }}
             />
           )}
           {step === 3 && (
@@ -373,6 +412,8 @@ function Step2({
   description,
   setDescription,
   roomBlocked,
+  estimatedDays,
+  setEstimatedDays,
 }: {
   category: TicketCategoryValue
   setCategory: (c: TicketCategoryValue) => void
@@ -383,6 +424,8 @@ function Step2({
   description: string
   setDescription: (s: string) => void
   roomBlocked: boolean
+  estimatedDays: number
+  setEstimatedDays: (d: number) => void
 }) {
   return (
     <div className="space-y-4">
@@ -458,12 +501,40 @@ function Step2({
             <div className="font-semibold">Prioridad Crítica bloquea la habitación</div>
             <div className="opacity-90">
               La habitación quedará fuera de servicio y dejará de estar disponible
-              en Booking, Airbnb y demás OTAs por el período estimado. Si tiene
-              huésped activo, el sistema rechazará la creación con una razón clara.
+              en Booking, Airbnb y demás OTAs por el período estimado abajo. Si
+              tiene huésped activo, el sistema rechazará la creación con razón clara.
             </div>
           </div>
         </div>
       )}
+
+      {/* Días estimados — research 2026: defaults por categoría (Hotel Facility
+          Guide / Flexkeeping). Channex cierra disponibilidad SOLO este período,
+          no infinito. Si el trabajo se atrasa, el supervisor puede extender. */}
+      <div>
+        <label className="block text-xs font-medium text-slate-700 mb-1.5">
+          Días estimados hasta finalizar
+        </label>
+        <div className="flex items-center gap-2">
+          <Input
+            type="number"
+            min={1}
+            max={60}
+            value={estimatedDays}
+            onChange={(e) => {
+              const n = parseInt(e.target.value, 10)
+              if (!isNaN(n) && n >= 1 && n <= 60) setEstimatedDays(n)
+            }}
+            className="w-20 text-sm"
+          />
+          <span className="text-xs text-slate-500">
+            días {estimatedDays === 1 ? '(la habitación reabre mañana)' : `(la habitación reabre en ${estimatedDays} días)`}
+          </span>
+        </div>
+        <p className="text-[10px] text-slate-400 mt-1">
+          Default ajustado por categoría. Si el trabajo se atrasa, podrás extender desde el panel del ticket.
+        </p>
+      </div>
 
       <div>
         <label className="block text-xs font-medium text-slate-700 mb-1.5">

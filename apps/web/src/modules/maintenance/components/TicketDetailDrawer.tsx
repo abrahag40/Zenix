@@ -44,10 +44,12 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import type { JwtPayload, MaintenanceTicketLogDto } from '@zenix/shared'
 import {
+  AGING_PILL_CLASS,
   CATEGORY_ICON,
   CATEGORY_LABEL,
   PRIORITY_LABEL,
   PRIORITY_PILL,
+  estimateAging,
   formatElapsed,
 } from '../utils/maintenance.constants'
 import {
@@ -134,9 +136,20 @@ export function TicketDetailDrawer({ ticketId, actor, onClose }: Props) {
 
         {/* ── Banner CRITICAL bloqueada — texto user-friendly sin jargon ─ */}
         {ticket?.hasAutoBlock && (
-          <div className="px-5 py-2 bg-red-50 border-b border-red-200 text-xs text-red-800 inline-flex items-center gap-2">
+          <div className="px-5 py-2 bg-red-50 border-b border-red-200 text-xs text-red-800 flex items-center gap-2 flex-wrap">
             <Lock className="h-3.5 w-3.5" aria-hidden />
-            Habitación fuera de venta · Disponibilidad cerrada en OTAs (Booking, Airbnb, etc.)
+            <span>Habitación fuera de venta · Cerrada en OTAs (Booking, Airbnb, etc.)</span>
+            {ticket.estimatedEndAt &&
+              (() => {
+                const ag = estimateAging(ticket.estimatedEndAt, ticket.status)
+                return ag ? (
+                  <span
+                    className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${AGING_PILL_CLASS[ag.color]}`}
+                  >
+                    {ag.label}
+                  </span>
+                ) : null
+              })()}
           </div>
         )}
 
@@ -283,7 +296,7 @@ function DetailBody({
         </Section>
       )}
 
-      <Section label="Asignación">
+      <Section label="Asignación y tiempo">
         <KeyValue
           label="Reportado por"
           value={ticket.reportedByName ?? '—'}
@@ -292,9 +305,19 @@ function DetailBody({
           label="Asignado a"
           value={ticket.assignedToName ?? 'Sin asignar (en cola)'}
         />
+        <KeyValue
+          label="Inicio"
+          value={format(parseISO(ticket.createdAt), "d MMM 'a las' HH:mm", { locale: es })}
+        />
+        {ticket.estimatedEndAt && (
+          <KeyValue
+            label="Fin estimado"
+            value={format(parseISO(ticket.estimatedEndAt), "d MMM 'a las' HH:mm", { locale: es })}
+          />
+        )}
         {ticket.estimatedMinutes != null && (
           <KeyValue
-            label="Estimación"
+            label="Estimación de trabajo"
             value={`${ticket.estimatedMinutes} min`}
           />
         )}

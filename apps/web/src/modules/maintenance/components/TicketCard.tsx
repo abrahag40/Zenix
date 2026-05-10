@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import type { MaintenanceTicketDto } from '@zenix/shared'
 import {
+  AGING_PILL_CLASS,
   CATEGORY_ICON,
   CATEGORY_LABEL,
   PRIORITY_ACCENT,
@@ -29,6 +30,7 @@ import {
   PRIORITY_PILL,
   avatarColor,
   avatarInitials,
+  estimateAging,
   formatElapsed,
   isAged,
 } from '../utils/maintenance.constants'
@@ -44,6 +46,7 @@ export function TicketCard({ ticket, onClick, compact = false }: Props) {
   const Icon = CATEGORY_ICON[ticket.category]
   const aged = isAged(ticket.status, ticket.updatedAt)
   const slaBroken = !!ticket.slaBreachAt
+  const aging = estimateAging(ticket.estimatedEndAt, ticket.status)
 
   // Contexto descriptivo (igual filosofía HK-44 — chip que explica POR QUÉ
   // este ticket está donde está, sin que el usuario tenga que abrirlo).
@@ -135,6 +138,14 @@ export function TicketCard({ ticket, onClick, compact = false }: Props) {
             title="Mantenimiento preventivo recurrente"
           >
             <SparklesIcon className="h-3 w-3" aria-hidden /> Preventivo
+          </span>
+        )}
+        {aging && (
+          <span
+            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded ${AGING_PILL_CLASS[aging.color]}`}
+            title="Tiempo estimado para finalizar — la habitación reabre en OTAs al cerrar el ticket o al llegar esta fecha"
+          >
+            <Clock className="h-3 w-3" aria-hidden /> {aging.label}
           </span>
         )}
       </div>

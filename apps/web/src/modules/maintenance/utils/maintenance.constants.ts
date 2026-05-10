@@ -195,6 +195,67 @@ export function isAged(status: TicketStatusValue, updatedAt: string): boolean {
 }
 
 /**
+ * Color de proximidad a `estimatedEndAt` (Sprint Mx-1B-W1.1).
+ *   emerald: >2 días restantes — todo OK
+ *   amber:   1 día o vence hoy — alerta, coordinar
+ *   red:     vencido — extender o cerrar
+ *   null:    sin estimación o ticket inactivo (VERIFIED/CLOSED)
+ *
+ * Research 2026-05-10 (Hotel Facility Guide + Flexkeeping + Clock PMS+):
+ * la VISIBILIDAD de la duración restante es lo que diferencia los mejores
+ * PMS de los peores. Feature request más pedido en Mews desde 2019.
+ */
+export interface EstimateAging {
+  color: 'emerald' | 'amber' | 'red'
+  label: string
+  hoursRemaining: number
+}
+
+export function estimateAging(
+  estimatedEndAt: string | null,
+  status: TicketStatusValue,
+): EstimateAging | null {
+  if (!estimatedEndAt) return null
+  if (!ACTIVE_STATES.includes(status)) return null
+  const ms = new Date(estimatedEndAt).getTime() - Date.now()
+  const hours = ms / (60 * 60 * 1000)
+  const days = Math.floor(hours / 24)
+  if (hours < 0) {
+    const overdueDays = Math.ceil(-hours / 24)
+    return {
+      color: 'red',
+      label: overdueDays === 1 ? 'Vencido (1 día)' : `Vencido (${overdueDays} días)`,
+      hoursRemaining: hours,
+    }
+  }
+  if (hours < 24) {
+    return {
+      color: 'amber',
+      label: hours < 6 ? 'Vence hoy' : 'Vence en <24h',
+      hoursRemaining: hours,
+    }
+  }
+  if (days < 3) {
+    return {
+      color: 'amber',
+      label: `${days} día${days === 1 ? '' : 's'} restante${days === 1 ? '' : 's'}`,
+      hoursRemaining: hours,
+    }
+  }
+  return {
+    color: 'emerald',
+    label: `${days} días restantes`,
+    hoursRemaining: hours,
+  }
+}
+
+export const AGING_PILL_CLASS: Record<EstimateAging['color'], string> = {
+  emerald: 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200',
+  amber: 'bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200',
+  red: 'bg-red-50 text-red-700 ring-1 ring-inset ring-red-200',
+}
+
+/**
  * Avatar color — hash determinístico para que mismo staff = mismo color
  * en TODA la app (consistencia con KanbanPage de housekeeping).
  */

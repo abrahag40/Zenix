@@ -2415,6 +2415,16 @@ model MaintenanceTicket {
   // Evita re-notificar al supervisor cada 5 minutos.
   slaBreachAt DateTime? @map("sla_breach_at")
 
+  // ── Fecha estimada de fin (Sprint Mx-1B-W1.1) ────────────────────────────
+  // Pattern recomendado por Clock PMS+ / Flexkeeping (research 2026-05-10):
+  // captura `estimatedEndAt` al crear → se propaga a RoomBlock.endDate cuando
+  // hay habitación bloqueada. Channex cierra disponibilidad SOLO ese período,
+  // no infinito → ventas futuras protegidas. UI muestra aging color: verde
+  // >2d restantes, amber 1d/hoy, rojo vencido. Si vence sin cierre: notif al
+  // supervisor (Mx-1B-W2 — extender o cerrar). Si cierra antes: libera bloque
+  // temprano (mejor para el negocio). Defaults por categoría en el cliente.
+  estimatedEndAt DateTime? @map("estimated_end_at")
+
   // ── Estimación y tiempo real ─────────────────────────────────────────────
   estimatedMinutes Int? @map("estimated_minutes") // estimación al crear/asignar
   actualMinutes    Int? @map("actual_minutes") // calculado al RESOLVED desde logs

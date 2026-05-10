@@ -210,6 +210,12 @@ export class MaintenanceService {
 
     const initialStatus = flowA ? TicketStatus.ACKNOWLEDGED : TicketStatus.OPEN
 
+    // Calcular estimatedEndAt si se proveyó días estimados (defaults aplican
+    // del lado del cliente — el backend respeta lo recibido).
+    const estimatedEndAt = dto.estimatedEndDays
+      ? new Date(Date.now() + dto.estimatedEndDays * 24 * 60 * 60 * 1000)
+      : null
+
     // ── Transacción atómica: ticket + log inicial + (si CRITICAL+room) auto-block
     const result = await this.prisma.$transaction(async (tx) => {
       const ticket = await tx.maintenanceTicket.create({
@@ -229,6 +235,7 @@ export class MaintenanceService {
           assignedToId: dto.assignedToId ?? null,
           requiresApproval: !!dto.requiresApproval,
           estimatedMinutes: dto.estimatedMinutes ?? null,
+          estimatedEndAt,
           sourceTaskId: dto.sourceTaskId ?? null,
           acknowledgedAt: flowA ? new Date() : null,
         },
@@ -283,6 +290,11 @@ export class MaintenanceService {
         const today = new Date()
         today.setHours(0, 0, 0, 0)
 
+        // endDate del block sincronizado con estimatedEndAt del ticket.
+        // Si el técnico cierra antes → liberamos antes (verifyTicket).
+        // Si vence sin cierre → notif al supervisor para extender o cerrar.
+        // Si no hay estimación → null (indefinido — fallback al pattern viejo
+        // sólo como salvaguarda; el wizard ahora siempre captura).
         const block = await tx.roomBlock.create({
           data: {
             organizationId: orgId,
@@ -296,7 +308,7 @@ export class MaintenanceService {
             approvedById: actor.sub,
             approvedAt: new Date(),
             startDate: today,
-            endDate: null,
+            endDate: estimatedEndAt,
             notes: `Bloqueo automático por ticket de mantenimiento CRITICAL: ${ticket.title}`,
             internalNotes: `Auto-creado por MaintenanceService.createTicket(ticket=${ticket.id})`,
             maintenanceTicketId: ticket.id,
@@ -350,16 +362,18 @@ export class MaintenanceService {
     this.sse.emit(propertyId, 'maintenance:ticket:created' as any, this.toListDto(fullTicket!))
 
     if (result.blockId && dto.roomId) {
-      const farFuture = new Date('2099-12-31T00:00:00.000Z')
       const today = new Date()
       today.setHours(0, 0, 0, 0)
-      // Channex sync (fire-and-forget): el bloque ya está commiteado, esto solo
-      // notifica al channel manager para cerrar disponibilidad en OTAs.
+      // Channex sync (fire-and-forget): cierra disponibilidad SÓLO durante
+      // el período estimado. Si no hay estimación, fallback a today+7d para
+      // no cerrar OTAs infinitamente (research: feature request más pedido
+      // en Mews desde 2019). El supervisor puede extender vía Mx-1B-W2.
+      const to = estimatedEndAt ?? new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000)
       this.availability
         .notifyReservation({
           roomId: dto.roomId,
           from: today,
-          to: farFuture,
+          to,
           reason: 'BLOCK',
           traceId: `maintenance-ticket-${result.ticket.id}`,
         })
@@ -1479,6 +1493,7 @@ export class MaintenanceService {
       verifiedAt: t.verifiedAt?.toISOString() ?? null,
       closedAt: t.closedAt?.toISOString() ?? null,
       slaBreachAt: t.slaBreachAt?.toISOString() ?? null,
+      estimatedEndAt: t.estimatedEndAt?.toISOString() ?? null,
       sourceTaskId: t.sourceTaskId ?? null,
       createdAt: t.createdAt.toISOString(),
       updatedAt: t.updatedAt.toISOString(),

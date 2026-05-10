@@ -1054,6 +1054,9 @@ export interface MaintenanceTicketDto {
   verifiedAt: string | null
   closedAt: string | null
   slaBreachAt: string | null
+  /** Fecha estimada de fin (ISO). El RoomBlock asociado tiene `endDate` igual.
+   *  UI aplica aging color y countdown. Null = sin estimación (legacy). */
+  estimatedEndAt: string | null
   sourceTaskId: string | null
   createdAt: string
   updatedAt: string
@@ -1132,6 +1135,8 @@ export interface CreateMaintenanceTicketInput {
   description?: string
   guestImpact?: string
   estimatedMinutes?: number
+  /** Días estimados hasta finalización. Propaga a RoomBlock.endDate y Channex. */
+  estimatedEndDays?: number
   sourceTaskId?: string
   requiresApproval?: boolean
   assignedToId?: string
