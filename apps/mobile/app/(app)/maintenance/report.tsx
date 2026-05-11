@@ -243,10 +243,20 @@ export default function ReportProblemScreen() {
           initialPhotoUrls = [uploaded.url]
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
+          // Diagnóstico debug — log completo a Metro console + Alert con
+          // mensaje EXPANDIDO incluyendo nombre del error, stack y context.
+          // Sin esto adivinamos a ciegas el bug de upload.
+          // eslint-disable-next-line no-console
+          console.error('[upload] FAILED in ReportProblem.onSubmit:', err)
+          const diagnostic = err instanceof Error
+            ? `${err.name}: ${err.message}\n\n` +
+              `URI=${photoUri}\nsize=${photoSize ?? 'unknown'}\n\n` +
+              (err.stack ? `Stack:\n${err.stack.split('\n').slice(0, 5).join('\n')}` : '')
+            : String(err)
           const proceed = await new Promise<boolean>((resolve) => {
             Alert.alert(
               'No pudimos subir la foto',
-              `${msg}\n\n¿Quieres crear el ticket sin foto?`,
+              `${diagnostic}\n\n¿Crear ticket sin foto?`,
               [
                 { text: 'Cancelar', style: 'cancel', onPress: () => resolve(false) },
                 { text: 'Crear sin foto', onPress: () => resolve(true) },

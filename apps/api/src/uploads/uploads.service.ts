@@ -69,18 +69,27 @@ export class UploadsService {
    * clientes RN; multipart se queda como fallback compatible con curl/web.
    */
   async processBase64(base64Data: string, scopeRaw: string): Promise<UploadedFileResult> {
+    this.logger.log(
+      `[upload] processBase64: scope=${scopeRaw} base64Length=${base64Data.length} ` +
+        `first16=${base64Data.slice(0, 16)}`,
+    )
     let buffer: Buffer
     try {
       // Remueve prefijo data URI si vino "data:image/jpeg;base64,XXXX".
       const stripped = base64Data.replace(/^data:image\/[a-z]+;base64,/, '')
       buffer = Buffer.from(stripped, 'base64')
     } catch (err) {
+      this.logger.warn(`[upload] base64 decode failed: ${(err as Error).message}`)
       throw new BadRequestException('El campo "data" no es base64 válido.')
     }
+    this.logger.log(
+      `[upload] decoded: size=${buffer.length}B firstBytes=${buffer
+        .slice(0, 8)
+        .toString('hex')}`,
+    )
     if (buffer.length === 0) {
       throw new BadRequestException('La imagen está vacía.')
     }
-    // Sintetizar un objeto Multer-like para reusar `processImage`.
     const synthetic: Express.Multer.File = {
       buffer,
       size: buffer.length,
@@ -98,6 +107,10 @@ export class UploadsService {
   async processImage(file: Express.Multer.File, scopeRaw: string): Promise<UploadedFileResult> {
     if (!file) throw new BadRequestException('Archivo requerido')
     if (!file.buffer || file.size === 0) throw new BadRequestException('Archivo vacío')
+    this.logger.log(
+      `[upload] processImage: mime=${file.mimetype} size=${file.size}B ` +
+        `firstBytes=${file.buffer.slice(0, 12).toString('hex')}`,
+    )
 
     const scope = this.validateScope(scopeRaw)
     const organizationId = this.tenant.getOrganizationId()
@@ -113,18 +126,29 @@ export class UploadsService {
       metadata = await pipeline.metadata()
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)
-      // Log diagnóstico — ayuda a diferenciar HEIC vs buffer corrupto vs
-      // formato desconocido durante el debugging del piloto.
-      this.logger.warn(
-        `upload rejected (sharp metadata): mime=${file.mimetype} ` +
-          `size=${file.size}B firstBytes=${file.buffer
-            .slice(0, 8)
+      const errStack = err instanceof Error ? err.stack : undefined
+      // Log de diagnóstico definitivo — captura TODO el contexto para
+      // poder reproducir el bug fuera del request.
+      this.logger.error(
+        `[upload] SHARP REJECTED: mime=${file.mimetype} size=${file.size}B ` +
+          `firstBytes=${file.buffer
+            .slice(0, 16)
             .toString('hex')} err=${errMsg}`,
       )
+      if (errStack) this.logger.error(`[upload] sharp stack: ${errStack}`)
+      // El mensaje al cliente ahora incluye los primeros bytes — el
+      // usuario puede compartirlos sin acceso a logs server-side.
       throw new BadRequestException(
-        `Sharp no pudo procesar la imagen (${file.mimetype}). Vuelve a tomar la foto.`,
+        `Sharp no pudo procesar la imagen. ` +
+          `(mime=${file.mimetype} firstBytes=${file.buffer
+            .slice(0, 4)
+            .toString('hex')}) ${errMsg}`,
       )
     }
+    this.logger.log(
+      `[upload] sharp metadata OK: format=${metadata.format} ` +
+        `${metadata.width}x${metadata.height} hasAlpha=${metadata.hasAlpha}`,
+    )
 
     // W2-08: Sharp normaliza HEIC → JPEG transparente; aceptamos el input.
     if (!metadata.format || !['jpeg', 'png', 'webp', 'heif'].includes(metadata.format)) {
