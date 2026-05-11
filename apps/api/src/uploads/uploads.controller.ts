@@ -55,6 +55,7 @@ const ALLOWED_MIME = new Set([
 
 @Controller()
 export class UploadsController {
+  private readonly logger = new Logger(UploadsController.name)
   constructor(private readonly uploads: UploadsService) {}
 
   // ── Subida (autenticada) ──────────────────────────────────────────────
@@ -148,9 +149,13 @@ export class UploadsController {
     try {
       await fs.access(target)
     } catch {
+      this.logger.warn(
+        `serve 404: target=${target} (org=${organizationId} scope=${scope} file=${filename})`,
+      )
       throw new NotFoundException('Imagen no encontrada')
     }
 
+    this.logger.debug(`serve OK: ${target}`)
     res.setHeader('Content-Type', 'image/jpeg')
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
     res.sendFile(target)

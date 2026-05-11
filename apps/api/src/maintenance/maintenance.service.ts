@@ -1444,6 +1444,7 @@ export class MaintenanceService {
           include: { uploadedBy: { select: { id: true, name: true } } },
           orderBy: { createdAt: 'asc' },
         },
+        _count: { select: { photos: true, comments: true, logs: true } },
         comments: {
           include: { author: { select: { id: true, name: true } } },
           orderBy: { createdAt: 'asc' },
@@ -1455,6 +1456,15 @@ export class MaintenanceService {
       },
     })
     if (!ticket) throw new NotFoundException('Ticket no encontrado')
+    // Log diagnóstico (testing T-photo-web): permite verificar que las fotos
+    // están en BD antes de llegar al cliente. Si _count.photos > 0 pero
+    // el cliente no las ve, el problema está en el render.
+    const counts = (ticket as any)._count
+    if (counts) {
+      this.logger.debug(
+        `findOne ${ticketId}: photos=${counts.photos} (visible=${ticket.photos?.length ?? 0}) comments=${counts.comments} logs=${counts.logs}`,
+      )
+    }
     return this.toDetailDto(ticket)
   }
 

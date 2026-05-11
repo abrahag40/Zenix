@@ -295,7 +295,27 @@ function PhotoGrid({
                 onClick={() => onOpen(p.url)}
                 className="block w-full focus:outline-none focus:ring-2 focus:ring-emerald-500"
               >
-                <img src={p.url} alt={p.caption ?? ''} className="w-full h-28 object-cover" />
+                <img
+                  src={p.url}
+                  alt={p.caption ?? ''}
+                  className="w-full h-28 object-cover bg-slate-100"
+                  onError={(e) => {
+                    // Si la imagen no carga (404, CORS, etc), mostrar un
+                    // placeholder con la URL para debug. Testing T-photo-web:
+                    // sin esto el usuario veía "nada" sin entender por qué.
+                    const img = e.currentTarget
+                    img.style.display = 'none'
+                    const parent = img.parentElement
+                    if (parent && !parent.querySelector('.img-error-fallback')) {
+                      const fb = document.createElement('div')
+                      fb.className =
+                        'img-error-fallback w-full h-28 bg-red-50 border border-red-200 ' +
+                        'flex flex-col items-center justify-center text-[10px] text-red-700 p-1 text-center'
+                      fb.innerHTML = `<div>⚠️ No se pudo cargar</div><div class="font-mono text-[9px] mt-1 truncate max-w-full">${p.url}</div>`
+                      parent.appendChild(fb)
+                    }
+                  }}
+                />
                 <div className="px-2 py-1 text-[10px] text-slate-500 bg-slate-50 text-left truncate">
                   {p.caption ?? format(parseISO(p.createdAt), 'd MMM HH:mm', { locale: es })}
                   {p.uploadedByName && ` · ${p.uploadedByName}`}
