@@ -1,4 +1,6 @@
 import {
+  ArrayMaxSize,
+  IsArray,
   IsBoolean,
   IsEnum,
   IsInt,
@@ -84,4 +86,17 @@ export class CreateTicketDto {
   @IsOptional()
   @IsUUID()
   assignedToId?: string
+
+  /**
+   * URLs de fotos ya subidas vía POST /v1/uploads. Si vienen presentes, el
+   * servicio crea N `MaintenanceTicketPhoto` en la misma transacción del
+   * ticket. Limitado a 5 fotos en el create inicial (más se añaden después
+   * vía `/tickets/:id/photos`).
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(5)
+  @IsString({ each: true })
+  @MaxLength(500, { each: true })
+  initialPhotoUrls?: string[]
 }

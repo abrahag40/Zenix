@@ -27,13 +27,13 @@ import {
   XCircle,
   Hand,
   Play,
-  PauseCircle,
   RotateCcw,
   CheckSquare,
   Lock,
-  ExternalLink,
   History,
   FileText,
+  Image as ImageIcon,
+  MessageSquare,
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -69,6 +69,8 @@ import {
   useCloseTicket,
   useReopenTicket,
 } from '../hooks/useMaintenanceTickets'
+import { PhotoGallery } from './PhotoGallery'
+import { CommentsThread } from './CommentsThread'
 
 interface Props {
   ticketId: string | null
@@ -176,50 +178,56 @@ export function TicketDetailDrawer({ ticketId, actor, onClose }: Props) {
         )}
 
         {/* ── Tabs: estilo unificado con BookingDetailSheet (Apple HIG +
-            consistencia §13 — un solo standard de tabs en panels laterales).
-            Pattern: TabsList full-width + h-9 + bg-slate-100 rounded-xl p-1 +
-            data-[state=active]:bg-white shadow-sm ─────────────────────── */}
+            consistencia §13). 4 columnas en Mx-1B-W2: Detalle / Fotos /
+            Comentarios / Historial. ─────────────────────────────────────── */}
         <Tabs defaultValue="detail" className="flex-1 flex flex-col min-h-0">
           <div className="px-5 py-3 shrink-0">
-            <TabsList className="w-full h-9 bg-slate-100 rounded-xl p-1 grid grid-cols-2">
-              <TabsTrigger
-                value="detail"
-                className={cn(
-                  'rounded-lg text-xs font-medium transition-all',
-                  'text-slate-500',
-                  'data-[state=active]:bg-white data-[state=active]:shadow-sm',
-                  'data-[state=active]:text-slate-900 data-[state=active]:font-semibold',
-                )}
-              >
-                <FileText className="h-3.5 w-3.5 mr-1.5" />
-                Detalle
-              </TabsTrigger>
-              <TabsTrigger
-                value="log"
-                className={cn(
-                  'rounded-lg text-xs font-medium transition-all',
-                  'text-slate-500',
-                  'data-[state=active]:bg-white data-[state=active]:shadow-sm',
-                  'data-[state=active]:text-slate-900 data-[state=active]:font-semibold',
-                )}
-              >
-                <History className="h-3.5 w-3.5 mr-1.5" />
-                Historial
-              </TabsTrigger>
+            <TabsList className="w-full h-9 bg-slate-100 rounded-xl p-1 grid grid-cols-4">
+              <DrawerTab value="detail" icon={FileText} label="Detalle" />
+              <DrawerTab
+                value="photos"
+                icon={ImageIcon}
+                label="Fotos"
+                badge={ticket?.photos.length}
+              />
+              <DrawerTab
+                value="comments"
+                icon={MessageSquare}
+                label="Chat"
+                badge={ticket?.comments.length}
+              />
+              <DrawerTab value="log" icon={History} label="Audit" />
             </TabsList>
           </div>
 
-          <TabsContent
-            value="detail"
-            className="flex-1 overflow-y-auto px-5 pb-5 mt-0"
-          >
+          <TabsContent value="detail" className="flex-1 overflow-y-auto px-5 pb-5 mt-0">
             {isLoading ? <DetailSkeleton /> : ticket && <DetailBody ticket={ticket} />}
           </TabsContent>
 
+          <TabsContent value="photos" className="flex-1 overflow-y-auto px-5 pb-5 mt-0">
+            {ticket && (
+              <PhotoGallery
+                ticketId={ticket.id}
+                photos={ticket.photos}
+                suggestAfterPhoto={ticket.status === 'IN_PROGRESS' || ticket.status === 'RESOLVED'}
+              />
+            )}
+          </TabsContent>
+
           <TabsContent
-            value="log"
-            className="flex-1 overflow-y-auto px-5 pb-5 mt-0"
+            value="comments"
+            className="flex-1 overflow-hidden px-5 pb-5 pt-1 mt-0 flex flex-col min-h-0"
           >
+            {ticket && (
+              <CommentsThread
+                ticketId={ticket.id}
+                comments={ticket.comments}
+                currentUserId={actor.sub}
+              />
+            )}
+          </TabsContent>
+
+          <TabsContent value="log" className="flex-1 overflow-y-auto px-5 pb-5 mt-0">
             {ticket && <LogList logs={ticket.logs} />}
           </TabsContent>
         </Tabs>
@@ -275,6 +283,44 @@ function HeaderContent({
         {format(parseISO(ticket.createdAt), "d MMM yyyy 'a las' HH:mm", { locale: es })}
       </p>
     </>
+  )
+}
+
+/**
+ * DrawerTab — refactor Mx-1B-W2.
+ * Antes: cada TabsTrigger repetía el mismo cn() de 4 líneas. Extraer a un
+ * componente eliminación duplicación + facilita agregar badge de count.
+ * Mismo styling unificado con BookingDetailSheet (§13 CLAUDE.md).
+ */
+function DrawerTab({
+  value,
+  icon: Icon,
+  label,
+  badge,
+}: {
+  value: string
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  badge?: number
+}) {
+  return (
+    <TabsTrigger
+      value={value}
+      className={cn(
+        'rounded-lg text-xs font-medium transition-all flex items-center justify-center gap-1',
+        'text-slate-500',
+        'data-[state=active]:bg-white data-[state=active]:shadow-sm',
+        'data-[state=active]:text-slate-900 data-[state=active]:font-semibold',
+      )}
+    >
+      <Icon className="h-3.5 w-3.5" />
+      <span>{label}</span>
+      {badge != null && badge > 0 && (
+        <span className="ml-0.5 text-[9px] font-semibold bg-slate-300/70 text-slate-700 rounded-full min-w-[16px] px-1 leading-[14px]">
+          {badge}
+        </span>
+      )}
+    </TabsTrigger>
   )
 }
 
@@ -358,56 +404,24 @@ function DetailBody({
         </Section>
       )}
 
-      <Section label="Fotos">
-        {ticket.photos.length === 0 ? (
-          <p className="text-xs text-slate-400">
-            Sin fotos. (Disponible al subir en Mx-1B-W2)
+      {/* Fotos + Comentarios viven ahora en sus propios tabs (Mx-1B-W2).
+          Aquí solo mostramos hint si hay contenido relacionado. */}
+      <Section label="Evidencia y conversación">
+        <div className="text-xs text-slate-600 space-y-1">
+          <p>
+            {ticket.photos.length === 0
+              ? 'Sin fotos.'
+              : `${ticket.photos.length} foto${ticket.photos.length === 1 ? '' : 's'} adjunta${ticket.photos.length === 1 ? '' : 's'}`}
+            {' · '}
+            {ticket.comments.length === 0
+              ? 'sin comentarios'
+              : `${ticket.comments.length} comentario${ticket.comments.length === 1 ? '' : 's'}`}
+            .
           </p>
-        ) : (
-          <div className="grid grid-cols-2 gap-2">
-            {ticket.photos.map((p) => (
-              <a
-                key={p.id}
-                href={p.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block rounded-lg overflow-hidden border border-slate-200 hover:opacity-80"
-              >
-                <img
-                  src={p.url}
-                  alt={p.caption ?? ''}
-                  className="w-full h-28 object-cover"
-                />
-                <div className="px-2 py-1 text-[10px] text-slate-500 bg-slate-50">
-                  {p.isAfterPhoto ? '✓ Después' : 'Antes'}
-                </div>
-              </a>
-            ))}
-          </div>
-        )}
-      </Section>
-
-      <Section label="Comentarios">
-        {ticket.comments.length === 0 ? (
-          <p className="text-xs text-slate-400">
-            Sin comentarios. (Composer en Mx-1B-W2)
+          <p className="text-slate-400 text-[10px]">
+            Ve a las pestañas <strong>Fotos</strong> o <strong>Chat</strong> para gestionar.
           </p>
-        ) : (
-          <ul className="space-y-2">
-            {ticket.comments.map((c) => (
-              <li
-                key={c.id}
-                className="rounded-lg bg-slate-50 px-3 py-2 text-slate-700"
-              >
-                <div className="text-[10px] text-slate-400 mb-0.5">
-                  {c.authorName} ·{' '}
-                  {format(parseISO(c.createdAt), 'd MMM HH:mm', { locale: es })}
-                </div>
-                <div className="text-sm whitespace-pre-wrap">{c.content}</div>
-              </li>
-            ))}
-          </ul>
-        )}
+        </div>
       </Section>
     </div>
   )

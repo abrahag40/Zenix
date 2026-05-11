@@ -32,7 +32,9 @@ import {
   Modal,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from 'react-native'
+import * as ImagePicker from 'expo-image-picker'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useRouter, useLocalSearchParams } from 'expo-router'
 import { useAuthStore } from '../../../../src/store/auth'
@@ -40,6 +42,7 @@ import {
   useMaintenanceTicket,
 } from '../../../../src/features/maintenance/api/useTickets'
 import { maintenanceApi } from '../../../../src/features/maintenance/api/maintenance.api'
+import { uploadsApi, resolveImageUrl } from '../../../../src/api/uploads.api'
 import { colors } from '../../../../src/design/colors'
 import {
   AGING_HEX,
@@ -71,6 +74,10 @@ export default function TicketDetailScreen() {
   // Bug B1/B2 — modal in-app de razón (cross-platform, no usa Alert.prompt)
   const [reasonPrompt, setReasonPrompt] = useState<ReasonPrompt | null>(null)
   const [reasonText, setReasonText] = useState('')
+
+  // Mx-1B-W2 — composer de comentarios + uploader de fotos inline
+  const [commentDraft, setCommentDraft] = useState('')
+  const [photoLightboxUrl, setPhotoLightboxUrl] = useState<string | null>(null)
 
   if (!ticketId) return null
 
@@ -174,6 +181,44 @@ export default function TicketDetailScreen() {
       'verify',
       () => maintenanceApi.verify(ticketId, { approved: true }),
       'Verificado. Habitación liberada.',
+    )
+  }
+
+  // Mx-1B-W2 — comentar desde el detail (B4)
+  async function onSubmitComment() {
+    if (!ticketId) return
+    const content = commentDraft.trim()
+    if (content.length < 1) return
+    await runAction(
+      'comment',
+      async () => {
+        await maintenanceApi.addComment(ticketId, content)
+        setCommentDraft('')
+      },
+    )
+  }
+
+  // Mx-1B-W2 — agregar foto desde el detail (técnico documenta progreso /
+  // foto "después" al resolver / supervisor adjunta evidencia post-verify).
+  async function onAddPhoto(isAfter: boolean) {
+    if (!ticketId) return
+    const perm = await ImagePicker.requestCameraPermissionsAsync()
+    if (!perm.granted) {
+      Alert.alert('Permiso requerido', 'Habilita el acceso a la cámara en Ajustes.')
+      return
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.7,
+    })
+    if (result.canceled || !result.assets[0]?.uri) return
+    await runAction(
+      'addPhoto',
+      async () => {
+        const uploaded = await uploadsApi.uploadImage(result.assets[0].uri, 'maintenance')
+        await maintenanceApi.addPhoto(ticketId, { url: uploaded.url, isAfterPhoto: isAfter })
+      },
+      isAfter ? 'Foto "después" añadida' : 'Foto añadida',
     )
   }
 
@@ -301,29 +346,93 @@ export default function TicketDetailScreen() {
           </View>
         )}
 
-        {/* Photos */}
-        {ticket.photos.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>Evidencia ({ticket.photos.length})</Text>
-            <Text style={styles.sectionHint}>
-              Las fotos se cargan desde la web hasta que se active el upload mobile (Mx-1C).
+        {/* Photos (Mx-1B-W2) */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionLabel}>
+              Evidencia {ticket.photos.length > 0 && `(${ticket.photos.length})`}
             </Text>
+            <View style={styles.photoActionRow}>
+              <Pressable
+                onPress={() => onAddPhoto(false)}
+                disabled={actionLoading === 'addPhoto'}
+                style={styles.photoActionBtn}
+              >
+                <Text style={styles.photoActionText}>📷 Antes</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => onAddPhoto(true)}
+                disabled={actionLoading === 'addPhoto'}
+                style={[styles.photoActionBtn, styles.photoActionBtnAfter]}
+              >
+                <Text style={[styles.photoActionText, styles.photoActionTextAfter]}>
+                  ✓ Después
+                </Text>
+              </Pressable>
+            </View>
           </View>
-        )}
+          {ticket.photos.length === 0 ? (
+            <Text style={styles.sectionHint}>
+              Toca "Antes" o "Después" para tomar una foto y adjuntarla al ticket.
+            </Text>
+          ) : (
+            <View style={styles.photoGrid}>
+              {ticket.photos.map((p) => (
+                <Pressable
+                  key={p.id}
+                  onPress={() => setPhotoLightboxUrl(resolveImageUrl(p.url))}
+                  style={styles.photoTile}
+                >
+                  <Image
+                    source={{ uri: resolveImageUrl(p.url) }}
+                    style={styles.photoImg}
+                    resizeMode="cover"
+                  />
+                  <Text style={styles.photoTileLabel}>
+                    {p.isAfterPhoto ? '✓ Después' : 'Antes'}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+        </View>
 
-        {/* Comments */}
-        {ticket.comments.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>Comentarios ({ticket.comments.length})</Text>
-            {ticket.comments.map((c) => (
-              <View key={c.id} style={styles.commentCard}>
-                <Text style={styles.commentAuthor}>{c.authorName ?? 'Sistema'}</Text>
-                <Text style={styles.commentBody}>{c.content}</Text>
-                <Text style={styles.commentTime}>hace {formatElapsed(c.createdAt)}</Text>
-              </View>
-            ))}
+        {/* Comments (Mx-1B-W2 — composer + thread) */}
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>
+            Comentarios {ticket.comments.length > 0 && `(${ticket.comments.length})`}
+          </Text>
+          {ticket.comments.map((c) => (
+            <View key={c.id} style={styles.commentCard}>
+              <Text style={styles.commentAuthor}>{c.authorName ?? 'Sistema'}</Text>
+              <Text style={styles.commentBody}>{c.content}</Text>
+              <Text style={styles.commentTime}>hace {formatElapsed(c.createdAt)}</Text>
+            </View>
+          ))}
+          <View style={styles.commentComposer}>
+            <TextInput
+              value={commentDraft}
+              onChangeText={setCommentDraft}
+              placeholder="Escribe un comentario…"
+              placeholderTextColor={colors.text.tertiary}
+              style={styles.commentInput}
+              multiline
+              maxLength={1000}
+            />
+            <Pressable
+              onPress={onSubmitComment}
+              disabled={!commentDraft.trim() || actionLoading === 'comment'}
+              style={[
+                styles.commentSendBtn,
+                (!commentDraft.trim() || actionLoading === 'comment') && { opacity: 0.5 },
+              ]}
+            >
+              <Text style={styles.commentSendText}>
+                {actionLoading === 'comment' ? '…' : 'Enviar'}
+              </Text>
+            </Pressable>
           </View>
-        )}
+        </View>
 
         {/* Acciones contextuales según estado */}
         <View style={styles.actionsWrap}>
@@ -494,6 +603,33 @@ export default function TicketDetailScreen() {
             </View>
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Lightbox de fotos (Mx-1B-W2) */}
+      <Modal
+        visible={!!photoLightboxUrl}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPhotoLightboxUrl(null)}
+      >
+        <Pressable
+          style={styles.lightboxBackdrop}
+          onPress={() => setPhotoLightboxUrl(null)}
+        >
+          {photoLightboxUrl && (
+            <Image
+              source={{ uri: photoLightboxUrl }}
+              style={styles.lightboxImg}
+              resizeMode="contain"
+            />
+          )}
+          <Pressable
+            onPress={() => setPhotoLightboxUrl(null)}
+            style={styles.lightboxClose}
+          >
+            <Text style={styles.lightboxCloseText}>×</Text>
+          </Pressable>
+        </Pressable>
       </Modal>
     </SafeAreaView>
   )
@@ -716,4 +852,90 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(239,68,68,0.45)',
   },
   modalBtnDangerText: { color: '#FCA5A5', fontWeight: '700', fontSize: 14 },
+  // ── Photos (Mx-1B-W2)
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  photoActionRow: { flexDirection: 'row', gap: 6 },
+  photoActionBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: colors.canvas.secondary,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+  },
+  photoActionBtnAfter: {
+    backgroundColor: 'rgba(16,185,129,0.18)',
+    borderColor: 'rgba(16,185,129,0.30)',
+  },
+  photoActionText: { color: colors.text.secondary, fontSize: 11, fontWeight: '600' },
+  photoActionTextAfter: { color: colors.brand[300] },
+  photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  photoTile: {
+    width: '48%',
+    borderRadius: 10,
+    overflow: 'hidden',
+    backgroundColor: colors.canvas.secondary,
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
+  },
+  photoImg: { width: '100%', height: 100 },
+  photoTileLabel: {
+    fontSize: 10,
+    color: colors.text.secondary,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+  },
+  // ── Comment composer (Mx-1B-W2)
+  commentComposer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
+    marginTop: 8,
+  },
+  commentInput: {
+    flex: 1,
+    backgroundColor: colors.canvas.secondary,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    color: colors.text.primary,
+    fontSize: 13,
+    minHeight: 40,
+    maxHeight: 100,
+    textAlignVertical: 'top',
+  },
+  commentSendBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: colors.brand[500],
+    borderRadius: 10,
+  },
+  commentSendText: { color: colors.text.inverse, fontSize: 13, fontWeight: '700' },
+  // ── Lightbox (Mx-1B-W2)
+  lightboxBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.92)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lightboxImg: { width: '100%', height: '100%' },
+  lightboxClose: {
+    position: 'absolute',
+    top: 60,
+    right: 20,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lightboxCloseText: { color: '#fff', fontSize: 20, lineHeight: 22 },
 })

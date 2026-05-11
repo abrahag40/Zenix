@@ -13,11 +13,9 @@
  *   - MAINTENANCE técnico → requiresApproval=true (mismo flujo)
  *   - SUPERVISOR → requiresApproval=false, puede asignarse a sí mismo
  *
- * NOTA Mx-1B-M: la captura de foto funciona end-to-end con expo-image-picker
- * (cámara + galería). El upload al backend (`/v1/uploads`) se conecta en Sprint
- * Mx-1C ("Image infrastructure"). Por ahora la imagen queda en preview local y
- * el ticket se crea sin `initialPhotoUrls`. El usuario ve el thumbnail capturado
- * + un banner amber: "Subida automática se activará próximamente".
+ * Sprint Mx-1B-W2: la foto se sube vía `uploadsApi.uploadImage()` y su URL se
+ * pasa al backend en `initialPhotoUrls`. Si el upload falla (red), el usuario
+ * decide si crear el ticket sin foto (no perder el reporte) o cancelar.
  */
 
 import { useState, useMemo } from 'react'
@@ -39,6 +37,7 @@ import * as ImagePicker from 'expo-image-picker'
 import type { CreateMaintenanceTicketInput, TicketCategoryValue } from '@zenix/shared'
 import { useAuthStore } from '../../../src/store/auth'
 import { maintenanceApi } from '../../../src/features/maintenance/api/maintenance.api'
+import { uploadsApi } from '../../../src/api/uploads.api'
 import { colors } from '../../../src/design/colors'
 import {
   CATEGORY_EMOJI,
@@ -112,15 +111,41 @@ export default function ReportProblemScreen() {
     if (!canSubmit) return
     setSubmitting(true)
     try {
-      // Mx-1C: cuando exista /v1/uploads, agregar paso previo:
-      //   const { url } = await uploadsApi.uploadImage(photoUri)
-      //   initialPhotoUrls: [url]
+      // Sprint Mx-1B-W2: si hay foto, sube primero al endpoint /v1/uploads y
+      // pasa la URL resultante como `initialPhotoUrls`. El backend crea el
+      // ticket + adjunta la foto en la misma transacción.
+      let initialPhotoUrls: string[] | undefined
+      if (photoUri) {
+        try {
+          const uploaded = await uploadsApi.uploadImage(photoUri, 'maintenance')
+          initialPhotoUrls = [uploaded.url]
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          // No-block: ofrecer al usuario crear el ticket sin foto si subir
+          // falló (mejor crear el reporte que perderlo por un fallo de red).
+          const proceed = await new Promise<boolean>((resolve) => {
+            Alert.alert(
+              'No pudimos subir la foto',
+              `${msg}\n\n¿Quieres crear el ticket sin foto?`,
+              [
+                { text: 'Cancelar', style: 'cancel', onPress: () => resolve(false) },
+                { text: 'Crear sin foto', onPress: () => resolve(true) },
+              ],
+            )
+          })
+          if (!proceed) {
+            setSubmitting(false)
+            return
+          }
+        }
+      }
       const dto: CreateMaintenanceTicketInput = {
         category,
         title: title.trim(),
         description: description.trim() || undefined,
         priority: isCritical ? 'CRITICAL' : 'MEDIUM',
         requiresApproval: !isSupervisor,
+        initialPhotoUrls,
       }
       const created = await maintenanceApi.create(dto)
       Alert.alert(
@@ -217,8 +242,8 @@ export default function ReportProblemScreen() {
         {photoUri && (
           <View style={styles.uploadNotice}>
             <Text style={styles.uploadNoticeText}>
-              ℹ️ La subida automática de fotos se activa en la próxima versión.
-              Por ahora el ticket queda creado y podrás añadir foto desde la web.
+              📤 La foto se sube automáticamente al crear el ticket. Si la red
+              falla podrás reintentar desde el detalle.
             </Text>
           </View>
         )}

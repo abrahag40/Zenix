@@ -1185,6 +1185,24 @@ export interface AddMaintenancePhotoInput {
   isAfterPhoto?: boolean
 }
 
+// ─── Uploads (Mx-1B-W2 — image infra layer 1) ────────────────────────────
+
+/**
+ * Resultado de `POST /v1/uploads`.
+ * Compatible forward con S3 (Mx-1C) — la interfaz no cambia, solo el storage.
+ */
+export interface UploadedImageDto {
+  /** UUID v4 — sirve como filename en disco. */
+  id: string
+  /** Path público relativo al API prefix (ej. `/api/uploads/{org}/{scope}/{id}.jpg`). */
+  url: string
+  sizeBytes: number
+  width: number
+  height: number
+}
+
+export type UploadScope = 'maintenance' | 'readiness' | 'avatar'
+
 export interface MaintenanceTicketListQuery {
   status?: TicketStatusValue | TicketStatusValue[]
   priority?: TicketPriorityValue | TicketPriorityValue[]

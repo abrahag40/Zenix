@@ -284,6 +284,26 @@ export class MaintenanceService {
         })
       }
 
+      // ── Mx-1B-W2: adjuntar fotos iniciales subidas vía /v1/uploads
+      if (dto.initialPhotoUrls && dto.initialPhotoUrls.length > 0) {
+        await tx.maintenanceTicketPhoto.createMany({
+          data: dto.initialPhotoUrls.map((url) => ({
+            ticketId: ticket.id,
+            url,
+            uploadedById: actor.sub,
+            isAfterPhoto: false, // foto al crear es "antes" por definición
+          })),
+        })
+        await tx.maintenanceTicketLog.create({
+          data: {
+            ticketId: ticket.id,
+            event: TicketLogEvent.PHOTO_ADDED,
+            staffId: actor.sub,
+            metadata: { count: dto.initialPhotoUrls.length, atCreation: true },
+          },
+        })
+      }
+
       // ── D-Mx2: CRITICAL en habitación → auto-block dentro de la misma tx
       let blockId: string | null = null
       if (priority === TicketPriority.CRITICAL && dto.roomId) {
