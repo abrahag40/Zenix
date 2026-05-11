@@ -61,6 +61,37 @@ export class UploadsService {
   constructor(private readonly tenant: TenantContextService) {}
 
   /**
+   * Procesa un buffer entrante (binario o base64). Path principal compartido
+   * entre el endpoint multipart y el base64 — la única diferencia es de dónde
+   * sale el `Buffer`.
+   *
+   * Sprint Mx-1B-W2 audit T-25 it.4: el path base64 es la ruta confiable para
+   * clientes RN; multipart se queda como fallback compatible con curl/web.
+   */
+  async processBase64(base64Data: string, scopeRaw: string): Promise<UploadedFileResult> {
+    let buffer: Buffer
+    try {
+      // Remueve prefijo data URI si vino "data:image/jpeg;base64,XXXX".
+      const stripped = base64Data.replace(/^data:image\/[a-z]+;base64,/, '')
+      buffer = Buffer.from(stripped, 'base64')
+    } catch (err) {
+      throw new BadRequestException('El campo "data" no es base64 válido.')
+    }
+    if (buffer.length === 0) {
+      throw new BadRequestException('La imagen está vacía.')
+    }
+    // Sintetizar un objeto Multer-like para reusar `processImage`.
+    const synthetic: Express.Multer.File = {
+      buffer,
+      size: buffer.length,
+      mimetype: 'image/jpeg',
+      originalname: 'photo.jpg',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any
+    return this.processImage(synthetic, scopeRaw)
+  }
+
+  /**
    * Procesa un buffer en memoria proveniente de Multer y lo persiste como JPEG
    * optimizado. Lanza BadRequestException si el archivo no es imagen válida.
    */

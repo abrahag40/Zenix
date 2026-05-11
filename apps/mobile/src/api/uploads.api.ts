@@ -36,9 +36,8 @@
  */
 import * as ImageManipulator from 'expo-image-manipulator'
 import * as FileSystem from 'expo-file-system/legacy'
-import * as SecureStore from 'expo-secure-store'
 import type { UploadedImageDto, UploadScope } from '@zenix/shared'
-import { ApiError, resolveApiBaseUrl } from './client'
+import { api, resolveApiBaseUrl } from './client'
 
 export function resolveImageUrl(url: string): string {
   if (/^https?:\/\//.test(url)) return url
@@ -90,6 +89,30 @@ async function normalizeToJpeg(uri: string): Promise<{ uri: string }> {
   return { uri: result.uri }
 }
 
+/**
+ * Estrategia final (testing T-25 iteración 4) — BASE64 JSON UPLOAD.
+ *
+ * Después de 3 iteraciones fallidas con fetch+FormData y FileSystem.uploadAsync,
+ * descartamos el patrón multipart entero. Multipart en RN es frágil por:
+ *   · Boundary mismatch entre RN nativo (NSURLSession/OkHttp) y Multer
+ *   · Encoding diferencias entre JS bridge y nativo
+ *   · EXIF blocks en JPEG iPhone que Sharp toleraba en multipart pero NO
+ *     en buffer extracted del multipart (¿por qué? sin claridad)
+ *
+ * El base64 JSON path elimina TODAS las variables:
+ *   1. Mobile: lee el archivo como base64 con FileSystem
+ *   2. Mobile: POST JSON `{ scope, data: '<base64>' }`
+ *   3. Backend: decodifica base64 a Buffer → Sharp recibe bytes idénticos
+ *      a los del archivo original
+ *
+ * Trade-off: payload base64 es ~33% mayor que binario. Compensa porque:
+ *   · Hemos comprimido cliente a 1920px @ 0.85 → JPEG típico < 400KB
+ *   · 400KB binario → 533KB base64. Trivial en 4G LATAM.
+ *   · Beneficio: zero ambigüedad sobre lo que llega al backend.
+ *
+ * Reference: Stripe Mobile SDK, Notion Mobile, Linear Mobile usan base64
+ * JSON para uploads pequeños (< 5MB) por la misma razón.
+ */
 export const uploadsApi = {
   async uploadImage(
     uri: string,
@@ -104,44 +127,30 @@ export const uploadsApi = {
 
     const normalized = await normalizeToJpeg(uri)
 
-    // FileSystem.uploadAsync usa el stack nativo (NSURLSession / OkHttp).
-    // Construye el multipart correctamente desde disco, sin pasar bytes por
-    // el JS bridge → robusto contra los bugs de RN FormData.
-    const base = resolveApiBaseUrl()
-    const url = `${base}/api/v1/uploads`
-    const token = await SecureStore.getItemAsync('hk_token').catch(() => null)
-
-    const filename = `photo-${Date.now()}.jpg`
-
-    const response = await FileSystem.uploadAsync(url, normalized.uri, {
-      uploadType: FileSystem.FileSystemUploadType.MULTIPART,
-      fieldName: 'file',
-      httpMethod: 'POST',
-      mimeType: 'image/jpeg',
-      parameters: { scope },
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      // El SDK no acepta filename custom; el archivo se sube con el nombre
-      // del path tmp. El backend ignora el filename (usa UUID interno).
+    // Leer el JPEG normalizado como base64 (lectura nativa, sin JS bridge
+    // para los bytes — FileSystem usa NSData/Files nativo).
+    const base64 = await FileSystem.readAsStringAsync(normalized.uri, {
+      encoding: FileSystem.EncodingType.Base64,
     })
 
-    if (response.status >= 200 && response.status < 300) {
-      try {
-        return JSON.parse(response.body) as UploadedImageDto
-      } catch {
-        throw new ApiError(response.status, 'Respuesta del servidor no es JSON válido')
-      }
+    if (!base64 || base64.length < 100) {
+      throw new UploadValidationError(
+        'La foto se procesó pero quedó vacía. Vuelve a tomarla.',
+      )
     }
 
-    // Extraer mensaje de error del cuerpo si es JSON
-    let message = `Upload falló (HTTP ${response.status})`
-    try {
-      const body = JSON.parse(response.body)
-      if (typeof body?.message === 'string') message = body.message
-      else if (Array.isArray(body?.message) && typeof body.message[0] === 'string')
-        message = body.message[0]
-    } catch {
-      // body no es JSON; usar default
+    // Sanity check pre-upload: los primeros bytes deben ser JPEG magic.
+    // base64 "ffd8" → "/9j/" en encoding. Si NO empieza así, el archivo
+    // no es JPEG → fail-fast con mensaje útil al usuario.
+    if (!base64.startsWith('/9j/')) {
+      throw new UploadValidationError(
+        'El archivo procesado no es JPEG válido. Vuelve a tomar la foto.',
+      )
     }
-    throw new ApiError(response.status, message)
+
+    return api.post<UploadedImageDto>('/v1/uploads/base64', {
+      scope,
+      data: base64,
+    })
   },
 }

@@ -32,6 +32,7 @@ import {
   BadRequestException,
   NotFoundException,
   Body,
+  Logger,
 } from '@nestjs/common'
 import { FileInterceptor } from '@nestjs/platform-express'
 import { memoryStorage } from 'multer'
@@ -81,6 +82,28 @@ export class UploadsController {
       )
     }
     return this.uploads.processImage(file, scope)
+  }
+
+  /**
+   * Upload via base64 JSON — alternativa robusta para clientes que tienen
+   * problemas con multipart (React Native especialmente). Sprint Mx-1B-W2
+   * audit T-25 iteración 4.
+   *
+   * Body shape: `{ scope?: string, data: string (base64) }`
+   *
+   * Trade-off: payload ~33% mayor que binario. Compensa para clientes RN
+   * por eliminar toda la fragilidad del FormData bridge.
+   */
+  @Post('v1/uploads/base64')
+  async uploadBase64(@Body() body: { scope?: string; data?: string }) {
+    if (!body?.data || typeof body.data !== 'string') {
+      throw new BadRequestException('Falta el campo "data" con la imagen en base64.')
+    }
+    if (body.data.length > 8 * 1024 * 1024) {
+      // ~6 MB binario equivale a ~8 MB base64. Más que el límite multipart.
+      throw new BadRequestException('La imagen supera 5 MB. Recorta o reduce calidad.')
+    }
+    return this.uploads.processBase64(body.data, body.scope ?? 'maintenance')
   }
 
   // ── Serve estático (público — protección por UUID-en-path) ─────────────

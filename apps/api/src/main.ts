@@ -1,6 +1,7 @@
 import { ValidationPipe } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { NestFactory, Reflector } from '@nestjs/core'
+import * as bodyParser from 'body-parser'
 import { AppModule } from './app.module'
 import { HttpExceptionFilter } from './common/filters/http-exception.filter'
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
@@ -9,6 +10,12 @@ import { PropertyScopeInterceptor } from './common/interceptors/property-scope.i
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { rawBody: true })
+
+  // Sprint Mx-1B-W2 audit T-25 it.4: el endpoint /v1/uploads/base64 recibe
+  // hasta ~8MB de payload base64. Default Express es 100KB → rechazaba con
+  // 413. Subimos a 10MB para cubrir el upload + margen.
+  app.use(bodyParser.json({ limit: '10mb' }))
+  app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }))
 
   app.enableCors({
     origin: process.env.NODE_ENV === 'production'
