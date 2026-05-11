@@ -32,6 +32,7 @@ import { useAuthStore } from '../../../store/auth'
 import { useMaintenanceTickets } from '../api/useTickets'
 import { TicketCard } from '../components/TicketCard'
 import { colors } from '../../../design/colors'
+import { typography } from '../../../design/typography'
 
 type SectionLevel = 'critical' | 'warning' | 'normal' | 'info'
 
@@ -240,60 +241,73 @@ function greet(name?: string | null) {
   return name ? `${slot}, ${name.split(' ')[0]}` : slot
 }
 
+// Apple HIG (testing T-6/T-9): 8pt grid, body 15pt, headline 17pt semibold
 const styles = StyleSheet.create({
   canvas: { flex: 1, backgroundColor: colors.canvas.primary },
   loaderWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
-  loaderText: { color: colors.text.secondary, fontSize: 13 },
+  loaderText: { color: colors.text.secondary, fontSize: typography.size.body },
   errorWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 12 },
-  errorTitle: { color: colors.text.primary, fontSize: 17, fontWeight: '600' },
-  errorBody: { color: colors.text.secondary, fontSize: 13, textAlign: 'center' },
+  errorTitle: { color: colors.text.primary, fontSize: typography.size.bodyLg, fontWeight: '600' },
+  errorBody: { color: colors.text.secondary, fontSize: typography.size.body, textAlign: 'center' },
   retryBtn: {
-    marginTop: 8,
+    marginTop: 12,
     backgroundColor: colors.brand[500],
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderRadius: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 12,
   },
-  retryText: { color: colors.text.inverse, fontWeight: '600', fontSize: 14 },
-  hubHeader: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 },
-  hello: { color: colors.text.primary, fontSize: 22, fontWeight: '700' },
-  summary: { color: colors.text.secondary, fontSize: 13, marginTop: 4 },
-  listContent: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 100 },
+  retryText: { color: colors.text.inverse, fontWeight: '600', fontSize: typography.size.body },
+  hubHeader: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12 },
+  hello: {
+    color: colors.text.primary,
+    fontSize: typography.size.titleLg, // 24pt — Title 1
+    fontWeight: '700',
+    letterSpacing: -0.3,
+  },
+  summary: { color: colors.text.secondary, fontSize: typography.size.body, marginTop: 6 },
+  listContent: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 110 },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 4,
-    marginTop: 6,
-    gap: 8,
+    marginTop: 8,
+    gap: 10,
   },
-  sectionAccent: { width: 4, height: 16, borderRadius: 2 },
-  sectionLabel: { color: colors.text.primary, fontSize: 14, fontWeight: '600', flex: 1 },
+  sectionAccent: { width: 4, height: 18, borderRadius: 2 },
+  sectionLabel: {
+    color: colors.text.primary,
+    fontSize: typography.size.bodyLg, // Headline 17pt
+    fontWeight: '600',
+    flex: 1,
+  },
   sectionCountWrap: {
     backgroundColor: 'rgba(255,255,255,0.08)',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 12,
+    minWidth: 28,
+    alignItems: 'center',
   },
-  sectionCount: { color: colors.text.secondary, fontSize: 11, fontWeight: '700' },
-  collapseIcon: { color: colors.text.tertiary, fontSize: 12, width: 16, textAlign: 'center' },
+  sectionCount: { color: colors.text.secondary, fontSize: typography.size.small, fontWeight: '700' },
+  collapseIcon: { color: colors.text.tertiary, fontSize: typography.size.small, width: 16, textAlign: 'center' },
   emptyRow: {
-    paddingVertical: 18,
-    paddingHorizontal: 14,
+    paddingVertical: 22,
+    paddingHorizontal: 16,
     backgroundColor: colors.canvas.secondary,
     borderRadius: 12,
-    marginBottom: 10,
+    marginBottom: 12,
     borderWidth: 1,
     borderColor: colors.border.subtle,
   },
-  emptyText: { color: colors.text.tertiary, fontSize: 13, fontStyle: 'italic', textAlign: 'center' },
+  emptyText: { color: colors.text.tertiary, fontSize: typography.size.body, fontStyle: 'italic', textAlign: 'center' },
   fab: {
     position: 'absolute',
-    right: 16,
-    bottom: 24,
+    right: 20,
+    bottom: 28,
     backgroundColor: colors.brand[500],
-    paddingHorizontal: 18,
-    paddingVertical: 14,
+    paddingHorizontal: 22,
+    paddingVertical: 16,
     borderRadius: 999,
     shadowColor: '#000',
     shadowOpacity: 0.35,
@@ -301,5 +315,5 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 6,
   },
-  fabText: { color: colors.text.inverse, fontWeight: '700', fontSize: 14 },
+  fabText: { color: colors.text.inverse, fontWeight: '700', fontSize: typography.size.body },
 })

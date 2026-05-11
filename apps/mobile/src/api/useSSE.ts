@@ -49,6 +49,19 @@ const ALL_SSE_TYPES: SseEventType[] = [
   'task:blocked', 'task:rescheduled', 'task:priority-overridden',
   'task:deep-clean-flagged', 'task:hold-placed', 'task:hold-released',
   'maintenance:reported', 'discrepancy:reported',
+  // Sprint Mx-1 — eventos de ticket de mantenimiento. Sin esto el detail
+  // mobile no se refresca tras start/resolve/verify hasta pull-to-refresh
+  // (bug T-12 testing 2026-05-11).
+  'maintenance:ticket:created',
+  'maintenance:ticket:approved', 'maintenance:ticket:rejected',
+  'maintenance:ticket:claimed', 'maintenance:ticket:assigned',
+  'maintenance:ticket:auto-assigned', 'maintenance:ticket:acknowledged',
+  'maintenance:ticket:started', 'maintenance:ticket:waiting-parts',
+  'maintenance:ticket:resumed', 'maintenance:ticket:resolved',
+  'maintenance:ticket:verified', 'maintenance:ticket:closed',
+  'maintenance:ticket:reopened', 'maintenance:ticket:commented',
+  'maintenance:ticket:photo-added', 'maintenance:ticket:photo-deleted',
+  'maintenance:ticket:sla-breach',
   'room:ready', 'checkout:confirmed', 'checkin:completed', 'room:moved',
   'block:created', 'block:approved', 'block:rejected',
   'block:activated', 'block:expired', 'block:cancelled', 'block:extended',

@@ -1010,6 +1010,7 @@ export type TicketLogEventValue =
   | 'REOPENED'
   | 'COMMENT_ADDED'
   | 'PHOTO_ADDED'
+  | 'PHOTO_DELETED'
   | 'BLOCK_AUTO_CREATED'
   | 'BLOCK_AUTO_RELEASED'
   | 'SLA_BREACH'

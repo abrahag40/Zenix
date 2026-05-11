@@ -19,7 +19,7 @@
  *   · B6 banner OOO consolida aging chip + mención Channex
  */
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   View,
   Text,
@@ -44,6 +44,8 @@ import {
 import { maintenanceApi } from '../../../../src/features/maintenance/api/maintenance.api'
 import { uploadsApi, resolveImageUrl } from '../../../../src/api/uploads.api'
 import { colors } from '../../../../src/design/colors'
+import { typography } from '../../../../src/design/typography'
+import { humanizeLogEvent } from '../../../../src/features/maintenance/utils/humanize'
 import {
   AGING_HEX,
   CATEGORY_EMOJI,
@@ -78,6 +80,16 @@ export default function TicketDetailScreen() {
   // Mx-1B-W2 — composer de comentarios + uploader de fotos inline
   const [commentDraft, setCommentDraft] = useState('')
   const [photoLightboxUrl, setPhotoLightboxUrl] = useState<string | null>(null)
+
+  // Bug T-12 fix — al cambiar de ticket (mismo screen route, distinto param),
+  // reseteamos drafts locales para no arrastrar texto del ticket anterior.
+  useEffect(() => {
+    setResolutionNote('')
+    setCommentDraft('')
+    setReasonPrompt(null)
+    setReasonText('')
+    setPhotoLightboxUrl(null)
+  }, [ticketId])
 
   if (!ticketId) return null
 
@@ -175,12 +187,19 @@ export default function TicketDetailScreen() {
       'Ticket resuelto. El supervisor verificará.',
     )
   }
+  // Bug T-10 — al verificar el ticket pasa a VERIFIED → desaparece del Hub
+  // (activeOnly=true). Mostramos confirmation explícita y navegamos a Mi día.
   function onVerify() {
     if (!ticketId) return
     void runAction(
       'verify',
-      () => maintenanceApi.verify(ticketId, { approved: true }),
-      'Verificado. Habitación liberada.',
+      async () => {
+        await maintenanceApi.verify(ticketId, { approved: true })
+        // Pequeño delay para que el supervisor vea la confirmación de
+        // estado antes de salir del detail.
+        setTimeout(() => router.replace('/(app)/trabajo'), 800)
+      },
+      'Verificado · Habitación regresa a venta · Ticket archivado',
     )
   }
 
@@ -291,8 +310,14 @@ export default function TicketDetailScreen() {
     <SafeAreaView style={styles.canvas} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} hitSlop={10}>
-          <Text style={styles.headerBack}>← Volver</Text>
+        {/* Bug T-8 — `router.back()` puede ir al dashboard si la navegación
+            previa fue tab-switch (replace semantics). `router.replace` al
+            Mi día garantiza destino consistente. */}
+        <Pressable
+          onPress={() => router.replace('/(app)/trabajo')}
+          hitSlop={10}
+        >
+          <Text style={styles.headerBack}>← Mi día</Text>
         </Pressable>
         <Text style={styles.headerTitle}>{ticket.friendlyId}</Text>
         <View style={{ width: 70 }} />
@@ -321,9 +346,15 @@ export default function TicketDetailScreen() {
 
           <Text style={styles.title}>{ticket.title}</Text>
           <Text style={styles.context}>{contextLabel}</Text>
+          {/* Bug T-3 — el usuario no veía que el detalle podía estar vacío.
+              Si hay descripción, la mostramos. Si no, placeholder explícito. */}
           {ticket.description ? (
             <Text style={styles.description}>{ticket.description}</Text>
-          ) : null}
+          ) : (
+            <Text style={styles.descriptionEmpty}>
+              Sin descripción adicional
+            </Text>
+          )}
 
           <View style={styles.metaRow}>
             <Text style={styles.metaText}>
@@ -376,42 +407,46 @@ export default function TicketDetailScreen() {
           </View>
         )}
 
-        {/* Photos (Mx-1B-W2 + audit fixes W2-03/04/11) */}
+        {/* Photos (Mx-1B-W2 + audit fixes W2-03/04/11 + testing T-2/T-4) */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
+            {/* T-4 — etiqueta explícita "0 de 3 fotos" en vez de "0/3" ambiguo */}
             <Text style={styles.sectionLabel}>
-              Evidencia ({ticket.photos.length}/3)
+              Evidencia · {ticket.photos.length} de 3 fotos
             </Text>
-            <View style={styles.photoActionRow}>
-              <Pressable
-                onPress={() => onAddPhoto(false)}
-                disabled={actionLoading === 'addPhoto' || ticket.photos.length >= 3}
-                style={[
-                  styles.photoActionBtn,
-                  ticket.photos.length >= 3 && styles.photoActionBtnDisabled,
-                ]}
-              >
-                <Text style={styles.photoActionText}>📷 Antes</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => onAddPhoto(true)}
-                disabled={actionLoading === 'addPhoto' || ticket.photos.length >= 3}
-                style={[
-                  styles.photoActionBtn,
-                  styles.photoActionBtnAfter,
-                  ticket.photos.length >= 3 && styles.photoActionBtnDisabled,
-                ]}
-              >
-                <Text style={[styles.photoActionText, styles.photoActionTextAfter]}>
-                  🔚 Después
-                </Text>
-              </Pressable>
-            </View>
+          </View>
+          <View style={styles.photoActionRowWide}>
+            {/* T-2 — labels más semánticos. Una foto puede existir sin
+                contraparte ("solo trabajo terminado" es válido). */}
+            <Pressable
+              onPress={() => onAddPhoto(false)}
+              disabled={actionLoading === 'addPhoto' || ticket.photos.length >= 3}
+              style={[
+                styles.photoActionBtnWide,
+                ticket.photos.length >= 3 && styles.photoActionBtnDisabled,
+              ]}
+            >
+              <Text style={styles.photoActionText}>📷 Foto del problema</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => onAddPhoto(true)}
+              disabled={actionLoading === 'addPhoto' || ticket.photos.length >= 3}
+              style={[
+                styles.photoActionBtnWide,
+                styles.photoActionBtnAfter,
+                ticket.photos.length >= 3 && styles.photoActionBtnDisabled,
+              ]}
+            >
+              <Text style={[styles.photoActionText, styles.photoActionTextAfter]}>
+                ✅ Trabajo terminado
+              </Text>
+            </Pressable>
           </View>
           {ticket.photos.length === 0 ? (
             <Text style={styles.sectionHint}>
-              Toca "Antes" o "Después" para tomar una foto. Máx. 3 fotos por ticket
-              (regla forense de evidencia visual: overview + zona + close-up).
+              Adjunta hasta 3 fotos. Las del problema documentan el daño antes
+              de la reparación; las del trabajo terminado dejan constancia de
+              la calidad. No es obligatorio tener ambas.
             </Text>
           ) : (
             <View style={styles.photoGrid}>
@@ -428,7 +463,7 @@ export default function TicketDetailScreen() {
                         resizeMode="cover"
                       />
                       <Text style={styles.photoTileLabel}>
-                        {p.isAfterPhoto ? '🔚 Después' : 'Antes'}
+                        {p.isAfterPhoto ? '✅ Trabajo terminado' : '📷 Problema'}
                       </Text>
                     </Pressable>
                     {canDelete && (
@@ -584,15 +619,15 @@ export default function TicketDetailScreen() {
           )}
         </View>
 
-        {/* Historial breve */}
+        {/* Historial (T-5 fix — humanizado, no enum raw) */}
         {ticket.logs.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>Historial</Text>
             {ticket.logs.slice(-6).reverse().map((l) => (
               <View key={l.id} style={styles.logRow}>
-                <Text style={styles.logEvent}>{l.event}</Text>
+                <Text style={styles.logEvent}>{humanizeLogEvent(l.event)}</Text>
                 <Text style={styles.logActor}>
-                  {l.staffName ?? 'sistema'} · hace {formatElapsed(l.createdAt)}
+                  {l.staffName ?? 'Sistema'} · hace {formatElapsed(l.createdAt)}
                 </Text>
               </View>
             ))}
@@ -715,146 +750,179 @@ function ActionBtn({
   )
 }
 
+// ── Estilos — Apple HIG (testing T-6/T-9 fix):
+//   · 8pt grid base · body 15pt · headline 17pt semibold
+//   · card padding 16-20pt · section gap 20-24pt
+//   · touch targets ≥44pt
 const styles = StyleSheet.create({
   canvas: { flex: 1, backgroundColor: colors.canvas.primary },
   loaderWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 8 },
-  errorTitle: { color: colors.text.primary, fontSize: 16, fontWeight: '600' },
-  errorBody: { color: colors.text.secondary, fontSize: 13, textAlign: 'center' },
+  errorTitle: { color: colors.text.primary, fontSize: typography.size.bodyLg, fontWeight: '600' },
+  errorBody: { color: colors.text.secondary, fontSize: typography.size.body, textAlign: 'center' },
   retryBtn: {
-    marginTop: 8,
+    marginTop: 12,
     backgroundColor: colors.brand[500],
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderRadius: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 12,
   },
-  retryText: { color: colors.text.inverse, fontWeight: '600', fontSize: 14 },
+  retryText: { color: colors.text.inverse, fontWeight: '600', fontSize: typography.size.body },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: colors.border.subtle,
   },
-  headerBack: { color: colors.brand[400], fontSize: 14, fontWeight: '500' },
-  headerTitle: { color: colors.text.primary, fontSize: 16, fontWeight: '700', fontFamily: 'monospace' },
-  scrollContent: { padding: 16, paddingBottom: 40 },
+  headerBack: { color: colors.brand[400], fontSize: typography.size.bodyLg, fontWeight: '500' },
+  headerTitle: { color: colors.text.primary, fontSize: typography.size.bodyLg, fontWeight: '700', fontFamily: 'monospace' },
+  scrollContent: { padding: 20, paddingBottom: 56 },
   priorityCard: {
     backgroundColor: colors.canvas.secondary,
     borderLeftWidth: 4,
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 12,
+    borderRadius: 14,
+    padding: 18,
+    marginBottom: 16,
     borderWidth: 1,
     borderTopColor: colors.border.subtle,
     borderRightColor: colors.border.subtle,
     borderBottomColor: colors.border.subtle,
   },
-  identityRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
-  priorityPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4 },
-  priorityText: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase' },
-  categoryText: { fontSize: 12, color: colors.text.tertiary },
-  statusPill: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 6 },
-  statusPillText: { fontSize: 11, fontWeight: '700' },
-  title: { fontSize: 18, fontWeight: '700', color: colors.text.primary, marginBottom: 4 },
-  context: { fontSize: 13, color: colors.text.secondary, marginBottom: 8 },
-  description: { fontSize: 13, color: colors.text.secondary, lineHeight: 19, marginBottom: 10 },
-  metaRow: { flexDirection: 'row', gap: 4, marginTop: 6 },
-  metaText: { fontSize: 12, color: colors.text.tertiary },
+  identityRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
+  priorityPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 5 },
+  priorityText: { fontSize: typography.size.micro, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+  categoryText: { fontSize: typography.size.small, color: colors.text.tertiary },
+  statusPill: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 7 },
+  statusPillText: { fontSize: typography.size.micro, fontWeight: '700', letterSpacing: 0.3 },
+  title: {
+    fontSize: 22, // Title 2 Apple HIG
+    fontWeight: '700',
+    color: colors.text.primary,
+    marginBottom: 6,
+    lineHeight: 28,
+    letterSpacing: -0.3,
+  },
+  context: { fontSize: typography.size.body, color: colors.text.secondary, marginBottom: 12 },
+  description: {
+    fontSize: typography.size.body,
+    color: colors.text.secondary,
+    lineHeight: 22,
+    marginBottom: 12,
+  },
+  descriptionEmpty: {
+    fontSize: typography.size.small,
+    color: colors.text.tertiary,
+    fontStyle: 'italic',
+    marginBottom: 12,
+  },
+  metaRow: { flexDirection: 'row', gap: 6, marginTop: 8, flexWrap: 'wrap' },
+  metaText: { fontSize: typography.size.small, color: colors.text.tertiary },
   agingChip: {
     alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 7,
+    marginTop: 12,
   },
-  agingText: { fontSize: 12, fontWeight: '600' },
+  agingText: { fontSize: typography.size.small, fontWeight: '600' },
   banner: {
-    padding: 12,
-    borderRadius: 10,
+    padding: 14,
+    borderRadius: 12,
     backgroundColor: 'rgba(239,68,68,0.10)',
     borderWidth: 1,
     borderColor: 'rgba(239,68,68,0.25)',
-    marginBottom: 10,
+    marginBottom: 14,
   },
   bannerAmber: {
     backgroundColor: 'rgba(245,158,11,0.10)',
     borderColor: 'rgba(245,158,11,0.25)',
   },
-  bannerTitle: { fontSize: 13, fontWeight: '600', color: colors.text.primary },
-  bannerBody: { fontSize: 12, color: colors.text.secondary, marginTop: 4, lineHeight: 17 },
+  bannerTitle: { fontSize: typography.size.body, fontWeight: '600', color: colors.text.primary },
+  bannerBody: { fontSize: typography.size.small, color: colors.text.secondary, marginTop: 5, lineHeight: 19 },
   bannerAgingChip: {
     alignSelf: 'flex-start',
-    marginTop: 8,
-    paddingHorizontal: 9,
-    paddingVertical: 3,
-    borderRadius: 5,
+    marginTop: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
   },
-  bannerAgingText: { fontSize: 11, fontWeight: '700' },
-  section: { marginTop: 16 },
-  sectionLabel: { color: colors.text.primary, fontSize: 14, fontWeight: '600', marginBottom: 8 },
-  sectionHint: { color: colors.text.tertiary, fontSize: 11, fontStyle: 'italic' },
+  bannerAgingText: { fontSize: typography.size.micro, fontWeight: '700' },
+  section: { marginTop: 24 },
+  sectionLabel: {
+    color: colors.text.primary,
+    fontSize: typography.size.bodyLg, // Headline 17pt
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  sectionHint: {
+    color: colors.text.tertiary,
+    fontSize: typography.size.small,
+    fontStyle: 'italic',
+    lineHeight: 18,
+  },
   commentCard: {
     backgroundColor: colors.canvas.secondary,
-    borderRadius: 10,
-    padding: 10,
-    marginBottom: 6,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
     borderWidth: 1,
     borderColor: colors.border.subtle,
   },
-  commentAuthor: { color: colors.text.primary, fontSize: 12, fontWeight: '600' },
-  commentBody: { color: colors.text.secondary, fontSize: 13, marginTop: 2 },
-  commentTime: { color: colors.text.tertiary, fontSize: 10, marginTop: 4 },
+  commentAuthor: { color: colors.text.primary, fontSize: typography.size.small, fontWeight: '600' },
+  commentBody: { color: colors.text.secondary, fontSize: typography.size.body, marginTop: 4, lineHeight: 22 },
+  commentTime: { color: colors.text.tertiary, fontSize: typography.size.micro, marginTop: 6 },
   logRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 6,
+    paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: colors.border.subtle,
+    gap: 12,
   },
-  logEvent: { color: colors.text.secondary, fontSize: 12, fontFamily: 'monospace' },
-  logActor: { color: colors.text.tertiary, fontSize: 11 },
-  actionsWrap: { marginTop: 16, gap: 10 },
-  label: { color: colors.text.primary, fontSize: 13, fontWeight: '600', marginTop: 8, marginBottom: 6 },
+  logEvent: { color: colors.text.primary, fontSize: typography.size.small, flex: 1 },
+  logActor: { color: colors.text.tertiary, fontSize: typography.size.micro, textAlign: 'right' },
+  actionsWrap: { marginTop: 24, gap: 12 },
+  label: { color: colors.text.primary, fontSize: typography.size.body, fontWeight: '600', marginTop: 12, marginBottom: 8 },
   input: {
     backgroundColor: colors.canvas.secondary,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border.default,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     color: colors.text.primary,
-    fontSize: 14,
-    minHeight: 60,
+    fontSize: typography.size.body,
+    minHeight: 80,
     textAlignVertical: 'top',
-    marginBottom: 6,
+    marginBottom: 10,
   },
   btnPrimary: {
     backgroundColor: colors.brand[500],
-    paddingVertical: 14,
+    paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
   },
-  btnPrimaryText: { color: colors.text.inverse, fontWeight: '700', fontSize: 15 },
+  btnPrimaryText: { color: colors.text.inverse, fontWeight: '700', fontSize: typography.size.bodyLg },
   btnSecondary: {
     backgroundColor: colors.canvas.secondary,
-    paddingVertical: 14,
+    paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: colors.border.default,
   },
-  btnSecondaryText: { color: colors.text.primary, fontWeight: '600', fontSize: 14 },
+  btnSecondaryText: { color: colors.text.primary, fontWeight: '600', fontSize: typography.size.body },
   btnDanger: {
     backgroundColor: 'rgba(239,68,68,0.18)',
-    paddingVertical: 14,
+    paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: 'rgba(239,68,68,0.40)',
   },
-  btnDangerText: { color: '#FCA5A5', fontWeight: '700', fontSize: 14 },
+  btnDangerText: { color: '#FCA5A5', fontWeight: '700', fontSize: typography.size.body },
   // ── Modal de razón (B1/B2)
   modalBackdrop: {
     flex: 1,
@@ -867,56 +935,59 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 420,
     backgroundColor: colors.canvas.tertiary,
-    borderRadius: 16,
-    padding: 18,
+    borderRadius: 18,
+    padding: 22,
     borderWidth: 1,
     borderColor: colors.border.default,
   },
-  modalTitle: { color: colors.text.primary, fontSize: 16, fontWeight: '700' },
-  modalBody: { color: colors.text.secondary, fontSize: 13, marginTop: 6, lineHeight: 18 },
+  modalTitle: { color: colors.text.primary, fontSize: typography.size.bodyLg, fontWeight: '700' },
+  modalBody: { color: colors.text.secondary, fontSize: typography.size.body, marginTop: 8, lineHeight: 22 },
   modalInput: {
-    marginTop: 12,
-    minHeight: 80,
+    marginTop: 14,
+    minHeight: 100,
     backgroundColor: colors.canvas.primary,
     borderWidth: 1,
     borderColor: colors.border.default,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     color: colors.text.primary,
-    fontSize: 14,
+    fontSize: typography.size.body,
     textAlignVertical: 'top',
   },
-  modalHint: { color: colors.text.tertiary, fontSize: 11, textAlign: 'right', marginTop: 4 },
-  modalActions: { flexDirection: 'row', gap: 10, marginTop: 14 },
-  modalBtn: { flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
+  modalHint: { color: colors.text.tertiary, fontSize: typography.size.micro, textAlign: 'right', marginTop: 6 },
+  modalActions: { flexDirection: 'row', gap: 12, marginTop: 18 },
+  modalBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
   modalBtnSecondary: {
     backgroundColor: colors.canvas.secondary,
     borderWidth: 1,
     borderColor: colors.border.default,
   },
-  modalBtnSecondaryText: { color: colors.text.primary, fontWeight: '600', fontSize: 14 },
+  modalBtnSecondaryText: { color: colors.text.primary, fontWeight: '600', fontSize: typography.size.body },
   modalBtnDanger: {
     backgroundColor: 'rgba(239,68,68,0.22)',
     borderWidth: 1,
     borderColor: 'rgba(239,68,68,0.45)',
   },
-  modalBtnDangerText: { color: '#FCA5A5', fontWeight: '700', fontSize: 14 },
-  // ── Photos (Mx-1B-W2)
+  modalBtnDangerText: { color: '#FCA5A5', fontWeight: '700', fontSize: typography.size.body },
+  // ── Photos (Mx-1B-W2 + testing T-2/T-4 fixes)
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    marginBottom: 12,
   },
-  photoActionRow: { flexDirection: 'row', gap: 6 },
-  photoActionBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
+  // T-2: botones full-width separados — más espacio para labels semánticos
+  photoActionRowWide: { flexDirection: 'row', gap: 10, marginBottom: 14 },
+  photoActionBtnWide: {
+    flex: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 12, // 44pt touch target
+    borderRadius: 10,
     backgroundColor: colors.canvas.secondary,
     borderWidth: 1,
     borderColor: colors.border.default,
+    alignItems: 'center',
   },
   photoActionBtnAfter: {
     backgroundColor: 'rgba(16,185,129,0.18)',
@@ -925,62 +996,62 @@ const styles = StyleSheet.create({
   photoActionBtnDisabled: { opacity: 0.4 },
   photoDeleteBtn: {
     position: 'absolute',
-    top: 6,
-    right: 6,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    top: 8,
+    right: 8,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0,0,0,0.65)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  photoDeleteBtnText: { color: '#fff', fontSize: 13 },
-  photoActionText: { color: colors.text.secondary, fontSize: 11, fontWeight: '600' },
+  photoDeleteBtnText: { color: '#fff', fontSize: 15 },
+  photoActionText: { color: colors.text.secondary, fontSize: typography.size.small, fontWeight: '600' },
   photoActionTextAfter: { color: colors.brand[300] },
-  photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   photoTile: {
     width: '48%',
-    borderRadius: 10,
+    borderRadius: 12,
     overflow: 'hidden',
     backgroundColor: colors.canvas.secondary,
     borderWidth: 1,
     borderColor: colors.border.subtle,
   },
-  photoImg: { width: '100%', height: 100 },
+  photoImg: { width: '100%', height: 110 },
   photoTileLabel: {
-    fontSize: 10,
+    fontSize: typography.size.micro,
     color: colors.text.secondary,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
   },
-  // ── Comment composer (Mx-1B-W2)
+  // ── Comment composer
   commentComposer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: 8,
-    marginTop: 8,
+    gap: 10,
+    marginTop: 12,
   },
   commentInput: {
     flex: 1,
     backgroundColor: colors.canvas.secondary,
     borderWidth: 1,
     borderColor: colors.border.default,
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     color: colors.text.primary,
-    fontSize: 13,
-    minHeight: 40,
-    maxHeight: 100,
+    fontSize: typography.size.body,
+    minHeight: 44, // 44pt touch target
+    maxHeight: 120,
     textAlignVertical: 'top',
   },
   commentSendBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     backgroundColor: colors.brand[500],
-    borderRadius: 10,
+    borderRadius: 12,
   },
-  commentSendText: { color: colors.text.inverse, fontSize: 13, fontWeight: '700' },
+  commentSendText: { color: colors.text.inverse, fontSize: typography.size.body, fontWeight: '700' },
   // ── Lightbox (Mx-1B-W2)
   lightboxBackdrop: {
     flex: 1,

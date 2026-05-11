@@ -132,6 +132,11 @@ export function useMaintenanceTickets() {
  * de `isRefreshing` (refresh por acción o SSE, NO debe ocultar el contenido
  * ya renderizado). El detail screen debe mostrar spinners localizados durante
  * un refresh post-acción, no un loader de pantalla completa.
+ *
+ * Bug T-1 fix (testing 2026-05-11) — al cambiar de ticket id, el `data` viejo
+ * permanecía visible mientras se cargaba el nuevo, causando un "flash" del
+ * detail anterior. Ahora limpiamos `data` y `error` cuando id cambia, y solo
+ * el ID actual puede actualizar `data` (guard con id ref).
  */
 export function useMaintenanceTicket(id: string | null) {
   const [data, setData] = useState<MaintenanceTicketDetailDto | null>(null)
@@ -144,12 +149,19 @@ export function useMaintenanceTicket(id: string | null) {
       if (!id) return
       if (asRefresh) setRefreshing(true)
       else setLoading(true)
+      const requestedId = id
       try {
-        const d = await maintenanceApi.getOne(id)
-        setData(d)
-        setError(null)
+        const d = await maintenanceApi.getOne(requestedId)
+        // Guard race: si el id cambió mientras esta request volaba, descartamos
+        // la respuesta para evitar pintar el ticket equivocado.
+        if (requestedId === id) {
+          setData(d)
+          setError(null)
+        }
       } catch (err) {
-        setError(err instanceof Error ? err : new Error(String(err)))
+        if (requestedId === id) {
+          setError(err instanceof Error ? err : new Error(String(err)))
+        }
       } finally {
         if (asRefresh) setRefreshing(false)
         else setLoading(false)
@@ -158,9 +170,12 @@ export function useMaintenanceTicket(id: string | null) {
     [id],
   )
 
+  // Reset state cuando cambia el id (evita flash del ticket anterior).
   useEffect(() => {
+    setData(null)
+    setError(null)
     void fetch(false)
-  }, [fetch])
+  }, [id, fetch])
 
   // SSE — re-fetch cuando llegue evento sobre ESTE ticket (modo refresh, NO loading)
   useEffect(() => {

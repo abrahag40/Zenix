@@ -1,24 +1,29 @@
 /**
- * /maintenance/report — formulario rápido para reportar problema (Sprint Mx-1B-M).
+ * /maintenance/report — formulario para reportar problema (Sprint Mx-1B-W2
+ * + audit fixes T-7, T-13, T-8, T-2 del testing 2026-05-11).
  *
- * Flujo Hick's Law: 5 pasos mínimos.
+ * Flujo Hick's Law:
  *   1. Categoría (pill selector)
- *   2. Título corto (placeholder concreto)
- *   3. Foto opcional (cámara / galería)
- *   4. Toggle "🚨 Bloquea uso del cuarto" → CRITICAL automático
- *   5. Enviar
+ *   2. **Ubicación** — selector "Habitación · X" o "Área general" + assetTag opcional
+ *   3. Título corto
+ *   4. Detalle opcional
+ *   5. Foto opcional
+ *   6. Toggle "🚨 Bloquea uso del cuarto" (CRITICAL) — solo si hay habitación
+ *   7. Enviar
  *
  * Reglas de actor:
  *   - HOUSEKEEPER → requiresApproval=true (flujo B — supervisor mtto aprueba)
- *   - MAINTENANCE técnico → requiresApproval=true (mismo flujo)
- *   - SUPERVISOR → requiresApproval=false, puede asignarse a sí mismo
+ *   - MAINTENANCE técnico → requiresApproval=true
+ *   - SUPERVISOR → requiresApproval=false
  *
- * Sprint Mx-1B-W2: la foto se sube vía `uploadsApi.uploadImage()` y su URL se
- * pasa al backend en `initialPhotoUrls`. Si el upload falla (red), el usuario
- * decide si crear el ticket sin foto (no perder el reporte) o cancelar.
+ * Apple HIG typography + spacing (testing T-6, T-9):
+ *   - Body text 15-17pt mínimo (subhead/headline)
+ *   - Padding consistente múltiplo de 8pt (Apple 8pt grid)
+ *   - Touch targets ≥44pt
+ *   - Section gaps 16-24pt
  */
 
-import { useState, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   View,
   Text,
@@ -30,15 +35,23 @@ import {
   Image,
   Alert,
   ActivityIndicator,
+  Modal,
+  FlatList,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { useRouter, Stack } from 'expo-router'
+import { useRouter, useFocusEffect } from 'expo-router'
 import * as ImagePicker from 'expo-image-picker'
-import type { CreateMaintenanceTicketInput, TicketCategoryValue } from '@zenix/shared'
+import type {
+  CreateMaintenanceTicketInput,
+  RoomDto,
+  TicketCategoryValue,
+} from '@zenix/shared'
 import { useAuthStore } from '../../../src/store/auth'
+import { api } from '../../../src/api/client'
 import { maintenanceApi } from '../../../src/features/maintenance/api/maintenance.api'
 import { uploadsApi } from '../../../src/api/uploads.api'
 import { colors } from '../../../src/design/colors'
+import { typography } from '../../../src/design/typography'
 import {
   CATEGORY_EMOJI,
   CATEGORY_LABEL,
@@ -58,6 +71,11 @@ const CATEGORIES: TicketCategoryValue[] = [
   'OTHER',
 ]
 
+type Location =
+  | { kind: 'room'; roomId: string; roomNumber: string }
+  | { kind: 'asset'; assetTag: string }
+  | { kind: 'area' } // sin habitación ni asset (área general no taggeada)
+
 export default function ReportProblemScreen() {
   const router = useRouter()
   const user = useAuthStore((s) => s.user)
@@ -68,13 +86,88 @@ export default function ReportProblemScreen() {
   const [photoUri, setPhotoUri] = useState<string | null>(null)
   const [photoSize, setPhotoSize] = useState<number | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [location, setLocation] = useState<Location>({ kind: 'area' })
+  const [showRoomPicker, setShowRoomPicker] = useState(false)
+  const [showAssetInput, setShowAssetInput] = useState(false)
+  const [assetDraft, setAssetDraft] = useState('')
+  const [rooms, setRooms] = useState<RoomDto[]>([])
+  const [roomsLoading, setRoomsLoading] = useState(false)
 
   const isSupervisor = user?.role === 'SUPERVISOR'
+
+  // Bug T-13: reset completo cuando la pantalla gana focus de nuevo.
+  // useFocusEffect dispara al montar Y cada vez que volvemos a la pantalla.
+  useFocusEffect(
+    useCallback(() => {
+      setCategory('PLUMBING')
+      setTitle('')
+      setDescription('')
+      setIsCritical(false)
+      setPhotoUri(null)
+      setPhotoSize(null)
+      setLocation({ kind: 'area' })
+      setShowRoomPicker(false)
+      setShowAssetInput(false)
+      setAssetDraft('')
+    }, []),
+  )
+
+  // Pre-cargar lista de rooms una sola vez por sesión.
+  useEffect(() => {
+    let cancelled = false
+    setRoomsLoading(true)
+    api
+      .get<RoomDto[]>('/rooms')
+      .then((data) => {
+        if (!cancelled) setRooms(data)
+      })
+      .catch((err) => {
+        console.error('No se pudo cargar rooms:', err)
+      })
+      .finally(() => {
+        if (!cancelled) setRoomsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // T-7: el toggle "Bloquea cuarto" solo tiene sentido si hay habitación.
+  const canBeCritical = location.kind === 'room'
+  const effectiveCritical = isCritical && canBeCritical
+
+  const isDirty = useMemo(
+    () =>
+      title.trim().length > 0 ||
+      description.trim().length > 0 ||
+      !!photoUri ||
+      location.kind !== 'area',
+    [title, description, photoUri, location],
+  )
 
   const canSubmit = useMemo(
     () => title.trim().length >= 3 && !submitting,
     [title, submitting],
   )
+
+  function onBack() {
+    if (!isDirty) {
+      router.replace('/(app)/trabajo')
+      return
+    }
+    Alert.alert(
+      '¿Descartar reporte?',
+      'Perderás los datos ingresados.',
+      [
+        { text: 'Seguir editando', style: 'cancel' },
+        {
+          text: 'Descartar',
+          style: 'destructive',
+          onPress: () => router.replace('/(app)/trabajo'),
+        },
+      ],
+    )
+  }
 
   async function pickFromCamera() {
     const perm = await ImagePicker.requestCameraPermissionsAsync()
@@ -114,9 +207,6 @@ export default function ReportProblemScreen() {
     if (!canSubmit) return
     setSubmitting(true)
     try {
-      // Sprint Mx-1B-W2: si hay foto, sube primero al endpoint /v1/uploads y
-      // pasa la URL resultante como `initialPhotoUrls`. El backend crea el
-      // ticket + adjunta la foto en la misma transacción.
       let initialPhotoUrls: string[] | undefined
       if (photoUri) {
         try {
@@ -124,8 +214,6 @@ export default function ReportProblemScreen() {
           initialPhotoUrls = [uploaded.url]
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
-          // No-block: ofrecer al usuario crear el ticket sin foto si subir
-          // falló (mejor crear el reporte que perderlo por un fallo de red).
           const proceed = await new Promise<boolean>((resolve) => {
             Alert.alert(
               'No pudimos subir la foto',
@@ -146,9 +234,11 @@ export default function ReportProblemScreen() {
         category,
         title: title.trim(),
         description: description.trim() || undefined,
-        priority: isCritical ? 'CRITICAL' : 'MEDIUM',
+        priority: effectiveCritical ? 'CRITICAL' : 'MEDIUM',
         requiresApproval: !isSupervisor,
         initialPhotoUrls,
+        roomId: location.kind === 'room' ? location.roomId : undefined,
+        assetTag: location.kind === 'asset' ? location.assetTag : undefined,
       }
       const created = await maintenanceApi.create(dto)
       Alert.alert(
@@ -156,7 +246,7 @@ export default function ReportProblemScreen() {
         isSupervisor
           ? `Ticket ${created.friendlyId} creado y disponible para asignar.`
           : `Reportado al supervisor de mantenimiento. Te avisamos cuando lo revisen.`,
-        [{ text: 'Ver tickets', onPress: () => router.replace('/trabajo' as never) }],
+        [{ text: 'Ver tickets', onPress: () => router.replace('/(app)/trabajo') }],
       )
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -166,20 +256,27 @@ export default function ReportProblemScreen() {
     }
   }
 
+  const locationLabel =
+    location.kind === 'room'
+      ? `Hab. ${location.roomNumber}`
+      : location.kind === 'asset'
+      ? `🔧 ${location.assetTag}`
+      : '📍 Área general (sin habitación)'
+
   return (
     <SafeAreaView style={styles.canvas} edges={['top']}>
-      <Stack.Screen options={{ title: 'Reportar problema', headerShown: false }} />
-
-      {/* Header manual (sin Stack.headerShown) */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} hitSlop={10}>
+        <Pressable onPress={onBack} hitSlop={10}>
           <Text style={styles.headerBack}>← Cancelar</Text>
         </Pressable>
         <Text style={styles.headerTitle}>Reportar problema</Text>
-        <View style={{ width: 70 }} />
+        <View style={{ width: 80 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+      >
         {/* Categoría */}
         <Text style={styles.label}>Categoría</Text>
         <View style={styles.pillRow}>
@@ -198,6 +295,20 @@ export default function ReportProblemScreen() {
             )
           })}
         </View>
+
+        {/* Ubicación (T-7) */}
+        <Text style={styles.label}>Ubicación del problema</Text>
+        <Pressable
+          onPress={() => setShowRoomPicker(true)}
+          style={styles.locationCard}
+        >
+          <Text style={styles.locationLabel}>{locationLabel}</Text>
+          <Text style={styles.locationChevron}>›</Text>
+        </Pressable>
+        <Text style={styles.hint}>
+          Elige habitación específica si el problema afecta un cuarto. Para áreas
+          como alberca o lavandería usa "Área".
+        </Text>
 
         {/* Título */}
         <Text style={styles.label}>¿Qué problema observaste?</Text>
@@ -251,29 +362,38 @@ export default function ReportProblemScreen() {
         {photoUri && (
           <View style={styles.uploadNotice}>
             <Text style={styles.uploadNoticeText}>
-              📤 La foto se sube automáticamente al crear el ticket. Si la red
-              falla podrás reintentar desde el detalle.
+              📤 La foto se sube automáticamente al crear el ticket.
             </Text>
           </View>
         )}
 
-        {/* Toggle crítico */}
-        <View style={styles.criticalRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.criticalLabel}>🚨 Bloquea uso del cuarto</Text>
-            <Text style={styles.criticalHint}>
-              Marca como CRÍTICO. La habitación se bloquea automáticamente y sale del calendario.
+        {/* Toggle crítico — visible solo si hay habitación */}
+        {canBeCritical && (
+          <View style={styles.criticalRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.criticalLabel}>🚨 Bloquea uso del cuarto</Text>
+              <Text style={styles.criticalHint}>
+                Marca como CRÍTICO. La habitación se bloquea automáticamente en
+                calendario y OTAs (Booking, Airbnb).
+              </Text>
+            </View>
+            <Switch
+              value={isCritical}
+              onValueChange={setIsCritical}
+              trackColor={{ false: '#374151', true: colors.urgent[500] }}
+              thumbColor={isCritical ? '#FCA5A5' : '#9CA3AF'}
+            />
+          </View>
+        )}
+        {!canBeCritical && (
+          <View style={styles.criticalDisabledRow}>
+            <Text style={styles.criticalDisabledText}>
+              ℹ️ El bloqueo de cuarto solo aplica cuando seleccionas una
+              habitación específica.
             </Text>
           </View>
-          <Switch
-            value={isCritical}
-            onValueChange={setIsCritical}
-            trackColor={{ false: '#374151', true: colors.urgent[500] }}
-            thumbColor={isCritical ? '#FCA5A5' : '#9CA3AF'}
-          />
-        </View>
+        )}
 
-        {/* Submit */}
         <Pressable
           onPress={onSubmit}
           disabled={!canSubmit}
@@ -293,10 +413,129 @@ export default function ReportProblemScreen() {
             : 'Tu reporte se enviará al supervisor de mantenimiento para aprobación.'}
         </Text>
       </ScrollView>
+
+      {/* Modal selector de ubicación */}
+      <Modal
+        visible={showRoomPicker}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowRoomPicker(false)}
+      >
+        <Pressable
+          style={styles.pickerBackdrop}
+          onPress={() => setShowRoomPicker(false)}
+        >
+          <Pressable style={styles.pickerSheet} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.pickerHandle} />
+            <Text style={styles.pickerTitle}>Ubicación</Text>
+
+            {/* Opción "Sin habitación" */}
+            <Pressable
+              onPress={() => {
+                setLocation({ kind: 'area' })
+                setShowRoomPicker(false)
+              }}
+              style={styles.pickerRow}
+            >
+              <Text style={styles.pickerRowText}>📍 Área general (sin habitación)</Text>
+            </Pressable>
+
+            {/* Opción asset libre */}
+            <Pressable
+              onPress={() => {
+                setShowRoomPicker(false)
+                setShowAssetInput(true)
+                setAssetDraft(location.kind === 'asset' ? location.assetTag : '')
+              }}
+              style={styles.pickerRow}
+            >
+              <Text style={styles.pickerRowText}>
+                🔧 Asset / equipo (lavadora, alberca, generador, …)
+              </Text>
+            </Pressable>
+
+            <View style={styles.pickerDivider} />
+            <Text style={styles.pickerSectionLabel}>Habitaciones</Text>
+
+            {roomsLoading ? (
+              <ActivityIndicator color={colors.brand[500]} style={{ marginVertical: 20 }} />
+            ) : rooms.length === 0 ? (
+              <Text style={styles.pickerEmpty}>No hay habitaciones cargadas.</Text>
+            ) : (
+              <FlatList
+                data={rooms}
+                keyExtractor={(r) => r.id}
+                style={{ maxHeight: 320 }}
+                renderItem={({ item }) => (
+                  <Pressable
+                    onPress={() => {
+                      setLocation({ kind: 'room', roomId: item.id, roomNumber: item.number })
+                      setShowRoomPicker(false)
+                    }}
+                    style={styles.pickerRow}
+                  >
+                    <Text style={styles.pickerRowText}>Hab. {item.number}</Text>
+                  </Pressable>
+                )}
+              />
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Modal mini-input para assetTag */}
+      <Modal
+        visible={showAssetInput}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowAssetInput(false)}
+      >
+        <View style={styles.assetBackdrop}>
+          <View style={styles.assetCard}>
+            <Text style={styles.assetTitle}>Asset o equipo</Text>
+            <Text style={styles.assetBody}>
+              Identifica el activo (lavadora, alberca, etc.) para histórico por
+              equipo.
+            </Text>
+            <TextInput
+              autoFocus
+              value={assetDraft}
+              onChangeText={setAssetDraft}
+              placeholder="Ej. Lavadora-2 · Alberca · Generador"
+              placeholderTextColor={colors.text.tertiary}
+              style={styles.assetInput}
+              maxLength={80}
+            />
+            <View style={styles.assetActions}>
+              <Pressable
+                onPress={() => setShowAssetInput(false)}
+                style={[styles.assetBtn, styles.assetBtnSecondary]}
+              >
+                <Text style={styles.assetBtnSecondaryText}>Cancelar</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  const tag = assetDraft.trim()
+                  if (tag.length < 2) {
+                    Alert.alert('Asset requerido', 'Mínimo 2 caracteres.')
+                    return
+                  }
+                  setLocation({ kind: 'asset', assetTag: tag })
+                  setShowAssetInput(false)
+                }}
+                style={[styles.assetBtn, styles.assetBtnPrimary]}
+              >
+                <Text style={styles.assetBtnPrimaryText}>Guardar</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   )
 }
 
+// ── Estilos — Apple HIG: 8pt grid, body 15pt, headline 17pt semibold, padding 16-20pt
 const styles = StyleSheet.create({
   canvas: { flex: 1, backgroundColor: colors.canvas.primary },
   header: {
@@ -304,18 +543,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: colors.border.subtle,
   },
-  headerBack: { color: colors.brand[400], fontSize: 14, fontWeight: '500' },
-  headerTitle: { color: colors.text.primary, fontSize: 16, fontWeight: '600' },
-  scrollContent: { padding: 16, paddingBottom: 40 },
-  label: { color: colors.text.primary, fontSize: 14, fontWeight: '600', marginTop: 14, marginBottom: 8 },
+  headerBack: { color: colors.brand[400], fontSize: typography.size.bodyLg, fontWeight: '500' },
+  headerTitle: { color: colors.text.primary, fontSize: typography.size.bodyLg, fontWeight: '600' },
+  scrollContent: { padding: 20, paddingBottom: 56 },
+  label: {
+    color: colors.text.primary,
+    fontSize: typography.size.bodyLg,
+    fontWeight: '600',
+    marginTop: 20,
+    marginBottom: 10,
+  },
   pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   pill: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10, // 44pt touch target con texto 15pt
     borderRadius: 999,
     backgroundColor: colors.canvas.secondary,
     borderWidth: 1,
@@ -325,91 +570,224 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(16,185,129,0.18)',
     borderColor: colors.brand[500],
   },
-  pillText: { color: colors.text.secondary, fontSize: 13 },
+  pillText: { color: colors.text.secondary, fontSize: typography.size.body },
   pillTextActive: { color: colors.brand[300], fontWeight: '600' },
+  // Selector de ubicación
+  locationCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.canvas.secondary,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  locationLabel: { flex: 1, color: colors.text.primary, fontSize: typography.size.body },
+  locationChevron: { color: colors.text.tertiary, fontSize: 22, marginLeft: 8 },
   input: {
     backgroundColor: colors.canvas.secondary,
     borderWidth: 1,
     borderColor: colors.border.default,
     borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     color: colors.text.primary,
-    fontSize: 15,
+    fontSize: typography.size.body,
   },
-  inputMulti: { minHeight: 80, textAlignVertical: 'top' },
-  hint: { color: colors.text.tertiary, fontSize: 11, marginTop: 4 },
+  inputMulti: { minHeight: 90, textAlignVertical: 'top' },
+  hint: { color: colors.text.tertiary, fontSize: typography.size.micro, marginTop: 6, lineHeight: 16 },
   photoPreviewWrap: {
     position: 'relative',
-    marginBottom: 8,
+    marginBottom: 10,
     borderRadius: 12,
     overflow: 'hidden',
     backgroundColor: colors.canvas.secondary,
   },
-  photoPreview: { width: '100%', height: 200 },
+  photoPreview: { width: '100%', height: 220 },
   photoRemove: {
     position: 'absolute',
-    top: 8,
-    right: 8,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    top: 10,
+    right: 10,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  photoRemoveText: { color: '#fff', fontSize: 18, lineHeight: 20 },
-  photoRow: { flexDirection: 'row', gap: 10 },
+  photoRemoveText: { color: '#fff', fontSize: 20, lineHeight: 22 },
+  photoRow: { flexDirection: 'row', gap: 12 },
   photoBtn: {
     flex: 1,
     backgroundColor: 'rgba(16,185,129,0.18)',
-    borderRadius: 10,
-    paddingVertical: 12,
+    borderRadius: 12,
+    paddingVertical: 14,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: 'rgba(16,185,129,0.30)',
   },
-  photoBtnText: { color: colors.brand[300], fontWeight: '600', fontSize: 13 },
+  photoBtnText: { color: colors.brand[300], fontWeight: '600', fontSize: typography.size.body },
   photoBtnSecondary: {
     flex: 1,
     backgroundColor: colors.canvas.secondary,
-    borderRadius: 10,
-    paddingVertical: 12,
+    borderRadius: 12,
+    paddingVertical: 14,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: colors.border.default,
   },
-  photoBtnSecondaryText: { color: colors.text.secondary, fontWeight: '500', fontSize: 13 },
+  photoBtnSecondaryText: { color: colors.text.secondary, fontWeight: '500', fontSize: typography.size.body },
   uploadNotice: {
-    marginTop: 8,
-    padding: 10,
-    backgroundColor: 'rgba(245,158,11,0.10)',
-    borderRadius: 8,
+    marginTop: 10,
+    padding: 12,
+    backgroundColor: 'rgba(16,185,129,0.10)',
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: 'rgba(245,158,11,0.25)',
+    borderColor: 'rgba(16,185,129,0.25)',
   },
-  uploadNoticeText: { color: '#FCD34D', fontSize: 11, lineHeight: 16 },
+  uploadNoticeText: { color: '#6EE7B7', fontSize: typography.size.small, lineHeight: 18 },
   criticalRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 20,
-    padding: 14,
+    marginTop: 24,
+    padding: 16,
     backgroundColor: 'rgba(239,68,68,0.06)',
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: 'rgba(239,68,68,0.20)',
-    gap: 12,
+    gap: 14,
   },
-  criticalLabel: { color: colors.text.primary, fontWeight: '600', fontSize: 14 },
-  criticalHint: { color: colors.text.secondary, fontSize: 11, marginTop: 2, lineHeight: 15 },
+  criticalLabel: { color: colors.text.primary, fontWeight: '600', fontSize: typography.size.body },
+  criticalHint: {
+    color: colors.text.secondary,
+    fontSize: typography.size.micro,
+    marginTop: 4,
+    lineHeight: 16,
+  },
+  criticalDisabledRow: {
+    marginTop: 16,
+    padding: 12,
+    backgroundColor: 'rgba(148,163,184,0.08)',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
+  },
+  criticalDisabledText: { color: colors.text.tertiary, fontSize: typography.size.small, lineHeight: 18 },
   submitBtn: {
-    marginTop: 24,
+    marginTop: 28,
     backgroundColor: colors.brand[500],
-    paddingVertical: 16,
+    paddingVertical: 18,
     borderRadius: 14,
     alignItems: 'center',
   },
   submitBtnDisabled: { opacity: 0.5 },
-  submitText: { color: colors.text.inverse, fontWeight: '700', fontSize: 16 },
-  footerHint: { color: colors.text.tertiary, fontSize: 11, textAlign: 'center', marginTop: 8 },
+  submitText: { color: colors.text.inverse, fontWeight: '700', fontSize: typography.size.bodyLg },
+  footerHint: {
+    color: colors.text.tertiary,
+    fontSize: typography.size.micro,
+    textAlign: 'center',
+    marginTop: 10,
+    lineHeight: 16,
+  },
+  // Picker modal
+  pickerBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  pickerSheet: {
+    backgroundColor: colors.canvas.tertiary,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 30,
+    maxHeight: '85%',
+  },
+  pickerHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.border.default,
+    alignSelf: 'center',
+    marginBottom: 14,
+  },
+  pickerTitle: {
+    fontSize: typography.size.bodyLg,
+    fontWeight: '700',
+    color: colors.text.primary,
+    marginBottom: 12,
+  },
+  pickerSectionLabel: {
+    fontSize: typography.size.micro,
+    textTransform: 'uppercase',
+    color: colors.text.tertiary,
+    marginBottom: 8,
+    marginLeft: 4,
+    letterSpacing: 0.5,
+  },
+  pickerDivider: {
+    height: 1,
+    backgroundColor: colors.border.subtle,
+    marginVertical: 12,
+  },
+  pickerRow: {
+    paddingVertical: 14,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border.subtle,
+  },
+  pickerRowText: { color: colors.text.primary, fontSize: typography.size.body },
+  pickerEmpty: {
+    color: colors.text.tertiary,
+    fontSize: typography.size.small,
+    textAlign: 'center',
+    paddingVertical: 24,
+  },
+  // Asset input modal
+  assetBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  assetCard: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: colors.canvas.tertiary,
+    borderRadius: 18,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+  },
+  assetTitle: { color: colors.text.primary, fontSize: typography.size.bodyLg, fontWeight: '700' },
+  assetBody: {
+    color: colors.text.secondary,
+    fontSize: typography.size.small,
+    marginTop: 6,
+    lineHeight: 18,
+  },
+  assetInput: {
+    marginTop: 14,
+    backgroundColor: colors.canvas.primary,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: colors.text.primary,
+    fontSize: typography.size.body,
+  },
+  assetActions: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  assetBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
+  assetBtnSecondary: {
+    backgroundColor: colors.canvas.secondary,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+  },
+  assetBtnSecondaryText: { color: colors.text.primary, fontWeight: '600', fontSize: typography.size.body },
+  assetBtnPrimary: { backgroundColor: colors.brand[500] },
+  assetBtnPrimaryText: { color: colors.text.inverse, fontWeight: '700', fontSize: typography.size.body },
 })

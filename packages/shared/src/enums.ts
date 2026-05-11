@@ -430,6 +430,7 @@ export enum TicketLogEvent {
   REOPENED             = 'REOPENED',
   COMMENT_ADDED        = 'COMMENT_ADDED',
   PHOTO_ADDED          = 'PHOTO_ADDED',
+  PHOTO_DELETED        = 'PHOTO_DELETED', // Mx-1B-W2 — soft-delete fotos
   BLOCK_AUTO_CREATED   = 'BLOCK_AUTO_CREATED',
   BLOCK_AUTO_RELEASED  = 'BLOCK_AUTO_RELEASED',
   SLA_BREACH           = 'SLA_BREACH',
