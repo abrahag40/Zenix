@@ -72,16 +72,26 @@ export class UploadsService {
     const organizationId = this.tenant.getOrganizationId()
 
     // Sharp valida internamente que el buffer sea imagen real (magic bytes).
-    // Si el cliente envió un .exe renombrado a .jpg, esto falla aquí.
+    // `failOn: 'truncated'` (no 'error') tolera imágenes con metadata warnings
+    // pero rechaza buffers truncados/corruptos. Testing T-photo-3 reveló que
+    // 'error' rechazaba JPEGs válidos con EXIF blocks raros del iPhone.
     let pipeline: sharp.Sharp
     let metadata: sharp.Metadata
     try {
-      pipeline = sharp(file.buffer, { failOn: 'error' })
+      pipeline = sharp(file.buffer, { failOn: 'truncated' })
       metadata = await pipeline.metadata()
     } catch (err) {
-      this.logger.warn(`upload rejected: not a valid image (mime=${file.mimetype}, size=${file.size})`)
+      const errMsg = err instanceof Error ? err.message : String(err)
+      // Log diagnóstico — ayuda a diferenciar HEIC vs buffer corrupto vs
+      // formato desconocido durante el debugging del piloto.
+      this.logger.warn(
+        `upload rejected (sharp metadata): mime=${file.mimetype} ` +
+          `size=${file.size}B firstBytes=${file.buffer
+            .slice(0, 8)
+            .toString('hex')} err=${errMsg}`,
+      )
       throw new BadRequestException(
-        'El archivo no es una imagen válida (JPEG/PNG/WebP).',
+        `Sharp no pudo procesar la imagen (${file.mimetype}). Vuelve a tomar la foto.`,
       )
     }
 

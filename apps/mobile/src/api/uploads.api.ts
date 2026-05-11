@@ -1,49 +1,51 @@
 /**
- * uploads.api.ts (mobile) — Sprint Mx-1B-W2 + audit fix T-photo-1.
+ * uploads.api.ts (mobile) — Sprint Mx-1B-W2 + audit fixes T-photo-1..T-photo-3.
  *
- * Sube una imagen capturada por expo-image-picker al endpoint
- * `POST /v1/uploads` del backend.
+ * Sube una imagen al endpoint `POST /v1/uploads` del backend.
  *
- * ## Por qué normalizamos a JPEG en el cliente (decisión clave del fix)
+ * ## Por qué FileSystem.uploadAsync (no fetch + FormData)
  *
- * El stack de Sharp NPM prebuilt (versión 0.33.x) ships con libvips compilado
- * SIN libheif (HEIC requiere codecs propietarios de Apple/Nokia que libheif
- * no incluye por default — solo AVIF está disponible). Verificación local:
+ * Testing T-photo-3 (2026-05-11): el usuario sigue viendo "El archivo no es
+ * una imagen válida" después del fix expo-image-manipulator alignment.
  *
- *   $ node -e "const s = require('sharp'); console.log(s.format.heif.fileSuffix)"
- *   [ '.avif' ]   ← NO incluye '.heic' aunque la doc diga "HEIF"
+ * Investigación encontró que React Native FormData con `{ uri, name, type }`
+ * tiene varios problemas reproducibles documentados:
+ *  · iOS: a veces el archivo se serializa con BOM o headers extra que Sharp
+ *    rechaza al decodificar (RN issue #28551).
+ *  · Android: el content-type header puede no fijarse correctamente cuando
+ *    hay nested objects (RN issue #29953).
+ *  · Algunos backends (NestJS + Multer) interpretan el boundary distinto que
+ *    el que RN genera, especialmente con tipos no comunes.
  *
- * iPhones con iOS 11+ capturan en HEIC por default. Aunque expo-image-picker
- * con `quality < 1` re-encoda a JPEG en la mayoría de los casos, hay versiones
- * de Expo + iOS donde el asset retornado SIGUE siendo HEIC. Cuando el backend
- * recibe HEIC, Sharp throws "Input file contains unsupported image format" →
- * el usuario ve "El archivo no es una imagen válida".
+ * `FileSystem.uploadAsync` resuelve esto: usa la implementación nativa
+ * (NSURLSession en iOS, OkHttp en Android) que construye el multipart
+ * correctamente desde el archivo en disco. NO pasa por el JS bridge para
+ * los bytes, evitando corrupción.
  *
- * Fix definitivo: `expo-image-manipulator` recodifica TODO a JPEG antes del
- * upload. Esto garantiza que el binario subido sea siempre JPEG real. Sharp
- * en el backend recibe JPEG → siempre decodifica → flujo robusto.
+ * ## Por qué normalizamos a JPEG en el cliente (sigue válido)
  *
- * Referencias:
- *   · Sharp issue #2876 — "HEIC support requires custom libheif"
- *   · expo-image-picker issue #4753 — "Quality option does not always
- *     convert HEIC to JPEG on iOS"
+ * Sharp 0.33.x NPM prebuilt NO tiene libheif para HEIC. iPhones capturan
+ * en HEIC por default. Aunque expo-image-picker convierte la mayoría de
+ * las veces, hay edge cases. `expo-image-manipulator.manipulateAsync()`
+ * garantiza JPEG real.
+ *
+ * Flujo:
+ *   1. Picker devuelve URI (puede ser HEIC, JPG, etc.)
+ *   2. ImageManipulator normaliza a JPEG (escribe nuevo archivo tmp)
+ *   3. FileSystem.uploadAsync sube el archivo nativo como multipart
  */
 import * as ImageManipulator from 'expo-image-manipulator'
+import * as FileSystem from 'expo-file-system/legacy'
+import * as SecureStore from 'expo-secure-store'
 import type { UploadedImageDto, UploadScope } from '@zenix/shared'
-import { api, resolveApiBaseUrl } from './client'
+import { ApiError, resolveApiBaseUrl } from './client'
 
-/**
- * El backend devuelve URLs relativas (`/api/uploads/...`). Los `<Image>` de
- * RN exigen URI absoluto. Esta función resuelve la URL contra la base del
- * cliente actual (auto-detectada por Expo Go). Acepta también URLs absolutas.
- */
 export function resolveImageUrl(url: string): string {
   if (/^https?:\/\//.test(url)) return url
   const base = resolveApiBaseUrl().replace(/\/$/, '')
   return `${base}${url}`
 }
 
-// Pre-check de tamaño cliente — 5MB.
 const MAX_RAW_BYTES = 5 * 1024 * 1024
 
 export class UploadValidationError extends Error {
@@ -54,20 +56,37 @@ export class UploadValidationError extends Error {
   }
 }
 
-/**
- * Re-encoda a JPEG forzando compatibilidad con cualquier backend. También
- * aplica un resize de seguridad (max 1920px) — el backend lo haría de todas
- * formas, pero ahorrar bytes en upload mejora UX en redes lentas.
- */
 async function normalizeToJpeg(uri: string): Promise<{ uri: string }> {
+  // Pre-check: file existe y tiene contenido
+  const info = await FileSystem.getInfoAsync(uri)
+  if (!info.exists) {
+    throw new UploadValidationError(
+      'El archivo de la foto se perdió. Vuelve a tomar la foto.',
+    )
+  }
+  if ('size' in info && info.size === 0) {
+    throw new UploadValidationError(
+      'La foto está vacía. Vuelve a tomar la foto.',
+    )
+  }
+
   const result = await ImageManipulator.manipulateAsync(
     uri,
-    [{ resize: { width: 1920 } }], // height escala proporcional con AspectRatio
+    [{ resize: { width: 1920 } }],
     {
       compress: 0.85,
       format: ImageManipulator.SaveFormat.JPEG,
     },
   )
+
+  // Post-check: el output existe y tiene bytes reales
+  const outInfo = await FileSystem.getInfoAsync(result.uri)
+  if (!outInfo.exists || ('size' in outInfo && outInfo.size === 0)) {
+    throw new UploadValidationError(
+      'No pudimos procesar la foto. Vuelve a tomarla o usa otra imagen.',
+    )
+  }
+
   return { uri: result.uri }
 }
 
@@ -79,23 +98,50 @@ export const uploadsApi = {
   ): Promise<UploadedImageDto> {
     if (typeof sizeBytes === 'number' && sizeBytes > MAX_RAW_BYTES) {
       throw new UploadValidationError(
-        `La imagen pesa ${(sizeBytes / 1024 / 1024).toFixed(1)} MB. Máximo 5 MB — vuelve a tomar la foto.`,
+        `La imagen pesa ${(sizeBytes / 1024 / 1024).toFixed(1)} MB. Máximo 5 MB.`,
       )
     }
 
-    // Fix T-photo-1: garantiza JPEG real, no importa si vino HEIC del picker.
     const normalized = await normalizeToJpeg(uri)
 
-    const form = new FormData()
+    // FileSystem.uploadAsync usa el stack nativo (NSURLSession / OkHttp).
+    // Construye el multipart correctamente desde disco, sin pasar bytes por
+    // el JS bridge → robusto contra los bugs de RN FormData.
+    const base = resolveApiBaseUrl()
+    const url = `${base}/api/v1/uploads`
+    const token = await SecureStore.getItemAsync('hk_token').catch(() => null)
+
     const filename = `photo-${Date.now()}.jpg`
-    form.append(
-      'file',
-      // React Native FormData formato { uri, name, type } — documentado en
-      // RN + Expo (no compatible con DOM FormData estricto; aserción a any).
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      { uri: normalized.uri, name: filename, type: 'image/jpeg' } as any,
-    )
-    form.append('scope', scope)
-    return api.postForm<UploadedImageDto>('/v1/uploads', form, { timeoutMs: 30_000 })
+
+    const response = await FileSystem.uploadAsync(url, normalized.uri, {
+      uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+      fieldName: 'file',
+      httpMethod: 'POST',
+      mimeType: 'image/jpeg',
+      parameters: { scope },
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      // El SDK no acepta filename custom; el archivo se sube con el nombre
+      // del path tmp. El backend ignora el filename (usa UUID interno).
+    })
+
+    if (response.status >= 200 && response.status < 300) {
+      try {
+        return JSON.parse(response.body) as UploadedImageDto
+      } catch {
+        throw new ApiError(response.status, 'Respuesta del servidor no es JSON válido')
+      }
+    }
+
+    // Extraer mensaje de error del cuerpo si es JSON
+    let message = `Upload falló (HTTP ${response.status})`
+    try {
+      const body = JSON.parse(response.body)
+      if (typeof body?.message === 'string') message = body.message
+      else if (Array.isArray(body?.message) && typeof body.message[0] === 'string')
+        message = body.message[0]
+    } catch {
+      // body no es JSON; usar default
+    }
+    throw new ApiError(response.status, message)
   },
 }

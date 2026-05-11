@@ -58,8 +58,9 @@ import {
   CATEGORY_EMOJI,
   CATEGORY_LABEL,
 } from '../../../src/features/maintenance/utils/constants'
-import { ErrorSheet, ErrorSheetIcons } from '../../../src/features/maintenance/components/ErrorSheet'
+import { ErrorSheet } from '../../../src/features/maintenance/components/ErrorSheet'
 import { InputSheet } from '../../../src/features/maintenance/components/InputSheet'
+import { AnimatedBedIcon } from '../../../src/features/maintenance/components/AnimatedBedIcon'
 import { DismissKeyboardView } from '../../../src/design/DismissKeyboardView'
 
 const CATEGORIES: TicketCategoryValue[] = [
@@ -283,7 +284,8 @@ export default function ReportProblemScreen() {
       setErrorSheet({
         tone: isGuestConflict ? 'warning' : 'error',
         customIcon: isGuestConflict ? (
-          <ErrorSheetIcons.Bed color="#FBBF24" />
+          // Cama animada en bucle (extiende manta, fluffea cojines, dobla)
+          <AnimatedBedIcon color="#FBBF24" size={32} />
         ) : undefined,
         title: isGuestConflict
           ? 'Habitación ocupada'
