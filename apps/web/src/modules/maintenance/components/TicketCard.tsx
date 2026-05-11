@@ -12,18 +12,9 @@
  *   · scrollbar permanente cuando aplica (no auto-hide)
  *   · empty states top-aligned con copy positivo
  */
-import {
-  Camera,
-  Clock,
-  AlertCircle,
-  CheckCircle2,
-  Lock,
-  Sparkles as SparklesIcon,
-} from 'lucide-react'
+import { CheckCircle2, Lock, AlertCircle } from 'lucide-react'
 import type { MaintenanceTicketDto } from '@zenix/shared'
 import {
-  AGING_PILL_CLASS,
-  CATEGORY_ICON,
   CATEGORY_LABEL,
   PRIORITY_ACCENT,
   PRIORITY_LABEL,
@@ -43,18 +34,16 @@ interface Props {
 }
 
 export function TicketCard({ ticket, onClick, compact = false }: Props) {
-  const Icon = CATEGORY_ICON[ticket.category]
   const aged = isAged(ticket.status, ticket.updatedAt)
   const slaBroken = !!ticket.slaBreachAt
-  const aging = estimateAging(ticket.estimatedEndAt, ticket.status)
+  const pendingApproval = ticket.requiresApproval && ticket.pendingApproval
 
-  // Contexto descriptivo (igual filosofía HK-44 — chip que explica POR QUÉ
-  // este ticket está donde está, sin que el usuario tenga que abrirlo).
-  const contextChip = ticket.roomNumber
+  // Contexto principal (NN/g: una ubicación clara > muchos detalles)
+  const locationLabel = ticket.roomNumber
     ? `Hab. ${ticket.roomNumber}`
     : ticket.assetTag
-    ? `🔧 ${ticket.assetTag}`
-    : '📍 Área general'
+    ? ticket.assetTag
+    : 'Área general'
 
   return (
     <button
@@ -62,120 +51,78 @@ export function TicketCard({ ticket, onClick, compact = false }: Props) {
       onClick={() => onClick(ticket.id)}
       className={[
         'group relative flex w-full flex-col text-left',
-        'border-l-4 bg-white rounded-lg border border-slate-200 shadow-sm',
-        'hover:shadow-md hover:border-slate-300 transition-all duration-200 motion-reduce:transition-none',
+        'border-l-4 bg-white rounded-lg border border-slate-200/80 shadow-[0_1px_2px_rgba(15,23,42,0.04)]',
+        'hover:shadow-[0_2px_8px_rgba(15,23,42,0.08)] hover:border-slate-300 transition-all duration-200 motion-reduce:transition-none',
         PRIORITY_ACCENT[ticket.priority],
         aged && 'bg-amber-50/50',
-        compact ? 'p-3 gap-1.5' : 'p-3.5 gap-2',
+        compact ? 'p-2.5 gap-1.5' : 'p-3 gap-1.5',
       ].filter(Boolean).join(' ')}
     >
-      {/* ── Zone 1: Identity — chips + friendlyId visible para auditoría ─ */}
-      <div className="flex items-start gap-2">
-        <Icon
-          className="h-4 w-4 text-slate-500 shrink-0 mt-0.5"
-          aria-hidden
-        />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span
-              className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
-                PRIORITY_PILL[ticket.priority]
-              }`}
-            >
-              {PRIORITY_LABEL[ticket.priority]}
-            </span>
-            <span className="text-[10px] text-slate-400 uppercase tracking-wide">
-              {CATEGORY_LABEL[ticket.category]}
-            </span>
-            {ticket.friendlyId && (
-              <span
-                className="text-[10px] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded ml-auto"
-                title="Identificador único del ticket (para auditoría)"
-              >
-                {ticket.friendlyId}
-              </span>
-            )}
-          </div>
-          <h3
-            className={`mt-1 ${
-              compact ? 'text-[13px]' : 'text-sm'
-            } font-semibold text-slate-900 leading-snug line-clamp-2`}
-          >
-            {ticket.title}
-          </h3>
-        </div>
-      </div>
-
-      {/* ── Zone 2: Action / context ──────────────────────────────────── */}
-      <div className="flex items-center gap-2 flex-wrap text-xs">
-        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-50 text-slate-600 ring-1 ring-inset ring-slate-200">
-          {contextChip}
+      {/* ── Zone 1: Priority + Category (alineados a la izquierda) ─── */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span
+          className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+            PRIORITY_PILL[ticket.priority]
+          }`}
+        >
+          {PRIORITY_LABEL[ticket.priority]}
         </span>
-        {ticket.hasAutoBlock && (
-          <span
-            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-50 text-red-700 ring-1 ring-inset ring-red-200"
-            title="Habitación bloqueada automáticamente — Channex notificado"
-          >
-            <Lock className="h-3 w-3" aria-hidden /> Bloqueada
-          </span>
-        )}
-        {ticket.requiresApproval && ticket.pendingApproval && (
-          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200">
-            <AlertCircle className="h-3 w-3" aria-hidden /> Aprobación
-          </span>
-        )}
-        {slaBroken && (
-          <span
-            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-50 text-red-700 ring-1 ring-inset ring-red-200"
-            title="SLA vencido — supervisor notificado"
-          >
-            <Clock className="h-3 w-3" aria-hidden /> SLA
-          </span>
-        )}
-        {ticket.recurrenceTemplateId && (
-          <span
-            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-200"
-            title="Mantenimiento preventivo recurrente"
-          >
-            <SparklesIcon className="h-3 w-3" aria-hidden /> Preventivo
-          </span>
-        )}
-        {aging && (
-          <span
-            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded ${AGING_PILL_CLASS[aging.color]}`}
-            title="Tiempo estimado para finalizar — la habitación reabre en OTAs al cerrar el ticket o al llegar esta fecha"
-          >
-            <Clock className="h-3 w-3" aria-hidden /> {aging.label}
-          </span>
-        )}
+        <span className="text-[10px] text-slate-400 uppercase tracking-wide">
+          {CATEGORY_LABEL[ticket.category]}
+        </span>
       </div>
 
-      {/* ── Zone 3: Footer — avatar + nombre completo (NN/g: iniciales solas
-            no bastan cuando hay homónimos como "Javier R." vs "Javier Q.") ─ */}
-      <div className="flex items-center gap-2 pt-1 mt-auto text-[11px] text-slate-500">
-        {ticket.assignedToName ? (
-          <span className="inline-flex items-center gap-1.5 min-w-0 max-w-[60%]">
+      {/* ── Zone 2: Title — full width, alineado a la izquierda ────── */}
+      <h3 className="text-sm font-semibold text-slate-900 leading-snug line-clamp-2 tracking-tight">
+        {ticket.title}
+      </h3>
+
+      {/* ── Zone 3: Solo señales operativas críticas. El resto (preventivo,
+            tiempo restante, friendlyId) vive en el detalle. ──────── */}
+      {(slaBroken || ticket.hasAutoBlock || pendingApproval) && (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {ticket.hasAutoBlock && (
             <span
-              className={`inline-flex items-center justify-center rounded-full text-white font-semibold w-5 h-5 text-[9px] shrink-0 ${avatarColor(
-                ticket.assignedToName,
-              )}`}
-              aria-hidden
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] bg-red-50 text-red-700 ring-1 ring-inset ring-red-200"
+              title="Habitación bloqueada automáticamente"
             >
-              {avatarInitials(ticket.assignedToName)}
+              <Lock className="h-3 w-3" aria-hidden /> Bloqueada
             </span>
-            <span className="truncate text-slate-700 font-medium" title={ticket.assignedToName}>
-              {ticket.assignedToName}
+          )}
+          {slaBroken && (
+            <span
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] bg-red-50 text-red-700 ring-1 ring-inset ring-red-200"
+              title="El ticket excedió el tiempo objetivo de atención"
+            >
+              <AlertCircle className="h-3 w-3" aria-hidden /> Atrasado
             </span>
+          )}
+        </div>
+      )}
+
+      {/* ── Zone 4: Footer — ubicación · asignado · elapsed ────────── */}
+      <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5">
+        <span className="text-slate-600 font-medium truncate max-w-[40%]">
+          {locationLabel}
+        </span>
+        <span className="text-slate-300">·</span>
+        {ticket.assignedToName ? (
+          <span
+            className={`inline-flex items-center justify-center rounded-full text-white font-semibold w-5 h-5 text-[9px] shrink-0 ${avatarColor(
+              ticket.assignedToName,
+            )}`}
+            title={ticket.assignedToName}
+          >
+            {avatarInitials(ticket.assignedToName)}
           </span>
         ) : (
           <span className="text-slate-400 italic">Sin asignar</span>
         )}
-        <span className="ml-auto inline-flex items-center gap-0.5 shrink-0">
-          <Clock className="h-3 w-3" aria-hidden />
+        <span className="ml-auto shrink-0 tabular-nums">
           {formatElapsed(ticket.createdAt)}
         </span>
         {ticket.status === 'VERIFIED' && (
-          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" aria-label="Verificado" />
+          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" aria-label="Verificado" />
         )}
       </div>
     </button>

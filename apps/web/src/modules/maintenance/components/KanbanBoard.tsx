@@ -73,7 +73,7 @@ export function KanbanBoard({ tickets, role, onSelectTicket }: Props) {
         [&::-webkit-scrollbar-thumb]:rounded
       "
     >
-      <div className="flex items-start gap-3 min-w-max">
+      <div className="flex items-start gap-4 min-w-max">
         {buckets.showApprovalColumn && (
           <Column
             label={PENDING_APPROVAL_COLUMN.label}
@@ -127,30 +127,28 @@ function Column({
   return (
     <section
       className={`
-        flex flex-col w-72 shrink-0 rounded-xl bg-slate-50/60
-        border-t-4 ${ringColor}
+        flex flex-col w-[300px] shrink-0 rounded-xl bg-slate-50/60
+        border-t-[3px] ${ringColor}
         ring-1 ring-slate-200/70
       `}
     >
-      {/* Sticky header — visible al hacer scroll vertical dentro de la columna */}
-      <header className="sticky top-0 z-[1] bg-slate-50/95 backdrop-blur-sm rounded-t-xl px-3 pt-3 pb-2 border-b border-slate-200/60">
-        <div className="flex items-center justify-between gap-2">
-          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-slate-700">
+      {/* Sticky header — Apple HIG: sentence case + 16pt padding + neutral count */}
+      <header className="sticky top-0 z-[1] bg-slate-50/95 backdrop-blur-sm rounded-t-xl px-4 pt-4 pb-3 border-b border-slate-200/60">
+        <div className="flex items-baseline justify-between gap-2">
+          <h3 className="text-[13px] font-semibold text-slate-800 tracking-tight">
             {label}
           </h3>
-          <span
-            className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${pillBg}`}
-          >
+          <span className="text-[12px] font-medium tabular-nums text-slate-500">
             {tickets.length}
           </span>
         </div>
-        <p className="text-[10px] text-slate-500 mt-0.5 leading-tight">{hint}</p>
+        <p className="text-[11px] text-slate-500 mt-1 leading-snug">{hint}</p>
       </header>
 
-      {/* Body */}
-      <div className="px-2 py-2 flex flex-col gap-2 min-h-[120px]">
+      {/* Body — 10pt padding + 10pt gap entre cards (NN/g card spacing) */}
+      <div className="p-2.5 flex flex-col gap-2.5 min-h-[140px]">
         {tickets.length === 0 ? (
-          <p className="text-[11px] text-slate-400 px-2 py-3 leading-relaxed">
+          <p className="text-[12px] text-slate-400 px-2 py-3 leading-relaxed">
             {emptyMessage}
           </p>
         ) : (

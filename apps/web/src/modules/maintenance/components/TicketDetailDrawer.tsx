@@ -227,7 +227,23 @@ export function TicketDetailDrawer({ ticketId, actor, onClose }: Props) {
             value="detail"
             className="flex-1 overflow-y-auto px-5 pb-6 mt-0 min-h-0 data-[state=inactive]:hidden"
           >
-            {isLoading ? <DetailSkeleton /> : ticket && <DetailBody ticket={ticket} />}
+            {isLoading ? (
+              <DetailSkeleton />
+            ) : error ? (
+              <div className="py-10 text-center">
+                <div className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-red-50 ring-1 ring-red-200 mb-3">
+                  <XCircle className="h-7 w-7 text-red-500" aria-hidden />
+                </div>
+                <h3 className="text-sm font-semibold text-slate-900">
+                  No pudimos cargar el ticket
+                </h3>
+                <p className="mt-1 text-xs text-slate-500 max-w-xs mx-auto">
+                  {(error as Error)?.message ?? 'Error de red. Intenta cerrar y volver a abrir.'}
+                </p>
+              </div>
+            ) : (
+              ticket && <DetailBody ticket={ticket} />
+            )}
           </TabsContent>
 
           <TabsContent
@@ -541,9 +557,28 @@ const LOG_EMOJI: Partial<Record<MaintenanceTicketLogDto['event'], string>> = {
 }
 
 function logEventLabel(ev: MaintenanceTicketLogDto['event']): string {
-  const emoji = LOG_EMOJI[ev] ?? '•'
-  const label = LOG_EVENT_LABEL[ev] ?? humanize(ev)
-  return `${emoji} ${label}`
+  const map: Partial<Record<MaintenanceTicketLogDto['event'], string>> = {
+    CREATED: '🆕 Ticket creado',
+    APPROVED: '✅ Aprobado',
+    REJECTED: '❌ Rechazado',
+    QUEUED: '📥 Entró a cola',
+    CLAIMED: '✋ Tomado voluntariamente',
+    ASSIGNED: '👤 Asignado',
+    AUTO_ASSIGNED: '🤖 Auto-asignado',
+    ACKNOWLEDGED: '👁 Visto',
+    STARTED: '▶ Trabajo iniciado',
+    WAITING_PARTS: '⏸ Esperando refacciones',
+    RESOLVED: '✅ Resuelto',
+    VERIFIED: '✓ Verificado',
+    CLOSED: '🗄 Cerrado',
+    REOPENED: '🔄 Reabierto',
+    COMMENT_ADDED: '💬 Comentario añadido',
+    PHOTO_ADDED: '📷 Foto añadida',
+    BLOCK_AUTO_CREATED: '🔒 Habitación bloqueada',
+    BLOCK_AUTO_RELEASED: '🔓 Habitación liberada',
+    SLA_BREACH: '⏰ Tiempo excedido',
+  }
+  return map[ev] ?? ev
 }
 
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
