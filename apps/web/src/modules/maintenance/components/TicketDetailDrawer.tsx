@@ -156,22 +156,24 @@ export function TicketDetailDrawer({ ticketId, actor, onClose }: Props) {
           </div>
         )}
 
-        {/* ── Banner CRITICAL bloqueada — texto user-friendly sin jargon ─ */}
+        {/* ── Banner CRITICAL bloqueada — icono inline con texto ─ */}
         {ticket?.hasAutoBlock && (
-          <div className="px-5 py-2 bg-red-50 border-b border-red-200 text-xs text-red-800 flex items-center gap-2 flex-wrap">
-            <Lock className="h-3.5 w-3.5" aria-hidden />
-            <span>Habitación fuera de venta · Cerrada en OTAs (Booking, Airbnb, etc.)</span>
-            {ticket.estimatedEndAt &&
-              (() => {
-                const ag = estimateAging(ticket.estimatedEndAt, ticket.status)
-                return ag ? (
-                  <span
-                    className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${AGING_PILL_CLASS[ag.color]}`}
-                  >
-                    {ag.label}
-                  </span>
-                ) : null
-              })()}
+          <div className="px-5 py-2 bg-red-50 border-b border-red-200 text-xs text-red-800">
+            <p className="leading-snug">
+              <Lock className="inline-block h-3.5 w-3.5 mr-1.5 -mt-0.5" aria-hidden />
+              Habitación fuera de venta · Cerrada en OTAs (Booking, Airbnb, etc.)
+              {ticket.estimatedEndAt &&
+                (() => {
+                  const ag = estimateAging(ticket.estimatedEndAt, ticket.status)
+                  return ag ? (
+                    <span
+                      className={`ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded align-middle ${AGING_PILL_CLASS[ag.color]}`}
+                    >
+                      {ag.label}
+                    </span>
+                  ) : null
+                })()}
+            </p>
           </div>
         )}
 
