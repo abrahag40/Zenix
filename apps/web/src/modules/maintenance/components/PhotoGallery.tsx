@@ -115,7 +115,9 @@ export function PhotoGallery({ ticketId, photos, suggestAfterPhoto, actor }: Pro
   const afterPhotos = photos.filter((p) => p.isAfterPhoto)
 
   return (
-    <div className="space-y-4 text-sm">
+    // Apple HIG spacing: section gap 20-24pt + composer 24pt padding.
+    // Testing T-pixel-perfect: increased breathing room across the panel.
+    <div className="flex flex-col gap-5 text-sm min-h-full">
       {/* Composer */}
       <div
         onDragOver={(e) => {
@@ -132,7 +134,7 @@ export function PhotoGallery({ ticketId, photos, suggestAfterPhoto, actor }: Pro
           onDrop(e)
         }}
         className={cn(
-          'border-2 border-dashed rounded-xl p-5 min-h-[140px] flex flex-col items-center justify-center transition-colors',
+          'border-2 border-dashed rounded-xl px-6 py-7 flex flex-col items-center justify-center transition-colors shrink-0',
           atLimit
             ? 'border-slate-200 bg-slate-100/60 opacity-60'
             : dragOver
@@ -141,7 +143,7 @@ export function PhotoGallery({ ticketId, photos, suggestAfterPhoto, actor }: Pro
           uploading && 'opacity-60 pointer-events-none',
         )}
       >
-        <div className="flex flex-col items-center gap-2 text-center">
+        <div className="flex flex-col items-center gap-3 text-center">
           <Upload className="h-7 w-7 text-slate-400" aria-hidden />
           <div>
             <p className="text-xs font-medium text-slate-700">
@@ -181,8 +183,8 @@ export function PhotoGallery({ ticketId, photos, suggestAfterPhoto, actor }: Pro
         </div>
 
         {!atLimit && (
-          <div className="mt-3 pt-3 border-t border-slate-200 w-full flex flex-wrap items-center gap-3">
-            <label className="flex items-center gap-1.5 text-xs text-slate-700">
+          <div className="mt-4 pt-4 border-t border-slate-200 w-full flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-xs text-slate-700">
               <input
                 type="checkbox"
                 checked={isAfter}
@@ -204,9 +206,18 @@ export function PhotoGallery({ ticketId, photos, suggestAfterPhoto, actor }: Pro
       </div>
 
       {photos.length === 0 ? (
-        <div className="text-center text-xs text-slate-400 py-4">
-          <ImageIcon className="h-5 w-5 mx-auto mb-1 opacity-50" />
-          Sin fotos todavía.
+        // Testing T-tab-body-height: empty state ocupa el espacio restante
+        // (flex-1) y centra visualmente — Apple HIG empty state pattern,
+        // como Mail "No Messages" o Notes "No Notes".
+        <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-8">
+          <div className="w-14 h-14 rounded-full bg-slate-100 flex items-center justify-center mb-3">
+            <ImageIcon className="h-6 w-6 text-slate-400" />
+          </div>
+          <p className="text-sm font-medium text-slate-600">Sin fotos todavía</p>
+          <p className="text-xs text-slate-400 mt-1 max-w-xs leading-relaxed">
+            Sube hasta 3 fotos del problema o del trabajo terminado.
+            Aparecerán aquí ordenadas por momento de captura.
+          </p>
         </div>
       ) : (
         <>

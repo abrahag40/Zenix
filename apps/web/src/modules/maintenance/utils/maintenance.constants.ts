@@ -62,6 +62,26 @@ export const PRIORITY_ICON: Record<TicketPriorityValue, string> = {
   LOW: '⚪',
 }
 
+// ── Status (testing T-status-prominent) ─────────────────────────────────
+//
+// Pill colorado por estado. Semántica:
+//   OPEN          → slate     (pendiente/cola, sin acción aún)
+//   ACKNOWLEDGED  → blue      (recibido por técnico, próximamente IN_PROGRESS)
+//   IN_PROGRESS   → indigo    (trabajo activo)
+//   WAITING_PARTS → amber     (pausado esperando material — advisory)
+//   RESOLVED      → violet    (pendiente verificación — sistema 2 decisión)
+//   VERIFIED      → emerald   (éxito, regresa a inventario)
+//   CLOSED        → slate dim (archivado, histórico)
+export const STATUS_PILL: Record<TicketStatusValue, string> = {
+  OPEN:          'bg-slate-100 text-slate-700 ring-1 ring-inset ring-slate-200',
+  ACKNOWLEDGED:  'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-200',
+  IN_PROGRESS:   'bg-indigo-50 text-indigo-700 ring-1 ring-inset ring-indigo-200',
+  WAITING_PARTS: 'bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200',
+  RESOLVED:      'bg-violet-50 text-violet-700 ring-1 ring-inset ring-violet-200',
+  VERIFIED:      'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200',
+  CLOSED:        'bg-slate-50 text-slate-500 ring-1 ring-inset ring-slate-200',
+}
+
 // ── Category ────────────────────────────────────────────────────────────
 
 export const CATEGORY_LABEL: Record<TicketCategoryValue, string> = {

@@ -49,6 +49,7 @@ import {
   CATEGORY_LABEL,
   PRIORITY_LABEL,
   PRIORITY_PILL,
+  STATUS_PILL,
   estimateAging,
   formatElapsed,
 } from '../utils/maintenance.constants'
@@ -111,8 +112,8 @@ export function TicketDetailDrawer({ ticketId, actor, onClose }: Props) {
           {ticket?.title ?? 'Detalle de ticket'}
         </SheetTitle>
 
-        {/* ── Header ─────────────────────────────────────────────────── */}
-        <header className="px-5 pt-4 pb-3 border-b border-slate-200 bg-white">
+        {/* ── Header — Apple HIG spacing: 20pt padding-x, 16pt vertical ── */}
+        <header className="px-5 pt-5 pb-4 border-b border-slate-200 bg-white shrink-0">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               {ticket ? <HeaderContent ticket={ticket} /> : <HeaderSkeleton />}
@@ -120,7 +121,7 @@ export function TicketDetailDrawer({ ticketId, actor, onClose }: Props) {
             <button
               onClick={onClose}
               aria-label="Cerrar"
-              className="text-slate-500 hover:text-slate-700 p-1 -mr-1"
+              className="text-slate-500 hover:text-slate-700 p-1 -mr-1 shrink-0"
             >
               <X className="h-5 w-5" />
             </button>
@@ -196,12 +197,15 @@ export function TicketDetailDrawer({ ticketId, actor, onClose }: Props) {
           />
         )}
 
-        {/* ── Tabs: estilo unificado con BookingDetailSheet (Apple HIG +
-            consistencia §13). 4 columnas en Mx-1B-W2: Detalle / Fotos /
-            Comentarios / Historial. ─────────────────────────────────────── */}
-        <Tabs defaultValue="detail" className="flex-1 flex flex-col min-h-0">
-          <div className="px-5 py-3 shrink-0">
-            <TabsList className="w-full h-9 bg-slate-100 rounded-xl p-1 grid grid-cols-4">
+        {/* ── Tabs: estilo unificado con BookingDetailSheet.
+            Testing T-tab-body-height: cada TabsContent ahora explícitamente
+            `flex-1 min-h-0` + el wrapper interno (`<div flex-1 flex-col`)
+            permite que el contenido EMPTY-STATE se centre verticalmente y el
+            contenido con scroll use todo el espacio.
+            ───────────────────────────────────────────────────────────── */}
+        <Tabs defaultValue="detail" className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          <div className="px-5 pt-4 pb-3 shrink-0">
+            <TabsList className="w-full h-10 bg-slate-100 rounded-xl p-1 grid grid-cols-4">
               <DrawerTab value="detail" icon={FileText} label="Detalle" />
               <DrawerTab
                 value="photos"
@@ -219,11 +223,17 @@ export function TicketDetailDrawer({ ticketId, actor, onClose }: Props) {
             </TabsList>
           </div>
 
-          <TabsContent value="detail" className="flex-1 overflow-y-auto px-5 pb-5 mt-0">
+          <TabsContent
+            value="detail"
+            className="flex-1 overflow-y-auto px-5 pb-6 mt-0 min-h-0 data-[state=inactive]:hidden"
+          >
             {isLoading ? <DetailSkeleton /> : ticket && <DetailBody ticket={ticket} />}
           </TabsContent>
 
-          <TabsContent value="photos" className="flex-1 overflow-y-auto px-5 pb-5 mt-0">
+          <TabsContent
+            value="photos"
+            className="flex-1 overflow-y-auto px-5 pb-6 mt-0 min-h-0 data-[state=inactive]:hidden"
+          >
             {ticket && (
               <PhotoGallery
                 ticketId={ticket.id}
@@ -236,7 +246,7 @@ export function TicketDetailDrawer({ ticketId, actor, onClose }: Props) {
 
           <TabsContent
             value="comments"
-            className="flex-1 overflow-hidden px-5 pb-5 pt-1 mt-0 flex flex-col min-h-0"
+            className="flex-1 overflow-hidden px-5 pb-6 pt-1 mt-0 flex flex-col min-h-0 data-[state=inactive]:hidden"
           >
             {ticket && (
               <CommentsThread
@@ -247,7 +257,10 @@ export function TicketDetailDrawer({ ticketId, actor, onClose }: Props) {
             )}
           </TabsContent>
 
-          <TabsContent value="log" className="flex-1 overflow-y-auto px-5 pb-5 mt-0">
+          <TabsContent
+            value="log"
+            className="flex-1 overflow-y-auto px-5 pb-6 mt-0 min-h-0 data-[state=inactive]:hidden"
+          >
             {ticket && <LogList logs={ticket.logs} />}
           </TabsContent>
         </Tabs>
@@ -266,9 +279,10 @@ function HeaderContent({
   const Icon = CATEGORY_ICON[ticket.category]
   return (
     <>
+      {/* Línea 1 — chips: priority + category + friendlyId */}
       <div className="flex items-center gap-2 flex-wrap">
         <span
-          className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+          className={`text-[10px] font-semibold px-2 py-0.5 rounded-md ${
             PRIORITY_PILL[ticket.priority]
           }`}
         >
@@ -286,14 +300,26 @@ function HeaderContent({
             {ticket.friendlyId}
           </span>
         )}
-        <span className="text-[10px] text-slate-400 ml-auto">
+        {/* Estado — pill colorado prominente, alineado a la derecha del row.
+            Testing T-status-prominent: el usuario antes veía solo "Recibido"
+            en gris pequeño; ahora es un chip semántico con su propio color
+            (azul ACK / morado RESOLVED / verde VERIFIED / etc). */}
+        <span
+          className={`ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-md ${
+            STATUS_PILL[ticket.status]
+          }`}
+        >
           {STATUS_LABEL[ticket.status]}
         </span>
       </div>
-      <h2 className="mt-1 text-base font-semibold text-slate-900 leading-snug">
+
+      {/* Título del problema — más respiración */}
+      <h2 className="mt-2.5 text-base font-semibold text-slate-900 leading-snug">
         {ticket.title}
       </h2>
-      <p className="mt-0.5 text-xs text-slate-500">
+
+      {/* Línea de contexto — ubicación + timestamp */}
+      <p className="mt-1 text-xs text-slate-500">
         {ticket.roomNumber
           ? `Hab. ${ticket.roomNumber}`
           : ticket.assetTag
@@ -369,8 +395,9 @@ function DetailBody({
 }: {
   ticket: NonNullable<ReturnType<typeof useMaintenanceTicket>['data']>
 }) {
+  // Apple HIG sections: 24pt gap between groups (was 16pt — felt apretado).
   return (
-    <div className="space-y-4 text-sm">
+    <div className="space-y-6 text-sm pt-1">
       {ticket.description && (
         <Section label="Descripción">
           <p className="text-slate-700 leading-relaxed whitespace-pre-wrap">
@@ -449,10 +476,21 @@ function DetailBody({
 
 function LogList({ logs }: { logs: MaintenanceTicketLogDto[] }) {
   if (logs.length === 0) {
-    return <p className="text-xs text-slate-400 mt-3">Sin eventos.</p>
+    // Empty state que fills el panel — Apple HIG pattern, consistencia con PhotoGallery
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-8 min-h-[200px]">
+        <div className="w-14 h-14 rounded-full bg-slate-100 flex items-center justify-center mb-3">
+          <History className="h-6 w-6 text-slate-400" />
+        </div>
+        <p className="text-sm font-medium text-slate-600">Sin eventos aún</p>
+        <p className="text-xs text-slate-400 mt-1 max-w-xs leading-relaxed">
+          Cada cambio en este ticket queda registrado aquí con su autor y momento.
+        </p>
+      </div>
+    )
   }
   return (
-    <ol className="space-y-3 mt-3 border-l-2 border-slate-200 pl-4">
+    <ol className="space-y-4 pt-3 pb-2 border-l-2 border-slate-200 pl-4">
       {logs.map((l) => {
         const metaLines = humanizeLogMetadata(l.metadata)
         return (
@@ -511,7 +549,7 @@ function logEventLabel(ev: MaintenanceTicketLogDto['event']): string {
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <section>
-      <h3 className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+      <h3 className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2">
         {label}
       </h3>
       <div>{children}</div>
@@ -521,7 +559,7 @@ function Section({ label, children }: { label: string; children: React.ReactNode
 
 function KeyValue({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex justify-between gap-3 py-1 text-xs border-b border-slate-100 last:border-b-0">
+    <div className="flex justify-between gap-3 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
       <span className="text-slate-500">{label}</span>
       <span className="text-slate-800 font-medium text-right">{value}</span>
     </div>
@@ -667,8 +705,17 @@ function ActionsBar({
 
   if (actions.length === 0) return null
 
+  // Testing T-buttons-row: 2 actions → grid 50/50 (mismo width, mismo row).
+  // 1 action → full width. 3+ actions → flex wrap (raro pero por si acaso).
+  const layoutClass =
+    actions.length === 2
+      ? 'grid grid-cols-2 gap-2'
+      : actions.length === 1
+      ? 'flex'
+      : 'flex flex-wrap gap-2'
+
   return (
-    <div className="px-5 py-3 border-b border-slate-200 bg-slate-50/60 flex flex-wrap gap-2">
+    <div className={`px-5 py-3.5 border-b border-slate-200 bg-slate-50/60 ${layoutClass}`}>
       {actions.map((a) => {
         const Icon = a.icon
         return (
@@ -678,13 +725,13 @@ function ActionsBar({
             size="sm"
             variant={a.primary ? 'default' : 'outline'}
             disabled={!!a.pending}
-            className={
+            className={`w-full ${
               a.tone === 'destructive'
                 ? 'border-red-200 text-red-700 hover:bg-red-50'
                 : a.tone === 'positive' && a.primary
                 ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
                 : ''
-            }
+            }`}
             onClick={a.onClick}
           >
             <Icon className="h-3.5 w-3.5 mr-1.5" />
