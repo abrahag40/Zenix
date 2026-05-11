@@ -33,7 +33,17 @@ import {
 import { promises as fs } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
-import sharp from 'sharp'
+// ROOT CAUSE testing T-25 final: Sharp exporta vía `module.exports = Sharp`
+// (CommonJS function-only, sin .default). El tsconfig de este proyecto NO
+// tiene `esModuleInterop: true` (lo agregaría regresión a otros imports),
+// así que `import sharp from 'sharp'` compila a `sharp_1.default` que es
+// undefined → "is not a function".
+//
+// Fix canónico: `import sharp = require('sharp')` — sintaxis TS específica
+// para módulos con `export = sharp` (lo que Sharp d.ts declara explícitamente).
+// Equivale a `const sharp = require('sharp')` runtime, sin perder los tipos.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+import sharp = require('sharp')
 import { TenantContextService } from '../common/tenant-context.service'
 
 const UPLOAD_ROOT = join(process.cwd(), 'uploads')
