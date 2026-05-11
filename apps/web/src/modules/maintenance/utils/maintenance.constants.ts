@@ -109,35 +109,35 @@ export const STATUS_COLUMNS: {
     status: 'OPEN',
     label: 'Sin asignar',
     hint: 'Disponibles en cola — pueden tomarse',
-    ringColor: 'border-t-red-400',
+    ringColor: 'border-t-red-300',
     pillBg: 'bg-red-100 text-red-700',
   },
   {
     status: 'ACKNOWLEDGED',
     label: 'Vistos',
     hint: 'Técnico recibió el ticket',
-    ringColor: 'border-t-blue-400',
+    ringColor: 'border-t-blue-300',
     pillBg: 'bg-blue-100 text-blue-700',
   },
   {
     status: 'IN_PROGRESS',
     label: 'En progreso',
     hint: 'Trabajo activo',
-    ringColor: 'border-t-emerald-400',
+    ringColor: 'border-t-emerald-300',
     pillBg: 'bg-emerald-100 text-emerald-700',
   },
   {
     status: 'WAITING_PARTS',
     label: 'En espera',
     hint: 'Esperando refacciones / proveedor',
-    ringColor: 'border-t-amber-400',
+    ringColor: 'border-t-amber-300',
     pillBg: 'bg-amber-100 text-amber-700',
   },
   {
     status: 'RESOLVED',
     label: 'Por verificar',
     hint: 'Supervisor debe revisar calidad',
-    ringColor: 'border-t-violet-400',
+    ringColor: 'border-t-violet-300',
     pillBg: 'bg-violet-100 text-violet-700',
   },
   {
@@ -161,7 +161,7 @@ export const STATUS_COLUMNS: {
 export const PENDING_APPROVAL_COLUMN = {
   label: 'Esperando aprobación',
   hint: 'Reportes que requieren tu visto bueno',
-  ringColor: 'border-t-amber-500',
+  ringColor: 'border-t-amber-400',
   pillBg: 'bg-amber-100 text-amber-800',
 } as const
 

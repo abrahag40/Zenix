@@ -59,11 +59,11 @@ export function TicketCard({ ticket, onClick, compact = false }: Props) {
       onClick={() => onClick(ticket.id)}
       className={[
         'group relative flex w-full flex-col text-left',
-        'border-l-4 bg-white rounded-lg border border-slate-200 shadow-sm',
-        'hover:shadow-md hover:border-slate-300 transition-all duration-200 motion-reduce:transition-none',
+        'border-l-4 bg-white rounded-lg border border-slate-200/80 shadow-[0_1px_2px_rgba(15,23,42,0.04)]',
+        'hover:shadow-[0_2px_8px_rgba(15,23,42,0.08)] hover:border-slate-300 transition-all duration-200 motion-reduce:transition-none',
         PRIORITY_ACCENT[ticket.priority],
         aged && 'bg-amber-50/50',
-        compact ? 'p-3 gap-1.5' : 'p-3.5 gap-2',
+        compact ? 'p-3 gap-1.5' : 'p-4 gap-2.5',
       ].filter(Boolean).join(' ')}
     >
       {/* ── Zone 1: Identity ──────────────────────────────────────────── */}
@@ -86,9 +86,9 @@ export function TicketCard({ ticket, onClick, compact = false }: Props) {
             </span>
           </div>
           <h3
-            className={`mt-1 ${
-              compact ? 'text-[13px]' : 'text-sm'
-            } font-semibold text-slate-900 leading-snug line-clamp-2`}
+            className={`mt-1.5 ${
+              compact ? 'text-[13px]' : 'text-[15px]'
+            } font-semibold text-slate-900 leading-snug line-clamp-2 tracking-tight`}
           >
             {ticket.title}
           </h3>
@@ -145,8 +145,7 @@ export function TicketCard({ ticket, onClick, compact = false }: Props) {
         ) : (
           <span className="text-slate-400 italic">Sin asignar</span>
         )}
-        <span className="ml-auto inline-flex items-center gap-0.5">
-          <Clock className="h-3 w-3" aria-hidden />
+        <span className="ml-auto shrink-0 tabular-nums text-slate-500">
           {formatElapsed(ticket.createdAt)}
         </span>
         {ticket.status === 'VERIFIED' && (
