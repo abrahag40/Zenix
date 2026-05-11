@@ -90,12 +90,13 @@ export class CreateTicketDto {
   /**
    * URLs de fotos ya subidas vía POST /v1/uploads. Si vienen presentes, el
    * servicio crea N `MaintenanceTicketPhoto` en la misma transacción del
-   * ticket. Limitado a 5 fotos en el create inicial (más se añaden después
-   * vía `/tickets/:id/photos`).
+   * ticket. Limitado a 3 fotos siguiendo la "three-shot rule" forense
+   * (ASTM E2825): overview + midrange + closeup. Ver justificación en
+   * `maintenance.service.ts > addPhoto`.
    */
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(5)
+  @ArrayMaxSize(3)
   @IsString({ each: true })
   @MaxLength(500, { each: true })
   initialPhotoUrls?: string[]

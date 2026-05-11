@@ -243,3 +243,15 @@ export function useAddPhoto(id: string) {
     onError: (e: Error) => toast.error(e.message),
   })
 }
+
+export function useDeletePhoto(ticketId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (photoId: string) => maintenanceApi.deletePhoto(ticketId, photoId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: [KEY_ONE, ticketId] })
+      toast.success('Foto eliminada')
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+}

@@ -27,6 +27,7 @@ import {
   Post,
   Res,
   UploadedFile,
+  UseFilters,
   UseInterceptors,
   BadRequestException,
   NotFoundException,
@@ -36,9 +37,20 @@ import { FileInterceptor } from '@nestjs/platform-express'
 import { memoryStorage } from 'multer'
 import { Public } from '../common/decorators/public.decorator'
 import { UploadsService } from './uploads.service'
+import { UploadExceptionFilter } from './upload-exception.filter'
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024 // 5 MB
-const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp'])
+// Sprint Mx-1B-W2 audit — W2-08: HEIC añadido para iPhones con galería legacy
+// donde expo-image-picker leakea HEIC en vez de convertir a JPEG. Sharp 0.33+
+// decodifica HEIC vía libheif (compilado en el binary precompilado), nuestro
+// pipeline lo recodifica a JPEG normalizado.
+const ALLOWED_MIME = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/heic',
+  'image/heif',
+])
 
 @Controller()
 export class UploadsController {
@@ -46,6 +58,7 @@ export class UploadsController {
 
   // ── Subida (autenticada) ──────────────────────────────────────────────
   @Post('v1/uploads')
+  @UseFilters(UploadExceptionFilter)
   @UseInterceptors(
     FileInterceptor('file', {
       storage: memoryStorage(),

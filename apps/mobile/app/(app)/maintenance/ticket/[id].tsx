@@ -201,7 +201,15 @@ export default function TicketDetailScreen() {
   // Mx-1B-W2 — agregar foto desde el detail (técnico documenta progreso /
   // foto "después" al resolver / supervisor adjunta evidencia post-verify).
   async function onAddPhoto(isAfter: boolean) {
-    if (!ticketId) return
+    if (!ticketId || !ticket) return
+    // W2-03 guard: hard limit 3 fotos (forensic three-shot rule).
+    if (ticket.photos.length >= 3) {
+      Alert.alert(
+        'Límite de fotos',
+        'Máximo 3 fotos por ticket. Elimina una antes de subir otra.',
+      )
+      return
+    }
     const perm = await ImagePicker.requestCameraPermissionsAsync()
     if (!perm.granted) {
       Alert.alert('Permiso requerido', 'Habilita el acceso a la cámara en Ajustes.')
@@ -212,13 +220,35 @@ export default function TicketDetailScreen() {
       quality: 0.7,
     })
     if (result.canceled || !result.assets[0]?.uri) return
+    const asset = result.assets[0]
     await runAction(
       'addPhoto',
       async () => {
-        const uploaded = await uploadsApi.uploadImage(result.assets[0].uri, 'maintenance')
+        const uploaded = await uploadsApi.uploadImage(asset.uri, 'maintenance', asset.fileSize ?? null)
         await maintenanceApi.addPhoto(ticketId, { url: uploaded.url, isAfterPhoto: isAfter })
       },
       isAfter ? 'Foto "después" añadida' : 'Foto añadida',
+    )
+  }
+
+  // W2-04: eliminar foto desde mobile.
+  async function onDeletePhoto(photoId: string) {
+    if (!ticketId) return
+    const ok = await new Promise<boolean>((resolve) => {
+      Alert.alert(
+        'Eliminar foto',
+        'Queda en histórico 30 días por si la necesitas recuperar.',
+        [
+          { text: 'Cancelar', style: 'cancel', onPress: () => resolve(false) },
+          { text: 'Eliminar', style: 'destructive', onPress: () => resolve(true) },
+        ],
+      )
+    })
+    if (!ok) return
+    await runAction(
+      'deletePhoto',
+      () => maintenanceApi.deletePhoto(ticketId, photoId),
+      'Foto eliminada',
     )
   }
 
@@ -346,53 +376,73 @@ export default function TicketDetailScreen() {
           </View>
         )}
 
-        {/* Photos (Mx-1B-W2) */}
+        {/* Photos (Mx-1B-W2 + audit fixes W2-03/04/11) */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionLabel}>
-              Evidencia {ticket.photos.length > 0 && `(${ticket.photos.length})`}
+              Evidencia ({ticket.photos.length}/3)
             </Text>
             <View style={styles.photoActionRow}>
               <Pressable
                 onPress={() => onAddPhoto(false)}
-                disabled={actionLoading === 'addPhoto'}
-                style={styles.photoActionBtn}
+                disabled={actionLoading === 'addPhoto' || ticket.photos.length >= 3}
+                style={[
+                  styles.photoActionBtn,
+                  ticket.photos.length >= 3 && styles.photoActionBtnDisabled,
+                ]}
               >
                 <Text style={styles.photoActionText}>📷 Antes</Text>
               </Pressable>
               <Pressable
                 onPress={() => onAddPhoto(true)}
-                disabled={actionLoading === 'addPhoto'}
-                style={[styles.photoActionBtn, styles.photoActionBtnAfter]}
+                disabled={actionLoading === 'addPhoto' || ticket.photos.length >= 3}
+                style={[
+                  styles.photoActionBtn,
+                  styles.photoActionBtnAfter,
+                  ticket.photos.length >= 3 && styles.photoActionBtnDisabled,
+                ]}
               >
                 <Text style={[styles.photoActionText, styles.photoActionTextAfter]}>
-                  ✓ Después
+                  🔚 Después
                 </Text>
               </Pressable>
             </View>
           </View>
           {ticket.photos.length === 0 ? (
             <Text style={styles.sectionHint}>
-              Toca "Antes" o "Después" para tomar una foto y adjuntarla al ticket.
+              Toca "Antes" o "Después" para tomar una foto. Máx. 3 fotos por ticket
+              (regla forense de evidencia visual: overview + zona + close-up).
             </Text>
           ) : (
             <View style={styles.photoGrid}>
-              {ticket.photos.map((p) => (
-                <Pressable
-                  key={p.id}
-                  onPress={() => setPhotoLightboxUrl(resolveImageUrl(p.url))}
-                  style={styles.photoTile}
-                >
-                  <Image
-                    source={{ uri: resolveImageUrl(p.url) }}
-                    style={styles.photoImg}
-                    resizeMode="cover"
-                  />
-                  <Text style={styles.photoTileLabel}>
-                    {p.isAfterPhoto ? '✓ Después' : 'Antes'}
-                  </Text>
-                </Pressable>
-              ))}
+              {ticket.photos.map((p) => {
+                const canDelete = isSupervisor || p.uploadedById === user?.id
+                return (
+                  <View key={p.id} style={styles.photoTile}>
+                    <Pressable
+                      onPress={() => setPhotoLightboxUrl(resolveImageUrl(p.url))}
+                    >
+                      <Image
+                        source={{ uri: resolveImageUrl(p.url) }}
+                        style={styles.photoImg}
+                        resizeMode="cover"
+                      />
+                      <Text style={styles.photoTileLabel}>
+                        {p.isAfterPhoto ? '🔚 Después' : 'Antes'}
+                      </Text>
+                    </Pressable>
+                    {canDelete && (
+                      <Pressable
+                        onPress={() => onDeletePhoto(p.id)}
+                        style={styles.photoDeleteBtn}
+                        hitSlop={6}
+                      >
+                        <Text style={styles.photoDeleteBtnText}>🗑</Text>
+                      </Pressable>
+                    )}
+                  </View>
+                )
+              })}
             </View>
           )}
         </View>
@@ -872,6 +922,19 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(16,185,129,0.18)',
     borderColor: 'rgba(16,185,129,0.30)',
   },
+  photoActionBtnDisabled: { opacity: 0.4 },
+  photoDeleteBtn: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoDeleteBtnText: { color: '#fff', fontSize: 13 },
   photoActionText: { color: colors.text.secondary, fontSize: 11, fontWeight: '600' },
   photoActionTextAfter: { color: colors.brand[300] },
   photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

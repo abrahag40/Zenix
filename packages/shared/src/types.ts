@@ -743,6 +743,7 @@ export type SseEventType =
   | 'maintenance:ticket:reopened'
   | 'maintenance:ticket:commented'
   | 'maintenance:ticket:photo-added'
+  | 'maintenance:ticket:photo-deleted'
   | 'maintenance:ticket:sla-breach'     // scheduler detectó SLA vencido
 
 // ─── Offline Sync (Mobile) ────────────────────────────────────────────────────

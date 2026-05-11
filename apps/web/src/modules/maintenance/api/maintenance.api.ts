@@ -99,4 +99,8 @@ export const maintenanceApi = {
 
   addPhoto: (id: string, dto: AddMaintenancePhotoInput) =>
     api.post<MaintenanceTicketPhotoDto>(`${ROOT}/tickets/${id}/photos`, dto),
+
+  // Sprint Mx-1B-W2 — W2-04: soft-delete con patrón Instagram (30d).
+  deletePhoto: (ticketId: string, photoId: string) =>
+    api.delete<{ ok: boolean }>(`${ROOT}/tickets/${ticketId}/photos/${photoId}`),
 }

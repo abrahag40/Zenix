@@ -56,15 +56,40 @@ function inferMimeType(uri: string): string {
   }
 }
 
+// Sprint Mx-1B-W2 audit — W2-09: pre-check de tamaño usando expo-file-system.
+// Si superamos 5MB, fallamos local antes de gastar red móvil (LATAM 4G).
+const MAX_RAW_BYTES = 5 * 1024 * 1024
+
+export class UploadValidationError extends Error {
+  readonly kind = 'UPLOAD_VALIDATION'
+  constructor(message: string) {
+    super(message)
+    this.name = 'UploadValidationError'
+  }
+}
+
+/**
+ * El asset que devuelve expo-image-picker ya incluye `fileSize` (en bytes)
+ * y suele estar muy por debajo de 5MB con `quality: 0.7`. Si por alguna
+ * razón viene null o supera el límite, abortamos con mensaje específico.
+ */
 export const uploadsApi = {
-  async uploadImage(uri: string, scope: UploadScope = 'maintenance'): Promise<UploadedImageDto> {
+  async uploadImage(
+    uri: string,
+    scope: UploadScope = 'maintenance',
+    sizeBytes?: number | null,
+  ): Promise<UploadedImageDto> {
+    if (typeof sizeBytes === 'number' && sizeBytes > MAX_RAW_BYTES) {
+      throw new UploadValidationError(
+        `La imagen pesa ${(sizeBytes / 1024 / 1024).toFixed(1)} MB. Máximo 5 MB — vuelve a tomar la foto.`,
+      )
+    }
     const form = new FormData()
     const filename = uri.split('/').pop() ?? `photo-${Date.now()}.jpg`
-    // React Native FormData soporta esta forma { uri, name, type } — formato
-    // documentado por React Native + Expo (no compatible con DOM FormData
-    // estricto pero TS no lo sabe; aserción a any).
     form.append(
       'file',
+      // React Native FormData formato { uri, name, type } — documentado en
+      // RN + Expo (no compatible con DOM FormData estricto; aserción a any).
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       { uri, name: filename, type: inferMimeType(uri) } as any,
     )

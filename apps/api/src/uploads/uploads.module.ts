@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common'
 import { UploadsController } from './uploads.controller'
 import { UploadsService } from './uploads.service'
+import { TenantContextService } from '../common/tenant-context.service'
 
 /**
  * UploadsModule — infraestructura mínima de upload de imágenes (Sprint Mx-1B-W2).
@@ -17,7 +18,10 @@ import { UploadsService } from './uploads.service'
  */
 @Module({
   controllers: [UploadsController],
-  providers: [UploadsService],
+  // TenantContextService es registrado a nivel app.module (no global). Cada
+  // módulo que lo inyecta debe declararlo en sus propios providers — mismo
+  // patrón que MaintenanceModule. Es un wrapper barato sobre ClsService.
+  providers: [UploadsService, TenantContextService],
   exports: [UploadsService],
 })
 export class UploadsModule {}

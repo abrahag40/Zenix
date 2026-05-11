@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common'
 import { StaffRole, JwtPayload } from '@zenix/shared'
 import { CurrentUser } from '../common/decorators/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
@@ -172,6 +172,17 @@ export class MaintenanceController {
     @CurrentUser() actor: JwtPayload,
   ) {
     return this.service.addPhoto(id, dto, actor)
+  }
+
+  // Sprint Mx-1B-W2 — W2-04: soft-delete con patrón Instagram (30d retention
+  // antes de hard-delete del binario, hecho por cron Mx-1C).
+  @Delete('v1/maintenance/tickets/:id/photos/:photoId')
+  deletePhoto(
+    @Param('id') ticketId: string,
+    @Param('photoId') photoId: string,
+    @CurrentUser() actor: JwtPayload,
+  ) {
+    return this.service.deletePhoto(ticketId, photoId, actor)
   }
 
   // ────────────────────────── Legacy MaintenanceIssue ───────────────────────

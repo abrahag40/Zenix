@@ -380,6 +380,7 @@ enum TicketLogEvent {
   REOPENED // RESOLVED/VERIFIED → IN_PROGRESS (regresión)
   COMMENT_ADDED // nuevo TicketComment
   PHOTO_ADDED // nueva TicketPhoto
+  PHOTO_DELETED // foto soft-deleted (Mx-1B-W2 — W2-04 fix)
   BLOCK_AUTO_CREATED // CRITICAL → RoomBlock auto-creado
   BLOCK_AUTO_RELEASED // ticket VERIFIED/CLOSED → RoomBlock liberado
   SLA_BREACH // scheduler detectó que pasó el umbral sin acknowledgment
@@ -2535,10 +2536,18 @@ model MaintenanceTicketPhoto {
   uploadedById String   @map("uploaded_by_id")
   createdAt    DateTime @default(now()) @map("created_at")
 
+  // ── Soft-delete (Sprint Mx-1B-W2 — W2-04 fix con patrón Instagram).
+  // Permite a SUPERVISOR o uploader original "borrar" sin perder audit. El
+  // archivo físico permanece 30 días para recuperación; cron Mx-1C hace hard
+  // delete después. GDPR/LGPD: SUPERVISOR puede forzar hard-delete inmediato.
+  deletedAt   DateTime? @map("deleted_at")
+  deletedById String?   @map("deleted_by_id")
+
   ticket     MaintenanceTicket @relation(fields: [ticketId], references: [id])
   uploadedBy Staff             @relation("TicketPhotoUploader", fields: [uploadedById], references: [id])
 
   @@index([ticketId])
+  @@index([ticketId, deletedAt]) // optimiza el conteo "fotos vivas" del límite 3
   @@map("maintenance_ticket_photos")
 }
 

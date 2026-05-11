@@ -85,9 +85,10 @@ export class UploadsService {
       )
     }
 
-    if (!metadata.format || !['jpeg', 'png', 'webp'].includes(metadata.format)) {
+    // W2-08: Sharp normaliza HEIC → JPEG transparente; aceptamos el input.
+    if (!metadata.format || !['jpeg', 'png', 'webp', 'heif'].includes(metadata.format)) {
       throw new BadRequestException(
-        `Formato no soportado: ${metadata.format ?? 'desconocido'}. Usa JPEG, PNG o WebP.`,
+        `Formato no soportado: ${metadata.format ?? 'desconocido'}. Usa JPEG, PNG, WebP o HEIC.`,
       )
     }
 

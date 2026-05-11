@@ -210,6 +210,7 @@ export function TicketDetailDrawer({ ticketId, actor, onClose }: Props) {
                 ticketId={ticket.id}
                 photos={ticket.photos}
                 suggestAfterPhoto={ticket.status === 'IN_PROGRESS' || ticket.status === 'RESOLVED'}
+                actor={actor}
               />
             )}
           </TabsContent>

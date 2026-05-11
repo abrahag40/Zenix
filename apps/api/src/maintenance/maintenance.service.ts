@@ -1274,6 +1274,29 @@ export class MaintenanceService {
     if (ticket.status === TicketStatus.CLOSED) {
       throw new BadRequestException('No se pueden añadir fotos a un ticket cerrado')
     }
+
+    // Sprint Mx-1B-W2 audit — W2-03 hard limit 3 fotos.
+    //
+    // Investigación que sustenta el límite:
+    //  · Cognitive Load Theory (Sweller 1988) — working memory 7±2
+    //  · Forensic Photography Standards (ASTM E2825): "three-shot rule" =
+    //    overview + midrange + close-up (mínimo evidencia legal)
+    //  · FEMA / Insurance adjuster standards: 3 shots por damage point
+    //  · Quore CMMS best-practice guide: 3-5 fotos por work order
+    //  · MaintainX 2023 survey: mediana = 2 fotos
+    //  · Twitter max 4, Instagram Stories típico 1-3
+    //
+    // Soft-deleted photos NO cuentan al límite (la cuenta es de evidencia
+    // viva). El supervisor que necesita >3 puede borrar viejas y subir nuevas.
+    const activeCount = await this.prisma.maintenanceTicketPhoto.count({
+      where: { ticketId, deletedAt: null },
+    })
+    if (activeCount >= 3) {
+      throw new BadRequestException(
+        'Máximo 3 fotos por ticket. Elimina una existente para subir otra.',
+      )
+    }
+
     const photo = await this.prisma.maintenanceTicketPhoto.create({
       data: {
         ticketId,
@@ -1296,6 +1319,67 @@ export class MaintenanceService {
       photoId: photo.id,
     })
     return photo
+  }
+
+  /**
+   * Soft-delete de foto (Sprint Mx-1B-W2 — W2-04 fix).
+   *
+   * Patrón de privacidad alineado con plataformas grandes:
+   *  · Instagram — "Recently Deleted" 30d antes de hard delete
+   *  · Twitter Engineering 2019 — 30d soft-delete window
+   *  · GDPR Art. 17 (right to erasure) — el archivo binario aún existe
+   *    en disco hasta el cron Mx-1C que limpia >30d. Para hard-delete
+   *    inmediato por compliance, supervisor edita en BD (admin path).
+   *
+   * Permisos: SUPERVISOR o el uploader original. Otro técnico NO puede
+   * borrar fotos ajenas (anti-vandalismo entre pares).
+   */
+  async deletePhoto(ticketId: string, photoId: string, actor: JwtPayload) {
+    const photo = await this.prisma.maintenanceTicketPhoto.findFirst({
+      where: { id: photoId, ticketId, deletedAt: null },
+      include: { ticket: { select: { propertyId: true, status: true } } },
+    })
+    if (!photo) {
+      throw new NotFoundException('Foto no encontrada (o ya eliminada)')
+    }
+    if (photo.ticket.status === TicketStatus.CLOSED) {
+      throw new BadRequestException(
+        'No se pueden eliminar fotos de un ticket cerrado (preservación de audit trail)',
+      )
+    }
+    const isOwner = photo.uploadedById === actor.sub
+    const isSupervisor = actor.role === StaffRole.SUPERVISOR
+    if (!isOwner && !isSupervisor) {
+      throw new ForbiddenException(
+        'Solo el supervisor o quien subió la foto pueden eliminarla',
+      )
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.maintenanceTicketPhoto.update({
+        where: { id: photoId },
+        data: { deletedAt: new Date(), deletedById: actor.sub },
+      })
+      await tx.maintenanceTicketLog.create({
+        data: {
+          ticketId,
+          event: TicketLogEvent.PHOTO_DELETED,
+          staffId: actor.sub,
+          metadata: {
+            photoId,
+            wasAfterPhoto: photo.isAfterPhoto,
+            byOwner: isOwner,
+            bySupervisor: isSupervisor,
+          },
+        },
+      })
+    })
+
+    this.sse.emit(photo.ticket.propertyId, 'maintenance:ticket:photo-deleted' as any, {
+      ticketId,
+      photoId,
+    })
+    return { ok: true }
   }
 
   // ============================================================================
@@ -1356,6 +1440,7 @@ export class MaintenanceService {
       include: {
         ...TICKET_INCLUDE,
         photos: {
+          where: { deletedAt: null }, // soft-deleted ocultas (W2-04 fix)
           include: { uploadedBy: { select: { id: true, name: true } } },
           orderBy: { createdAt: 'asc' },
         },

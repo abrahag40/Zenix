@@ -66,6 +66,7 @@ export default function ReportProblemScreen() {
   const [description, setDescription] = useState('')
   const [isCritical, setIsCritical] = useState(false)
   const [photoUri, setPhotoUri] = useState<string | null>(null)
+  const [photoSize, setPhotoSize] = useState<number | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   const isSupervisor = user?.role === 'SUPERVISOR'
@@ -88,6 +89,7 @@ export default function ReportProblemScreen() {
     })
     if (!result.canceled && result.assets[0]?.uri) {
       setPhotoUri(result.assets[0].uri)
+      setPhotoSize(result.assets[0].fileSize ?? null)
     }
   }
 
@@ -104,6 +106,7 @@ export default function ReportProblemScreen() {
     })
     if (!result.canceled && result.assets[0]?.uri) {
       setPhotoUri(result.assets[0].uri)
+      setPhotoSize(result.assets[0].fileSize ?? null)
     }
   }
 
@@ -117,7 +120,7 @@ export default function ReportProblemScreen() {
       let initialPhotoUrls: string[] | undefined
       if (photoUri) {
         try {
-          const uploaded = await uploadsApi.uploadImage(photoUri, 'maintenance')
+          const uploaded = await uploadsApi.uploadImage(photoUri, 'maintenance', photoSize)
           initialPhotoUrls = [uploaded.url]
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
@@ -226,7 +229,13 @@ export default function ReportProblemScreen() {
         {photoUri ? (
           <View style={styles.photoPreviewWrap}>
             <Image source={{ uri: photoUri }} style={styles.photoPreview} resizeMode="cover" />
-            <Pressable onPress={() => setPhotoUri(null)} style={styles.photoRemove}>
+            <Pressable
+              onPress={() => {
+                setPhotoUri(null)
+                setPhotoSize(null)
+              }}
+              style={styles.photoRemove}
+            >
               <Text style={styles.photoRemoveText}>×</Text>
             </Pressable>
           </View>
