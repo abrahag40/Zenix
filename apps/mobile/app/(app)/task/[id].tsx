@@ -78,6 +78,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTaskStore } from '../../../src/store/tasks'
 import { api, ApiError } from '../../../src/api/client'
+import { maintenanceApi } from '../../../src/features/maintenance/api/maintenance.api'
 import type { CleaningTaskDto, CleaningNoteDto } from '@zenix/shared'
 import { CleaningStatus, TaskType } from '@zenix/shared'
 import { colors } from '../../../src/design/colors'
@@ -938,11 +939,25 @@ function IssueReportScreen({ taskId, onClose }: { taskId: string; onClose: () =>
     if (!canSubmit) return
     setLoading(true)
     try {
-      await api.post(`/tasks/${taskId}/issues`, { category, description: description.trim() })
-      Alert.alert('Problema reportado', 'El supervisor recibirá el aviso de inmediato.')
+      // Sprint Mx-1B-M (CLAUDE.md §47 D-Mx1): el housekeeper crea un
+      // MaintenanceTicket nuevo (flujo B — bottom-up con aprobación) en lugar
+      // del legacy MaintenanceIssue. El sourceTaskId mantiene la trazabilidad
+      // con la tarea de limpieza original.
+      const desc = description.trim()
+      const title = desc.length <= 60 ? desc : desc.slice(0, 57) + '…'
+      await maintenanceApi.create({
+        category,
+        title,
+        description: desc,
+        sourceTaskId: taskId,
+        requiresApproval: true,
+        priority: 'MEDIUM',
+      })
+      Alert.alert('Problema reportado', 'El supervisor de mantenimiento recibirá el aviso de inmediato.')
       onClose()
-    } catch {
-      Alert.alert('Error', 'No se pudo enviar el reporte. Inténtalo de nuevo.')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'No se pudo enviar el reporte. Inténtalo de nuevo.'
+      Alert.alert('Error', msg)
     } finally {
       setLoading(false)
     }

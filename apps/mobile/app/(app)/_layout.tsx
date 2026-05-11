@@ -91,6 +91,8 @@ export default function AppTabsLayout() {
       <Tabs.Screen name="approvals/index" options={{ href: null }} />
       <Tabs.Screen name="approvals/[id]" options={{ href: null }} />
       <Tabs.Screen name="special-requests" options={{ href: null }} />
+      <Tabs.Screen name="maintenance/report" options={{ href: null }} />
+      <Tabs.Screen name="maintenance/ticket/[id]" options={{ href: null }} />
       <Tabs.Screen name="testing" options={{ href: null }} />
     </Tabs>
     </EdgeSwipeBack>
