@@ -314,6 +314,7 @@ export default function TaskDetailScreen() {
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
       >
         <TaskHero task={task} />
 
@@ -1028,6 +1029,7 @@ function IssueReportScreen({
           style={styles.issueScroll}
           contentContainerStyle={styles.issueContent}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator={false}
           automaticallyAdjustKeyboardInsets={true}
         >

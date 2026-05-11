@@ -167,6 +167,7 @@ export function ReservationListScreen() {
           value={search}
           onChangeText={setSearch}
           returnKeyType="search"
+          blurOnSubmit={true}
           autoCorrect={false}
           autoCapitalize="none"
         />
@@ -281,6 +282,8 @@ export function ReservationListScreen() {
         SectionSeparatorComponent={() => <View style={{ height: 6 }} />}
         stickySectionHeadersEnabled={false}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
       />
     </SafeAreaView>
   )

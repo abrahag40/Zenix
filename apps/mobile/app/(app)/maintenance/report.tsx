@@ -59,6 +59,7 @@ import {
   CATEGORY_LABEL,
 } from '../../../src/features/maintenance/utils/constants'
 import { ErrorSheet } from '../../../src/features/maintenance/components/ErrorSheet'
+import { DismissKeyboardView } from '../../../src/design/DismissKeyboardView'
 
 const CATEGORIES: TicketCategoryValue[] = [
   'PLUMBING',
@@ -311,6 +312,7 @@ export default function ReportProblemScreen() {
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === 'ios' ? 'on-drag' : 'on-drag'}
       >
         {/* Categoría */}
         <Text style={styles.label}>Categoría</Text>
@@ -345,7 +347,7 @@ export default function ReportProblemScreen() {
           como alberca o lavandería usa "Área".
         </Text>
 
-        {/* Título */}
+        {/* Título — single-line: returnKeyType="done" cierra teclado */}
         <Text style={styles.label}>¿Qué problema observaste?</Text>
         <TextInput
           style={styles.input}
@@ -354,10 +356,12 @@ export default function ReportProblemScreen() {
           placeholder="Ej. Llave del lavabo gotea constante"
           placeholderTextColor={colors.text.tertiary}
           maxLength={120}
+          returnKeyType="done"
+          blurOnSubmit={true}
         />
         <Text style={styles.hint}>{title.length}/120 · mínimo 3 caracteres</Text>
 
-        {/* Descripción */}
+        {/* Descripción — multi-line: tap fuera dismissa (Apple HIG Notes pattern) */}
         <Text style={styles.label}>Detalle adicional (opcional)</Text>
         <TextInput
           style={[styles.input, styles.inputMulti]}
@@ -490,6 +494,8 @@ export default function ReportProblemScreen() {
                 clearButtonMode="while-editing"
                 autoCorrect={false}
                 autoCapitalize="none"
+                returnKeyType="search"
+                blurOnSubmit={true}
               />
             </View>
 

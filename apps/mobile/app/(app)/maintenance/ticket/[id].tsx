@@ -323,7 +323,11 @@ export default function TicketDetailScreen() {
         <View style={{ width: 70 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+      >
         {/* Identity zone */}
         <View style={[styles.priorityCard, { borderLeftColor: priorityColor }]}>
           <View style={styles.identityRow}>
