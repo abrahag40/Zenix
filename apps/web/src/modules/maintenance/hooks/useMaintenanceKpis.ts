@@ -93,10 +93,11 @@ export function useMaintenanceKpis({ role, staffId, tickets }: KpiArgs): KpiCard
         filter: { status: 'RESOLVED' },
         hideOnZero: true,
       })
-      // KPI 4 — SLA vencidos
+      // KPI 4 — Tiempo excedido (antes "SLA vencidos" — siglas confusas para
+      // usuarios nuevos; "tiempo excedido" es auto-descriptivo, ISO 9241-110).
       cards.push({
         id: 'sla-breach',
-        label: 'SLA vencidos',
+        label: 'Tiempo excedido',
         count: slaBreached.length,
         emoji: '⏰',
         color: 'red',

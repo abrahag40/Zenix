@@ -78,7 +78,7 @@ type ConfirmAction =
 
 export function TicketDetailDrawer({ ticketId, actor, onClose }: Props) {
   const open = !!ticketId
-  const { data: ticket, isLoading } = useMaintenanceTicket(ticketId)
+  const { data: ticket, isLoading, error } = useMaintenanceTicket(ticketId)
 
   // Confirm-step state — todo cambio destructivo pasa por confirmación con
   // preview real (§32). El componente nunca dispara un mutation directo.
@@ -170,7 +170,23 @@ export function TicketDetailDrawer({ ticketId, actor, onClose }: Props) {
             value="detail"
             className="flex-1 overflow-y-auto px-5 pb-5 mt-0"
           >
-            {isLoading ? <DetailSkeleton /> : ticket && <DetailBody ticket={ticket} />}
+            {isLoading ? (
+              <DetailSkeleton />
+            ) : error ? (
+              <div className="py-10 text-center">
+                <div className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-red-50 ring-1 ring-red-200 mb-3">
+                  <XCircle className="h-7 w-7 text-red-500" aria-hidden />
+                </div>
+                <h3 className="text-sm font-semibold text-slate-900">
+                  No pudimos cargar el ticket
+                </h3>
+                <p className="mt-1 text-xs text-slate-500 max-w-xs mx-auto">
+                  {(error as Error)?.message ?? 'Error de red. Intenta cerrar y volver a abrir.'}
+                </p>
+              </div>
+            ) : (
+              ticket && <DetailBody ticket={ticket} />
+            )}
           </TabsContent>
 
           <TabsContent
@@ -394,7 +410,7 @@ function logEventLabel(ev: MaintenanceTicketLogDto['event']): string {
     PHOTO_ADDED: '📷 Foto añadida',
     BLOCK_AUTO_CREATED: '🔒 Habitación bloqueada',
     BLOCK_AUTO_RELEASED: '🔓 Habitación liberada',
-    SLA_BREACH: '⏰ SLA vencido',
+    SLA_BREACH: '⏰ Tiempo excedido',
   }
   return map[ev] ?? ev
 }
