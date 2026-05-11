@@ -46,6 +46,7 @@ import { uploadsApi, resolveImageUrl } from '../../../../src/api/uploads.api'
 import { colors } from '../../../../src/design/colors'
 import { typography } from '../../../../src/design/typography'
 import { humanizeLogEvent } from '../../../../src/features/maintenance/utils/humanize'
+import { InputSheet } from '../../../../src/features/maintenance/components/InputSheet'
 import {
   AGING_HEX,
   CATEGORY_EMOJI,
@@ -73,9 +74,10 @@ export default function TicketDetailScreen() {
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [resolutionNote, setResolutionNote] = useState('')
 
-  // Bug B1/B2 — modal in-app de razón (cross-platform, no usa Alert.prompt)
+  // Bug B1/B2 — modal de razón (ahora vía InputSheet — Mx-1B-W2 estandarización).
+  // InputSheet gestiona su propio state interno; solo guardamos qué tipo de
+  // razón pedir (reject vs verify-reject).
   const [reasonPrompt, setReasonPrompt] = useState<ReasonPrompt | null>(null)
-  const [reasonText, setReasonText] = useState('')
 
   // Mx-1B-W2 — composer de comentarios + uploader de fotos inline
   const [commentDraft, setCommentDraft] = useState('')
@@ -87,7 +89,6 @@ export default function TicketDetailScreen() {
     setResolutionNote('')
     setCommentDraft('')
     setReasonPrompt(null)
-    setReasonText('')
     setPhotoLightboxUrl(null)
   }, [ticketId])
 
@@ -116,43 +117,15 @@ export default function TicketDetailScreen() {
     void runAction('approve', () => maintenanceApi.approve(ticketId), 'Ticket aprobado')
   }
 
-  // Bug B1 — abre modal cross-platform en vez de Alert.prompt iOS-only
+  // Bug B1 — abre InputSheet cross-platform en vez de Alert.prompt iOS-only.
+  // El submit handler vive ahora dentro del InputSheet (inline en JSX).
   function onReject() {
-    setReasonText('')
     setReasonPrompt({ kind: 'reject', minLength: 5 })
   }
 
   // Bug B2 — verify-rejection: regresa a IN_PROGRESS con razón obligatoria
   function onVerifyReject() {
-    setReasonText('')
     setReasonPrompt({ kind: 'verify-reject', minLength: 5 })
-  }
-
-  function onConfirmReason() {
-    if (!ticketId || !reasonPrompt) return
-    const text = reasonText.trim()
-    if (text.length < reasonPrompt.minLength) {
-      Alert.alert(
-        'Razón requerida',
-        `Mínimo ${reasonPrompt.minLength} caracteres para registrar el rechazo en el audit trail.`,
-      )
-      return
-    }
-    const prompt = reasonPrompt
-    setReasonPrompt(null)
-    if (prompt.kind === 'reject') {
-      void runAction(
-        'reject',
-        () => maintenanceApi.reject(ticketId, { reason: text }),
-        'Ticket rechazado',
-      )
-    } else {
-      void runAction(
-        'verify-reject',
-        () => maintenanceApi.verify(ticketId, { approved: false, rejectionReason: text }),
-        'Trabajo rechazado · reabierto al técnico',
-      )
-    }
   }
 
   function onClaim() {
@@ -644,60 +617,49 @@ export default function TicketDetailScreen() {
         )}
       </ScrollView>
 
-      {/* B1/B2 — Modal in-app cross-platform de razón.
-          Sustituye al Alert.prompt iOS-only que dejaba a Android sin entrada. */}
-      <Modal
-        visible={!!reasonPrompt}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setReasonPrompt(null)}
-      >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.modalBackdrop}
-        >
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>
-              {reasonPrompt?.kind === 'verify-reject'
-                ? '↩ Rechazar calidad'
-                : '✗ Rechazar reporte'}
-            </Text>
-            <Text style={styles.modalBody}>
-              {reasonPrompt?.kind === 'verify-reject'
-                ? 'El ticket regresará a IN_PROGRESS con tu razón visible para el técnico.'
-                : 'El reporte se cierra y el housekeeper recibe la razón por push.'}
-            </Text>
-            <TextInput
-              autoFocus
-              value={reasonText}
-              onChangeText={setReasonText}
-              placeholder="Mínimo 5 caracteres…"
-              placeholderTextColor={colors.text.tertiary}
-              style={styles.modalInput}
-              multiline
-              numberOfLines={3}
-              maxLength={300}
-            />
-            <Text style={styles.modalHint}>{reasonText.length}/300</Text>
-            <View style={styles.modalActions}>
-              <Pressable
-                onPress={() => setReasonPrompt(null)}
-                style={[styles.modalBtn, styles.modalBtnSecondary]}
-              >
-                <Text style={styles.modalBtnSecondaryText}>Cancelar</Text>
-              </Pressable>
-              <Pressable
-                onPress={onConfirmReason}
-                style={[styles.modalBtn, styles.modalBtnDanger]}
-              >
-                <Text style={styles.modalBtnDangerText}>
-                  {reasonPrompt?.kind === 'verify-reject' ? 'Rechazar y reabrir' : 'Rechazar'}
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+      {/* Modal de razón — InputSheet estandarizado (T-modal-standardize).
+          Sustituye al Alert.prompt iOS-only + al modal custom anterior. */}
+      <InputSheet
+        open={!!reasonPrompt}
+        tone={reasonPrompt?.kind === 'verify-reject' ? 'warning' : 'error'}
+        title={
+          reasonPrompt?.kind === 'verify-reject'
+            ? 'Rechazar calidad'
+            : 'Rechazar reporte'
+        }
+        description={
+          reasonPrompt?.kind === 'verify-reject'
+            ? 'El ticket regresará a IN_PROGRESS con tu razón visible para el técnico.'
+            : 'El reporte se cierra y el housekeeper recibe la razón por push.'
+        }
+        placeholder="Razón mínimo 5 caracteres…"
+        multiline
+        maxLength={300}
+        minLength={reasonPrompt?.minLength ?? 5}
+        primaryLabel={
+          reasonPrompt?.kind === 'verify-reject' ? 'Rechazar y reabrir' : 'Rechazar'
+        }
+        primaryTone="destructive"
+        onClose={() => setReasonPrompt(null)}
+        onSubmit={(text) => {
+          if (!ticketId || !reasonPrompt) return
+          const prompt = reasonPrompt
+          setReasonPrompt(null)
+          if (prompt.kind === 'reject') {
+            void runAction(
+              'reject',
+              () => maintenanceApi.reject(ticketId, { reason: text }),
+              'Ticket rechazado',
+            )
+          } else {
+            void runAction(
+              'verify-reject',
+              () => maintenanceApi.verify(ticketId, { approved: false, rejectionReason: text }),
+              'Trabajo rechazado · reabierto al técnico',
+            )
+          }
+        }}
+      />
 
       {/* Lightbox de fotos (Mx-1B-W2) */}
       <Modal

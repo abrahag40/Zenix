@@ -72,6 +72,7 @@ export const LOG_EVENT_LABEL: Record<TicketLogEventValue, string> = {
   REOPENED: 'Reabierto',
   COMMENT_ADDED: 'Comentario añadido',
   PHOTO_ADDED: 'Foto añadida',
+  PHOTO_DELETED: 'Foto eliminada',
   BLOCK_AUTO_CREATED: 'Habitación bloqueada automáticamente',
   BLOCK_AUTO_RELEASED: 'Habitación liberada',
   SLA_BREACH: 'Tiempo de respuesta excedido',

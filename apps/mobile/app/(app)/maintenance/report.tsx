@@ -58,7 +58,8 @@ import {
   CATEGORY_EMOJI,
   CATEGORY_LABEL,
 } from '../../../src/features/maintenance/utils/constants'
-import { ErrorSheet } from '../../../src/features/maintenance/components/ErrorSheet'
+import { ErrorSheet, ErrorSheetIcons } from '../../../src/features/maintenance/components/ErrorSheet'
+import { InputSheet } from '../../../src/features/maintenance/components/InputSheet'
 import { DismissKeyboardView } from '../../../src/design/DismissKeyboardView'
 
 const CATEGORIES: TicketCategoryValue[] = [
@@ -102,7 +103,7 @@ export default function ReportProblemScreen() {
   // de Alert nativo. Más jerarquía visual, mejor copy, animación spring.
   const [errorSheet, setErrorSheet] = useState<{
     tone: 'warning' | 'error'
-    icon?: string
+    customIcon?: React.ReactNode
     title: string
     body: string
     primaryLabel?: string
@@ -281,7 +282,9 @@ export default function ReportProblemScreen() {
       const isGuestConflict = /huésped|huesped|conflict|reubicación/i.test(msg)
       setErrorSheet({
         tone: isGuestConflict ? 'warning' : 'error',
-        icon: isGuestConflict ? '🛏' : undefined,
+        customIcon: isGuestConflict ? (
+          <ErrorSheetIcons.Bed color="#FBBF24" />
+        ) : undefined,
         title: isGuestConflict
           ? 'Habitación ocupada'
           : 'No pudimos crear el ticket',
@@ -562,82 +565,31 @@ export default function ReportProblemScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* Modal mini-input para assetTag — KeyboardAvoidingView corrige el
-          bug donde el teclado tapaba el modal centrado (Apple HIG: Modal
-          Sheets should adjust when keyboard appears). `behavior:padding`
-          empuja todo el contenido hacia arriba en iOS; en Android el
-          `windowSoftInputMode="adjustResize"` del manifest hace lo mismo. */}
-      <Modal
-        visible={showAssetInput}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowAssetInput(false)}
-      >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.assetBackdrop}
-        >
-          <Pressable
-            style={StyleSheet.absoluteFill}
-            onPress={() => setShowAssetInput(false)}
-          />
-          <View style={styles.assetCard}>
-            <Text style={styles.assetTitle}>Asset o equipo</Text>
-            <Text style={styles.assetBody}>
-              Identifica el activo (lavadora, alberca, etc.) para histórico por
-              equipo.
-            </Text>
-            <TextInput
-              autoFocus
-              value={assetDraft}
-              onChangeText={setAssetDraft}
-              placeholder="Ej. Lavadora-2 · Alberca · Generador"
-              placeholderTextColor={colors.text.tertiary}
-              style={styles.assetInput}
-              maxLength={80}
-              returnKeyType="done"
-              onSubmitEditing={() => {
-                const tag = assetDraft.trim()
-                if (tag.length < 2) return
-                setLocation({ kind: 'asset', assetTag: tag })
-                setShowAssetInput(false)
-              }}
-            />
-            <View style={styles.assetActions}>
-              <Pressable
-                onPress={() => setShowAssetInput(false)}
-                style={[styles.assetBtn, styles.assetBtnSecondary]}
-              >
-                <Text style={styles.assetBtnSecondaryText}>Cancelar</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  const tag = assetDraft.trim()
-                  if (tag.length < 2) {
-                    setErrorSheet({
-                      tone: 'warning',
-                      title: 'Identifica el equipo',
-                      body: 'Escribe al menos 2 caracteres para identificar el activo (ej. Lavadora-2, Alberca, Generador-1).',
-                    })
-                    return
-                  }
-                  setLocation({ kind: 'asset', assetTag: tag })
-                  setShowAssetInput(false)
-                }}
-                style={[styles.assetBtn, styles.assetBtnPrimary]}
-              >
-                <Text style={styles.assetBtnPrimaryText}>Guardar</Text>
-              </Pressable>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+      {/* Asset/equipo input — usa InputSheet estandarizado (testing T-modal
+          standardize): mismo lenguaje visual y animaciones que ErrorSheet. */}
+      <InputSheet
+        open={showAssetInput}
+        tone="info"
+        title="Asset o equipo"
+        description="Identifica el activo (lavadora, alberca, etc.) para histórico por equipo."
+        placeholder="Ej. Lavadora-2 · Alberca · Generador"
+        initialValue={assetDraft}
+        maxLength={80}
+        minLength={2}
+        primaryLabel="Guardar"
+        secondaryLabel="Cancelar"
+        onClose={() => setShowAssetInput(false)}
+        onSubmit={(tag) => {
+          setLocation({ kind: 'asset', assetTag: tag })
+          setShowAssetInput(false)
+        }}
+      />
 
       {/* Custom error sheet (Apple HIG — alerts con copy enriquecido + iconografía) */}
       <ErrorSheet
         open={!!errorSheet}
         tone={errorSheet?.tone}
-        icon={errorSheet?.icon}
+        customIcon={errorSheet?.customIcon}
         title={errorSheet?.title ?? ''}
         body={errorSheet?.body ?? ''}
         primaryAction={{

@@ -1,8 +1,7 @@
 /**
- * ErrorSheet — modal de error branded, reusable.
+ * ErrorSheet — modal de error branded, reusable (Mx-1B-W2 + testing T-modal).
  *
- * Sustituye `Alert.alert()` nativo para errores donde queremos comunicar
- * más contexto (tipografía + jerarquía + colores semánticos). Apple HIG
+ * Sustituye `Alert.alert()` nativo para mensajes con contexto rico. Apple HIG
  * "Alerts": para errores informativos extensos, una sheet personalizada
  * tiene mejor presencia que el Alert system, que está pensado para
  * confirmaciones simples.
@@ -12,31 +11,37 @@
  *   · Linear iOS app — modal con icono + título + body + actions
  *   · Stripe Dashboard mobile — error states con CTA secundaria
  *
+ * Upgrade testing T-modal-anim:
+ *   · Migrado de `Animated` a `react-native-reanimated` v4 (mejor perf,
+ *     mainthread driven, mejor jitter en iOS)
+ *   · Iconos SVG vectoriales en vez de emoji texto (escalables sin pérdida)
+ *   · Animación entrada: spring scale + fade (300-380ms expo-out)
+ *   · Animación icono: spring delay 100ms + sutil bounce
+ *   · Animación salida: timing sharp-out 220ms (motion design §13b)
+ *
  * Diseño:
  *   · Backdrop semi-transparente (0.6 opacity)
  *   · Card centrada, max-width 420 (Apple HIG iPad scaling)
- *   · Animación: fade-in del backdrop + spring-up de la card (300ms)
- *   · Ícono ⚠ amber para warnings · 🚫 red para errores
+ *   · Ícono circular 56pt con accent color por tone
  *   · Título 17pt semibold · body 15pt regular · CTAs 17pt semibold
- *   · Touch targets ≥44pt
- *
- * El componente es controlled (open/onClose props) para que el caller
- * decida cuándo mostrar/ocultar.
+ *   · Touch targets ≥48pt
  */
-import {
-  Animated,
-  Modal,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-  useWindowDimensions,
-} from 'react-native'
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
+import { Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
+import Animated, {
+  Easing,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated'
+import Svg, { Path, Circle } from 'react-native-svg'
 import { colors } from '../../../design/colors'
 import { typography } from '../../../design/typography'
 
-export type ErrorSheetTone = 'warning' | 'error' | 'info'
+export type ErrorSheetTone = 'warning' | 'error' | 'info' | 'success'
 
 export interface ErrorSheetAction {
   label: string
@@ -47,7 +52,8 @@ export interface ErrorSheetAction {
 interface Props {
   open: boolean
   tone?: ErrorSheetTone
-  icon?: string
+  /** Si se provee, sobreescribe el icon SVG por uno custom (emoji o ReactNode). */
+  customIcon?: React.ReactNode
   title: string
   body: string
   primaryAction: ErrorSheetAction
@@ -55,22 +61,113 @@ interface Props {
   onClose: () => void
 }
 
-const TONE_ICON: Record<ErrorSheetTone, string> = {
-  warning: '⚠️',
-  error: '🚫',
-  info: 'ℹ️',
-}
-
 const TONE_ACCENT: Record<ErrorSheetTone, string> = {
   warning: '#FBBF24',
   error: '#F87171',
   info: '#60A5FA',
+  success: '#34D399',
+}
+
+// ─── SVG icons por tone (24x24 viewBox, stroke-based) ────────────────────
+
+function IconBed({ color, size = 28 }: { color: string; size?: number }) {
+  // Icono cama — semánticamente "habitación ocupada"
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M2 17V8a1 1 0 0 1 1-1h18a1 1 0 0 1 1 1v9M2 17h20M2 17v2M22 17v2M6 13v-2a2 2 0 0 1 2-2h3v4"
+        stroke={color}
+        strokeWidth={1.75}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  )
+}
+
+function IconWarning({ color, size = 28 }: { color: string; size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
+        stroke={color}
+        strokeWidth={1.75}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  )
+}
+
+function IconError({ color, size = 28 }: { color: string; size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Circle cx={12} cy={12} r={10} stroke={color} strokeWidth={1.75} />
+      <Path
+        d="M15 9l-6 6M9 9l6 6"
+        stroke={color}
+        strokeWidth={1.75}
+        strokeLinecap="round"
+      />
+    </Svg>
+  )
+}
+
+function IconInfo({ color, size = 28 }: { color: string; size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Circle cx={12} cy={12} r={10} stroke={color} strokeWidth={1.75} />
+      <Path
+        d="M12 16v-4M12 8h.01"
+        stroke={color}
+        strokeWidth={1.75}
+        strokeLinecap="round"
+      />
+    </Svg>
+  )
+}
+
+function IconSuccess({ color, size = 28 }: { color: string; size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Circle cx={12} cy={12} r={10} stroke={color} strokeWidth={1.75} />
+      <Path
+        d="M9 12l2 2 4-4"
+        stroke={color}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  )
+}
+
+function pickIcon(tone: ErrorSheetTone, color: string) {
+  switch (tone) {
+    case 'warning': return <IconWarning color={color} />
+    case 'error':   return <IconError color={color} />
+    case 'info':    return <IconInfo color={color} />
+    case 'success': return <IconSuccess color={color} />
+    default:        return <IconError color={color} />
+  }
+}
+
+/**
+ * Permite a callers proveer iconos contextuales más allá de los 4 tones.
+ * Ej. el modal "Habitación ocupada" usa el ícono de cama explícito.
+ */
+export const ErrorSheetIcons = {
+  Bed: IconBed,
+  Warning: IconWarning,
+  Error: IconError,
+  Info: IconInfo,
+  Success: IconSuccess,
 }
 
 export function ErrorSheet({
   open,
   tone = 'error',
-  icon,
+  customIcon,
   title,
   body,
   primaryAction,
@@ -78,54 +175,67 @@ export function ErrorSheet({
   onClose,
 }: Props) {
   const { width } = useWindowDimensions()
-  const backdropOpacity = useRef(new Animated.Value(0)).current
-  const cardScale = useRef(new Animated.Value(0.92)).current
-  const cardOpacity = useRef(new Animated.Value(0)).current
+  // Reanimated 3 shared values — mainthread driven (mejor jitter).
+  const progress = useSharedValue(0)
+  const iconProgress = useSharedValue(0)
 
-  // Apple HIG "Motion": spring-style entry, sharp exit (mismo patrón §13b).
   useEffect(() => {
     if (open) {
-      Animated.parallel([
-        Animated.timing(backdropOpacity, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.spring(cardScale, {
-          toValue: 1,
-          tension: 70,
-          friction: 9,
-          useNativeDriver: true,
-        }),
-        Animated.timing(cardOpacity, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-      ]).start()
+      // Spring para la card — sensación natural, sin overshoot.
+      progress.value = withSpring(1, { damping: 16, stiffness: 180, mass: 0.6 })
+      // El ícono entra con delay y un sutil bounce — micro-celebration.
+      iconProgress.value = withDelay(
+        80,
+        withSpring(1, { damping: 9, stiffness: 200, mass: 0.7 }),
+      )
     } else {
-      backdropOpacity.setValue(0)
-      cardScale.setValue(0.92)
-      cardOpacity.setValue(0)
+      // Salida más corta (Apple HIG: exit < enter).
+      progress.value = withTiming(0, { duration: 180, easing: Easing.in(Easing.cubic) })
+      iconProgress.value = withTiming(0, { duration: 120 })
     }
-  }, [open, backdropOpacity, cardScale, cardOpacity])
+  }, [open, progress, iconProgress])
 
-  const displayIcon = icon ?? TONE_ICON[tone]
+  const backdropStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(progress.value, [0, 1], [0, 1]),
+  }))
+
+  const cardStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(progress.value, [0, 0.6, 1], [0, 1, 1]),
+    transform: [
+      { scale: interpolate(progress.value, [0, 1], [0.88, 1]) },
+      { translateY: interpolate(progress.value, [0, 1], [16, 0]) },
+    ],
+  }))
+
+  const iconStyle = useAnimatedStyle(() => ({
+    transform: [
+      { scale: interpolate(iconProgress.value, [0, 0.6, 1], [0.3, 1.08, 1]) },
+    ],
+  }))
+
   const accent = TONE_ACCENT[tone]
+  const iconNode = customIcon ?? pickIcon(tone, accent)
 
   return (
     <Modal visible={open} transparent animationType="none" onRequestClose={onClose}>
-      <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]}>
+      <Animated.View style={[styles.backdrop, backdropStyle]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         <Animated.View
           style={[
             styles.card,
-            { maxWidth: Math.min(420, width - 48), opacity: cardOpacity, transform: [{ scale: cardScale }] },
+            cardStyle,
+            { maxWidth: Math.min(420, width - 48) },
           ]}
         >
-          <View style={[styles.iconCircle, { backgroundColor: `${accent}22`, borderColor: `${accent}55` }]}>
-            <Text style={styles.iconText}>{displayIcon}</Text>
-          </View>
+          <Animated.View
+            style={[
+              styles.iconCircle,
+              { backgroundColor: `${accent}22`, borderColor: `${accent}55` },
+              iconStyle,
+            ]}
+          >
+            {iconNode}
+          </Animated.View>
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.body}>{body}</Text>
           <View style={styles.actions}>
@@ -187,7 +297,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 16,
   },
-  iconText: { fontSize: 28 },
   title: {
     fontSize: typography.size.bodyLg,
     fontWeight: '700',

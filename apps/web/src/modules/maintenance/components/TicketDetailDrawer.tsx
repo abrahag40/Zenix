@@ -89,7 +89,7 @@ type ConfirmAction =
 
 export function TicketDetailDrawer({ ticketId, actor, onClose }: Props) {
   const open = !!ticketId
-  const { data: ticket, isLoading } = useMaintenanceTicket(ticketId)
+  const { data: ticket, isLoading, error } = useMaintenanceTicket(ticketId)
 
   // Confirm-step state — todo cambio destructivo pasa por confirmación con
   // preview real (§32). El componente nunca dispara un mutation directo.
@@ -126,6 +126,25 @@ export function TicketDetailDrawer({ ticketId, actor, onClose }: Props) {
             </button>
           </div>
         </header>
+
+        {/* Error state — antes el drawer se quedaba vacío sin feedback si
+            la query fallaba (T-web-1 bug del testing 2026-05-11). */}
+        {error && !isLoading && (
+          <div className="flex flex-col items-center justify-center flex-1 px-6 text-center gap-3">
+            <div className="w-14 h-14 rounded-full bg-red-50 border border-red-200 flex items-center justify-center text-2xl">
+              ⚠️
+            </div>
+            <h3 className="text-base font-semibold text-slate-900">
+              No pudimos cargar el ticket
+            </h3>
+            <p className="text-xs text-slate-600 max-w-xs">
+              {error instanceof Error ? error.message : 'Verifica tu conexión y reintenta.'}
+            </p>
+            <Button size="sm" variant="outline" onClick={onClose}>
+              Cerrar
+            </Button>
+          </div>
+        )}
 
         {/* ── Banner Flujo B (esperando aprobación) ───────────────────── */}
         {ticket?.requiresApproval && ticket.pendingApproval && (
