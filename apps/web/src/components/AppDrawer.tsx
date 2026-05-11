@@ -51,29 +51,44 @@ type NavGroup = {
 }
 type NavItem = NavLeaf | NavGroup
 
+// Sprint Mx-1B-W1.1 — Sidebar reorganizado bajo "Operaciones" (decisión user
+// 2026-05-11). Justificación basada en research comparativo de 10 PMS:
+//   · 8/10 PMS líderes mantienen Bloqueos separados de Mantenimiento por
+//     arquitectura de 3 capas (Inventario / Ejecución / Status).
+//   · Pero la queja UX reportada (Mews/Cloudbeds Capterra) es "demasiados
+//     módulos en sidebar — confunde dónde gestionar la habitación".
+//   · Solución: agrupar bajo "Operaciones" un solo entry top-level que
+//     contiene Mantenimiento + Bloqueos + Tareas housekeeping + Discrepancias.
+//   · defaultOpen=true → cero clicks extra para uso diario; el agrupamiento
+//     reduce items top-level de 7 → 5 cumpliendo Miller 7±2 + Hick's Law.
+//   · Bloqueos sobrevive para casos que NO son mantenimiento: OWNER_STAY,
+//     STAFF_USE, RENOVATION largo plazo (validado en el research).
 const NAV: NavItem[] = [
   { kind: 'leaf', to: '/dashboard', icon: '🏠', label: 'Panel' },
   { kind: 'leaf', to: '/pms',       icon: '📅', label: 'Calendario' },
-  { kind: 'leaf', to: '/blocks',    icon: '🔒', label: 'Bloqueos' },
   {
     kind: 'group',
-    icon: '🧹',
-    label: 'Housekeeping',
+    icon: '🛠️',
+    label: 'Operaciones',
     defaultOpen: true,
     children: [
-      // /overrides ocultado del menú (Sprint 9 — D15 consolidación):
-      // sus acciones operativas (confirmar salida, ad-hoc, forzar URGENT,
-      // limpieza profunda) migradas al kanban. Ruta preservada como redirect
-      // a /kanban por 1-2 semanas para deep-links externos; eliminar después.
-      { to: '/kanban',        icon: '🗂️', label: 'Tareas' },
-      // /checkouts ocultado del menú: legacy, duplicado por
-      // ReservationDetailPage (historial) + OperationalOverridesPage (walk-in)
-      // + BookingDetailSheet (early-checkout). Mantener route por 2-3 semanas
-      // por deep-links externos; eliminar después.
+      // Mantenimiento de primero — ~85% de bloques se generan auto desde aquí
+      // (CRITICAL → RoomBlock con FK). Cubre el flujo operativo más frecuente.
+      { to: '/maintenance',   icon: '🔧', label: 'Mantenimiento' },
+      // Bloqueos para casos que NO son mantenimiento (owner stay, staff use,
+      // renovación >1 semana). Mantiene la separación arquitectónica de los
+      // top PMS pero bajo el mismo paraguas visual.
+      { to: '/blocks',        icon: '🔒', label: 'Bloqueos' },
+      // Housekeeping merge — sub-items que antes vivían en su propio grupo
+      // ("Housekeeping" estaba duplicado conceptualmente con Operaciones).
+      // /overrides oculto (Sprint 9 — D15 consolidación → redirige a /kanban).
+      { to: '/kanban',        icon: '🧹', label: 'Tareas housekeeping' },
+      // /checkouts oculto (legacy, duplicado por ReservationDetailPage +
+      // BookingDetailSheet + OperationalOverridesPage). Route preservada
+      // por deep-links externos 2-3 semanas; eliminar después.
       { to: '/discrepancies', icon: '⚠️', label: 'Discrepancias', showDiscrepancyBadge: true },
     ],
   },
-  { kind: 'leaf', to: '/maintenance',    icon: '🔧', label: 'Mantenimiento' },
   { kind: 'leaf', to: '/reports',       icon: '📊', label: 'Reportes' },
   { kind: 'leaf', to: '/settings/rooms', icon: '⚙️', label: 'Configuración' },
 ]
