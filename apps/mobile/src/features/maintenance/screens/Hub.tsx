@@ -221,6 +221,14 @@ export function MaintenanceHub() {
           }
           return <TicketCard ticket={item.ticket} onPress={onPressTicket} />
         }}
+        ListFooterComponent={
+          <Pressable
+            onPress={() => router.push('/maintenance/history' as never)}
+            style={styles.historyLink}
+          >
+            <Text style={styles.historyLinkText}>📋 Ver histórico (últimos 30 días)</Text>
+          </Pressable>
+        }
       />
 
       {/* FAB "+ Reportar problema" — visible siempre para el técnico */}
@@ -316,4 +324,11 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   fabText: { color: colors.text.inverse, fontWeight: '700', fontSize: typography.size.body },
+  // Link discreto al histórico — Apple HIG: discoverability sin saturar el Hub.
+  historyLink: {
+    marginTop: 24,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  historyLinkText: { color: colors.brand[400], fontSize: typography.size.body, fontWeight: '500' },
 })

@@ -37,6 +37,8 @@ import {
   ActivityIndicator,
   Modal,
   FlatList,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useRouter, useFocusEffect } from 'expo-router'
@@ -56,6 +58,7 @@ import {
   CATEGORY_EMOJI,
   CATEGORY_LABEL,
 } from '../../../src/features/maintenance/utils/constants'
+import { ErrorSheet } from '../../../src/features/maintenance/components/ErrorSheet'
 
 const CATEGORIES: TicketCategoryValue[] = [
   'PLUMBING',
@@ -92,6 +95,17 @@ export default function ReportProblemScreen() {
   const [assetDraft, setAssetDraft] = useState('')
   const [rooms, setRooms] = useState<RoomDto[]>([])
   const [roomsLoading, setRoomsLoading] = useState(false)
+  const [roomSearch, setRoomSearch] = useState('')
+  // Apple HIG "Custom Alert": para errores de negocio con contexto rico
+  // (ej. "habitación con huéspedes activos") usamos sheet propio en lugar
+  // de Alert nativo. Más jerarquía visual, mejor copy, animación spring.
+  const [errorSheet, setErrorSheet] = useState<{
+    tone: 'warning' | 'error'
+    icon?: string
+    title: string
+    body: string
+    primaryLabel?: string
+  } | null>(null)
 
   const isSupervisor = user?.role === 'SUPERVISOR'
 
@@ -109,6 +123,8 @@ export default function ReportProblemScreen() {
       setShowRoomPicker(false)
       setShowAssetInput(false)
       setAssetDraft('')
+      setRoomSearch('')
+      setErrorSheet(null)
     }, []),
   )
 
@@ -131,6 +147,14 @@ export default function ReportProblemScreen() {
       cancelled = true
     }
   }, [])
+
+  // Filtrado del search bar — case insensitive, substring match
+  // contra `room.number` (futuro: también podríamos hacer match contra `name`).
+  const filteredRooms = useMemo(() => {
+    const q = roomSearch.trim().toLowerCase()
+    if (!q) return rooms
+    return rooms.filter((r) => r.number.toLowerCase().includes(q))
+  }, [rooms, roomSearch])
 
   // T-7: el toggle "Bloquea cuarto" solo tiene sentido si hay habitación.
   const canBeCritical = location.kind === 'room'
@@ -250,7 +274,18 @@ export default function ReportProblemScreen() {
       )
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      Alert.alert('No pudimos crear el ticket', msg)
+      // Si el mensaje del backend menciona "huéspedes activos" → conflict
+      // de inventario → warning (no error de sistema). Diferenciar tones
+      // ayuda al usuario a saber si fue su decisión o un fallo técnico.
+      const isGuestConflict = /huésped|huesped|conflict|reubicación/i.test(msg)
+      setErrorSheet({
+        tone: isGuestConflict ? 'warning' : 'error',
+        icon: isGuestConflict ? '🛏' : undefined,
+        title: isGuestConflict
+          ? 'Habitación ocupada'
+          : 'No pudimos crear el ticket',
+        body: msg,
+      })
     } finally {
       setSubmitting(false)
     }
@@ -414,36 +449,65 @@ export default function ReportProblemScreen() {
         </Text>
       </ScrollView>
 
-      {/* Modal selector de ubicación */}
+      {/* Modal selector de ubicación — Apple HIG iOS Contacts/Notes pattern:
+          · Search bar prominente arriba (igual que iOS native pickers)
+          · "Pull to dismiss" via handle visual + tap fuera
+          · KeyboardAvoidingView para que el teclado no tape la lista
+            mientras buscas */}
       <Modal
         visible={showRoomPicker}
         transparent
         animationType="slide"
-        onRequestClose={() => setShowRoomPicker(false)}
+        onRequestClose={() => {
+          setShowRoomPicker(false)
+          setRoomSearch('')
+        }}
       >
-        <Pressable
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.pickerBackdrop}
-          onPress={() => setShowRoomPicker(false)}
         >
-          <Pressable style={styles.pickerSheet} onPress={(e) => e.stopPropagation()}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => {
+              setShowRoomPicker(false)
+              setRoomSearch('')
+            }}
+          />
+          <View style={styles.pickerSheet}>
             <View style={styles.pickerHandle} />
             <Text style={styles.pickerTitle}>Ubicación</Text>
 
-            {/* Opción "Sin habitación" */}
+            {/* Search bar Apple-style (iOS Settings/Contacts pattern) */}
+            <View style={styles.searchWrap}>
+              <Text style={styles.searchIcon}>🔍</Text>
+              <TextInput
+                value={roomSearch}
+                onChangeText={setRoomSearch}
+                placeholder="Buscar habitación o asset…"
+                placeholderTextColor={colors.text.tertiary}
+                style={styles.searchInput}
+                clearButtonMode="while-editing"
+                autoCorrect={false}
+                autoCapitalize="none"
+              />
+            </View>
+
+            {/* Opciones fijas — Área general + Asset */}
             <Pressable
               onPress={() => {
                 setLocation({ kind: 'area' })
                 setShowRoomPicker(false)
+                setRoomSearch('')
               }}
               style={styles.pickerRow}
             >
               <Text style={styles.pickerRowText}>📍 Área general (sin habitación)</Text>
             </Pressable>
-
-            {/* Opción asset libre */}
             <Pressable
               onPress={() => {
                 setShowRoomPicker(false)
+                setRoomSearch('')
                 setShowAssetInput(true)
                 setAssetDraft(location.kind === 'asset' ? location.assetTag : '')
               }}
@@ -455,22 +519,31 @@ export default function ReportProblemScreen() {
             </Pressable>
 
             <View style={styles.pickerDivider} />
-            <Text style={styles.pickerSectionLabel}>Habitaciones</Text>
+            <Text style={styles.pickerSectionLabel}>
+              Habitaciones ({filteredRooms.length}
+              {roomSearch.trim() ? ` de ${rooms.length}` : ''})
+            </Text>
 
             {roomsLoading ? (
               <ActivityIndicator color={colors.brand[500]} style={{ marginVertical: 20 }} />
-            ) : rooms.length === 0 ? (
-              <Text style={styles.pickerEmpty}>No hay habitaciones cargadas.</Text>
+            ) : filteredRooms.length === 0 ? (
+              <Text style={styles.pickerEmpty}>
+                {roomSearch.trim()
+                  ? `Ninguna habitación coincide con "${roomSearch}".`
+                  : 'No hay habitaciones cargadas.'}
+              </Text>
             ) : (
               <FlatList
-                data={rooms}
+                data={filteredRooms}
                 keyExtractor={(r) => r.id}
                 style={{ maxHeight: 320 }}
+                keyboardShouldPersistTaps="handled"
                 renderItem={({ item }) => (
                   <Pressable
                     onPress={() => {
                       setLocation({ kind: 'room', roomId: item.id, roomNumber: item.number })
                       setShowRoomPicker(false)
+                      setRoomSearch('')
                     }}
                     style={styles.pickerRow}
                   >
@@ -479,18 +552,29 @@ export default function ReportProblemScreen() {
                 )}
               />
             )}
-          </Pressable>
-        </Pressable>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
 
-      {/* Modal mini-input para assetTag */}
+      {/* Modal mini-input para assetTag — KeyboardAvoidingView corrige el
+          bug donde el teclado tapaba el modal centrado (Apple HIG: Modal
+          Sheets should adjust when keyboard appears). `behavior:padding`
+          empuja todo el contenido hacia arriba en iOS; en Android el
+          `windowSoftInputMode="adjustResize"` del manifest hace lo mismo. */}
       <Modal
         visible={showAssetInput}
         transparent
         animationType="fade"
         onRequestClose={() => setShowAssetInput(false)}
       >
-        <View style={styles.assetBackdrop}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.assetBackdrop}
+        >
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setShowAssetInput(false)}
+          />
           <View style={styles.assetCard}>
             <Text style={styles.assetTitle}>Asset o equipo</Text>
             <Text style={styles.assetBody}>
@@ -505,6 +589,13 @@ export default function ReportProblemScreen() {
               placeholderTextColor={colors.text.tertiary}
               style={styles.assetInput}
               maxLength={80}
+              returnKeyType="done"
+              onSubmitEditing={() => {
+                const tag = assetDraft.trim()
+                if (tag.length < 2) return
+                setLocation({ kind: 'asset', assetTag: tag })
+                setShowAssetInput(false)
+              }}
             />
             <View style={styles.assetActions}>
               <Pressable
@@ -517,7 +608,11 @@ export default function ReportProblemScreen() {
                 onPress={() => {
                   const tag = assetDraft.trim()
                   if (tag.length < 2) {
-                    Alert.alert('Asset requerido', 'Mínimo 2 caracteres.')
+                    setErrorSheet({
+                      tone: 'warning',
+                      title: 'Identifica el equipo',
+                      body: 'Escribe al menos 2 caracteres para identificar el activo (ej. Lavadora-2, Alberca, Generador-1).',
+                    })
                     return
                   }
                   setLocation({ kind: 'asset', assetTag: tag })
@@ -529,8 +624,22 @@ export default function ReportProblemScreen() {
               </Pressable>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
+
+      {/* Custom error sheet (Apple HIG — alerts con copy enriquecido + iconografía) */}
+      <ErrorSheet
+        open={!!errorSheet}
+        tone={errorSheet?.tone}
+        icon={errorSheet?.icon}
+        title={errorSheet?.title ?? ''}
+        body={errorSheet?.body ?? ''}
+        primaryAction={{
+          label: errorSheet?.primaryLabel ?? 'Entendido',
+          onPress: () => setErrorSheet(null),
+        }}
+        onClose={() => setErrorSheet(null)}
+      />
     </SafeAreaView>
   )
 }
@@ -718,6 +827,24 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.text.primary,
     marginBottom: 12,
+  },
+  // Apple HIG search bar — iOS Contacts/Settings pattern.
+  searchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.canvas.primary,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
+  },
+  searchIcon: { fontSize: typography.size.body, marginRight: 8 },
+  searchInput: {
+    flex: 1,
+    paddingVertical: 12,
+    color: colors.text.primary,
+    fontSize: typography.size.body,
   },
   pickerSectionLabel: {
     fontSize: typography.size.micro,

@@ -418,6 +418,11 @@ export default function TicketDetailScreen() {
           <View style={styles.photoActionRowWide}>
             {/* T-2 — labels más semánticos. Una foto puede existir sin
                 contraparte ("solo trabajo terminado" es válido). */}
+            {/* Bug T-photo-2 — ambos botones disparan cámara. Apple HIG
+                "iconography": el ícono debe transmitir la acción inmediata.
+                Si solo "Problema" tiene cámara y "Trabajo terminado" no,
+                el usuario espera que el segundo sea un toggle/marker, no
+                que abra la cámara. Solución: 📷 explícito en ambos. */}
             <Pressable
               onPress={() => onAddPhoto(false)}
               disabled={actionLoading === 'addPhoto' || ticket.photos.length >= 3}
@@ -426,7 +431,7 @@ export default function TicketDetailScreen() {
                 ticket.photos.length >= 3 && styles.photoActionBtnDisabled,
               ]}
             >
-              <Text style={styles.photoActionText}>📷 Foto del problema</Text>
+              <Text style={styles.photoActionText}>📷 Tomar foto del problema</Text>
             </Pressable>
             <Pressable
               onPress={() => onAddPhoto(true)}
@@ -438,7 +443,7 @@ export default function TicketDetailScreen() {
               ]}
             >
               <Text style={[styles.photoActionText, styles.photoActionTextAfter]}>
-                ✅ Trabajo terminado
+                📷 Foto del trabajo terminado
               </Text>
             </Pressable>
           </View>
@@ -1024,12 +1029,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 5,
   },
-  // ── Comment composer
+  // ── Comment composer (fix T-comments-align: textbox + button mismo height
+  // y baseline). Apple HIG: controls horizontalmente alineados deben tener
+  // misma altura. Antes textbox crecía con multiline pero el botón quedaba
+  // pegado al fondo (alignItems: flex-end) creando un offset visual feo.
   commentComposer: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    alignItems: 'stretch', // ambos elementos ocupan el mismo height
     gap: 10,
-    marginTop: 12,
+    marginTop: 14,
   },
   commentInput: {
     flex: 1,
@@ -1037,19 +1045,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border.default,
     borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 12,
     color: colors.text.primary,
     fontSize: typography.size.body,
-    minHeight: 44, // 44pt touch target
+    minHeight: 48, // 48pt — más que 44pt para mejor confort en composer
     maxHeight: 120,
     textAlignVertical: 'top',
   },
   commentSendBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 18,
     backgroundColor: colors.brand[500],
     borderRadius: 12,
+    justifyContent: 'center', // centra texto vertical dentro del height stretched
+    alignItems: 'center',
+    minWidth: 84, // botón consistente, no se "encoge" al cambiar el label
   },
   commentSendText: { color: colors.text.inverse, fontSize: typography.size.body, fontWeight: '700' },
   // ── Lightbox (Mx-1B-W2)

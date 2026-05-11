@@ -1,28 +1,41 @@
 /**
- * uploads.api.ts (mobile) — Sprint Mx-1B-W2.
+ * uploads.api.ts (mobile) — Sprint Mx-1B-W2 + audit fix T-photo-1.
  *
  * Sube una imagen capturada por expo-image-picker al endpoint
- * `POST /v1/uploads` del backend. No hace compresión en el cliente nativo
- * (lo cubre `ImagePicker.launchCameraAsync({ quality: 0.7 })` + Sharp en el
- * servidor que recomprime a JPEG 0.85). Mantener flujo simple: file URI →
- * FormData → server.
+ * `POST /v1/uploads` del backend.
  *
- * Por qué no usar el mismo `browser-image-compression` que web:
- *   · Esa lib depende de Canvas API y Web Worker — no aplica en RN.
- *   · `quality: 0.7` de expo-image-picker reduce ~70% del tamaño original.
- *   · El backend Sharp pipeline normaliza todo a JPEG 0.85 + max 1920px de
- *     todas formas.
+ * ## Por qué normalizamos a JPEG en el cliente (decisión clave del fix)
+ *
+ * El stack de Sharp NPM prebuilt (versión 0.33.x) ships con libvips compilado
+ * SIN libheif (HEIC requiere codecs propietarios de Apple/Nokia que libheif
+ * no incluye por default — solo AVIF está disponible). Verificación local:
+ *
+ *   $ node -e "const s = require('sharp'); console.log(s.format.heif.fileSuffix)"
+ *   [ '.avif' ]   ← NO incluye '.heic' aunque la doc diga "HEIF"
+ *
+ * iPhones con iOS 11+ capturan en HEIC por default. Aunque expo-image-picker
+ * con `quality < 1` re-encoda a JPEG en la mayoría de los casos, hay versiones
+ * de Expo + iOS donde el asset retornado SIGUE siendo HEIC. Cuando el backend
+ * recibe HEIC, Sharp throws "Input file contains unsupported image format" →
+ * el usuario ve "El archivo no es una imagen válida".
+ *
+ * Fix definitivo: `expo-image-manipulator` recodifica TODO a JPEG antes del
+ * upload. Esto garantiza que el binario subido sea siempre JPEG real. Sharp
+ * en el backend recibe JPEG → siempre decodifica → flujo robusto.
+ *
+ * Referencias:
+ *   · Sharp issue #2876 — "HEIC support requires custom libheif"
+ *   · expo-image-picker issue #4753 — "Quality option does not always
+ *     convert HEIC to JPEG on iOS"
  */
+import * as ImageManipulator from 'expo-image-manipulator'
 import type { UploadedImageDto, UploadScope } from '@zenix/shared'
 import { api, resolveApiBaseUrl } from './client'
 
 /**
  * El backend devuelve URLs relativas (`/api/uploads/...`). Los `<Image>` de
  * RN exigen URI absoluto. Esta función resuelve la URL contra la base del
- * cliente actual (auto-detectada por Expo Go).
- *
- * Acepta también URLs ya absolutas (start con http) — útil cuando Mx-1C migre
- * a S3 y empiece a devolver URLs completas.
+ * cliente actual (auto-detectada por Expo Go). Acepta también URLs absolutas.
  */
 export function resolveImageUrl(url: string): string {
   if (/^https?:\/\//.test(url)) return url
@@ -30,34 +43,7 @@ export function resolveImageUrl(url: string): string {
   return `${base}${url}`
 }
 
-/**
- * Detecta el MIME de un URI local (file://...). Expo-image-picker preserva la
- * extensión original (.jpg / .jpeg / .png / .heic / .webp).
- *
- * Nota: HEIC del iPhone → expo-image-picker lo convierte transparentemente a
- * JPEG en el asset retornado (Apple HEIF → JPEG via Photos framework). Nunca
- * deberíamos ver "image/heic" aquí en producción, pero lo aceptamos por si
- * acaso un asset legacy llega — el backend lo rechazará claramente.
- */
-function inferMimeType(uri: string): string {
-  const ext = uri.split('.').pop()?.toLowerCase() ?? 'jpg'
-  switch (ext) {
-    case 'png':
-      return 'image/png'
-    case 'webp':
-      return 'image/webp'
-    case 'heic':
-    case 'heif':
-      return 'image/heic'
-    case 'jpg':
-    case 'jpeg':
-    default:
-      return 'image/jpeg'
-  }
-}
-
-// Sprint Mx-1B-W2 audit — W2-09: pre-check de tamaño usando expo-file-system.
-// Si superamos 5MB, fallamos local antes de gastar red móvil (LATAM 4G).
+// Pre-check de tamaño cliente — 5MB.
 const MAX_RAW_BYTES = 5 * 1024 * 1024
 
 export class UploadValidationError extends Error {
@@ -69,10 +55,22 @@ export class UploadValidationError extends Error {
 }
 
 /**
- * El asset que devuelve expo-image-picker ya incluye `fileSize` (en bytes)
- * y suele estar muy por debajo de 5MB con `quality: 0.7`. Si por alguna
- * razón viene null o supera el límite, abortamos con mensaje específico.
+ * Re-encoda a JPEG forzando compatibilidad con cualquier backend. También
+ * aplica un resize de seguridad (max 1920px) — el backend lo haría de todas
+ * formas, pero ahorrar bytes en upload mejora UX en redes lentas.
  */
+async function normalizeToJpeg(uri: string): Promise<{ uri: string }> {
+  const result = await ImageManipulator.manipulateAsync(
+    uri,
+    [{ resize: { width: 1920 } }], // height escala proporcional con AspectRatio
+    {
+      compress: 0.85,
+      format: ImageManipulator.SaveFormat.JPEG,
+    },
+  )
+  return { uri: result.uri }
+}
+
 export const uploadsApi = {
   async uploadImage(
     uri: string,
@@ -84,14 +82,18 @@ export const uploadsApi = {
         `La imagen pesa ${(sizeBytes / 1024 / 1024).toFixed(1)} MB. Máximo 5 MB — vuelve a tomar la foto.`,
       )
     }
+
+    // Fix T-photo-1: garantiza JPEG real, no importa si vino HEIC del picker.
+    const normalized = await normalizeToJpeg(uri)
+
     const form = new FormData()
-    const filename = uri.split('/').pop() ?? `photo-${Date.now()}.jpg`
+    const filename = `photo-${Date.now()}.jpg`
     form.append(
       'file',
       // React Native FormData formato { uri, name, type } — documentado en
       // RN + Expo (no compatible con DOM FormData estricto; aserción a any).
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      { uri, name: filename, type: inferMimeType(uri) } as any,
+      { uri: normalized.uri, name: filename, type: 'image/jpeg' } as any,
     )
     form.append('scope', scope)
     return api.postForm<UploadedImageDto>('/v1/uploads', form, { timeoutMs: 30_000 })

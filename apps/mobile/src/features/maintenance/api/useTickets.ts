@@ -126,6 +126,50 @@ export function useMaintenanceTickets() {
   return { tickets, groups, isLoading, isRefreshing, error, refetch: () => fetchTickets(true) }
 }
 
+/**
+ * Histórico — tickets VERIFIED o CLOSED de los últimos 30 días.
+ *
+ * Responde la pregunta del testing T-archive: "¿a dónde van los tickets
+ * finalizados?". El supervisor o técnico abre este screen para auditar
+ * lo terminado recientemente. Apple HIG: el usuario debe poder llegar a su
+ * data histórica con un tap.
+ *
+ * Sin SSE — los archivados no cambian frecuentemente, refetch manual basta.
+ */
+export function useArchivedMaintenanceTickets() {
+  const [data, setData] = useState<MaintenanceTicketDto[]>([])
+  const [isLoading, setLoading] = useState(true)
+  const [isRefreshing, setRefreshing] = useState(false)
+  const [error, setError] = useState<Error | null>(null)
+
+  const fetch = useCallback(async (asRefresh = false) => {
+    if (asRefresh) setRefreshing(true)
+    else setLoading(true)
+    try {
+      const since = new Date()
+      since.setDate(since.getDate() - 30)
+      const list = await maintenanceApi.list({
+        activeOnly: false,
+        status: ['VERIFIED', 'CLOSED'],
+        fromDate: since.toISOString().slice(0, 10),
+      } as any)
+      setData(list)
+      setError(null)
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error(String(err)))
+    } finally {
+      if (asRefresh) setRefreshing(false)
+      else setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void fetch(false)
+  }, [fetch])
+
+  return { data, isLoading, isRefreshing, error, refetch: () => fetch(true) }
+}
+
 /** Detalle individual de un ticket — usado en pantalla TicketDetail.
  *
  * Bug B3 fix — separa `isLoading` (primera carga, muestra full-screen loader)
