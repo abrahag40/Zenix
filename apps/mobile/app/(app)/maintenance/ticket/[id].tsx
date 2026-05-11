@@ -629,8 +629,8 @@ export default function TicketDetailScreen() {
         }
         description={
           reasonPrompt?.kind === 'verify-reject'
-            ? 'El ticket regresará a IN_PROGRESS con tu razón visible para el técnico.'
-            : 'El reporte se cierra y el housekeeper recibe la razón por push.'
+            ? 'El ticket regresará al técnico para que retome el trabajo. Verá tu razón en sus notificaciones.'
+            : 'El reporte se cerrará y la persona que lo levantó recibirá tu razón por notificación.'
         }
         placeholder="Razón mínimo 5 caracteres…"
         multiline

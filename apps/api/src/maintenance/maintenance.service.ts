@@ -173,8 +173,9 @@ export class MaintenanceService {
       if (guestConflicts.length > 0) {
         const names = [...new Set(guestConflicts.map((c) => c.label))].join(', ')
         throw new ConflictException(
-          `No puedes crear ticket CRITICAL en una habitación con huéspedes activos: ${names}. ` +
-            `Crea el ticket con priority HIGH o coordina la reubicación primero.`,
+          `Hay huéspedes activos en la habitación (${names}). ` +
+            `No puedes bloquearla con un ticket crítico ahora — crea el ticket con prioridad alta ` +
+            `o coordina la reubicación de los huéspedes primero.`,
         )
       }
     }
@@ -494,7 +495,9 @@ export class MaintenanceService {
       throw new BadRequestException('Este ticket ya fue aprobado')
     }
     if (ticket.status !== TicketStatus.OPEN) {
-      throw new BadRequestException(`Aprobación solo aplicable en status OPEN (actual: ${ticket.status})`)
+      throw new BadRequestException(
+        'Este ticket ya no requiere aprobación (otro supervisor lo procesó).',
+      )
     }
 
     if (dto.assignedToId) {
@@ -509,15 +512,27 @@ export class MaintenanceService {
     }
 
     const now = new Date()
+    // Testing T-approve-flow: si el supervisor aprueba SIN asignar a alguien
+    // específico, el ticket debe quedar en la COLA (estado OPEN) para que
+    // cualquier técnico lo tome — no en ACKNOWLEDGED sin dueño (caso anterior
+    // donde el ticket "desaparecía" del Hub mobile).
+    //
+    // Reglas semánticas:
+    //   · OPEN + pendingApproval=false + sin asignar → "En cola" (queue)
+    //   · ACKNOWLEDGED + assignedToId → "Recibido por X"
+    //   · IN_PROGRESS + assignedToId → "En progreso"
+    const finalAssignee = dto.assignedToId ?? ticket.assignedToId
+    const hasAssignee = !!finalAssignee
     await this.prisma.$transaction(async (tx) => {
       await tx.maintenanceTicket.update({
         where: { id: ticketId },
         data: {
           approvedById: actor.sub,
           approvedAt: now,
-          assignedToId: dto.assignedToId ?? ticket.assignedToId,
-          status: TicketStatus.ACKNOWLEDGED,
-          acknowledgedAt: now,
+          assignedToId: finalAssignee,
+          // Si hay asignado → ACKNOWLEDGED; si no → OPEN (queue)
+          status: hasAssignee ? TicketStatus.ACKNOWLEDGED : TicketStatus.OPEN,
+          acknowledgedAt: hasAssignee ? now : null,
         },
       })
       await tx.maintenanceTicketLog.create({
@@ -525,10 +540,25 @@ export class MaintenanceService {
           ticketId,
           event: TicketLogEvent.APPROVED,
           staffId: actor.sub,
-          metadata: { assignedToId: dto.assignedToId, comment: dto.comment },
+          metadata: {
+            assignedToId: dto.assignedToId,
+            comment: dto.comment,
+            queued: !hasAssignee,
+          },
         },
       })
-      if (dto.assignedToId) {
+      if (!hasAssignee) {
+        // El ticket entra a la cola → log explícito para audit
+        await tx.maintenanceTicketLog.create({
+          data: {
+            ticketId,
+            event: TicketLogEvent.QUEUED,
+            staffId: actor.sub,
+            metadata: { reason: 'APPROVED_WITHOUT_ASSIGNEE' },
+          },
+        })
+      }
+      if (hasAssignee && dto.assignedToId) {
         await tx.maintenanceTicketLog.create({
           data: {
             ticketId,
@@ -592,10 +622,14 @@ export class MaintenanceService {
 
     const ticket = await this.findOrThrow(ticketId)
     if (!ticket.requiresApproval) {
-      throw new BadRequestException('Solo tickets con requiresApproval=true se pueden rechazar')
+      throw new BadRequestException(
+        'Solo se pueden rechazar tickets reportados que aún esperan aprobación.',
+      )
     }
     if (ticket.status !== TicketStatus.OPEN) {
-      throw new BadRequestException(`Rechazo solo aplicable en status OPEN (actual: ${ticket.status})`)
+      throw new BadRequestException(
+        'Este ticket ya no se puede rechazar (otro supervisor lo procesó).',
+      )
     }
 
     const now = new Date()
@@ -665,7 +699,9 @@ export class MaintenanceService {
       )
     }
     if (ticket.status !== TicketStatus.OPEN) {
-      throw new BadRequestException(`Solo se pueden tomar tickets en estado OPEN (actual: ${ticket.status})`)
+      throw new BadRequestException(
+        'Este ticket ya no está disponible para tomar — alguien lo procesó antes.',
+      )
     }
     if (ticket.requiresApproval && !ticket.approvedById) {
       throw new BadRequestException('Este ticket requiere aprobación del supervisor antes de tomarse')
@@ -709,7 +745,11 @@ export class MaintenanceService {
     }
     const ticket = await this.findOrThrow(ticketId)
     if (([TicketStatus.CLOSED, TicketStatus.VERIFIED] as TicketStatus[]).includes(ticket.status)) {
-      throw new BadRequestException(`No se puede reasignar un ticket en estado ${ticket.status}`)
+      throw new BadRequestException(
+        ticket.status === TicketStatus.CLOSED
+          ? 'No se puede reasignar un ticket archivado.'
+          : 'No se puede reasignar un ticket ya verificado. Reábrelo primero si es necesario.',
+      )
     }
     const assignee = await this.prisma.staff.findFirst({
       where: { id: dto.assigneeId, organizationId: ticket.organizationId, active: true },

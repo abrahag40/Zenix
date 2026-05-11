@@ -105,7 +105,7 @@ export function TicketDetailDrawer({ ticketId, actor, onClose }: Props) {
       <SheetContent
         side="right"
         showCloseButton={false}
-        className="w-full sm:w-[480px] sm:max-w-[480px] flex flex-col gap-0 p-0"
+        className="w-full sm:w-[480px] sm:max-w-[480px] flex flex-col gap-0 p-0 h-full max-h-screen"
       >
         <SheetTitle className="sr-only">
           {ticket?.title ?? 'Detalle de ticket'}
@@ -560,11 +560,15 @@ function ActionsBar({
   }
   const actions: Action[] = []
 
-  // Flujo B — supervisor decide
+  // Flujo B — supervisor decide. Testing T-approve-flow:
+  // Si no hay assignedToId en el ticket aún, el ticket entra a la COLA
+  // (cualquier técnico lo puede tomar). Si quieres asignar a alguien
+  // específico, usa el botón "Asignar a…" (TODO: dialog en Mx-1B-W3).
+  // Label refleja la realidad: "Aprobar y enviar a cola" → claro qué pasa.
   if (isSupervisor && ticket.requiresApproval && ticket.pendingApproval) {
     actions.push({
       key: 'approve',
-      label: 'Aprobar y asignar',
+      label: ticket.assignedToId ? 'Aprobar y asignar' : 'Aprobar · enviar a cola',
       icon: CheckCircle2,
       primary: true,
       tone: 'positive',
@@ -621,11 +625,13 @@ function ActionsBar({
     })
   }
 
-  // Verificación supervisor
+  // Verificación supervisor. Labels cortos para que ambos botones quepan
+  // en una sola línea (testing T-buttons-row). La explicación completa
+  // vive en el ConfirmPanel description.
   if (isSupervisor && ticket.status === 'RESOLVED') {
     actions.push({
       key: 'verify',
-      label: 'Verificar — habitación a venta',
+      label: 'Verificar',
       icon: CheckCircle2,
       primary: true,
       tone: 'positive',
@@ -732,7 +738,7 @@ function ConfirmPanel({
     'verify-reject': {
       title: 'Rechazar calidad',
       description:
-        'El ticket regresará a IN_PROGRESS. El técnico recibirá una notificación con la razón. La habitación sigue bloqueada hasta una nueva verificación exitosa.',
+        'El ticket regresará al técnico para que retome el trabajo. Recibirá una notificación con tu razón. La habitación sigue bloqueada hasta una nueva verificación exitosa.',
       action: 'Rechazar calidad',
       tone: 'destructive' as const,
       requiresReason: true,
@@ -745,7 +751,7 @@ function ConfirmPanel({
     reopen: {
       title: 'Reabrir ticket',
       description:
-        'El ticket regresará a IN_PROGRESS. Si era CRITICAL en habitación con huésped activo, el sistema bloqueará la operación y deberás coordinar reubicación.',
+        'El ticket volverá a estar en progreso. Si era de prioridad crítica en una habitación con huésped activo, el sistema bloqueará la operación y tendrás que coordinar reubicación.',
       action: 'Reabrir',
       tone: 'destructive' as const,
       requiresReason: true,
@@ -800,24 +806,47 @@ function ConfirmPanel({
       </div>
 
       {c.requiresReason && (
-        <textarea
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          placeholder="Razón (mínimo 5 caracteres)…"
-          className="w-full text-xs border border-slate-300 rounded-md px-2 py-1.5 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          rows={3}
-          autoFocus
-        />
+        <div>
+          <textarea
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Razón (mínimo 5 caracteres)…"
+            className="w-full text-xs border border-slate-300 rounded-md px-2 py-1.5 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            rows={3}
+            autoFocus
+          />
+          {/* Hint visible — antes el botón solo se deshabilitaba sin
+              explicación (testing T-minchars). Apple HIG H9: ayudar al
+              usuario a entender por qué un control está disabled. */}
+          <div className="mt-1 flex justify-between text-[10px]">
+            <span className={reason.trim().length < 5 ? 'text-amber-600' : 'text-emerald-600'}>
+              {reason.trim().length < 5
+                ? `Faltan ${5 - reason.trim().length} caracter${5 - reason.trim().length === 1 ? '' : 'es'} para registrar la razón`
+                : '✓ Razón completa'}
+            </span>
+            <span className="text-slate-400">{reason.length}/300</span>
+          </div>
+        </div>
       )}
       {'requiresSummary' in c && c.requiresSummary && (
-        <textarea
-          value={summary}
-          onChange={(e) => setSummary(e.target.value)}
-          placeholder="Resumen de la resolución…"
-          className="w-full text-xs border border-slate-300 rounded-md px-2 py-1.5 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          rows={3}
-          autoFocus
-        />
+        <div>
+          <textarea
+            value={summary}
+            onChange={(e) => setSummary(e.target.value)}
+            placeholder="Resumen de la resolución (mínimo 5 caracteres)…"
+            className="w-full text-xs border border-slate-300 rounded-md px-2 py-1.5 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            rows={3}
+            autoFocus
+          />
+          <div className="mt-1 flex justify-between text-[10px]">
+            <span className={summary.trim().length < 5 ? 'text-amber-600' : 'text-emerald-600'}>
+              {summary.trim().length < 5
+                ? `Faltan ${5 - summary.trim().length} caracter${5 - summary.trim().length === 1 ? '' : 'es'} para describir la resolución`
+                : '✓ Resumen completo'}
+            </span>
+            <span className="text-slate-400">{summary.length}/300</span>
+          </div>
+        </div>
       )}
 
       <div className="flex justify-end gap-2">

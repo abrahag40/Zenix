@@ -189,7 +189,7 @@ export function useVerifyTicket(id: string) {
       invalidateAll(qc)
       toast.success(
         vars.approved === false
-          ? 'Calidad rechazada — ticket regresó a IN_PROGRESS'
+          ? 'Calidad rechazada · el ticket regresa al técnico'
           : 'Verificado — habitación regresa a venta',
       )
     },

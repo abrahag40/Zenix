@@ -170,9 +170,27 @@ export function InputSheet({
               onSubmitEditing={multiline ? undefined : handleSubmit}
             />
             {error && <Text style={styles.errorText}>{error}</Text>}
-            <Text style={styles.charCount}>
-              {value.length}/{maxLength}
-            </Text>
+            {/* Hint en vivo — antes el botón solo se desactivaba sin
+                explicación (testing T-minchars). Apple HIG H9. */}
+            <View style={styles.hintRow}>
+              {minLength > 0 && (
+                <Text
+                  style={[
+                    styles.minHint,
+                    value.trim().length >= minLength
+                      ? styles.minHintOk
+                      : styles.minHintPending,
+                  ]}
+                >
+                  {value.trim().length >= minLength
+                    ? '✓ Completo'
+                    : `Faltan ${minLength - value.trim().length} caracteres mínimo`}
+                </Text>
+              )}
+              <Text style={styles.charCount}>
+                {value.length}/{maxLength}
+              </Text>
+            </View>
             <View style={styles.actions}>
               <Pressable
                 onPress={onClose}
@@ -268,9 +286,17 @@ const styles = StyleSheet.create({
   charCount: {
     color: colors.text.tertiary,
     fontSize: typography.size.micro,
-    alignSelf: 'flex-end',
-    marginTop: 6,
   },
+  hintRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 6,
+    width: '100%',
+  },
+  minHint: { fontSize: typography.size.micro, fontWeight: '500' },
+  minHintPending: { color: '#FBBF24' },
+  minHintOk: { color: '#34D399' },
   actions: {
     flexDirection: 'row',
     gap: 10,
