@@ -126,38 +126,57 @@ export function useMaintenanceTickets() {
   return { tickets, groups, isLoading, isRefreshing, error, refetch: () => fetchTickets(true) }
 }
 
-/** Detalle individual de un ticket — usado en pantalla TicketDetail. */
+/** Detalle individual de un ticket — usado en pantalla TicketDetail.
+ *
+ * Bug B3 fix — separa `isLoading` (primera carga, muestra full-screen loader)
+ * de `isRefreshing` (refresh por acción o SSE, NO debe ocultar el contenido
+ * ya renderizado). El detail screen debe mostrar spinners localizados durante
+ * un refresh post-acción, no un loader de pantalla completa.
+ */
 export function useMaintenanceTicket(id: string | null) {
   const [data, setData] = useState<MaintenanceTicketDetailDto | null>(null)
   const [isLoading, setLoading] = useState(false)
+  const [isRefreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<Error | null>(null)
 
-  const fetch = useCallback(async () => {
-    if (!id) return
-    setLoading(true)
-    try {
-      const d = await maintenanceApi.getOne(id)
-      setData(d)
-      setError(null)
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error(String(err)))
-    } finally {
-      setLoading(false)
-    }
-  }, [id])
+  const fetch = useCallback(
+    async (asRefresh = false) => {
+      if (!id) return
+      if (asRefresh) setRefreshing(true)
+      else setLoading(true)
+      try {
+        const d = await maintenanceApi.getOne(id)
+        setData(d)
+        setError(null)
+      } catch (err) {
+        setError(err instanceof Error ? err : new Error(String(err)))
+      } finally {
+        if (asRefresh) setRefreshing(false)
+        else setLoading(false)
+      }
+    },
+    [id],
+  )
 
   useEffect(() => {
-    void fetch()
+    void fetch(false)
   }, [fetch])
 
-  // SSE — re-fetch cuando llegue evento sobre ESTE ticket
+  // SSE — re-fetch cuando llegue evento sobre ESTE ticket (modo refresh, NO loading)
   useEffect(() => {
     if (!id) return
     return registerSseConsumer(TICKET_TRIGGERS, (event: SseEvent) => {
       const eid = (event.data as any)?.id ?? (event.data as any)?.ticketId
-      if (eid === id) void fetch()
+      if (eid === id) void fetch(true)
     })
   }, [id, fetch])
 
-  return { data, isLoading, error, refetch: fetch }
+  return {
+    data,
+    isLoading,
+    isRefreshing,
+    error,
+    /** Refetch post-acción — NO bloquea el contenido renderizado. */
+    refetch: () => fetch(true),
+  }
 }

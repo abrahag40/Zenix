@@ -1141,6 +1141,30 @@ export class MaintenanceService {
         .catch(() => undefined)
     }
 
+    // Bug B7 fix — notificar al housekeeper/reporter original cuando su
+    // reporte se cierra el círculo. Antes solo el técnico se enteraba del
+    // verify, y el reporter (housekeeper que detectó el problema) nunca
+    // sabía si lo arreglaron — exactamente la queja documentada en foros de
+    // hotelkit/Flexkeeping LATAM. Cumple §33 CLAUDE.md (feedback informativo
+    // end-to-end). No-op si el reporter es el mismo que el assignee (el
+    // técnico ya recibió la notif anterior).
+    if (updated.reportedById && updated.reportedById !== updated.assignedToId) {
+      void this.notifCenter
+        .send({
+          propertyId: updated.propertyId,
+          type: AppNotificationType.INFORMATIONAL,
+          category: AppNotificationCategory.MAINTENANCE_TICKET_VERIFIED,
+          priority: AppNotificationPriority.LOW,
+          title: `✓ Tu reporte fue resuelto`,
+          body: `"${updated.title}" — ya está verificado y la habitación regresó al inventario.`,
+          recipientType: NotificationRecipient.USER,
+          recipientId: updated.reportedById,
+          triggeredById: actor.sub,
+          metadata: { ticketId },
+        })
+        .catch(() => undefined)
+    }
+
     return this.toListDto(updated)
   }
 

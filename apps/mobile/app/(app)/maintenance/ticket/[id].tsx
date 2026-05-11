@@ -1,15 +1,22 @@
 /**
- * /maintenance/ticket/[id] — detalle de ticket (Sprint Mx-1B-M).
+ * /maintenance/ticket/[id] — detalle de ticket (Sprint Mx-1B-M + fixes B1–B6).
  *
  * Acciones inline según rol y estado actual:
- *   - SUPERVISOR sobre OPEN pendingApproval → Aprobar / Rechazar
+ *   - SUPERVISOR sobre OPEN pendingApproval → Aprobar / Rechazar (con modal razón)
  *   - Cualquier técnico sobre OPEN sin asignar → ✋ Tomar este ticket
  *   - Asignado sobre ACKNOWLEDGED → ▶ Iniciar
  *   - Asignado sobre IN_PROGRESS → ✓ Resolver / ⏸ Esperar piezas
  *   - Asignado sobre WAITING_PARTS → ▶ Reanudar
- *   - SUPERVISOR sobre RESOLVED → ✓ Verificar / ↩ Rechazar
+ *   - SUPERVISOR sobre RESOLVED → ✓ Verificar / ↩ Rechazar calidad (modal razón)
  *
  * Cada acción dispara API call → SSE → useMaintenanceTicket refetch automático.
+ *
+ * Bug fixes aplicados:
+ *   · B1 Alert.prompt sustituido por modal in-app cross-platform
+ *   · B2 verify-rejection (approved=false) expuesto como segundo botón
+ *   · B3 isRefreshing distinto de isLoading — post-acción NO oculta el contenido
+ *   · B5 status pill con color semántico (Treisman pre-attentive §13b)
+ *   · B6 banner OOO consolida aging chip + mención Channex
  */
 
 import { useState } from 'react'
@@ -22,6 +29,9 @@ import {
   ActivityIndicator,
   Alert,
   TextInput,
+  Modal,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useRouter, useLocalSearchParams } from 'expo-router'
@@ -39,10 +49,15 @@ import {
   PRIORITY_HEX,
   PRIORITY_HEX_DARK,
   PRIORITY_LABEL,
+  STATUS_COLOR,
   STATUS_LABEL,
   estimateAging,
   formatElapsed,
 } from '../../../../src/features/maintenance/utils/constants'
+
+type ReasonPrompt =
+  | { kind: 'reject'; minLength: 5 }
+  | { kind: 'verify-reject'; minLength: 5 }
 
 export default function TicketDetailScreen() {
   const router = useRouter()
@@ -52,6 +67,10 @@ export default function TicketDetailScreen() {
   const { data: ticket, isLoading, error, refetch } = useMaintenanceTicket(ticketId)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [resolutionNote, setResolutionNote] = useState('')
+
+  // Bug B1/B2 — modal in-app de razón (cross-platform, no usa Alert.prompt)
+  const [reasonPrompt, setReasonPrompt] = useState<ReasonPrompt | null>(null)
+  const [reasonText, setReasonText] = useState('')
 
   if (!ticketId) return null
 
@@ -78,37 +97,43 @@ export default function TicketDetailScreen() {
     void runAction('approve', () => maintenanceApi.approve(ticketId), 'Ticket aprobado')
   }
 
+  // Bug B1 — abre modal cross-platform en vez de Alert.prompt iOS-only
   function onReject() {
-    if (!ticketId) return
-    Alert.prompt?.(
-      'Rechazar ticket',
-      'Razón breve del rechazo:',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Rechazar',
-          style: 'destructive',
-          onPress: (reason?: string) => {
-            if (!reason || reason.trim().length < 3) {
-              Alert.alert('Razón requerida', 'Mínimo 3 caracteres.')
-              return
-            }
-            void runAction(
-              'reject',
-              () => maintenanceApi.reject(ticketId, { reason: reason.trim() }),
-              'Ticket rechazado',
-            )
-          },
-        },
-      ],
-      'plain-text',
-    ) ??
-      // Android fallback (Alert.prompt no existe en Android)
-      runAction(
+    setReasonText('')
+    setReasonPrompt({ kind: 'reject', minLength: 5 })
+  }
+
+  // Bug B2 — verify-rejection: regresa a IN_PROGRESS con razón obligatoria
+  function onVerifyReject() {
+    setReasonText('')
+    setReasonPrompt({ kind: 'verify-reject', minLength: 5 })
+  }
+
+  function onConfirmReason() {
+    if (!ticketId || !reasonPrompt) return
+    const text = reasonText.trim()
+    if (text.length < reasonPrompt.minLength) {
+      Alert.alert(
+        'Razón requerida',
+        `Mínimo ${reasonPrompt.minLength} caracteres para registrar el rechazo en el audit trail.`,
+      )
+      return
+    }
+    const prompt = reasonPrompt
+    setReasonPrompt(null)
+    if (prompt.kind === 'reject') {
+      void runAction(
         'reject',
-        () => maintenanceApi.reject(ticketId, { reason: 'Rechazado desde mobile' }),
+        () => maintenanceApi.reject(ticketId, { reason: text }),
         'Ticket rechazado',
       )
+    } else {
+      void runAction(
+        'verify-reject',
+        () => maintenanceApi.verify(ticketId, { approved: false, rejectionReason: text }),
+        'Trabajo rechazado · reabierto al técnico',
+      )
+    }
   }
 
   function onClaim() {
@@ -152,7 +177,9 @@ export default function TicketDetailScreen() {
     )
   }
 
-  if (isLoading) {
+  // Solo bloqueamos con full-screen loader la PRIMERA carga (sin data aún).
+  // Refreshes post-acción/SSE NO ocultan el contenido. Bug B3 fix.
+  if (isLoading && !ticket) {
     return (
       <SafeAreaView style={styles.canvas}>
         <View style={styles.loaderWrap}>
@@ -161,7 +188,7 @@ export default function TicketDetailScreen() {
       </SafeAreaView>
     )
   }
-  if (error || !ticket) {
+  if (error && !ticket) {
     return (
       <SafeAreaView style={styles.canvas}>
         <View style={styles.loaderWrap}>
@@ -174,9 +201,11 @@ export default function TicketDetailScreen() {
       </SafeAreaView>
     )
   }
+  if (!ticket) return null // type-narrowing guard
 
   const priorityColor = PRIORITY_HEX[ticket.priority]
   const aging = estimateAging(ticket.estimatedEndAt, ticket.status)
+  const statusColors = STATUS_COLOR[ticket.status]
   const contextLabel = ticket.roomNumber
     ? `Hab. ${ticket.roomNumber}`
     : ticket.assetTag
@@ -207,7 +236,12 @@ export default function TicketDetailScreen() {
               {CATEGORY_EMOJI[ticket.category]} {CATEGORY_LABEL[ticket.category]}
             </Text>
             <View style={{ flex: 1 }} />
-            <Text style={styles.statusPill}>{STATUS_LABEL[ticket.status]}</Text>
+            {/* B5 — status pill con color semántico (no más gris uniforme) */}
+            <View style={[styles.statusPill, { backgroundColor: statusColors.bg }]}>
+              <Text style={[styles.statusPillText, { color: statusColors.fg }]}>
+                {STATUS_LABEL[ticket.status]}
+              </Text>
+            </View>
           </View>
 
           <Text style={styles.title}>{ticket.title}</Text>
@@ -225,7 +259,9 @@ export default function TicketDetailScreen() {
           {ticket.assignedToName && (
             <Text style={styles.metaText}>👤 Asignado: {ticket.assignedToName}</Text>
           )}
-          {aging && (
+          {/* Aging chip stand-alone solo cuando NO hay banner OOO — si hay banner,
+              el aging se muestra dentro del banner (B6 fix). */}
+          {aging && !ticket.hasAutoBlock && (
             <View style={[styles.agingChip, { backgroundColor: AGING_HEX[aging.color].bg }]}>
               <Text style={[styles.agingText, { color: AGING_HEX[aging.color].fg }]}>
                 ⏱ {aging.label}
@@ -234,15 +270,26 @@ export default function TicketDetailScreen() {
           )}
         </View>
 
-        {/* Banners */}
+        {/* B6 — Banner OOO consolida aging + mención Channex.
+            Antes solo decía "se libera al verificar"; ahora muestra ETA real +
+            sync con OTAs (diferenciador competitivo §29 + §30 CLAUDE.md). */}
         {ticket.hasAutoBlock && (
           <View style={styles.banner}>
             <Text style={styles.bannerTitle}>🔒 Habitación fuera de venta</Text>
             <Text style={styles.bannerBody}>
-              El bloqueo se libera automáticamente al verificar la resolución.
+              Cerrada también en OTAs (Booking, Airbnb, Expedia) mientras el ticket
+              esté abierto. Se libera automáticamente al verificar la resolución.
             </Text>
+            {aging && (
+              <View style={[styles.bannerAgingChip, { backgroundColor: AGING_HEX[aging.color].bg }]}>
+                <Text style={[styles.bannerAgingText, { color: AGING_HEX[aging.color].fg }]}>
+                  ⏱ {aging.label}
+                </Text>
+              </View>
+            )}
           </View>
         )}
+
         {ticket.requiresApproval && ticket.pendingApproval && (
           <View style={[styles.banner, styles.bannerAmber]}>
             <Text style={styles.bannerTitle}>🟡 Esperando aprobación</Text>
@@ -290,7 +337,7 @@ export default function TicketDetailScreen() {
                 tone="primary"
               />
               <ActionBtn
-                label="✗ Rechazar"
+                label="✗ Rechazar reporte"
                 onPress={onReject}
                 loading={actionLoading === 'reject'}
                 tone="danger"
@@ -359,14 +406,22 @@ export default function TicketDetailScreen() {
             />
           )}
 
-          {/* SUPERVISOR + RESOLVED → Verificar */}
+          {/* SUPERVISOR + RESOLVED → Verificar / Rechazar calidad (B2) */}
           {isSupervisor && ticket.status === 'RESOLVED' && (
-            <ActionBtn
-              label="✓ Verificar resolución"
-              onPress={onVerify}
-              loading={actionLoading === 'verify'}
-              tone="primary"
-            />
+            <>
+              <ActionBtn
+                label="✓ Verificar resolución"
+                onPress={onVerify}
+                loading={actionLoading === 'verify'}
+                tone="primary"
+              />
+              <ActionBtn
+                label="↩ Rechazar calidad · reabrir"
+                onPress={onVerifyReject}
+                loading={actionLoading === 'verify-reject'}
+                tone="danger"
+              />
+            </>
           )}
         </View>
 
@@ -385,6 +440,61 @@ export default function TicketDetailScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* B1/B2 — Modal in-app cross-platform de razón.
+          Sustituye al Alert.prompt iOS-only que dejaba a Android sin entrada. */}
+      <Modal
+        visible={!!reasonPrompt}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setReasonPrompt(null)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalBackdrop}
+        >
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>
+              {reasonPrompt?.kind === 'verify-reject'
+                ? '↩ Rechazar calidad'
+                : '✗ Rechazar reporte'}
+            </Text>
+            <Text style={styles.modalBody}>
+              {reasonPrompt?.kind === 'verify-reject'
+                ? 'El ticket regresará a IN_PROGRESS con tu razón visible para el técnico.'
+                : 'El reporte se cierra y el housekeeper recibe la razón por push.'}
+            </Text>
+            <TextInput
+              autoFocus
+              value={reasonText}
+              onChangeText={setReasonText}
+              placeholder="Mínimo 5 caracteres…"
+              placeholderTextColor={colors.text.tertiary}
+              style={styles.modalInput}
+              multiline
+              numberOfLines={3}
+              maxLength={300}
+            />
+            <Text style={styles.modalHint}>{reasonText.length}/300</Text>
+            <View style={styles.modalActions}>
+              <Pressable
+                onPress={() => setReasonPrompt(null)}
+                style={[styles.modalBtn, styles.modalBtnSecondary]}
+              >
+                <Text style={styles.modalBtnSecondaryText}>Cancelar</Text>
+              </Pressable>
+              <Pressable
+                onPress={onConfirmReason}
+                style={[styles.modalBtn, styles.modalBtnDanger]}
+              >
+                <Text style={styles.modalBtnDangerText}>
+                  {reasonPrompt?.kind === 'verify-reject' ? 'Rechazar y reabrir' : 'Rechazar'}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   )
 }
@@ -459,20 +569,20 @@ const styles = StyleSheet.create({
   priorityPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4 },
   priorityText: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase' },
   categoryText: { fontSize: 12, color: colors.text.tertiary },
-  statusPill: {
-    fontSize: 11,
-    color: colors.text.secondary,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
+  statusPill: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 6 },
+  statusPillText: { fontSize: 11, fontWeight: '700' },
   title: { fontSize: 18, fontWeight: '700', color: colors.text.primary, marginBottom: 4 },
   context: { fontSize: 13, color: colors.text.secondary, marginBottom: 8 },
   description: { fontSize: 13, color: colors.text.secondary, lineHeight: 19, marginBottom: 10 },
   metaRow: { flexDirection: 'row', gap: 4, marginTop: 6 },
   metaText: { fontSize: 12, color: colors.text.tertiary },
-  agingChip: { alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, marginTop: 10 },
+  agingChip: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+    marginTop: 10,
+  },
   agingText: { fontSize: 12, fontWeight: '600' },
   banner: {
     padding: 12,
@@ -487,7 +597,15 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(245,158,11,0.25)',
   },
   bannerTitle: { fontSize: 13, fontWeight: '600', color: colors.text.primary },
-  bannerBody: { fontSize: 12, color: colors.text.secondary, marginTop: 2 },
+  bannerBody: { fontSize: 12, color: colors.text.secondary, marginTop: 4, lineHeight: 17 },
+  bannerAgingChip: {
+    alignSelf: 'flex-start',
+    marginTop: 8,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderRadius: 5,
+  },
+  bannerAgingText: { fontSize: 11, fontWeight: '700' },
   section: { marginTop: 16 },
   sectionLabel: { color: colors.text.primary, fontSize: 14, fontWeight: '600', marginBottom: 8 },
   sectionHint: { color: colors.text.tertiary, fontSize: 11, fontStyle: 'italic' },
@@ -551,4 +669,51 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(239,68,68,0.40)',
   },
   btnDangerText: { color: '#FCA5A5', fontWeight: '700', fontSize: 14 },
+  // ── Modal de razón (B1/B2)
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: colors.canvas.tertiary,
+    borderRadius: 16,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+  },
+  modalTitle: { color: colors.text.primary, fontSize: 16, fontWeight: '700' },
+  modalBody: { color: colors.text.secondary, fontSize: 13, marginTop: 6, lineHeight: 18 },
+  modalInput: {
+    marginTop: 12,
+    minHeight: 80,
+    backgroundColor: colors.canvas.primary,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: colors.text.primary,
+    fontSize: 14,
+    textAlignVertical: 'top',
+  },
+  modalHint: { color: colors.text.tertiary, fontSize: 11, textAlign: 'right', marginTop: 4 },
+  modalActions: { flexDirection: 'row', gap: 10, marginTop: 14 },
+  modalBtn: { flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
+  modalBtnSecondary: {
+    backgroundColor: colors.canvas.secondary,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+  },
+  modalBtnSecondaryText: { color: colors.text.primary, fontWeight: '600', fontSize: 14 },
+  modalBtnDanger: {
+    backgroundColor: 'rgba(239,68,68,0.22)',
+    borderWidth: 1,
+    borderColor: 'rgba(239,68,68,0.45)',
+  },
+  modalBtnDangerText: { color: '#FCA5A5', fontWeight: '700', fontSize: 14 },
 })

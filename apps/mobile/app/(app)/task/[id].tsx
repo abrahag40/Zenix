@@ -461,7 +461,12 @@ export default function TaskDetailScreen() {
         animationType="slide"
         onRequestClose={() => setShowIssueModal(false)}
       >
-        <IssueReportScreen taskId={id!} onClose={() => setShowIssueModal(false)} />
+        <IssueReportScreen
+          taskId={id!}
+          roomNumber={task?.unit?.room?.number ?? null}
+          unitLabel={task?.unit?.label ?? null}
+          onClose={() => setShowIssueModal(false)}
+        />
       </Modal>
     </SafeAreaView>
   )
@@ -922,7 +927,25 @@ const CATEGORIES = [
 
 type CategoryId = (typeof CATEGORIES)[number]['id']
 
-function IssueReportScreen({ taskId, onClose }: { taskId: string; onClose: () => void }) {
+function IssueReportScreen({
+  taskId,
+  roomNumber,
+  unitLabel,
+  onClose,
+}: {
+  taskId: string
+  roomNumber: string | null
+  unitLabel: string | null
+  onClose: () => void
+}) {
+  // Bug B8 — el housekeeper a veces abre la tarea equivocada y reporta sin
+  // saber a qué habitación está apuntando. Mostramos el contexto inequívoco
+  // en el subtítulo de la nav bar (§33 feedback informativo).
+  const contextLabel = roomNumber
+    ? unitLabel
+      ? `Hab. ${roomNumber} · ${unitLabel}`
+      : `Hab. ${roomNumber}`
+    : 'Sin habitación asociada'
   // useSafeAreaInsets instead of SafeAreaView because SafeAreaView inside a
   // Modal does not compute insets correctly on all iOS devices — the nav bar
   // ends up behind the OS clock/status bar (Expo Router + Modal interaction).
@@ -944,7 +967,12 @@ function IssueReportScreen({ taskId, onClose }: { taskId: string; onClose: () =>
       // del legacy MaintenanceIssue. El sourceTaskId mantiene la trazabilidad
       // con la tarea de limpieza original.
       const desc = description.trim()
-      const title = desc.length <= 60 ? desc : desc.slice(0, 57) + '…'
+      // Bug B9 — surrogate-safe truncation. `String.slice` cuenta code units
+      // (UTF-16) y puede partir un emoji compuesto (👨‍🔧 = 4 codepoints) →
+      // título con high-surrogate huérfano que renderiza como ▢. Usar
+      // Array.from para iterar code points completos.
+      const chars = Array.from(desc)
+      const title = chars.length <= 60 ? desc : chars.slice(0, 57).join('') + '…'
       await maintenanceApi.create({
         category,
         title,
@@ -973,7 +1001,12 @@ function IssueReportScreen({ taskId, onClose }: { taskId: string; onClose: () =>
         <TouchableOpacity onPress={onClose} hitSlop={12} style={styles.issueNavSide}>
           <Text style={styles.issueNavCancelText}>Cancelar</Text>
         </TouchableOpacity>
-        <Text style={styles.issueNavTitle}>Reportar problema</Text>
+        <View style={{ alignItems: 'center', flex: 1 }}>
+          <Text style={styles.issueNavTitle}>Reportar problema</Text>
+          <Text style={styles.issueNavSubtitle} numberOfLines={1}>
+            {contextLabel}
+          </Text>
+        </View>
         <TouchableOpacity
           onPress={handleSubmit}
           disabled={!canSubmit}
@@ -1650,11 +1683,16 @@ const styles = StyleSheet.create({
     color: colors.text.tertiary,
   },
   issueNavTitle: {
-    flex: 1,
     textAlign: 'center',
     fontSize: typography.size.bodyLg,
     fontWeight: typography.weight.semibold,
     color: colors.text.primary,
+  },
+  issueNavSubtitle: {
+    textAlign: 'center',
+    fontSize: 11,
+    color: colors.text.tertiary,
+    marginTop: 1,
   },
   issueScroll: {
     flex: 1,

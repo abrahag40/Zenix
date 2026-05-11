@@ -85,6 +85,26 @@ export const STATUS_LABEL: Record<TicketStatusValue, string> = {
   CLOSED: 'Archivado',
 }
 
+/**
+ * Bug B5 — color semántico por status (Treisman pre-attentive §13b).
+ * El supervisor decide por color sin leer texto:
+ *   gray   → OPEN sin acción inmediata
+ *   amber  → ACKNOWLEDGED / WAITING_PARTS (recibido o pausado)
+ *   blue   → IN_PROGRESS (trabajo activo)
+ *   violet → RESOLVED (pendiente de verificación, sistema 2)
+ *   emerald→ VERIFIED (éxito)
+ *   slate  → CLOSED (archivado)
+ */
+export const STATUS_COLOR: Record<TicketStatusValue, { bg: string; fg: string }> = {
+  OPEN:          { bg: 'rgba(148,163,184,0.18)', fg: '#CBD5E1' },
+  ACKNOWLEDGED:  { bg: 'rgba(245,158,11,0.18)',  fg: '#FBBF24' },
+  IN_PROGRESS:   { bg: 'rgba(96,165,250,0.18)',  fg: '#60A5FA' },
+  WAITING_PARTS: { bg: 'rgba(245,158,11,0.14)',  fg: '#FCD34D' },
+  RESOLVED:      { bg: 'rgba(167,139,250,0.20)', fg: '#A78BFA' },
+  VERIFIED:      { bg: 'rgba(16,185,129,0.20)',  fg: '#34D399' },
+  CLOSED:        { bg: 'rgba(100,116,139,0.18)', fg: '#94A3B8' },
+}
+
 // ─── Días estimados default por categoría (research 2026) ───────────────
 
 export const DEFAULT_DAYS_BY_CATEGORY: Record<TicketCategoryValue, number> = {
