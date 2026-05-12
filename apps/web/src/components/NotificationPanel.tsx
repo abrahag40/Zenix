@@ -136,10 +136,12 @@ function NotificationCard({ notif, onRead, onApprove, onReject, onNavigate }: Ca
 
       {/* Content column */}
       <div className="min-w-0 flex flex-col gap-1.5">
-        {/* Title — text-[13px] alineado con sistema */}
+        {/* Title — alineado pixel-perfect con TicketCard del Kanban
+            (text-sm font-semibold tracking-tight). Hierarchy 14/12/10/10
+            consistente con cards operacionales del sistema. */}
         <p className={cn(
-          'text-[13px] leading-snug line-clamp-2',
-          notif.isRead ? 'text-slate-600 font-normal' : 'text-slate-900 font-semibold',
+          'text-sm leading-snug line-clamp-2 tracking-tight',
+          notif.isRead ? 'text-slate-600 font-medium' : 'text-slate-900 font-semibold',
         )}>
           {notif.title}
         </p>

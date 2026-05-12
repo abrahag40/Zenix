@@ -425,7 +425,7 @@ export class MaintenanceService {
           recipientId: dto.assignedToId,
           triggeredById: actor.sub,
           metadata: { ticketId: result.ticket.id },
-          actionUrl: `/maintenance/tickets/${result.ticket.id}`,
+          actionUrl: `/maintenance?ticketId=${result.ticket.id}`,
         })
         .catch((e) => this.logger.warn(`notif assigned failed: ${e.message}`))
     }
@@ -445,7 +445,7 @@ export class MaintenanceService {
           recipientRole: StaffRole.SUPERVISOR,
           triggeredById: actor.sub,
           metadata: { ticketId: result.ticket.id },
-          actionUrl: `/maintenance/tickets/${result.ticket.id}`,
+          actionUrl: `/maintenance?ticketId=${result.ticket.id}`,
         })
         .catch((e) => this.logger.warn(`notif approval failed: ${e.message}`))
     }
@@ -470,7 +470,7 @@ export class MaintenanceService {
           recipientRole: StaffRole.SUPERVISOR,
           triggeredById: actor.sub,
           metadata: { ticketId: result.ticket.id, roomId: dto.roomId, blockId: result.blockId },
-          actionUrl: `/maintenance/tickets/${result.ticket.id}`,
+          actionUrl: `/maintenance?ticketId=${result.ticket.id}`,
         })
         .catch((e) => this.logger.warn(`notif critical failed: ${e.message}`))
     }
@@ -588,7 +588,7 @@ export class MaintenanceService {
           recipientId: dto.assignedToId,
           triggeredById: actor.sub,
           metadata: { ticketId },
-          actionUrl: `/maintenance/tickets/${ticketId}`,
+          actionUrl: `/maintenance?ticketId=${ticketId}`,
         })
         .catch((e) => this.logger.warn(`notif assigned-on-approve failed: ${e.message}`))
     }
@@ -801,7 +801,7 @@ export class MaintenanceService {
         recipientId: dto.assigneeId,
         triggeredById: actor.sub,
         metadata: { ticketId },
-        actionUrl: `/maintenance/tickets/${ticketId}`,
+        actionUrl: `/maintenance?ticketId=${ticketId}`,
       })
       .catch((e) => this.logger.warn(`notif assign failed: ${e.message}`))
 
@@ -920,7 +920,7 @@ export class MaintenanceService {
           recipientType: NotificationRecipient.USER,
           recipientId: winner.id,
           metadata: { ticketId },
-          actionUrl: `/maintenance/tickets/${ticketId}`,
+          actionUrl: `/maintenance?ticketId=${ticketId}`,
         })
         .catch(() => undefined)
     } catch (err: any) {
@@ -1032,7 +1032,7 @@ export class MaintenanceService {
         recipientRole: StaffRole.SUPERVISOR,
         triggeredById: actor.sub,
         metadata: { ticketId },
-        actionUrl: `/maintenance/tickets/${ticketId}`,
+        actionUrl: `/maintenance?ticketId=${ticketId}`,
       })
       .catch(() => undefined)
 
