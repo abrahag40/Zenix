@@ -15,7 +15,8 @@ import { es } from 'date-fns/locale'
 import {
   Bell, X, Check, CheckCheck, AlertCircle, Info,
   ShieldAlert, LogOut, UserX, RotateCcw, Wrench,
-  CreditCard, Calendar, BellOff,
+  CreditCard, Calendar, BellOff, Clock, ClipboardCheck,
+  UserCheck, Inbox, PauseCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -27,16 +28,30 @@ const CATEGORY_META: Record<
   AppNotificationCategory,
   { icon: React.ElementType; label: string; color: string; bg: string; border: string }
 > = {
-  CHECKIN_UNCONFIRMED: { icon: Calendar,    label: 'Llegada pendiente',  color: 'text-violet-700',  bg: 'bg-violet-50',  border: 'border-violet-200' },
-  EARLY_CHECKOUT:      { icon: LogOut,      label: 'Salida anticipada',  color: 'text-amber-700',   bg: 'bg-amber-50',   border: 'border-amber-200'  },
-  NO_SHOW:             { icon: UserX,       label: 'No-show',            color: 'text-red-700',     bg: 'bg-red-50',     border: 'border-red-200'    },
-  NO_SHOW_REVERTED:    { icon: RotateCcw,   label: 'No-show revertido',  color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200'},
-  ARRIVAL_RISK:        { icon: AlertCircle, label: 'Riesgo de llegada',  color: 'text-orange-700',  bg: 'bg-orange-50',  border: 'border-orange-200' },
-  CHECKOUT_COMPLETE:   { icon: Check,       label: 'Checkout completo',  color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200'},
-  TASK_COMPLETED:      { icon: CheckCheck,  label: 'Tarea completada',   color: 'text-slate-700',   bg: 'bg-slate-50',   border: 'border-slate-200'  },
-  MAINTENANCE_REPORTED:{ icon: Wrench,      label: 'Mantenimiento',      color: 'text-blue-700',    bg: 'bg-blue-50',    border: 'border-blue-200'   },
-  PAYMENT_PENDING:     { icon: CreditCard,  label: 'Pago pendiente',     color: 'text-amber-700',   bg: 'bg-amber-50',   border: 'border-amber-200'  },
-  SYSTEM:              { icon: Info,        label: 'Sistema',            color: 'text-slate-500',   bg: 'bg-slate-50',   border: 'border-slate-200'  },
+  CHECKIN_UNCONFIRMED:               { icon: Calendar,        label: 'Llegada pendiente',     color: 'text-violet-700',  bg: 'bg-violet-50',  border: 'border-violet-200' },
+  EARLY_CHECKOUT:                    { icon: LogOut,          label: 'Salida anticipada',     color: 'text-amber-700',   bg: 'bg-amber-50',   border: 'border-amber-200'  },
+  NO_SHOW:                           { icon: UserX,           label: 'No-show',               color: 'text-red-700',     bg: 'bg-red-50',     border: 'border-red-200'    },
+  NO_SHOW_REVERTED:                  { icon: RotateCcw,       label: 'No-show revertido',     color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200'},
+  ARRIVAL_RISK:                      { icon: AlertCircle,     label: 'Riesgo de llegada',     color: 'text-orange-700',  bg: 'bg-orange-50',  border: 'border-orange-200' },
+  CHECKOUT_COMPLETE:                 { icon: Check,           label: 'Checkout completo',     color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200'},
+  TASK_COMPLETED:                    { icon: CheckCheck,      label: 'Tarea completada',      color: 'text-slate-700',   bg: 'bg-slate-50',   border: 'border-slate-200'  },
+  MAINTENANCE_REPORTED:              { icon: Wrench,          label: 'Mantenimiento',         color: 'text-blue-700',    bg: 'bg-blue-50',    border: 'border-blue-200'   },
+  PAYMENT_PENDING:                   { icon: CreditCard,      label: 'Pago pendiente',        color: 'text-amber-700',   bg: 'bg-amber-50',   border: 'border-amber-200'  },
+  SYSTEM:                            { icon: Info,            label: 'Sistema',               color: 'text-slate-500',   bg: 'bg-slate-50',   border: 'border-slate-200'  },
+  // Sprint Mx-1 — 9 categorías de tickets de mantenimiento
+  MAINTENANCE_TICKET_CREATED:        { icon: Wrench,          label: 'Ticket creado',         color: 'text-blue-700',    bg: 'bg-blue-50',    border: 'border-blue-200'   },
+  MAINTENANCE_TICKET_UPDATED:        { icon: Wrench,          label: 'Ticket actualizado',    color: 'text-blue-700',    bg: 'bg-blue-50',    border: 'border-blue-200'   },
+  MAINTENANCE_TICKET_CRITICAL:       { icon: ShieldAlert,     label: 'Mantenimiento crítico', color: 'text-red-700',     bg: 'bg-red-50',     border: 'border-red-200'    },
+  MAINTENANCE_TICKET_NEEDS_APPROVAL: { icon: AlertCircle,     label: 'Aprobación requerida',  color: 'text-amber-700',   bg: 'bg-amber-50',   border: 'border-amber-200'  },
+  MAINTENANCE_TICKET_ASSIGNED:       { icon: UserCheck,       label: 'Ticket asignado',       color: 'text-indigo-700',  bg: 'bg-indigo-50',  border: 'border-indigo-200' },
+  MAINTENANCE_TICKET_RESOLVED:       { icon: ClipboardCheck,  label: 'Por verificar',         color: 'text-violet-700',  bg: 'bg-violet-50',  border: 'border-violet-200' },
+  MAINTENANCE_TICKET_VERIFIED:       { icon: CheckCheck,      label: 'Trabajo verificado',    color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200'},
+  MAINTENANCE_TICKET_QUEUED:         { icon: Inbox,           label: 'En cola',               color: 'text-slate-700',   bg: 'bg-slate-50',   border: 'border-slate-200'  },
+  MAINTENANCE_SLA_BREACH:            { icon: Clock,           label: 'Tiempo excedido',       color: 'text-red-700',     bg: 'bg-red-50',     border: 'border-red-200'    },
+  // Sprint 9
+  TASK_VERIFIED_READY:               { icon: CheckCheck,      label: 'Lista para huésped',    color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200'},
+  LATE_CHECKOUT_PENDING:             { icon: PauseCircle,     label: 'Salida demorada',       color: 'text-amber-700',   bg: 'bg-amber-50',   border: 'border-amber-200'  },
+  LATE_CHECKOUT_ESCALATED:           { icon: AlertCircle,     label: 'Salida sin confirmar',  color: 'text-red-700',     bg: 'bg-red-50',     border: 'border-red-200'    },
 }
 
 const PRIORITY_STRIPE: Record<string, string> = {
@@ -66,7 +81,8 @@ function NotificationCard({ notif, onRead, onApprove, onReject, onNavigate }: Ca
   const meta   = CATEGORY_META[notif.category] ?? CATEGORY_META.SYSTEM
   const Icon   = meta.icon
   const stripe = PRIORITY_STRIPE[notif.priority] ?? PRIORITY_STRIPE.MEDIUM
-  const typeBadge = TYPE_LABEL[notif.type]
+  // Fallback robusto — si backend agrega un tipo nuevo no rompe el render.
+  const typeBadge = TYPE_LABEL[notif.type] ?? TYPE_LABEL.INFORMATIONAL
 
   const handleClick = () => {
     if (!notif.isRead) onRead(notif.id)

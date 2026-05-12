@@ -94,10 +94,19 @@ function GlobalTopBar() {
             onClick={() => setPanelOpen((v) => !v)}
           >
             <Bell className="h-5 w-5" strokeWidth={1.75} />
+            {/* Patrón Meta 2020+ "tiered fade": al abrir el panel cesa el
+                radar pulsante (signal implícito "I saw it"). El punto rojo
+                permanece mientras haya unread real — el panel muestra el
+                detalle, los items individuales conservan su punto azul
+                hasta interacción explícita (click/navegar). */}
             {unreadCount > 0 && (
               <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <span className="absolute w-9 h-9 rounded-lg bg-red-400/20" style={{ animation: 'radar1 2.5s ease-out infinite' }} />
-                <span className="absolute w-9 h-9 rounded-lg bg-red-400/15" style={{ animation: 'radar2 2.5s ease-out 0.6s infinite' }} />
+                {!panelOpen && (
+                  <>
+                    <span className="absolute w-9 h-9 rounded-lg bg-red-400/20" style={{ animation: 'radar1 2.5s ease-out infinite' }} />
+                    <span className="absolute w-9 h-9 rounded-lg bg-red-400/15" style={{ animation: 'radar2 2.5s ease-out 0.6s infinite' }} />
+                  </>
+                )}
                 <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500 ring-2 ring-white" />
               </span>
             )}

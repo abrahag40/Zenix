@@ -4,9 +4,19 @@ const BASE = '/v1/notification-center'
 
 export type AppNotificationType     = 'INFORMATIONAL' | 'ACTION_REQUIRED' | 'APPROVAL_REQUIRED'
 export type AppNotificationCategory =
+  // Legacy (Sprint 7D)
   | 'CHECKIN_UNCONFIRMED' | 'EARLY_CHECKOUT' | 'NO_SHOW' | 'NO_SHOW_REVERTED'
   | 'ARRIVAL_RISK' | 'CHECKOUT_COMPLETE' | 'TASK_COMPLETED' | 'MAINTENANCE_REPORTED'
   | 'PAYMENT_PENDING' | 'SYSTEM'
+  // Sprint Mx-1 — Módulo de Mantenimiento (9 categorías)
+  | 'MAINTENANCE_TICKET_CREATED' | 'MAINTENANCE_TICKET_UPDATED'
+  | 'MAINTENANCE_TICKET_CRITICAL' | 'MAINTENANCE_TICKET_NEEDS_APPROVAL'
+  | 'MAINTENANCE_TICKET_ASSIGNED' | 'MAINTENANCE_TICKET_RESOLVED'
+  | 'MAINTENANCE_TICKET_VERIFIED' | 'MAINTENANCE_TICKET_QUEUED'
+  | 'MAINTENANCE_SLA_BREACH'
+  // Sprint 9 — Dual toast+panel + late checkout escalation
+  | 'TASK_VERIFIED_READY'
+  | 'LATE_CHECKOUT_PENDING' | 'LATE_CHECKOUT_ESCALATED'
 export type AppNotificationPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'
 
 export interface AppNotification {

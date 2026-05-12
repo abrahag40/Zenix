@@ -113,8 +113,20 @@ export function TicketDetailDrawer({ ticketId, actor, onClose }: Props) {
           {ticket?.title ?? 'Detalle de ticket'}
         </SheetTitle>
 
-        {/* ── Header — Apple HIG spacing: 20pt padding-x, 16pt vertical ── */}
-        <header className="px-5 pt-5 pb-4 border-b border-slate-200 bg-white shrink-0">
+        {/* ── Header — pastel bg + accent bar (mismo lenguaje BookingDetailSheet).
+            Color del bg derivado de la prioridad (red-50 / amber-50 / slate-50)
+            análogo al verde-pastel del booking IN_HOUSE. Accent bar inferior
+            análogo al OTA color del booking. */}
+        <header
+          className="px-5 pt-5 pb-4 shrink-0"
+          style={{
+            backgroundColor:
+              ticket?.priority === 'CRITICAL' ? 'rgba(239,68,68,0.06)' :
+              ticket?.priority === 'HIGH'     ? 'rgba(248,113,113,0.05)' :
+              ticket?.priority === 'MEDIUM'   ? 'rgba(245,158,11,0.05)' :
+              'rgba(248,250,252,1)',
+          }}
+        >
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               {ticket ? <HeaderContent ticket={ticket} /> : <HeaderSkeleton />}
@@ -128,6 +140,14 @@ export function TicketDetailDrawer({ ticketId, actor, onClose }: Props) {
             </button>
           </div>
         </header>
+
+        {/* Priority accent bar — análogo al OTA stripe del BookingDetailSheet */}
+        {ticket && (
+          <div
+            className="h-[3px] flex-shrink-0"
+            style={{ backgroundColor: priorityAccentColor(ticket.priority) }}
+          />
+        )}
 
         {/* Error state — antes el drawer se quedaba vacío sin feedback si
             la query fallaba (T-web-1 bug del testing 2026-05-11). */}
@@ -178,18 +198,9 @@ export function TicketDetailDrawer({ ticketId, actor, onClose }: Props) {
           </div>
         )}
 
-        {/* ── Acciones inline contextuales (H5 prevention) ────────────── */}
-        {ticket && !confirm && (
-          <ActionsBar
-            ticket={ticket}
-            isSupervisor={isSupervisor}
-            isAssignee={isAssignee}
-            isMaintenanceTech={isMaintenanceTech}
-            onAction={setConfirm}
-          />
-        )}
-
-        {/* ── Confirm-step inline (§32 con preview real) ──────────────── */}
+        {/* Confirm-step inline (§32 con preview real) — sigue arriba porque
+            necesita captura de input antes del flujo de tabs.
+            ActionsBar se renderiza al final (sticky footer) — abajo. */}
         {ticket && confirm && (
           <ConfirmPanel
             ticketId={ticket.id}
@@ -283,6 +294,21 @@ export function TicketDetailDrawer({ ticketId, actor, onClose }: Props) {
             {ticket && <LogList logs={ticket.logs} />}
           </TabsContent>
         </Tabs>
+
+        {/* Footer fijo — mismo patrón que BookingDetailSheet ("Mover hab." /
+            "Salida anticipada"). Ley de Fitts: acciones primarias en thumb
+            zone bottom. Apple HIG 2024: "primary actions live at the bottom
+            of side sheets". El ActionsBar genera 0..N botones según el rol
+            y estado del ticket; cuando no hay acciones, no renderiza. */}
+        {ticket && !confirm && (
+          <ActionsBar
+            ticket={ticket}
+            isSupervisor={isSupervisor}
+            isAssignee={isAssignee}
+            isMaintenanceTech={isMaintenanceTech}
+            onAction={setConfirm}
+          />
+        )}
       </SheetContent>
     </Sheet>
   )
@@ -295,60 +321,65 @@ function HeaderContent({
 }: {
   ticket: NonNullable<ReturnType<typeof useMaintenanceTicket>['data']>
 }) {
-  const Icon = CATEGORY_ICON[ticket.category]
+  // Header refactor 2026-05-13 — adopta lenguaje visual del BookingDetailSheet
+  // (decisión del usuario: estandarizar slides laterales). Patrón:
+  //   · Título grande arriba (text-lg semibold)
+  //   · 2 pills inline: status (analog "Alojado") + priority (analog OTA)
+  //   · Subtítulo: ubicación · timestamp relativo
   return (
     <>
-      {/* Línea 1 — chips: priority + category + friendlyId */}
-      <div className="flex items-center gap-2 flex-wrap">
+      {/* Título — text-lg igual que el BookingDetailSheet "Pedro & Carmen Vega" */}
+      <h2 className="text-lg font-semibold text-slate-900 leading-tight tracking-tight">
+        {ticket.title}
+      </h2>
+
+      {/* Subtítulo — ubicación + tiempo, igual que el subtítulo del booking */}
+      <p className="mt-1 text-xs text-slate-600">
+        {ticket.roomNumber
+          ? `Hab. ${ticket.roomNumber}`
+          : ticket.assetTag
+          ? ticket.assetTag
+          : 'Área general'}
+        {' · '}
+        {format(parseISO(ticket.createdAt), "d MMM yyyy", { locale: es })}
+      </p>
+
+      {/* Pills: status + priority. Mismo size/shape que los pills del booking
+          ("Alojado" / "Hostelworld"). Status pill es informativo (slate/azul/
+          morado/verde según estado). Priority es semántico (rojo/amber/slate). */}
+      <div className="flex items-center gap-2 flex-wrap mt-2.5">
         <span
-          className={`text-[10px] font-semibold px-2 py-0.5 rounded-md ${
-            PRIORITY_PILL[ticket.priority]
-          }`}
-        >
-          {PRIORITY_LABEL[ticket.priority]}
-        </span>
-        <span className="text-[10px] text-slate-400 uppercase tracking-wide flex items-center gap-1">
-          <Icon className="h-3 w-3" aria-hidden />
-          {CATEGORY_LABEL[ticket.category]}
-        </span>
-        {ticket.friendlyId && (
-          <span
-            className="text-[10px] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded"
-            title="Identificador único del ticket (para auditoría)"
-          >
-            {ticket.friendlyId}
-          </span>
-        )}
-        {/* Estado — pill colorado prominente, alineado a la derecha del row.
-            Testing T-status-prominent: el usuario antes veía solo "Recibido"
-            en gris pequeño; ahora es un chip semántico con su propio color
-            (azul ACK / morado RESOLVED / verde VERIFIED / etc). */}
-        <span
-          className={`ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-md ${
+          className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full ${
             STATUS_PILL[ticket.status]
           }`}
         >
           {STATUS_LABEL[ticket.status]}
         </span>
+        <span
+          className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full ${
+            PRIORITY_PILL[ticket.priority]
+          }`}
+        >
+          {PRIORITY_LABEL[ticket.priority]}
+        </span>
       </div>
-
-      {/* Título del problema — más respiración */}
-      <h2 className="mt-2.5 text-base font-semibold text-slate-900 leading-snug">
-        {ticket.title}
-      </h2>
-
-      {/* Línea de contexto — ubicación + timestamp */}
-      <p className="mt-1 text-xs text-slate-500">
-        {ticket.roomNumber
-          ? `Hab. ${ticket.roomNumber}`
-          : ticket.assetTag
-          ? `🔧 ${ticket.assetTag}`
-          : '📍 Área general'}
-        {' · '}
-        {format(parseISO(ticket.createdAt), "d MMM yyyy 'a las' HH:mm", { locale: es })}
-      </p>
     </>
   )
+}
+
+/**
+ * Color del accent bar bajo el header — igual semántica que el OTA color en
+ * el BookingDetailSheet. Refleja la prioridad: CRITICAL=red, HIGH=red soft,
+ * MEDIUM=amber, LOW=slate. Apple HIG: el accent bar es signal primario
+ * pre-attentive (Treisman 1980).
+ */
+function priorityAccentColor(priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'): string {
+  switch (priority) {
+    case 'CRITICAL': return '#dc2626'  // red-600
+    case 'HIGH':     return '#f87171'  // red-400
+    case 'MEDIUM':   return '#f59e0b'  // amber-500
+    case 'LOW':      return '#cbd5e1'  // slate-300
+  }
 }
 
 /**
@@ -426,8 +457,8 @@ function DetailBody({
       )}
 
       {ticket.guestImpact && (
-        <Section label="Impacto al huésped">
-          <p className="text-slate-700">{ticket.guestImpact}</p>
+        <Section label="Impacto al huésped" tone="warning">
+          <p className="text-amber-900 text-sm leading-relaxed">{ticket.guestImpact}</p>
         </Section>
       )}
 
@@ -465,8 +496,8 @@ function DetailBody({
       </Section>
 
       {ticket.rejectedReason && (
-        <Section label="Razón de rechazo">
-          <p className="text-red-700">{ticket.rejectedReason}</p>
+        <Section label="Razón de rechazo" tone="danger">
+          <p className="text-red-800 text-sm leading-relaxed">{ticket.rejectedReason}</p>
         </Section>
       )}
 
@@ -584,22 +615,54 @@ function logEventLabel(ev: MaintenanceTicketLogDto['event']): string {
   return map[ev] ?? ev
 }
 
-function Section({ label, children }: { label: string; children: React.ReactNode }) {
+/**
+ * Section card — refactor 2026-05-13. Adopta el patrón del BookingDetailSheet:
+ *   · Label uppercase tracking-wider (igual que "CHECK-IN", "HABITACIÓN", etc.)
+ *   · Contenido dentro de card bg-slate-50/60 rounded-xl con padding generoso
+ *   · Apple HIG: agrupación visual por afinidad (Gestalt proximidad)
+ */
+function Section({
+  label,
+  children,
+  tone = 'default',
+}: {
+  label: string
+  children: React.ReactNode
+  /** 'default' = slate · 'warning' = amber (note) · 'danger' = red (rejection) */
+  tone?: 'default' | 'warning' | 'danger'
+}) {
+  const cardClass =
+    tone === 'warning'
+      ? 'bg-amber-50 border border-amber-200'
+      : tone === 'danger'
+      ? 'bg-red-50 border border-red-200'
+      : 'bg-slate-50 border border-slate-100'
+  const labelClass =
+    tone === 'warning'
+      ? 'text-amber-700'
+      : tone === 'danger'
+      ? 'text-red-700'
+      : 'text-slate-500'
   return (
     <section>
-      <h3 className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2">
+      <h3 className={`text-[10px] font-bold uppercase tracking-wider mb-1.5 ${labelClass}`}>
         {label}
       </h3>
-      <div>{children}</div>
+      <div className={`${cardClass} rounded-xl p-4`}>{children}</div>
     </section>
   )
 }
 
+/**
+ * KeyValue — variant matching BookingDetailSheet grid de quick-stats.
+ * Renderizado como bloque vertical (label arriba pequeño · value abajo grande)
+ * para mejor jerarquía visual al escanear (Apple HIG 2024 Typography Hierarchy).
+ */
 function KeyValue({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex justify-between gap-3 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
-      <span className="text-slate-500">{label}</span>
-      <span className="text-slate-800 font-medium text-right">{value}</span>
+    <div className="flex justify-between gap-3 py-2 text-sm border-b border-slate-200/60 last:border-b-0">
+      <span className="text-slate-500 text-xs">{label}</span>
+      <span className="text-slate-900 font-medium text-right">{value}</span>
     </div>
   )
 }
@@ -752,18 +815,23 @@ function ActionsBar({
       ? 'flex'
       : 'flex flex-wrap gap-2'
 
+  // Footer styling — alineado con BookingDetailSheet:
+  //   · border-t en lugar de border-b (ahora vive abajo)
+  //   · bg-white para contraste con tabs scrollables
+  //   · padding generoso (px-5 py-4) — Apple HIG: primary actions deserve respiración
+  //   · shrink-0 para que no colapse cuando el contenido de tabs hace scroll
   return (
-    <div className={`px-5 py-3.5 border-b border-slate-200 bg-slate-50/60 ${layoutClass}`}>
+    <div className={`px-5 py-4 border-t border-slate-200 bg-white shrink-0 ${layoutClass}`}>
       {actions.map((a) => {
         const Icon = a.icon
         return (
           <Button
             key={a.key}
             type="button"
-            size="sm"
+            size="default"
             variant={a.primary ? 'default' : 'outline'}
             disabled={!!a.pending}
-            className={`w-full ${
+            className={`w-full h-10 ${
               a.tone === 'destructive'
                 ? 'border-red-200 text-red-700 hover:bg-red-50'
                 : a.tone === 'positive' && a.primary
@@ -772,7 +840,7 @@ function ActionsBar({
             }`}
             onClick={a.onClick}
           >
-            <Icon className="h-3.5 w-3.5 mr-1.5" />
+            <Icon className="h-4 w-4 mr-1.5" />
             {a.pending ? 'Procesando…' : a.label}
           </Button>
         )
