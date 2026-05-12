@@ -13,6 +13,7 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { tasksOverridesApi } from '../../api/tasks-overrides.api'
+import { useShakeOnInvalid } from '../../hooks/useShakeOnInvalid'
 
 interface Props {
   taskId: string
@@ -34,6 +35,8 @@ export function TaskOverrideMenu({
   const qc = useQueryClient()
   const [holdInputOpen, setHoldInputOpen] = useState(false)
   const [holdReasonInput, setHoldReasonInput] = useState('')
+  const [holdReasonError, setHoldReasonError] = useState<string | null>(null)
+  const { shakeClass: holdShake, trigger: triggerHoldShake } = useShakeOnInvalid()
 
   function invalidateAll() {
     qc.invalidateQueries({ queryKey: ['daily-grid'] })
@@ -138,15 +141,22 @@ export function TaskOverrideMenu({
           ) : (
             <div className="px-3 py-2 border-t border-gray-100">
               <p className="text-[11px] text-gray-500 mb-1.5">Razón del hold</p>
-              <input
-                className="input text-xs py-1.5"
-                placeholder="Ej. Huésped pidió extender"
-                value={holdReasonInput}
-                onChange={(e) => setHoldReasonInput(e.target.value)}
-                autoFocus
-                minLength={3}
-                maxLength={200}
-              />
+              <div className={holdShake}>
+                <input
+                  className={`input text-xs py-1.5 ${holdReasonError ? 'border-red-400' : ''}`}
+                  placeholder="Ej. Huésped pidió extender"
+                  value={holdReasonInput}
+                  onChange={(e) => {
+                    setHoldReasonInput(e.target.value)
+                    if (holdReasonError) setHoldReasonError(null)
+                  }}
+                  autoFocus
+                  maxLength={200}
+                />
+              </div>
+              {holdReasonError && (
+                <p className="text-[11px] text-red-600 mt-1">{holdReasonError}</p>
+              )}
               <div className="flex gap-1.5 mt-2">
                 <button
                   type="button"
@@ -154,6 +164,7 @@ export function TaskOverrideMenu({
                   onClick={() => {
                     setHoldInputOpen(false)
                     setHoldReasonInput('')
+                    setHoldReasonError(null)
                   }}
                 >
                   Cancelar
@@ -161,8 +172,16 @@ export function TaskOverrideMenu({
                 <button
                   type="button"
                   className="btn-primary text-xs px-2 py-1 flex-1"
-                  disabled={holdReasonInput.trim().length < 3}
-                  onClick={() => holdM.mutate(holdReasonInput.trim())}
+                  onClick={() => {
+                    // §60 D19: validate-on-click.
+                    if (holdReasonInput.trim().length < 3) {
+                      setHoldReasonError('Escribe al menos 3 caracteres.')
+                      triggerHoldShake()
+                      return
+                    }
+                    setHoldReasonError(null)
+                    holdM.mutate(holdReasonInput.trim())
+                  }}
                 >
                   Confirmar
                 </button>

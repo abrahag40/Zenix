@@ -63,6 +63,8 @@ import {
   ErrorSheetIcons,
 } from '../../../src/features/maintenance/components/ErrorSheet'
 import { InputSheet } from '../../../src/features/maintenance/components/InputSheet'
+import { useShakeOnInvalid } from '../../../src/hooks/useShakeOnInvalid'
+import Animated from 'react-native-reanimated'
 import { DismissKeyboardView } from '../../../src/design/DismissKeyboardView'
 
 const CATEGORIES: TicketCategoryValue[] = [
@@ -89,6 +91,7 @@ export default function ReportProblemScreen() {
   const user = useAuthStore((s) => s.user)
   const [category, setCategory] = useState<TicketCategoryValue>('PLUMBING')
   const [title, setTitle] = useState('')
+  const [titleError, setTitleError] = useState<string | null>(null)
   const [description, setDescription] = useState('')
   const [isCritical, setIsCritical] = useState(false)
   const [photoUri, setPhotoUri] = useState<string | null>(null)
@@ -174,9 +177,11 @@ export default function ReportProblemScreen() {
     [title, description, photoUri, location],
   )
 
+  const { shakeStyle: titleShake, trigger: triggerTitleShake } = useShakeOnInvalid()
+  // §60 D19: NO disabled para validación. Solo bloqueamos durante submit en curso.
   const canSubmit = useMemo(
-    () => title.trim().length >= 3 && !submitting,
-    [title, submitting],
+    () => !submitting,
+    [submitting],
   )
 
   function onBack() {
@@ -233,7 +238,14 @@ export default function ReportProblemScreen() {
   }
 
   async function onSubmit() {
-    if (!canSubmit) return
+    if (submitting) return
+    // §60 D19: validate-on-click. NO disabled.
+    if (title.trim().length < 3) {
+      setTitleError('Describe el problema en al menos 3 caracteres.')
+      triggerTitleShake()
+      return
+    }
+    setTitleError(null)
     setSubmitting(true)
     try {
       let initialPhotoUrls: string[] | undefined
@@ -363,19 +375,31 @@ export default function ReportProblemScreen() {
           como alberca o lavandería usa "Área".
         </Text>
 
-        {/* Título — single-line: returnKeyType="done" cierra teclado */}
+        {/* Título — single-line: returnKeyType="done" cierra teclado.
+            §60 D19: wrapper con shake al validar inválido. Sin hint
+            "mínimo 3 caracteres" persistente — solo aparece error si
+            el usuario intenta submit con menos. */}
         <Text style={styles.label}>¿Qué problema observaste?</Text>
-        <TextInput
-          style={styles.input}
-          value={title}
-          onChangeText={setTitle}
-          placeholder="Ej. Llave del lavabo gotea constante"
-          placeholderTextColor={colors.text.tertiary}
-          maxLength={120}
-          returnKeyType="done"
-          blurOnSubmit={true}
-        />
-        <Text style={styles.hint}>{title.length}/120 · mínimo 3 caracteres</Text>
+        <Animated.View style={titleShake}>
+          <TextInput
+            style={[styles.input, titleError && styles.inputError]}
+            value={title}
+            onChangeText={(v) => {
+              setTitle(v)
+              if (titleError) setTitleError(null)
+            }}
+            placeholder="Ej. Llave del lavabo gotea constante"
+            placeholderTextColor={colors.text.tertiary}
+            maxLength={120}
+            returnKeyType="done"
+            blurOnSubmit={true}
+          />
+        </Animated.View>
+        {titleError ? (
+          <Text style={styles.errorText}>{titleError}</Text>
+        ) : (
+          <Text style={styles.hint}>{title.length}/120</Text>
+        )}
 
         {/* Descripción — multi-line: tap fuera dismissa (Apple HIG Notes pattern) */}
         <Text style={styles.label}>Detalle adicional (opcional)</Text>
@@ -451,8 +475,8 @@ export default function ReportProblemScreen() {
 
         <Pressable
           onPress={onSubmit}
-          disabled={!canSubmit}
-          style={[styles.submitBtn, !canSubmit && styles.submitBtnDisabled]}
+          disabled={submitting}
+          style={[styles.submitBtn, submitting && styles.submitBtnDisabled]}
         >
           {submitting ? (
             <ActivityIndicator color={colors.text.inverse} />
@@ -677,6 +701,8 @@ const styles = StyleSheet.create({
   },
   inputMulti: { minHeight: 90, textAlignVertical: 'top' },
   hint: { color: colors.text.tertiary, fontSize: typography.size.micro, marginTop: 6, lineHeight: 16 },
+  inputError: { borderColor: '#F87171' },
+  errorText: { color: '#FCA5A5', fontSize: typography.size.small, marginTop: 6 },
   photoPreviewWrap: {
     position: 'relative',
     marginBottom: 10,

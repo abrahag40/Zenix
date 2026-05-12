@@ -44,6 +44,7 @@ import {
 import { useCreateTicket } from '../hooks/useMaintenanceTickets'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../../../api/client'
+import { useShakeOnInvalid } from '@/hooks/useShakeOnInvalid'
 
 type LocationKind = 'ROOM' | 'ASSET' | 'GENERAL'
 type AssignmentMode = 'ASSIGN' | 'QUEUE' | 'NEEDS_APPROVAL'
@@ -176,6 +177,44 @@ export function CreateTicketDialog({
     canStep3 &&
     (mode !== 'ASSIGN' || !!assignedToId)
 
+  // §60 D19: validate-on-click pattern.
+  const [stepError, setStepError] = useState<string | null>(null)
+  const { trigger: triggerStepShake } = useShakeOnInvalid()
+
+  function handleNext() {
+    if (step === 1 && !canStep2) {
+      setStepError(
+        locationKind === 'ROOM'
+          ? 'Selecciona una habitación para continuar.'
+          : 'Escribe el identificador del activo o área.',
+      )
+      triggerStepShake()
+      return
+    }
+    if (step === 2 && !canStep3) {
+      setStepError('El título necesita al menos 3 caracteres.')
+      triggerStepShake()
+      return
+    }
+    setStepError(null)
+    setStep((s) => (s === 1 ? 2 : 3))
+  }
+
+  function handleSubmitClick() {
+    if (create.isPending) return
+    if (!canSubmit) {
+      setStepError(
+        mode === 'ASSIGN' && !assignedToId
+          ? 'Selecciona el técnico que atenderá este ticket.'
+          : 'Completa los campos requeridos.',
+      )
+      triggerStepShake()
+      return
+    }
+    setStepError(null)
+    void handleSubmit()
+  }
+
   async function handleSubmit() {
     const dto: CreateMaintenanceTicketInput = {
       roomId: locationKind === 'ROOM' ? roomId : null,
@@ -281,8 +320,7 @@ export function CreateTicketDialog({
             {step < 3 && (
               <Button
                 size="sm"
-                disabled={(step === 1 && !canStep2) || (step === 2 && !canStep3)}
-                onClick={() => setStep((s) => (s === 1 ? 2 : 3))}
+                onClick={handleNext}
                 className="bg-emerald-600 hover:bg-emerald-700 text-white"
               >
                 Siguiente
@@ -292,8 +330,8 @@ export function CreateTicketDialog({
             {step === 3 && (
               <Button
                 size="sm"
-                disabled={!canSubmit || create.isPending}
-                onClick={handleSubmit}
+                disabled={create.isPending}
+                onClick={handleSubmitClick}
                 className="bg-emerald-600 hover:bg-emerald-700 text-white"
               >
                 {create.isPending ? 'Creando…' : 'Crear ticket'}
@@ -301,6 +339,9 @@ export function CreateTicketDialog({
               </Button>
             )}
           </div>
+          {stepError && (
+            <p className="mt-2 text-xs text-red-600 text-right">{stepError}</p>
+          )}
         </footer>
       </DialogContent>
     </Dialog>

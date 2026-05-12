@@ -5,11 +5,16 @@
  * consistencia §13 CLAUDE.md. Sustituye los modales custom que pedían texto
  * al usuario (asset input, reject reason, verify-reject reason).
  *
+ * §60 D19 CLAUDE.md — Patrón Meta/Apple/Stripe/Linear (Sprint Mx-1B-W3 W3.0):
+ *   · Botón primario SIEMPRE habilitado
+ *   · Al tap con input < minLength → shake horizontal + haptic error +
+ *     mensaje inline. NO se muestra "Faltan X caracteres" proactivamente.
+ *   · Eliminado el hint persistente (cognitive load Sweller 1988).
+ *
  * Diseño:
  *   · Mismo backdrop + card que ErrorSheet (200ms fade + spring scale)
  *   · Ícono SVG opcional con accent color por tone
  *   · Título + descripción + TextInput (multiline opcional)
- *   · Validación in-modal con error sutil debajo del input
  *   · CTAs primary/destructive + secondary
  *   · KeyboardAvoidingView wrappea todo (fix T-18)
  */
@@ -36,6 +41,7 @@ import Animated, {
 } from 'react-native-reanimated'
 import { colors } from '../../../design/colors'
 import { typography } from '../../../design/typography'
+import { useShakeOnInvalid } from '../../../hooks/useShakeOnInvalid'
 import type { ErrorSheetTone } from './ErrorSheet'
 
 interface Props {
@@ -85,6 +91,7 @@ export function InputSheet({
   const iconProgress = useSharedValue(0)
   const [value, setValue] = useState(initialValue)
   const [error, setError] = useState<string | null>(null)
+  const { shakeStyle, trigger: triggerShake } = useShakeOnInvalid()
 
   useEffect(() => {
     if (open) {
@@ -122,7 +129,14 @@ export function InputSheet({
   function handleSubmit() {
     const trimmed = value.trim()
     if (trimmed.length < minLength) {
-      setError(`Mínimo ${minLength} caracteres.`)
+      // §60 D19: validate-on-click → shake + haptic + mensaje inline.
+      // NO disabled, NO hint proactivo. El usuario ve la regla solo al intentar.
+      setError(
+        minLength === 1
+          ? 'Escribe un mensaje antes de continuar.'
+          : `Necesitas al menos ${minLength} caracteres.`,
+      )
+      triggerShake()
       return
     }
     onSubmit(trimmed)
@@ -152,41 +166,29 @@ export function InputSheet({
             )}
             <Text style={styles.title}>{title}</Text>
             {description && <Text style={styles.body}>{description}</Text>}
-            <TextInput
-              autoFocus
-              value={value}
-              onChangeText={(v) => {
-                setValue(v)
-                if (error) setError(null)
-              }}
-              placeholder={placeholder}
-              placeholderTextColor={colors.text.tertiary}
-              style={[styles.input, multiline && styles.inputMulti, error && styles.inputError]}
-              multiline={multiline}
-              numberOfLines={multiline ? 3 : 1}
-              maxLength={maxLength}
-              returnKeyType={multiline ? 'default' : 'done'}
-              blurOnSubmit={!multiline}
-              onSubmitEditing={multiline ? undefined : handleSubmit}
-            />
+            {/* §60 D19: wrapper con shake animation al validar inválido. */}
+            <Animated.View style={[styles.inputWrap, shakeStyle]}>
+              <TextInput
+                autoFocus
+                value={value}
+                onChangeText={(v) => {
+                  setValue(v)
+                  if (error) setError(null)
+                }}
+                placeholder={placeholder}
+                placeholderTextColor={colors.text.tertiary}
+                style={[styles.input, multiline && styles.inputMulti, error && styles.inputError]}
+                multiline={multiline}
+                numberOfLines={multiline ? 3 : 1}
+                maxLength={maxLength}
+                returnKeyType={multiline ? 'default' : 'done'}
+                blurOnSubmit={!multiline}
+                onSubmitEditing={multiline ? undefined : handleSubmit}
+              />
+            </Animated.View>
             {error && <Text style={styles.errorText}>{error}</Text>}
-            {/* Hint en vivo — antes el botón solo se desactivaba sin
-                explicación (testing T-minchars). Apple HIG H9. */}
+            {/* §60 D19: solo char count, sin hint proactivo de minLength. */}
             <View style={styles.hintRow}>
-              {minLength > 0 && (
-                <Text
-                  style={[
-                    styles.minHint,
-                    value.trim().length >= minLength
-                      ? styles.minHintOk
-                      : styles.minHintPending,
-                  ]}
-                >
-                  {value.trim().length >= minLength
-                    ? '✓ Completo'
-                    : `Faltan ${minLength - value.trim().length} caracteres mínimo`}
-                </Text>
-              )}
               <Text style={styles.charCount}>
                 {value.length}/{maxLength}
               </Text>
@@ -264,6 +266,7 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginBottom: 18,
   },
+  inputWrap: { width: '100%' },
   input: {
     width: '100%',
     backgroundColor: colors.canvas.primary,

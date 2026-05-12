@@ -79,6 +79,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTaskStore } from '../../../src/store/tasks'
 import { api, ApiError } from '../../../src/api/client'
 import { maintenanceApi } from '../../../src/features/maintenance/api/maintenance.api'
+import { useShakeOnInvalid } from '../../../src/hooks/useShakeOnInvalid'
 import type { CleaningTaskDto, CleaningNoteDto } from '@zenix/shared'
 import { CleaningStatus, TaskType } from '@zenix/shared'
 import { colors } from '../../../src/design/colors'
@@ -956,11 +957,19 @@ function IssueReportScreen({
 
   const [category, setCategory] = useState<CategoryId>('OTHER')
   const [description, setDescription] = useState('')
+  const [descError, setDescError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const canSubmit = description.trim().length > 0 && !loading
+  const { shakeStyle: descShake, trigger: triggerDescShake } = useShakeOnInvalid()
 
   async function handleSubmit() {
-    if (!canSubmit) return
+    if (loading) return
+    // §60 D19: validate-on-click. Botón siempre activo (excepto isPending).
+    if (description.trim().length === 0) {
+      setDescError('Describe el problema antes de enviar.')
+      triggerDescShake()
+      return
+    }
+    setDescError(null)
     setLoading(true)
     try {
       // Sprint Mx-1B-M (CLAUDE.md §47 D-Mx1): el housekeeper crea un
@@ -1010,16 +1019,14 @@ function IssueReportScreen({
         </View>
         <TouchableOpacity
           onPress={handleSubmit}
-          disabled={!canSubmit}
+          disabled={loading}
           hitSlop={12}
           style={[styles.issueNavSide, styles.issueNavSubmit]}
         >
           {loading ? (
             <ActivityIndicator color={colors.brand[400]} size="small" />
           ) : (
-            <Text style={[styles.issueNavSubmitText, !canSubmit && styles.issueNavSubmitTextDisabled]}>
-              Enviar
-            </Text>
+            <Text style={styles.issueNavSubmitText}>Enviar</Text>
           )}
         </TouchableOpacity>
       </View>
@@ -1070,12 +1077,16 @@ function IssueReportScreen({
           </View>
 
           <Text style={[styles.issueFieldLabel, styles.issueFieldLabelSpaced]}>DESCRIPCIÓN</Text>
+          <Animated.View style={descShake}>
           <TextInput
-            style={styles.issueDescInput}
+            style={[styles.issueDescInput, descError ? { borderColor: '#F87171' } : null]}
             placeholder="Describe el problema con detalle..."
             placeholderTextColor={colors.text.tertiary}
             value={description}
-            onChangeText={setDescription}
+            onChangeText={(v) => {
+              setDescription(v)
+              if (descError) setDescError(null)
+            }}
             multiline
             textAlignVertical="top"
             autoCorrect={false}
@@ -1087,6 +1098,10 @@ function IssueReportScreen({
               }, 150)
             }}
           />
+          </Animated.View>
+          {descError && (
+            <Text style={{ color: '#FCA5A5', fontSize: 13, marginTop: 6 }}>{descError}</Text>
+          )}
         </ScrollView>
     </View>
   )

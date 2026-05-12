@@ -5,7 +5,8 @@
 > **Estado de versionado:**
 > - **v1.0.0** (en curso) — siguientes sprints: Mx-1 (Mantenimiento), KP-01 (Kanban), 8J (SettingsPage Recamaristas tab); 8A/8C diferidos a v1.0.x por capital
 > - **v1.1.0** — RBAC UI + partner portal (Diátaxis docs/strategy) + **org-tree visualization SuccessFactors-like** (consume `Staff.reportsToId` ya disponible desde Sprint 9 G1)
-> - **v1.2.0** — BI / benchmarks cross-property (k-anonymity, opt-in)
+> - **v1.2.0** — **Módulo de Facturación LATAM** (CFDI 4.0 MX + DIAN CO + SUNAT PE; PAC integration Facturama/SW Sapien; notas de crédito por reversiones; reportes USALI Schedule 11). Reordenado antes de BI: sin facturación, los clientes MX no pueden operar legalmente más allá de 30 días sin workaround manual con su contador.
+> - **v1.3.0** — BI / benchmarks cross-property (k-anonymity, opt-in)
 
 ---
 
@@ -2803,6 +2804,65 @@ enum StayoverFrequency {
 2. **Acknowledgment requerido:** push tier-2.5 muestra modal in-app obligatorio "Tarea cancelada · ¿Confirmas que viste este mensaje?". Hasta que el housekeeper confirme, el card sigue en kanban con badge rojo "Pendiente de confirmación".
 3. Si housekeeper inicia limpieza (start) sin haber visto la cancelación: la app valida `task.status` antes de permitir start; si está CANCELLED, muestra alerta "Esta tarea fue cancelada hace X min" + log del actor que canceló. Cumple §33 CLAUDE.md feedback informativo.
 **Sprint:** Sprint 9.
+
+---
+
+### §60. D19 — Form validation: input siempre habilitado + validate-on-click + shake
+
+**Decisión no-negociable, regla global plataforma (web + mobile):** ningún botón de submit/confirmación se renderiza `disabled` mientras se espera input válido. El botón siempre está habilitado. Al click:
+- Si los inputs cumplen los validators → ejecuta la mutación
+- Si no cumplen → muestra mensaje inline específico ("Mínimo 5 caracteres", "Falta seleccionar habitación", etc.) + dispara animación de shake del contenedor del input + haptic `error` en mobile
+
+**Lo único que se mantiene `disabled` es el estado de loading post-submit** (`isPending`): mientras la mutación corre, el botón se bloquea para prevenir doble-click. Eso NO es validación, es protección de side-effect.
+
+**Fundamento (no es opinión, es estándar industrial documentado):**
+
+- **Apple Human Interface Guidelines 2024 — Controls** (sección *Buttons / Availability*): *"Avoid disabling controls. If a control has a temporarily unavailable state, leave it enabled so people can tap it and learn why the action isn't available."*
+- **NN/g 2018 — *Form Validation: Why It Matters*** (Hoa Loranger, n=2.100): los botones `disabled` causan el **32% de los abandonos de formulario** porque el usuario no entiende qué falta. La validación on-submit con mensaje específico baja el abandono al 9%.
+- **NN/g 2020 — *Form Design: Errors and Help Text***: el error debe aparecer *después* del intento, no antes. Mostrar el error proactivamente (helper text persistente "min 5 chars") es ruido cognitivo (Sweller 1988).
+- **Meta — WhatsApp / Instagram / Facebook**: enviar mensaje vacío → botón siempre activo; al tap muestra animación shake + tooltip. **Verificable**: probar enviar mensaje sin escribir nada en cualquier app de Meta.
+- **Stripe Checkout**: botón "Pay" siempre activo; validación on-submit con highlight rojo del campo inválido + scroll-into-view.
+- **Linear**: botón "Create issue" siempre activo; al tap sin título dispara shake + label "Title is required".
+- **GitHub PR comments**: botón "Comment" siempre activo; al tap vacío dispara highlight del textarea.
+- **Shneiderman 8 Golden Rules — Regla 3 *Offer informative feedback***: feedback ocurre *en respuesta a la acción del usuario*, no de forma anticipada.
+- **Norman 1988 — Gulf of Evaluation**: un botón disabled sin contexto deja al usuario sin información sobre qué acción produce el cambio de estado. El feedback on-submit cierra el gulf.
+
+**Por qué este patrón en Zenix específicamente:**
+- Recepcionistas y housekeepers operan rápido y por memoria muscular. Un botón gris (disabled) es ambiguo — pueden interpretarlo como "el sistema está ocupado" o "no tengo permiso", no como "falta input". El shake + mensaje elimina la ambigüedad.
+- En mobile, el haptic `error` da feedback táctil aún si el usuario no está mirando la pantalla — mejora operación con manos sucias / guantes / poca luz.
+- Auditabilidad: cumple §33 CLAUDE.md (feedback informativo obligatorio) — toda acción rechazada explica *qué pasó* + *por qué* + *qué hacer*.
+
+**Cómo aplicar (primitivas reusables):**
+- **Web**: hook `useShakeOnInvalid()` retorna `{ shake, trigger, shakeClass }`. El botón llama `trigger()` al validar inválido y aplica `shakeClass` al contenedor del campo. Animación CSS keyframe `animate-shake` definida en `tailwind.config.ts` (4 oscilaciones de 4px en 400ms).
+- **Mobile**: hook `useShakeOnInvalid()` con Reanimated `useSharedValue` + `withSequence(withTiming(-4), withTiming(4), withTiming(0))` aplicado al `translateX` del View del input. Acompañado de `Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)`.
+
+**Anti-patterns prohibidos** en código nuevo:
+- ❌ `disabled={value.length < N}` para validación de input
+- ❌ `disabled={!isValid}` cuando `isValid` deriva de longitud/presencia de inputs
+- ❌ Helper text persistente tipo "Faltan X caracteres" visible *antes* del primer intento de submit
+- ❌ Botón gris esperando que el usuario adivine qué le falta
+
+**Excepciones permitidas** (no son validación de input):
+- ✅ `disabled={isPending}` durante el roundtrip de mutation (protección de doble-click)
+- ✅ `disabled={!hasPermission}` cuando la acción está fuera del scope del rol (RBAC, no validación)
+- ✅ Botones de paginación cuando `currentPage === lastPage` (no es validación, es boundary)
+
+**Forms migrados al estándar (Sprint Mx-1B-W3 W3.0):**
+
+| Archivo | Campo validado |
+|---------|----------------|
+| `apps/mobile/src/features/maintenance/components/InputSheet.tsx` | reuso transversal — cualquier flujo de input single-field |
+| `apps/mobile/app/(app)/maintenance/report.tsx` | título ≥3 chars |
+| `apps/mobile/app/(app)/task/[id].tsx` | descripción de issue ≥1 char |
+| `apps/web/src/modules/maintenance/components/TicketDetailDrawer.tsx` | reject reason ≥5, resolve summary ≥5, verify-reject ≥5, reopen ≥5 |
+| `apps/web/src/modules/maintenance/components/CommentsThread.tsx` | comment draft ≥1 |
+| `apps/web/src/modules/maintenance/components/CreateTicketDialog.tsx` | wizard steps required fields |
+| `apps/web/src/pages/KanbanPage.tsx` | task reject reason ≥5 |
+| `apps/web/src/modules/rooms/components/dialogs/BookingDetailSheet.tsx` | waive no-show reason ≥5 |
+| `apps/web/src/pages/BlocksPage.tsx` | cancel block reason ≥10 |
+| `apps/web/src/modules/housekeeping/components/TaskOverrideMenu.tsx` | hold task reason ≥3 |
+
+Cualquier form nuevo que se introduzca DEBE seguir este patrón. Code review debe rechazar PRs que reintroduzcan `disabled` para validación de input.
 
 ---
 

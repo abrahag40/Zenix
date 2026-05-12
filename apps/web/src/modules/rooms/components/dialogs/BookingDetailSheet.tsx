@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useSoftLock } from '@/hooks/useSoftLock'
+import { useShakeOnInvalid } from '@/hooks/useShakeOnInvalid'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
@@ -87,6 +88,8 @@ export function BookingDetailSheet({
   const waiveNoShow  = useWaiveNoShow(stay?.id ?? '')
   const [showWaiveInput, setShowWaiveInput] = useState(false)
   const [waiveReason, setWaiveReason] = useState('')
+  const [waiveError, setWaiveError] = useState<string | null>(null)
+  const { shakeClass: waiveShake, trigger: triggerWaiveShake } = useShakeOnInvalid()
   const [showEarlyCheckout, setShowEarlyCheckout] = useState(false)
   const earlyCheckoutMutation = useEarlyCheckout(propertyId ?? '')
 
@@ -623,28 +626,44 @@ export function BookingDetailSheet({
                         </div>
                       ) : (
                         <div className="space-y-2">
-                          <input
-                            autoFocus
-                            type="text"
-                            placeholder="Razón para perdonar (obligatoria)"
-                            value={waiveReason}
-                            onChange={(e) => setWaiveReason(e.target.value)}
-                            className="w-full text-xs border border-red-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-red-300"
-                          />
+                          <div className={waiveShake}>
+                            <input
+                              autoFocus
+                              type="text"
+                              placeholder="Razón para perdonar"
+                              value={waiveReason}
+                              onChange={(e) => {
+                                setWaiveReason(e.target.value)
+                                if (waiveError) setWaiveError(null)
+                              }}
+                              className={`w-full text-xs border rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-red-300 ${
+                                waiveError ? 'border-red-400' : 'border-red-200'
+                              }`}
+                            />
+                          </div>
+                          {waiveError && (
+                            <p className="text-[11px] text-red-600">{waiveError}</p>
+                          )}
                           <div className="flex gap-2">
                             <Button
                               size="sm"
                               variant="outline"
                               className="flex-1 text-xs h-8"
-                              onClick={() => { setShowWaiveInput(false); setWaiveReason('') }}
+                              onClick={() => { setShowWaiveInput(false); setWaiveReason(''); setWaiveError(null) }}
                             >
                               Cancelar
                             </Button>
                             <Button
                               size="sm"
                               className="flex-1 text-xs h-8 bg-amber-600 hover:bg-amber-700 text-white"
-                              disabled={waiveReason.trim().length < 5 || waiveNoShow.isPending}
+                              disabled={waiveNoShow.isPending}
                               onClick={() => {
+                                if (waiveReason.trim().length < 5) {
+                                  setWaiveError('Escribe al menos 5 caracteres explicando el motivo.')
+                                  triggerWaiveShake()
+                                  return
+                                }
+                                setWaiveError(null)
                                 waiveNoShow.mutate(waiveReason)
                                 setShowWaiveInput(false)
                                 setWaiveReason('')

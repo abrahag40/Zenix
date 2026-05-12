@@ -38,6 +38,7 @@ import {
 import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
+import { useShakeOnInvalid } from '@/hooks/useShakeOnInvalid'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -876,9 +877,30 @@ function ConfirmPanel({
   } as const
 
   const c = config[confirm.kind as keyof typeof config]
-  const reasonOk = !c.requiresReason || reason.trim().length >= 5
-  const summaryOk = !('requiresSummary' in c && c.requiresSummary) || summary.trim().length >= 5
-  const canConfirm = reasonOk && summaryOk && !c.pending
+  // §60 D19: NO disabled para validar. Botón siempre activo (excepto isPending).
+  // Validate-on-click → shake + error inline.
+  const [reasonError, setReasonError] = useState<string | null>(null)
+  const [summaryError, setSummaryError] = useState<string | null>(null)
+  const { shakeClass: reasonShake, trigger: triggerReasonShake } = useShakeOnInvalid()
+  const { shakeClass: summaryShake, trigger: triggerSummaryShake } = useShakeOnInvalid()
+
+  function handleConfirm() {
+    let invalid = false
+    if (c.requiresReason && reason.trim().length < 5) {
+      setReasonError('Escribe al menos 5 caracteres.')
+      triggerReasonShake()
+      invalid = true
+    }
+    if ('requiresSummary' in c && c.requiresSummary && summary.trim().length < 5) {
+      setSummaryError('Describe la resolución en al menos 5 caracteres.')
+      triggerSummaryShake()
+      invalid = true
+    }
+    if (invalid) return
+    setReasonError(null)
+    setSummaryError(null)
+    c.onConfirm()
+  }
 
   return (
     <div className="px-5 py-4 border-b border-slate-200 bg-amber-50/40 space-y-3">
@@ -891,43 +913,47 @@ function ConfirmPanel({
 
       {c.requiresReason && (
         <div>
-          <textarea
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="Razón (mínimo 5 caracteres)…"
-            className="w-full text-xs border border-slate-300 rounded-md px-2 py-1.5 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            rows={3}
-            autoFocus
-          />
-          {/* Hint visible — antes el botón solo se deshabilitaba sin
-              explicación (testing T-minchars). Apple HIG H9: ayudar al
-              usuario a entender por qué un control está disabled. */}
+          {/* §60 D19: shake wrapper · sin hint persistente · error solo al submit */}
+          <div className={reasonShake}>
+            <textarea
+              value={reason}
+              onChange={(e) => {
+                setReason(e.target.value)
+                if (reasonError) setReasonError(null)
+              }}
+              placeholder="Razón…"
+              className={`w-full text-xs border rounded-md px-2 py-1.5 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                reasonError ? 'border-red-400' : 'border-slate-300'
+              }`}
+              rows={3}
+              autoFocus
+            />
+          </div>
           <div className="mt-1 flex justify-between text-[10px]">
-            <span className={reason.trim().length < 5 ? 'text-amber-600' : 'text-emerald-600'}>
-              {reason.trim().length < 5
-                ? `Faltan ${5 - reason.trim().length} caracter${5 - reason.trim().length === 1 ? '' : 'es'} para registrar la razón`
-                : '✓ Razón completa'}
-            </span>
+            <span className="text-red-600">{reasonError ?? ''}</span>
             <span className="text-slate-400">{reason.length}/300</span>
           </div>
         </div>
       )}
       {'requiresSummary' in c && c.requiresSummary && (
         <div>
-          <textarea
-            value={summary}
-            onChange={(e) => setSummary(e.target.value)}
-            placeholder="Resumen de la resolución (mínimo 5 caracteres)…"
-            className="w-full text-xs border border-slate-300 rounded-md px-2 py-1.5 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            rows={3}
-            autoFocus
-          />
+          <div className={summaryShake}>
+            <textarea
+              value={summary}
+              onChange={(e) => {
+                setSummary(e.target.value)
+                if (summaryError) setSummaryError(null)
+              }}
+              placeholder="Resumen de la resolución…"
+              className={`w-full text-xs border rounded-md px-2 py-1.5 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                summaryError ? 'border-red-400' : 'border-slate-300'
+              }`}
+              rows={3}
+              autoFocus
+            />
+          </div>
           <div className="mt-1 flex justify-between text-[10px]">
-            <span className={summary.trim().length < 5 ? 'text-amber-600' : 'text-emerald-600'}>
-              {summary.trim().length < 5
-                ? `Faltan ${5 - summary.trim().length} caracter${5 - summary.trim().length === 1 ? '' : 'es'} para describir la resolución`
-                : '✓ Resumen completo'}
-            </span>
+            <span className="text-red-600">{summaryError ?? ''}</span>
             <span className="text-slate-400">{summary.length}/300</span>
           </div>
         </div>
@@ -944,8 +970,8 @@ function ConfirmPanel({
         </Button>
         <Button
           size="sm"
-          disabled={!canConfirm}
-          onClick={c.onConfirm}
+          disabled={c.pending}
+          onClick={handleConfirm}
           className={
             c.tone === 'destructive'
               ? 'bg-red-600 hover:bg-red-700 text-white'

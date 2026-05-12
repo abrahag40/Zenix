@@ -1268,12 +1268,20 @@ OpEx incluye: AWS S3 + RDS Postgres ($40-60), Channex API ($30-50/property), Str
 - Cron de mantenimiento preventivo recurrente (Sprint Mx-2)
 - Reportes self-vs-self del técnico + catálogo de badges SVG
 
-**v1.2 (Q4 2026):**
+**v1.2 (Q4 2026) — Módulo de Facturación LATAM:**
+- **CFDI 4.0 México** — generación de XML firmado vía PAC (Facturama, SW Sapien, Solución Factible)
+- **DIAN Colombia** + **SUNAT Perú** — generación de documentos fiscales equivalentes
+- Folios fiscales, series, cancelaciones SAT
+- Notas de crédito automáticas por reversión de no-show / waiveCharge
+- Reportes contables USALI Schedule 11 (revenue por categoría, taxes recaudados)
+- **Por qué v1.2 (reordenado desde BI):** sin facturación nativa, los clientes MX no pueden operar legalmente más allá de 30 días sin workaround manual con su contador. Bloqueante comercial real, no nice-to-have.
+
+**v1.3 (Q1 2027) — BI cross-property:**
 - BI / benchmarks cross-property con k-anonymity (data network effects)
 - Floor plan visualization mantenimiento
 - Inbound WhatsApp para reportes de huéspedes (gap LATAM)
 
-**v2.0 (2027):**
+**v2.0 (Q2 2027):**
 - Predictive maintenance (ML pattern Optii, requiere ≥6 meses datos)
 - Inventario de refacciones (Quore pattern)
 

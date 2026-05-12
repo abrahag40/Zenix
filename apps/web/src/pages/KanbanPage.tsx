@@ -26,6 +26,7 @@ import { differenceInCalendarDays, format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { api } from '../api/client'
 import { useSSE } from '../hooks/useSSE'
+import { useShakeOnInvalid } from '../hooks/useShakeOnInvalid'
 import { useAuthStore } from '../store/auth'
 import type { CleaningTaskDto, SseEvent, StaffDto, TaskLogDto } from '@zenix/shared'
 import { CleaningStatus, StaffRole, Priority, TaskLogEvent } from '@zenix/shared'
@@ -1245,14 +1246,27 @@ function RejectTaskModal({
   onRejected: () => void
 }) {
   const [reason, setReason] = useState('')
+  const [reasonError, setReasonError] = useState<string | null>(null)
+  const { shakeClass, trigger: triggerShake } = useShakeOnInvalid()
   const trimmed = reason.trim()
-  const isValid = trimmed.length >= 5
 
   const rejectMut = useMutation({
     mutationFn: () => api.post(`/tasks/${taskId}/reject`, { reason: trimmed }),
     onSuccess: onRejected,
     onError: (e) => toast.error(e instanceof Error ? e.message : 'No se pudo rechazar la tarea'),
   })
+
+  // §60 D19: validate-on-click.
+  function handleReject() {
+    if (rejectMut.isPending) return
+    if (trimmed.length < 5) {
+      setReasonError('Escribe al menos 5 caracteres explicando el motivo.')
+      triggerShake()
+      return
+    }
+    setReasonError(null)
+    rejectMut.mutate()
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -1271,17 +1285,26 @@ function RejectTaskModal({
             <label className="text-xs font-medium text-gray-700 block mb-1">
               Razón del rechazo <span className="text-red-600">*</span>
             </label>
-            <textarea
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="Ej. Baño con agua acumulada, sábanas mal puestas, polvo en ventanas..."
-              rows={4}
-              autoFocus
-              className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 resize-none focus:outline-none focus:ring-2 focus:ring-red-200"
-            />
-            <p className="text-[11px] text-gray-500 mt-1">
-              Mínimo 5 caracteres ({trimmed.length}/5)
-            </p>
+            <div className={shakeClass}>
+              <textarea
+                value={reason}
+                onChange={(e) => {
+                  setReason(e.target.value)
+                  if (reasonError) setReasonError(null)
+                }}
+                placeholder="Ej. Baño con agua acumulada, sábanas mal puestas, polvo en ventanas..."
+                rows={4}
+                autoFocus
+                className={`w-full text-sm border rounded px-2 py-1.5 resize-none focus:outline-none focus:ring-2 focus:ring-red-200 ${
+                  reasonError ? 'border-red-400' : 'border-gray-300'
+                }`}
+              />
+            </div>
+            {reasonError ? (
+              <p className="text-[11px] text-red-600 mt-1">{reasonError}</p>
+            ) : (
+              <p className="text-[11px] text-gray-500 mt-1">{trimmed.length}/300</p>
+            )}
           </div>
         </div>
         <div className="px-5 py-3 border-t border-gray-200 flex justify-end gap-2">
@@ -1292,8 +1315,8 @@ function RejectTaskModal({
             Cancelar
           </button>
           <button
-            onClick={() => rejectMut.mutate()}
-            disabled={!isValid || rejectMut.isPending}
+            onClick={handleReject}
+            disabled={rejectMut.isPending}
             className="text-sm px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded font-medium disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {rejectMut.isPending ? 'Rechazando...' : '🔄 Rechazar limpieza'}

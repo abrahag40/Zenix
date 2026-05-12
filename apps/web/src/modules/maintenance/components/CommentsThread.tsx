@@ -21,6 +21,7 @@ import { es } from 'date-fns/locale'
 import type { MaintenanceTicketCommentDto } from '@zenix/shared'
 import { Button } from '@/components/ui/button'
 import { useAddComment } from '../hooks/useMaintenanceTickets'
+import { useShakeOnInvalid } from '@/hooks/useShakeOnInvalid'
 
 interface Props {
   ticketId: string
@@ -60,10 +61,15 @@ export function CommentsThread({ ticketId, comments, currentUserId }: Props) {
     )
   }, [comments, currentUserId, pending.length])
 
-  const canSend = draft.trim().length > 0 && !addComment.isPending
+  // §60 D19: NO disabled para validación. Solo bloquea durante mutación.
+  const { shakeClass, trigger: triggerShake } = useShakeOnInvalid()
 
   function submit() {
-    if (!canSend) return
+    if (addComment.isPending) return
+    if (draft.trim().length === 0) {
+      triggerShake()
+      return
+    }
     const content = draft.trim()
     const optimistic: DisplayComment = {
       id: `optimistic-${Date.now()}`,
@@ -152,12 +158,12 @@ export function CommentsThread({ ticketId, comments, currentUserId }: Props) {
           placeholder="Escribe un comentario…  (⌘/Ctrl + Enter envía)"
           rows={2}
           maxLength={1000}
-          className="flex-1 text-xs border border-slate-300 rounded-md px-2 py-1.5 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          className={`flex-1 text-xs border border-slate-300 rounded-md px-2 py-1.5 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-500 ${shakeClass}`}
         />
         <Button
           type="button"
           size="sm"
-          disabled={!canSend}
+          disabled={addComment.isPending}
           onClick={submit}
           className="bg-emerald-600 hover:bg-emerald-700 text-white shrink-0"
         >
