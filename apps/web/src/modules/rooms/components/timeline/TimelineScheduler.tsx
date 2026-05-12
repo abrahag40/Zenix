@@ -27,7 +27,7 @@ import { TodayColumnHighlight } from './TodayColumnHighlight'
 import { OccupancyFooter } from './OccupancyFooter'
 import { DragGhost } from './DragGhost'
 import { BookingDetailSheet } from '../dialogs/BookingDetailSheet'
-import { TicketDetailDrawer } from '../../../maintenance/components/TicketDetailDrawer'
+import { useMaintenanceDrawer } from '../../../../store/maintenanceDrawer'
 import { CheckInDialog } from '../dialogs/CheckInDialog'
 import type { NewStayData } from '../dialogs/CheckInDialog'
 import { CheckOutDialog } from '../dialogs/CheckOutDialog'
@@ -251,26 +251,9 @@ export function TimelineScheduler() {
   const navigate = useNavigate()
   void navigate
 
-  // W3.3 fix (debate epistémico 2026-05-12) — En lugar de navigate('/maintenance')
-  // que rompe el contexto del calendario (Apple HIG 2024 Modality + NN/g 2020
-  // Modal Overlays + Norman action cycle), abrimos el TicketDetailDrawer
-  // in-place encima del calendario. El usuario nunca pierde su vista actual.
-  const [maintenanceTicketId, setMaintenanceTicketId] = useState<string | null>(null)
-  const currentUser = useAuthStore((s) => s.user)
-  const maintenanceActor = useMemo(
-    () =>
-      currentUser
-        ? {
-            sub: currentUser.id,
-            email: currentUser.email,
-            role: currentUser.role,
-            department: currentUser.department,
-            propertyId: currentUser.propertyId,
-            organizationId: '',
-          }
-        : null,
-    [currentUser],
-  )
+  // W3.3 + W3.6 — abre el GlobalMaintenanceDrawer (montado en App.tsx)
+  // via el store Zustand. Sin acoplar state local con un drawer propio.
+  const openMaintenanceDrawer = useMaintenanceDrawer((s) => s.open)
 
   // W3.1 — Maintenance tickets activos por habitación (badge 🔧 en RoomColumn).
   // Shared query con MaintenancePage + sidebar badge (W3.4) — staleTime 30s + SSE.
@@ -889,7 +872,7 @@ export function TimelineScheduler() {
                 // (mantiene contexto — Apple HIG 2024 + NN/g 2020). El
                 // BlockModal sigue cubriendo bloqueos no-de-mantenimiento.
                 if (block.maintenanceTicketId) {
-                  setMaintenanceTicketId(block.maintenanceTicketId)
+                  openMaintenanceDrawer(block.maintenanceTicketId)
                   return
                 }
                 setBlockDetail(block)
@@ -1038,7 +1021,7 @@ export function TimelineScheduler() {
           closeSheet()
           setCheckinDialog({ stayId })
         }}
-        onOpenMaintenanceTicket={(id) => setMaintenanceTicketId(id)}
+        onOpenMaintenanceTicket={(id) => openMaintenanceDrawer(id)}
         propertyId={PROPERTY_ID}
       />
 
@@ -1245,17 +1228,9 @@ export function TimelineScheduler() {
         />
       )}
 
-      {/* ─── Maintenance TicketDetailDrawer (W3.3) — abierto in-place sobre
-            el calendario cuando el usuario clickea un bloque originado por
-            ticket CRITICAL O un ticket listado en BookingDetailSheet.
-            Mantiene el contexto del calendario detrás (Apple HIG 2024). ── */}
-      {maintenanceActor && (
-        <TicketDetailDrawer
-          ticketId={maintenanceTicketId}
-          actor={maintenanceActor}
-          onClose={() => setMaintenanceTicketId(null)}
-        />
-      )}
+      {/* W3.6 — Drawer local removido. Ahora vive en App.tsx como
+          GlobalMaintenanceDrawer leyendo del store useMaintenanceDrawer.
+          Cualquier componente puede abrirlo sin acoplar state. */}
 
       {/* ─── BlockModal — create new block ──────────────────── */}
       <BlockModal

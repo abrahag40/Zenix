@@ -22,15 +22,38 @@ import { Bell } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { NotificationPanel } from './NotificationPanel'
 import { useNotifications, useActivePropertyId } from '@/hooks/useNotifications'
+import { useMaintenanceDrawer, parseMaintenanceTicketUrl } from '@/store/maintenanceDrawer'
 
 export function NotificationBell() {
   const [panelOpen, setPanelOpen] = useState(false)
   const navigate = useNavigate()
+  const openMaintenanceDrawer = useMaintenanceDrawer((s) => s.open)
   const propertyId = useActivePropertyId()
   const {
     notifications, unreadCount,
     markRead, markAllRead, approve, reject,
   } = useNotifications(propertyId)
+
+  /*
+   * W3.6 — Click en notificación:
+   *   1) Si el actionUrl apunta a un ticket de mantenimiento (formato nuevo
+   *      `/maintenance?ticketId=X` o legacy `/maintenance/tickets/X`) →
+   *      abre el GlobalMaintenanceDrawer in-place sin navegación.
+   *   2) Para cualquier otra ruta (ej. /reservations/:id, /pms?date=X) →
+   *      navega normalmente.
+   *
+   * Beneficio: el usuario nunca pierde su contexto (Apple HIG 2024) y
+   * notifs viejas en BD con actionUrl legacy también funcionan.
+   */
+  function handleNotificationNavigate(url: string) {
+    setPanelOpen(false)
+    const maintTicketId = parseMaintenanceTicketUrl(url)
+    if (maintTicketId) {
+      openMaintenanceDrawer(maintTicketId)
+      return
+    }
+    navigate(url)
+  }
 
   return (
     <>
@@ -79,7 +102,7 @@ export function NotificationBell() {
         onMarkAll={markAllRead}
         onApprove={approve}
         onReject={reject}
-        onNavigate={(url) => { setPanelOpen(false); navigate(url) }}
+        onNavigate={handleNotificationNavigate}
       />
     </>
   )

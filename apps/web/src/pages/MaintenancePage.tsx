@@ -35,27 +35,23 @@ import {
 } from '../modules/maintenance/hooks/useMaintenanceKpis'
 import { KpiBar } from '../modules/maintenance/components/KpiBar'
 import { KanbanBoard } from '../modules/maintenance/components/KanbanBoard'
-import { TicketDetailDrawer } from '../modules/maintenance/components/TicketDetailDrawer'
+import { useMaintenanceDrawer } from '../store/maintenanceDrawer'
 import { CreateTicketDialog } from '../modules/maintenance/components/CreateTicketDialog'
-import type {
-  JwtPayload,
-  MaintenanceTicketListQuery,
-} from '@zenix/shared'
+import type { MaintenanceTicketListQuery } from '@zenix/shared'
 
 export function MaintenancePage() {
   const user = useAuthStore((s) => s.user)
   const token = useAuthStore((s) => s.token)
 
-  // Drawer + dialog state
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  // W3.6 — Drawer global vive en App.tsx. Esta página lo abre via store.
+  const openMaintenanceDrawer = useMaintenanceDrawer((s) => s.open)
 
-  // W3.2 — Deep-link desde BookingDetailSheet/RoomColumn: ?ticketId=X
-  // auto-abre el TicketDetailDrawer al cargar la página.
+  // W3.2 — Deep-link `?ticketId=X` auto-abre el drawer global.
   const [searchParams, setSearchParams] = useSearchParams()
   useEffect(() => {
     const ticketId = searchParams.get('ticketId')
-    if (ticketId && ticketId !== selectedId) {
-      setSelectedId(ticketId)
+    if (ticketId) {
+      openMaintenanceDrawer(ticketId)
       // Limpia el query param para que un refresh no re-abra el drawer.
       const next = new URLSearchParams(searchParams)
       next.delete('ticketId')
@@ -93,17 +89,6 @@ export function MaintenancePage() {
 
   if (!user || !token) {
     return null
-  }
-
-  // El JwtPayload del actor — lo construimos desde el authStore (mismo
-  // patrón que otras páginas; el store sincroniza con el JWT al login).
-  const actor: JwtPayload = {
-    sub: user.id,
-    email: user.email,
-    role: user.role,
-    department: user.department,
-    propertyId: user.propertyId,
-    organizationId: '', // not exposed in user shape — backend ignora; tenant se infiere del JWT
   }
 
   const kpis = useMaintenanceKpis({
@@ -186,16 +171,12 @@ export function MaintenancePage() {
         <KanbanBoard
           tickets={tickets}
           role={user.role}
-          onSelectTicket={setSelectedId}
+          onSelectTicket={openMaintenanceDrawer}
         />
       )}
 
-      {/* ── Drawer detalle ─────────────────────────────────────────────── */}
-      <TicketDetailDrawer
-        ticketId={selectedId}
-        actor={actor}
-        onClose={() => setSelectedId(null)}
-      />
+      {/* W3.6 — Drawer ahora vive como GlobalMaintenanceDrawer en App.tsx.
+          Abrir desde aquí: openMaintenanceDrawer(ticketId) — Zustand store. */}
 
       {/* ── Dialog crear ───────────────────────────────────────────────── */}
       <CreateTicketDialog

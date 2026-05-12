@@ -18,6 +18,7 @@ import { DiscrepanciesPage } from './pages/DiscrepanciesPage'
 import { BlocksPage } from './pages/BlocksPage'
 import { MaintenancePage } from './pages/MaintenancePage'
 import { ReservationDetailPage } from './pages/ReservationDetailPage'
+import { GlobalMaintenanceDrawer } from './components/GlobalMaintenanceDrawer'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -85,6 +86,12 @@ export default function App() {
       </BrowserRouter>
       <Toaster position="top-right" toastOptions={{ className: 'text-sm' }} />
       <SonnerToaster richColors position="bottom-right" />
+      {/* Sprint Mx-1B-W3 W3.6 — TicketDetailDrawer global. Cualquier
+          componente (NotificationBell, BookingDetailSheet, TimelineScheduler,
+          KanbanPage, etc.) puede abrirlo via useMaintenanceDrawer.open(id)
+          sin acoplar state. El drawer aparece sobre la página actual
+          manteniendo el contexto (Apple HIG 2024 Modality). */}
+      <GlobalMaintenanceDrawer />
     </QueryClientProvider>
   )
 }
