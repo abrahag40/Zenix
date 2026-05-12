@@ -128,20 +128,23 @@ export function RoomColumn({ flatRows, groups, onToggleGroup, scrollTop = 0, rea
                   <span className="text-[10px] text-slate-400">P{room.floor}</span>
                 )}
 
-                {/* W3.1 — Maintenance badge: count + color por prioridad +
-                    candado si la habitación está fuera de venta. Tooltip
-                    explica cuántos tickets, prioridad y bloqueo. */}
+                {/* W3.1 fix (debate epistémico 2026-05-12) — Peso visual
+                    reducido: dot indicator pequeño (6×6) en lugar de pill
+                    `🔧 N` saturado. Sigue señalando dual-signal (room +
+                    grid) pero sin competir con el room number. Patrón
+                    Linear/Notion status dots. Tooltip al hover transmite
+                    el detalle: count + prioridad + bloqueo. */}
                 {(() => {
                   const mx = maintenanceByRoom?.get(room.id)
                   if (!mx) return null
-                  const color =
+                  const dotColor =
                     mx.highest === 'CRITICAL'
-                      ? 'bg-red-50 text-red-700 border-red-200'
+                      ? 'bg-red-500'
                       : mx.highest === 'HIGH'
-                      ? 'bg-red-50 text-red-600 border-red-100'
+                      ? 'bg-red-400'
                       : mx.highest === 'MEDIUM'
-                      ? 'bg-amber-50 text-amber-700 border-amber-200'
-                      : 'bg-slate-50 text-slate-600 border-slate-200'
+                      ? 'bg-amber-400'
+                      : 'bg-slate-400'
                   const priorityLabel =
                     mx.highest === 'CRITICAL'
                       ? 'crítico'
@@ -150,14 +153,19 @@ export function RoomColumn({ flatRows, groups, onToggleGroup, scrollTop = 0, rea
                       : mx.highest === 'MEDIUM'
                       ? 'medio'
                       : 'bajo'
-                  const tooltip = `${mx.count} ticket${mx.count === 1 ? '' : 's'} de mantenimiento — prioridad más alta: ${priorityLabel}${mx.blocked ? ' · habitación fuera de venta' : ''}`
+                  const tooltip = `🔧 ${mx.count} ticket${mx.count === 1 ? '' : 's'} de mantenimiento · prioridad ${priorityLabel}${mx.blocked ? ' · habitación fuera de venta' : ''}`
                   return (
                     <span
-                      className={`mr-1 flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-semibold border leading-none select-none ${color}`}
+                      className="ml-1 inline-flex items-center gap-1 select-none cursor-help"
                       title={tooltip}
+                      aria-label={tooltip}
                     >
-                      🔧 {mx.count}
-                      {mx.blocked && <span className="ml-0.5">🔒</span>}
+                      <span className={`block w-1.5 h-1.5 rounded-full ${dotColor}`} aria-hidden />
+                      {mx.count > 1 && (
+                        <span className="text-[9px] font-semibold text-slate-500 tabular-nums leading-none">
+                          {mx.count}
+                        </span>
+                      )}
                     </span>
                   )
                 })()}

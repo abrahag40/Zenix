@@ -22,16 +22,61 @@ interface Args {
   department?: string | null
 }
 
+export interface MaintenanceActionableSummary {
+  count: number
+  /** Breakdown legible para el tooltip ("2 por verificar · 1 esperando aprobación"). */
+  description: string | null
+}
+
+/**
+ * Variante simple — retorna solo el número, para compatibilidad.
+ * Para tooltip narrativo usar `useMaintenanceActionableSummary`.
+ */
 export function useMaintenanceActionableCount({ role, staffId, department }: Args): number {
-  // El query es shared — staleTime 30s y SSE invalida en tiempo real.
+  return useMaintenanceActionableSummary({ role, staffId, department }).count
+}
+
+/**
+ * Resumen accionable con narrativa para tooltip (W3.4 fix).
+ * Convierte el número crudo en "scent + significado" — Apple HIG 2024:
+ * "Pair quantitative badges with descriptive context on hover."
+ */
+export function useMaintenanceActionableSummary({
+  role,
+  staffId,
+  department,
+}: Args): MaintenanceActionableSummary {
   const { data: tickets = [] } = useMaintenanceTickets({ activeOnly: true })
 
-  return useMemo(() => filterByRole(tickets, role, staffId, department).length, [
-    tickets,
-    role,
-    staffId,
-    department,
-  ])
+  return useMemo(() => {
+    const filtered = filterByRole(tickets, role, staffId, department)
+    const count = filtered.length
+    if (count === 0) return { count: 0, description: null }
+
+    if (role === 'SUPERVISOR') {
+      const pendingApproval = filtered.filter((t) => t.pendingApproval).length
+      const toVerify = filtered.filter((t) => t.status === 'RESOLVED').length
+      const parts: string[] = []
+      if (toVerify > 0) parts.push(`${toVerify} por verificar`)
+      if (pendingApproval > 0) parts.push(`${pendingApproval} esperando aprobación`)
+      return { count, description: parts.join(' · ') || null }
+    }
+    if (role === 'HOUSEKEEPER' && department === 'MAINTENANCE') {
+      const mine = filtered.filter((t) => t.assignedToId === staffId).length
+      const queue = filtered.filter((t) => t.status === 'OPEN' && !t.assignedToId).length
+      const parts: string[] = []
+      if (mine > 0) parts.push(`${mine} asignados a ti`)
+      if (queue > 0) parts.push(`${queue} en cola disponibles`)
+      return { count, description: parts.join(' · ') || null }
+    }
+    if (role === 'RECEPTIONIST') {
+      return {
+        count,
+        description: `${count} habitación${count === 1 ? '' : 'es'} bloqueada${count === 1 ? '' : 's'} por mantenimiento`,
+      }
+    }
+    return { count, description: null }
+  }, [tickets, role, staffId, department])
 }
 
 function filterByRole(

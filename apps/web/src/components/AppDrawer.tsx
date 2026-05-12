@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils'
 import { api } from '../api/client'
 import type { UnitDiscrepancyDto, StaffRole } from '@zenix/shared'
 import { DiscrepancyStatus } from '@zenix/shared'
-import { useMaintenanceActionableCount } from '../modules/maintenance/hooks/useMaintenanceActionableCount'
+import { useMaintenanceActionableSummary } from '../modules/maintenance/hooks/useMaintenanceActionableCount'
 import { useAuthStore } from '../store/auth'
 
 /**
@@ -102,6 +102,7 @@ function NavRow({
   label,
   onClick,
   badgeCount,
+  badgeTooltip,
   nested = false,
 }: {
   active: boolean
@@ -109,6 +110,7 @@ function NavRow({
   label: string
   onClick: () => void
   badgeCount?: number
+  badgeTooltip?: string | null
   nested?: boolean
 }) {
   return (
@@ -125,7 +127,10 @@ function NavRow({
       <span className="text-base leading-none shrink-0 w-5 text-center">{icon}</span>
       <span className="flex-1 truncate">{label}</span>
       {badgeCount !== undefined && badgeCount > 0 && (
-        <span className="ml-auto bg-red-500 text-white text-xs font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 leading-none">
+        <span
+          className="ml-auto bg-red-500 text-white text-xs font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 leading-none"
+          title={badgeTooltip ?? undefined}
+        >
           {badgeCount}
         </span>
       )}
@@ -191,7 +196,7 @@ export function AppDrawer() {
   // W3.4 — Badge contador "Mantenimiento" por rol.
   // Shared query (staleTime 30s + SSE invalidate) — cero overhead extra.
   const user = useAuthStore((s) => s.user)
-  const maintenanceCount = useMaintenanceActionableCount({
+  const maintenanceSummary = useMaintenanceActionableSummary({
     role: (user?.role ?? 'RECEPTIONIST') as StaffRole,
     staffId: user?.id ?? '',
     department: user?.department,
@@ -281,8 +286,11 @@ export function AppDrawer() {
                           c.showDiscrepancyBadge
                             ? discrepancyCount
                             : c.showMaintenanceBadge
-                            ? maintenanceCount
+                            ? maintenanceSummary.count
                             : undefined
+                        }
+                        badgeTooltip={
+                          c.showMaintenanceBadge ? maintenanceSummary.description : undefined
                         }
                       />
                     ))}

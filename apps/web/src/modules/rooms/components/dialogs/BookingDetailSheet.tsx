@@ -53,6 +53,9 @@ interface BookingDetailSheetProps {
   onNoShow: (stayId: string, opts: { reason?: string; waiveCharge?: boolean }) => void
   onRevertNoShow: (stayId: string) => void
   onStartCheckin?: (stayId: string) => void
+  /** W3.3 — Abre el TicketDetailDrawer in-place sobre el calendario.
+   *  Si no se provee, hace fallback a navigate(/maintenance?ticketId=X). */
+  onOpenMaintenanceTicket?: (ticketId: string) => void
   /** propertyId needed for soft-lock advisory (Sprint 7C). */
   propertyId?: string
 }
@@ -66,6 +69,7 @@ export function BookingDetailSheet({
   onNoShow,
   onRevertNoShow,
   onStartCheckin,
+  onOpenMaintenanceTicket,
   propertyId,
 }: BookingDetailSheetProps) {
   /**
@@ -331,7 +335,13 @@ export function BookingDetailSheet({
                         <li key={t.id}>
                           <button
                             type="button"
-                            onClick={() => navigate(`/maintenance?ticketId=${t.id}`)}
+                            onClick={() => {
+                              if (onOpenMaintenanceTicket) {
+                                onOpenMaintenanceTicket(t.id)
+                              } else {
+                                navigate(`/maintenance?ticketId=${t.id}`)
+                              }
+                            }}
                             className="w-full text-left flex items-start gap-2 p-2 rounded-lg bg-white hover:bg-amber-100/50 transition-colors"
                           >
                             <span
