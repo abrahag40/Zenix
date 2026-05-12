@@ -38,8 +38,8 @@
  *       conventions.
  */
 
-import { useMemo, useState } from 'react'
-import { View, Text, StyleSheet, FlatList, Pressable, RefreshControl } from 'react-native'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { View, Text, StyleSheet, FlatList, Pressable, RefreshControl, ActivityIndicator } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
 import Animated, {
@@ -50,10 +50,14 @@ import Animated, {
 import { colors } from '../../src/design/colors'
 import { typography } from '../../src/design/typography'
 import { MOTION } from '../../src/design/motion'
+import { useApiResource } from '../../src/api/useApiResource'
+import { useSSE } from '../../src/api/useSSE'
+import { useAuthStore } from '../../src/store/auth'
 import {
-  MOCK_NOTIFICATIONS,
-  type MockNotification,
-} from '../../src/features/notifications/mockData'
+  notificationsApi,
+  CATEGORY_AVATAR,
+  type AppNotification,
+} from '../../src/features/notifications/notifications.api'
 
 // ─── Time grouping helpers (matches WhatsApp / Apple Mail patterns) ─────────
 type Group = 'today' | 'thisWeek' | 'older'
@@ -87,17 +91,48 @@ function relativeTime(iso: string): string {
 // ─── List item shape (header or row) ────────────────────────────────────────
 type Item =
   | { type: 'header'; group: Group }
-  | { type: 'row'; data: MockNotification }
+  | { type: 'row'; data: AppNotification }
 
 export default function NotificacionesScreen() {
-  const [items, setItems] = useState(MOCK_NOTIFICATIONS)
-  const [refreshing, setRefreshing] = useState(false)
+  const propertyId = useAuthStore((s) => s.user?.propertyId) ?? null
 
-  const unreadCount = items.filter((n) => !n.read).length
+  // Conectado al backend real (era MOCK hasta 2026-05-13). El endpoint sigue
+  // staleTime-style con poll de 60s + invalidación por SSE.
+  const { data: items = [], isLoading, isRefreshing, refetch } = useApiResource<AppNotification[]>(
+    propertyId ? `/v1/notification-center?propertyId=${propertyId}&limit=50` : '',
+    { enabled: !!propertyId, pollMs: 60_000 },
+  )
+
+  // Optimistic local state — cuando el usuario marca leída, no esperamos
+  // el roundtrip para ocultar el dot (Apple HIG: feedback inmediato).
+  const [readIds, setReadIds] = useState<Set<string>>(new Set())
+
+  // SSE invalida la lista al recibir cualquier evento de notif center.
+  useSSE(
+    useCallback((event) => {
+      if (typeof event.type === 'string' && event.type.startsWith('notification:')) {
+        void refetch()
+      }
+    }, [refetch]),
+  )
+
+  // Reset optimistic state cada vez que llegan datos frescos del backend.
+  useEffect(() => {
+    setReadIds(new Set())
+  }, [items])
+
+  const displayItems = useMemo(
+    () => (items ?? []).map((n) => ({ ...n, isRead: n.isRead || readIds.has(n.id) })),
+    [items, readIds],
+  )
+
+  const unreadCount = displayItems.filter((n) => !n.isRead).length
+  const [, setRefreshing] = useState(false)
+  const refreshing = isRefreshing
 
   // Sort + group items into a flat list with section headers.
   const listData = useMemo<Item[]>(() => {
-    const sorted = [...items].sort(
+    const sorted = [...displayItems].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     )
     const result: Item[] = []
@@ -111,24 +146,37 @@ export default function NotificacionesScreen() {
       result.push({ type: 'row', data: n })
     }
     return result
-  }, [items])
+  }, [displayItems])
 
   function handleMarkAllRead() {
-    if (unreadCount === 0) return
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
-    setItems((prev) => prev.map((n) => ({ ...n, read: true })))
+    if (unreadCount === 0 || !propertyId) return
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+    // Optimistic: marca todas localmente antes del roundtrip
+    setReadIds(new Set(displayItems.map((n) => n.id)))
+    notificationsApi.markAllRead(propertyId).then(() => void refetch()).catch(() => {
+      // Rollback en error
+      setReadIds(new Set())
+      void refetch()
+    })
   }
 
   function handleRowTap(id: string) {
-    Haptics.selectionAsync()
-    setItems((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)))
+    void Haptics.selectionAsync()
+    // Optimistic
+    setReadIds((prev) => new Set([...prev, id]))
+    notificationsApi.markRead(id).catch(() => {
+      setReadIds((prev) => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    })
   }
 
   function handleRefresh() {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
     setRefreshing(true)
-    // Simulate network — in prod this is a useQuery refetch.
-    setTimeout(() => setRefreshing(false), 800)
+    void refetch().finally(() => setRefreshing(false))
   }
 
   return (
@@ -160,27 +208,34 @@ export default function NotificacionesScreen() {
       </View>
 
       {/* ── List ─────────────────────────────────────────────────── */}
-      <FlatList
-        data={listData}
-        keyExtractor={(item) => (item.type === 'header' ? `h-${item.group}` : `n-${item.data.id}`)}
-        renderItem={({ item }) =>
-          item.type === 'header' ? (
-            <SectionHeader label={GROUP_LABEL[item.group]} />
-          ) : (
-            <NotificationRow data={item.data} onPress={() => handleRowTap(item.data.id)} />
-          )
-        }
-        contentContainerStyle={styles.listContent}
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
-        ListEmptyComponent={<EmptyState />}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            tintColor={colors.brand[400]}
-          />
-        }
-      />
+      {isLoading && displayItems.length === 0 ? (
+        <View style={styles.loading}>
+          <ActivityIndicator color={colors.brand[400]} />
+          <Text style={styles.loadingText}>Cargando notificaciones…</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={listData}
+          keyExtractor={(item) => (item.type === 'header' ? `h-${item.group}` : `n-${item.data.id}`)}
+          renderItem={({ item }) =>
+            item.type === 'header' ? (
+              <SectionHeader label={GROUP_LABEL[item.group]} />
+            ) : (
+              <NotificationRow data={item.data} onPress={() => handleRowTap(item.data.id)} />
+            )
+          }
+          contentContainerStyle={styles.listContent}
+          ItemSeparatorComponent={() => <View style={styles.separator} />}
+          ListEmptyComponent={<EmptyState />}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={colors.brand[400]}
+            />
+          }
+        />
+      )}
     </SafeAreaView>
   )
 }
@@ -194,17 +249,22 @@ function SectionHeader({ label }: { label: string }) {
   )
 }
 
-function NotificationRow({ data, onPress }: { data: MockNotification; onPress: () => void }) {
+function NotificationRow({ data, onPress }: { data: AppNotification; onPress: () => void }) {
   const scale = useSharedValue(1)
   const animStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }))
 
+  // Mapping seguro: si el backend agrega una categoría nueva sin actualizar
+  // CATEGORY_AVATAR, fallback al ⚙️ SYSTEM en lugar de crashear el render.
+  const avatarMeta = CATEGORY_AVATAR[data.category] ?? CATEGORY_AVATAR.SYSTEM
   const avatarBgColor = (() => {
-    if (data.avatarBg === 'urgent') return colors.urgent[500]
-    if (data.avatarBg === 'warning') return colors.warning[500]
-    if (data.avatarBg === 'system') return '#A78BFA'
-    return colors.brand[data.avatarBg]
+    if (avatarMeta.bg === 'urgent')  return colors.urgent[500]
+    if (avatarMeta.bg === 'warning') return colors.warning[500]
+    if (avatarMeta.bg === 'system')  return '#A78BFA'
+    if (avatarMeta.bg === 'success') return colors.brand[500]
+    if (avatarMeta.bg === 'info')    return colors.brand[400]
+    return colors.brand[400]
   })()
 
   return (
@@ -213,10 +273,10 @@ function NotificationRow({ data, onPress }: { data: MockNotification; onPress: (
       onPressOut={() => { scale.value = withSpring(1, MOTION.spring.snappy) }}
       onPress={onPress}
     >
-      <Animated.View style={[styles.row, !data.read && styles.rowUnread, animStyle]}>
-        {/* Avatar */}
+      <Animated.View style={[styles.row, !data.isRead && styles.rowUnread, animStyle]}>
+        {/* Avatar — emoji deriva de la categoría real del backend */}
         <View style={[styles.avatar, { backgroundColor: avatarBgColor }]}>
-          <Text style={styles.avatarText}>{data.avatar}</Text>
+          <Text style={styles.avatarText}>{avatarMeta.emoji}</Text>
         </View>
 
         {/* Body */}
@@ -226,8 +286,8 @@ function NotificationRow({ data, onPress }: { data: MockNotification; onPress: (
           <Text style={styles.rowTime}>{relativeTime(data.createdAt)}</Text>
         </View>
 
-        {/* Unread dot — small emerald disc on the right edge */}
-        {!data.read && <View style={styles.unreadDot} />}
+        {/* Unread dot — patrón Meta 2020+ (persiste hasta interacción explícita) */}
+        {!data.isRead && <View style={styles.unreadDot} />}
       </Animated.View>
     </Pressable>
   )
@@ -391,5 +451,16 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: typography.size.body * typography.lineHeight.relaxed,
     maxWidth: 320,
+  },
+  // Loading state — first load (no data yet)
+  loading: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  loadingText: {
+    fontSize: typography.size.small,
+    color: colors.text.tertiary,
   },
 })
