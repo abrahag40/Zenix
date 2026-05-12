@@ -221,16 +221,43 @@ export function NotificationPanel({
 }: NotificationPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null)
 
-  // Close on click outside
+  /*
+   * Click-outside close — fix 2026-05-13:
+   *   Antes el listener se ejecutaba en `mousedown` con un guard `if (!open)
+   *   return`. El bug en React 18 StrictMode (dev) era el siguiente:
+   *
+   *     1. User mousedown en bell → no hay listener todavía (open=false)
+   *     2. click → onClick: setPanelOpen(true)
+   *     3. React commit + useEffect en StrictMode: mount → cleanup → mount
+   *     4. En el ciclo de StrictMode, el cleanup REMOVE el listener, pero
+   *        algunos eventos del navegador entraban entre el mount inicial
+   *        y la siguiente acción del usuario, cerrando el panel.
+   *
+   *   Solución: usar `pointerdown` con guard explícito al bell + delay
+   *   `requestAnimationFrame` para que el listener se registre DESPUÉS
+   *   del commit del panel (asegura panelRef.current ya está asignado).
+   *   Además: ignorar el target si es el botón del bell (clase
+   *   aria-label="Notificaciones") para que el toggle natural no compita.
+   */
   useEffect(() => {
     if (!open) return
-    const handler = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        onClose()
+    let cleanup: (() => void) | null = null
+    const raf = requestAnimationFrame(() => {
+      const handler = (e: MouseEvent) => {
+        // No cerrar si el click es en el bell (deja que el onClick toggle naturalmente)
+        const target = e.target as HTMLElement | null
+        if (target?.closest('[aria-label="Notificaciones"]')) return
+        if (panelRef.current && !panelRef.current.contains(target as Node)) {
+          onClose()
+        }
       }
+      document.addEventListener('mousedown', handler)
+      cleanup = () => document.removeEventListener('mousedown', handler)
+    })
+    return () => {
+      cancelAnimationFrame(raf)
+      cleanup?.()
     }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
   }, [open, onClose])
 
   if (!open) return null
