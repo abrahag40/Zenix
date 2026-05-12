@@ -19,6 +19,7 @@ import { BlocksPage } from './pages/BlocksPage'
 import { MaintenancePage } from './pages/MaintenancePage'
 import { ReservationDetailPage } from './pages/ReservationDetailPage'
 import { GlobalMaintenanceDrawer } from './components/GlobalMaintenanceDrawer'
+import { useNotificationAlerts } from './hooks/useNotificationAlerts'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -58,10 +59,19 @@ function ProtectedLayout({ children }: { children: React.ReactNode }) {
   )
 }
 
+function NotificationAlertsMount() {
+  // Hook mounted UNA vez global para escuchar SSE notification:new y
+  // disparar sound + sonner banner. Vive en un componente propio porque
+  // useSSE/useNotificationAlerts requieren estar dentro del React tree.
+  useNotificationAlerts()
+  return null
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
+        <NotificationAlertsMount />
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/dashboard"       element={<ProtectedLayout><DashboardPage /></ProtectedLayout>} />

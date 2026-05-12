@@ -41,6 +41,11 @@ export class NotificationCenterService {
   async send(dto: SendNotificationDto): Promise<string> {
     const orgId = this.tenant.getOrganizationId()
 
+    // §62 D21 — Si el caller NO setea expiresAt, lo computamos según la
+    // tabla canónica de TTLs por categoría. Esto centraliza la regla de
+    // retención (antes propenso a olvido en cada caller).
+    const expiresAt = dto.expiresAt ?? computeExpiresAt(dto.category, dto.priority ?? 'MEDIUM')
+
     const notification = await this.prisma.appNotification.create({
       data: {
         organizationId: orgId,
@@ -56,7 +61,7 @@ export class NotificationCenterService {
         recipientId:    dto.recipientId ?? null,
         recipientRole:  dto.recipientRole ?? null,
         triggeredById:  dto.triggeredById ?? null,
-        expiresAt:      dto.expiresAt ?? null,
+        expiresAt,
       },
     })
 
@@ -276,4 +281,72 @@ export class NotificationCenterService {
       },
     })
   }
+}
+
+// ─── §62 D21 — Tabla canónica de TTLs por categoría ────────────────────────────
+//
+// Cada categoría tiene una regla de retención visual documentada en CLAUDE.md.
+// `null` significa "sin expiración" (compliance + actionable + fiscal).
+// Cualquier categoría nueva del backend que no esté en este map → default 7d
+// (con warning en log para que se agregue explícitamente).
+//
+// IMPORTANTE: no modificar las categorías "sin expiración" sin pasar por
+// review de compliance (hospitality USALI / Visa Core Rules / CFDI 4.0).
+const TTL_HOURS: Partial<Record<AppNotificationCategory, number | null>> = {
+  // ── Sin expiración (compliance + actionable + fiscal) ───────────────────
+  MAINTENANCE_TICKET_CRITICAL:       null,  // habitación bloqueada — revenue impact
+  MAINTENANCE_TICKET_NEEDS_APPROVAL: null,  // actionable — requiere decisión
+  MAINTENANCE_SLA_BREACH:            null,  // compliance — registro de incumplimiento
+  NO_SHOW:                           null,  // fiscal — chargeback ref 120d (Visa §5.9.2)
+  LATE_CHECKOUT_PENDING:             null,  // operativo en curso
+  LATE_CHECKOUT_ESCALATED:           null,  // escalación URGENT
+  PAYMENT_PENDING:                   null,  // fiscal
+  // ── TTL corto (limpieza visual del feed) ────────────────────────────────
+  MAINTENANCE_TICKET_VERIFIED:       4,     // cierre — confirmación visual breve
+  TASK_VERIFIED_READY:               4,     // §57 — ciclo limpieza cerrado
+  MAINTENANCE_TICKET_ASSIGNED:       24,    // acción tomada — recordatorio inicial
+  MAINTENANCE_TICKET_QUEUED:         24,    // disponible para técnicos en turno
+  CHECKOUT_COMPLETE:                 24,    // confirmación efímera
+  TASK_COMPLETED:                    24,    // informativo
+  NO_SHOW_REVERTED:                  48,    // aviso reciente
+  MAINTENANCE_TICKET_RESOLVED:       48,    // espera verificación supervisor
+  // ── TTL medio (operativo del día) ───────────────────────────────────────
+  EARLY_CHECKOUT:                    7 * 24,
+  MAINTENANCE_TICKET_CREATED:        7 * 24,
+  MAINTENANCE_TICKET_UPDATED:        7 * 24,
+  MAINTENANCE_REPORTED:              7 * 24,  // legacy Sprint 7D — preferir MAINTENANCE_TICKET_CREATED
+  // ── Operativos hasta noShowCutoffHour del día ───────────────────────────
+  // Estos NO usan TTL fijo — se setean en el caller (PotentialNoShowScheduler)
+  // con expiresAt = corte del día. Si llegan acá sin expiresAt, default 24h.
+  ARRIVAL_RISK:                      24,
+  CHECKIN_UNCONFIRMED:               24,
+  // ── Informativo general ─────────────────────────────────────────────────
+  SYSTEM:                            30 * 24,
+}
+
+/**
+ * computeExpiresAt — §62 D21 canonical TTL resolver.
+ *
+ * @param category AppNotificationCategory del notif
+ * @param priority Si priority es URGENT, se respeta `null` (sin expiración)
+ *                 aunque la categoría tenga TTL — el caller probablemente
+ *                 quiere persistencia para algo importante.
+ * @returns Date futuro o null (sin expiración)
+ */
+function computeExpiresAt(
+  category: AppNotificationCategory,
+  priority: AppNotificationPriority,
+): Date | null {
+  const ttl = TTL_HOURS[category]
+  // URGENT siempre persiste — el caller usó URGENT por algo.
+  if (priority === 'URGENT') return null
+  // null explícito = sin expiración (compliance)
+  if (ttl === null) return null
+  // undefined = categoría no documentada — default 7 días + warning
+  if (ttl === undefined) {
+    // eslint-disable-next-line no-console
+    console.warn(`[NotifCenter] categoría sin TTL en tabla canónica: ${category} — usando default 7d. Agregar a TTL_HOURS en notification-center.service.ts`)
+    return new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+  }
+  return new Date(Date.now() + ttl * 60 * 60 * 1000)
 }
