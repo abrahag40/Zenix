@@ -33,6 +33,17 @@ interface RoomColumnProps {
    */
   lockedRooms?: Map<string, string>
   /**
+   * W3.1 — Tickets de mantenimiento activos por habitación. Badge "🔧 N"
+   * en color por prioridad (CRITICAL red · HIGH/MEDIUM amber · LOW slate).
+   * Cuando `blocked=true` añade candado: la habitación está fuera de venta.
+   * Tooltip explica count + prioridad + estado de bloqueo. Cumple §13
+   * (color semántico) + §33 (feedback informativo).
+   */
+  maintenanceByRoom?: Map<
+    string,
+    { count: number; highest: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'; blocked: boolean }
+  >
+  /**
    * Callback que abre el modal de bloqueo pre-llenado con el roomId.
    * Aparece como botón visible al hacer hover sobre la fila de la habitación.
    * Discoverability: NNGroup H#6 (Reconocimiento > Recuerdo) — el botón
@@ -52,7 +63,7 @@ const READINESS_CONFIG: Record<string, { color: string; label: string; title: st
   APPROVED:          { color: '#10B981', label: '\u2713\u2713', title: 'Aprobada' },
 }
 
-export function RoomColumn({ flatRows, groups, onToggleGroup, scrollTop = 0, readinessTasks, lockedRooms, onBlockRequest, embedded = false }: RoomColumnProps) {
+export function RoomColumn({ flatRows, groups, onToggleGroup, scrollTop = 0, readinessTasks, lockedRooms, maintenanceByRoom, onBlockRequest, embedded = false }: RoomColumnProps) {
   const groupMap = new Map(groups.map((g) => [g.id, g]))
 
   const rowsContent = (
@@ -117,6 +128,39 @@ export function RoomColumn({ flatRows, groups, onToggleGroup, scrollTop = 0, rea
                   <span className="text-[10px] text-slate-400">P{room.floor}</span>
                 )}
 
+                {/* W3.1 — Maintenance badge: count + color por prioridad +
+                    candado si la habitación está fuera de venta. Tooltip
+                    explica cuántos tickets, prioridad y bloqueo. */}
+                {(() => {
+                  const mx = maintenanceByRoom?.get(room.id)
+                  if (!mx) return null
+                  const color =
+                    mx.highest === 'CRITICAL'
+                      ? 'bg-red-50 text-red-700 border-red-200'
+                      : mx.highest === 'HIGH'
+                      ? 'bg-red-50 text-red-600 border-red-100'
+                      : mx.highest === 'MEDIUM'
+                      ? 'bg-amber-50 text-amber-700 border-amber-200'
+                      : 'bg-slate-50 text-slate-600 border-slate-200'
+                  const priorityLabel =
+                    mx.highest === 'CRITICAL'
+                      ? 'crítico'
+                      : mx.highest === 'HIGH'
+                      ? 'alto'
+                      : mx.highest === 'MEDIUM'
+                      ? 'medio'
+                      : 'bajo'
+                  const tooltip = `${mx.count} ticket${mx.count === 1 ? '' : 's'} de mantenimiento — prioridad más alta: ${priorityLabel}${mx.blocked ? ' · habitación fuera de venta' : ''}`
+                  return (
+                    <span
+                      className={`mr-1 flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-semibold border leading-none select-none ${color}`}
+                      title={tooltip}
+                    >
+                      🔧 {mx.count}
+                      {mx.blocked && <span className="ml-0.5">🔒</span>}
+                    </span>
+                  )
+                })()}
                 {/* Soft-lock badge — visible only when another receptionist
                     has this room open. Amber = advisory (no-bloqueante).
                     Truncado a 10 chars para no saturar la columna estrecha.

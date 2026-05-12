@@ -150,7 +150,9 @@ export function BlocksLayer({
         return (
           <div
             key={block.id}
-            title={`${SEMANTIC_SHORT[block.semantic]} — ${block.reason}`}
+            title={`${SEMANTIC_SHORT[block.semantic]} — ${block.reason}${
+              block.maintenanceTicketId ? ' · Click para ver ticket de mantenimiento' : ''
+            }`}
             style={{
               position: 'absolute',
               top: rowY + 2,

@@ -18,7 +18,8 @@
  * El PropertySwitcher es heredado del GlobalTopBar — `/maintenance` no está
  * en `ROUTES_WITHOUT_SWITCHER` así que aparece automáticamente.
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Plus, Search, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -47,6 +48,21 @@ export function MaintenancePage() {
 
   // Drawer + dialog state
   const [selectedId, setSelectedId] = useState<string | null>(null)
+
+  // W3.2 — Deep-link desde BookingDetailSheet/RoomColumn: ?ticketId=X
+  // auto-abre el TicketDetailDrawer al cargar la página.
+  const [searchParams, setSearchParams] = useSearchParams()
+  useEffect(() => {
+    const ticketId = searchParams.get('ticketId')
+    if (ticketId && ticketId !== selectedId) {
+      setSelectedId(ticketId)
+      // Limpia el query param para que un refresh no re-abra el drawer.
+      const next = new URLSearchParams(searchParams)
+      next.delete('ticketId')
+      setSearchParams(next, { replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
   const [createOpen, setCreateOpen] = useState(false)
 
   // SSE subscription — UNA sola vez por página. NO mover dentro de hooks

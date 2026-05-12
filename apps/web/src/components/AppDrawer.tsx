@@ -10,8 +10,10 @@ import {
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { api } from '../api/client'
-import type { UnitDiscrepancyDto } from '@zenix/shared'
+import type { UnitDiscrepancyDto, StaffRole } from '@zenix/shared'
 import { DiscrepancyStatus } from '@zenix/shared'
+import { useMaintenanceActionableCount } from '../modules/maintenance/hooks/useMaintenanceActionableCount'
+import { useAuthStore } from '../store/auth'
 
 /**
  * AppDrawer — primary module navigation, top-left hamburger.
@@ -47,6 +49,7 @@ type NavGroup = {
     icon: string
     label: string
     showDiscrepancyBadge?: boolean
+    showMaintenanceBadge?: boolean
   }[]
 }
 type NavItem = NavLeaf | NavGroup
@@ -74,7 +77,7 @@ const NAV: NavItem[] = [
     children: [
       // Mantenimiento de primero — ~85% de bloques se generan auto desde aquí
       // (CRITICAL → RoomBlock con FK). Cubre el flujo operativo más frecuente.
-      { to: '/maintenance',   icon: '🔧', label: 'Mantenimiento' },
+      { to: '/maintenance',   icon: '🔧', label: 'Mantenimiento', showMaintenanceBadge: true },
       // Bloqueos para casos que NO son mantenimiento (owner stay, staff use,
       // renovación >1 semana). Mantiene la separación arquitectónica de los
       // top PMS pero bajo el mismo paraguas visual.
@@ -185,6 +188,15 @@ export function AppDrawer() {
     refetchInterval: 60_000,
   })
 
+  // W3.4 — Badge contador "Mantenimiento" por rol.
+  // Shared query (staleTime 30s + SSE invalidate) — cero overhead extra.
+  const user = useAuthStore((s) => s.user)
+  const maintenanceCount = useMaintenanceActionableCount({
+    role: (user?.role ?? 'RECEPTIONIST') as StaffRole,
+    staffId: user?.id ?? '',
+    department: user?.department,
+  })
+
   function isActive(to: string) {
     return location.pathname === to || location.pathname.startsWith(to + '/')
   }
@@ -266,7 +278,11 @@ export function AppDrawer() {
                         onClick={() => go(c.to)}
                         nested
                         badgeCount={
-                          c.showDiscrepancyBadge ? discrepancyCount : undefined
+                          c.showDiscrepancyBadge
+                            ? discrepancyCount
+                            : c.showMaintenanceBadge
+                            ? maintenanceCount
+                            : undefined
                         }
                       />
                     ))}

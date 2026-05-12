@@ -788,6 +788,10 @@ export interface RoomBlockDto {
   approvalNotes: string | null
   approvedAt: string | null
   cleaningTaskId: string | null  // tarea MAINTENANCE creada al activar
+  // W3.3 — Bridge §Mx2: si el bloqueo fue creado automáticamente por un
+  // ticket CRITICAL de mantenimiento, esta FK apunta al ticket. El click
+  // en el bloque abre el TicketDetailDrawer en lugar del BlockModal.
+  maintenanceTicketId: string | null
   createdAt: string
   updatedAt: string
   // Populated relations (endpoints de detalle)

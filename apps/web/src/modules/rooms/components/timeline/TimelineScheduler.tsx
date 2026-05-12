@@ -12,6 +12,8 @@ import { useStayJourneys } from '../../hooks/useStayJourneys'
 import { useBlocks, useCreateBlock, useReleaseBlock, useCancelBlock } from '../../hooks/useBlocks'
 import { useRoomSSE } from '../../hooks/useRoomSSE'
 import { useSoftLockSSE } from '@/hooks/useSoftLock'
+import { useMaintenanceTickets } from '../../../maintenance/hooks/useMaintenanceTickets'
+import { useNavigate } from 'react-router-dom'
 import { usePropertySettings } from '@/hooks/usePropertySettings'
 import { useDateVirtualizer } from '../../hooks/useDateVirtualizer'
 import { TimelineTopBar } from './TimelineTopBar'
@@ -244,6 +246,29 @@ export function TimelineScheduler() {
   // Using useState with functional setter avoids stale closures over the Map.
   const [lockedRooms, setLockedRooms] = useState<Map<string, string>>(new Map())
   useSoftLockSSE(setLockedRooms)
+
+  const navigate = useNavigate()
+
+  // W3.1 — Maintenance tickets activos por habitación (badge 🔧 en RoomColumn).
+  // Shared query con MaintenancePage + sidebar badge (W3.4) — staleTime 30s + SSE.
+  const { data: activeTickets = [] } = useMaintenanceTickets({ activeOnly: true })
+  const maintenanceByRoom = useMemo(() => {
+    const map = new Map<string, { count: number; highest: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'; blocked: boolean }>()
+    const priorityRank: Record<string, number> = { LOW: 0, MEDIUM: 1, HIGH: 2, CRITICAL: 3 }
+    for (const t of activeTickets) {
+      if (!t.roomId) continue
+      const cur = map.get(t.roomId)
+      const next = {
+        count: (cur?.count ?? 0) + 1,
+        highest: (priorityRank[t.priority] > priorityRank[cur?.highest ?? 'LOW']
+          ? t.priority
+          : cur?.highest ?? t.priority) as 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL',
+        blocked: (cur?.blocked ?? false) || !!t.hasAutoBlock,
+      }
+      map.set(t.roomId, next)
+    }
+    return map
+  }, [activeTickets])
 
   // Room readiness tasks for visual indicators
   const { data: rawReadinessTasks = [] } = useRoomReadinessTasks(PROPERTY_ID)
@@ -726,6 +751,7 @@ export function TimelineScheduler() {
               onToggleGroup={toggleGroup}
               readinessTasks={readinessTasks}
               lockedRooms={lockedRooms}
+              maintenanceByRoom={maintenanceByRoom}
               onBlockRequest={(roomId) => setBlockModal({ roomId })}
             />
           </div>
@@ -834,7 +860,16 @@ export function TimelineScheduler() {
               calendarStart={POOL_START}
               calendarEnd={dataWindow.to}
               totalWidth={totalWidth}
-              onBlockClick={setBlockDetail}
+              onBlockClick={(block) => {
+                // W3.3 — Si el bloque fue auto-creado por un ticket CRITICAL
+                // de mantenimiento, abrir el TicketDetailDrawer (contexto
+                // operativo correcto) en lugar del BlockModal genérico.
+                if (block.maintenanceTicketId) {
+                  navigate(`/maintenance?ticketId=${block.maintenanceTicketId}`)
+                  return
+                }
+                setBlockDetail(block)
+              }}
             />
             <BookingsLayer
               stays={hideNoShows ? staysWithoutJourneys.filter((s) => !s.noShowAt) : staysWithoutJourneys}
