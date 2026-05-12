@@ -41,20 +41,31 @@ export function NotificationBell() {
           'hover:bg-slate-100 transition-colors duration-150',
         )}
         aria-label="Notificaciones"
+        aria-haspopup="dialog"
+        aria-expanded={panelOpen}
         onClick={() => setPanelOpen((v) => !v)}
       >
         <Bell className="h-5 w-5" strokeWidth={1.75} />
-        {/* Patrón Meta 2020+: al abrir el panel cesa el radar pulsante.
-            El punto rojo persiste mientras haya unread real. */}
+        {/* W3.5 — Badge con contador + pulso desde el dot (no halo).
+            Patrón FB/IG/LinkedIn: el dot rojo lleva el conteo (1-9, 9+).
+            Pulse ring emana desde el dot mismo, no del botón entero.
+            Color psicológico: red-500 sólido = atención inmediata
+            (Mehrabian-Russell 1974); pulso = peripheral movement que
+            captura atención sin sobrecargar el chrome (Treisman 1980).
+            El pulse cesa cuando el panel está abierto (Meta 2020+ pattern). */}
         {unreadCount > 0 && (
-          <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <span className="pointer-events-none absolute -top-0.5 -right-0.5 flex items-center justify-center">
+            {/* Ring pulse — emana desde el dot mismo */}
             {!panelOpen && (
-              <>
-                <span className="absolute w-9 h-9 rounded-lg bg-red-400/20" style={{ animation: 'radar1 2.5s ease-out infinite' }} />
-                <span className="absolute w-9 h-9 rounded-lg bg-red-400/15" style={{ animation: 'radar2 2.5s ease-out 0.6s infinite' }} />
-              </>
+              <span className="absolute inset-0 rounded-full bg-red-500 bell-pulse-ring" aria-hidden />
             )}
-            <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500 ring-2 ring-white" />
+            {/* Dot sólido con número — min 18px (Apple HIG touch-target hint) */}
+            <span
+              className="relative inline-flex min-w-[18px] h-[18px] items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold leading-none px-1 ring-2 ring-white tabular-nums"
+              aria-label={`${unreadCount} sin leer`}
+            >
+              {unreadCount > 9 ? '9+' : unreadCount}
+            </span>
           </span>
         )}
       </button>

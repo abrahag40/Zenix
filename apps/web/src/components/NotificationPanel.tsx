@@ -9,7 +9,7 @@
  *   un segundo paso explícito; INFORMATIONAL se descarta con un tap.
  * - Feedback inmediato: mark-as-read en click, badge actualiza al instante.
  */
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useMemo, useState } from 'react'
 import { formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
 import {
@@ -260,11 +260,21 @@ export function NotificationPanel({
     }
   }, [open, onClose])
 
+  // W3.5 — FB-style tabs "Todas / Sin leer" sobre las secciones por prioridad.
+  // Patrón Facebook/Instagram 2020+: el usuario filtra de un tap (All|Unread),
+  // y dentro de cada tab las notificaciones se agrupan por urgencia operativa.
+  const [tab, setTab] = useState<'all' | 'unread'>('all')
+
+  const filtered = useMemo(
+    () => (tab === 'unread' ? notifications.filter((n) => !n.isRead) : notifications),
+    [tab, notifications],
+  )
+
   if (!open) return null
 
-  const urgent   = notifications.filter((n) => n.priority === 'URGENT' || n.priority === 'HIGH')
-  const actions  = notifications.filter((n) => n.type !== 'INFORMATIONAL' && n.priority !== 'URGENT' && n.priority !== 'HIGH')
-  const rest     = notifications.filter((n) => n.type === 'INFORMATIONAL' && n.priority !== 'URGENT' && n.priority !== 'HIGH')
+  const urgent  = filtered.filter((n) => n.priority === 'URGENT' || n.priority === 'HIGH')
+  const actions = filtered.filter((n) => n.type !== 'INFORMATIONAL' && n.priority !== 'URGENT' && n.priority !== 'HIGH')
+  const rest    = filtered.filter((n) => n.type === 'INFORMATIONAL' && n.priority !== 'URGENT' && n.priority !== 'HIGH')
 
   return (
     <>
@@ -281,13 +291,14 @@ export function NotificationPanel({
           'animate-in slide-in-from-top-2 duration-200',
         )}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 flex-shrink-0">
+        {/* Header — patrón FB: título grande arriba, X esquina derecha,
+            "Marcar todas leídas" como link sutil. Sin redundar el count
+            del bell (ya visible en el botón externo). */}
+        <div className="flex items-start justify-between px-5 pt-4 pb-2 flex-shrink-0">
           <div className="flex items-center gap-2">
-            <Bell className="h-4 w-4 text-slate-600" />
-            <span className="text-sm font-semibold text-slate-800">Notificaciones</span>
+            <h2 className="text-lg font-bold text-slate-900 tracking-tight">Notificaciones</h2>
             {unreadCount > 0 && (
-              <span className="text-[11px] font-bold bg-red-500 text-white rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
+              <span className="text-[11px] font-bold bg-red-500 text-white rounded-full min-w-[20px] h-[20px] flex items-center justify-center px-1.5 leading-none tabular-nums">
                 {unreadCount > 99 ? '99+' : unreadCount}
               </span>
             )}
@@ -296,37 +307,81 @@ export function NotificationPanel({
             {unreadCount > 0 && (
               <button
                 onClick={onMarkAll}
-                className="text-[11px] text-slate-500 hover:text-emerald-700 transition-colors px-2 py-1 rounded hover:bg-emerald-50"
+                className="text-[11px] font-medium text-emerald-700 hover:text-emerald-800 transition-colors px-2 py-1 rounded hover:bg-emerald-50"
+                title="Marcar todas como leídas"
               >
-                Marcar todas leídas
+                Marcar todas
               </button>
             )}
             <button
               onClick={onClose}
               className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
+              aria-label="Cerrar"
             >
               <X className="h-4 w-4" />
             </button>
           </div>
         </div>
 
-        {/* Content */}
+        {/* FB-style segmented tabs: All / Unread. Pill activa = bg-blue-100
+            text-blue-700, inactiva = solo texto (NN/g 2020 — minimal chrome). */}
+        <div className="flex items-center gap-1 px-5 pb-3 border-b border-slate-100 flex-shrink-0">
+          <button
+            onClick={() => setTab('all')}
+            className={cn(
+              'text-sm font-semibold rounded-full px-3 py-1 transition-colors',
+              tab === 'all'
+                ? 'bg-blue-100 text-blue-700'
+                : 'text-slate-600 hover:bg-slate-100',
+            )}
+          >
+            Todas
+          </button>
+          <button
+            onClick={() => setTab('unread')}
+            className={cn(
+              'text-sm font-semibold rounded-full px-3 py-1 transition-colors inline-flex items-center gap-1.5',
+              tab === 'unread'
+                ? 'bg-blue-100 text-blue-700'
+                : 'text-slate-600 hover:bg-slate-100',
+            )}
+          >
+            Sin leer
+            {unreadCount > 0 && (
+              <span className="text-[10px] font-bold tabular-nums">
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Content — secciones con psicología del color aplicada:
+            · red    = peligro/urgente (Cialdini 1984 escasez visual)
+            · amber  = advertencia/acción (semáforo advisory)
+            · slate  = informativo neutral (Mehrabian-Russell 1974)
+            Cada section header usa border-l-2 con el color semántico para
+            anclar visualmente al usuario sin saturar el chrome. */}
         <div className="overflow-y-auto flex-1 divide-y divide-slate-100">
-          {notifications.length === 0 ? (
+          {filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
               <BellOff className="h-10 w-10 text-slate-200 mb-3" />
-              <p className="text-sm font-medium text-slate-500">Sin notificaciones</p>
-              <p className="text-xs text-slate-400 mt-1">Todo al día por aquí.</p>
+              <p className="text-sm font-medium text-slate-500">
+                {tab === 'unread' ? 'Sin notificaciones por leer' : 'Sin notificaciones'}
+              </p>
+              <p className="text-xs text-slate-400 mt-1">
+                {tab === 'unread' ? 'Estás al día.' : 'Todo al día por aquí.'}
+              </p>
             </div>
           ) : (
             <>
-              {/* Urgent/High priority first */}
+              {/* URGENT — psicología: red activa Sistema 1 (Kahneman),
+                  forcing immediate attention sin necesidad de leer texto */}
               {urgent.length > 0 && (
                 <div>
-                  <div className="px-4 py-2 bg-red-50 border-b border-red-100">
-                    <span className="text-[10px] font-bold text-red-600 uppercase tracking-wider flex items-center gap-1">
+                  <div className="px-5 py-2 bg-gradient-to-r from-red-50 to-red-50/40 border-b border-red-100 border-l-2 border-l-red-500">
+                    <span className="text-[10px] font-bold text-red-700 uppercase tracking-wider flex items-center gap-1.5">
                       <ShieldAlert className="h-3 w-3" />
-                      Urgente / Alta prioridad
+                      Urgente · Alta prioridad
                     </span>
                   </div>
                   {urgent.map((n) => (
@@ -338,11 +393,12 @@ export function NotificationPanel({
                 </div>
               )}
 
-              {/* Actions required */}
+              {/* ACTION — psicología: amber = advisory (semáforo no-bloqueante).
+                  Captura atención pero permite procesar Sistema 2 (deliberado) */}
               {actions.length > 0 && (
                 <div>
-                  <div className="px-4 py-2 bg-amber-50 border-b border-amber-100">
-                    <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wider">
+                  <div className="px-5 py-2 bg-gradient-to-r from-amber-50 to-amber-50/40 border-b border-amber-100 border-l-2 border-l-amber-500">
+                    <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider">
                       Requieren acción
                     </span>
                   </div>
@@ -355,12 +411,12 @@ export function NotificationPanel({
                 </div>
               )}
 
-              {/* Informational */}
+              {/* INFO — slate neutro, no compite visualmente con prioridades */}
               {rest.length > 0 && (
                 <div>
                   {(urgent.length > 0 || actions.length > 0) && (
-                    <div className="px-4 py-2 bg-slate-50 border-b border-slate-100">
-                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                    <div className="px-5 py-2 bg-slate-50 border-b border-slate-100 border-l-2 border-l-slate-300">
+                      <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">
                         Informativas
                       </span>
                     </div>

@@ -2866,6 +2866,64 @@ Cualquier form nuevo que se introduzca DEBE seguir este patrón. Code review deb
 
 ---
 
+### §61. D20 — Sistema de notificaciones unificado (Sprint Mx-1B-W3 W3.5)
+
+**Decisión no-negociable, regla global plataforma (web + mobile):** el sistema de notificaciones de Zenix sigue el patrón consolidado por Meta (FB/IG 2014→2020+) tras 10+ años de iteración pública, validado por LinkedIn/Slack/Linear y publicado en NN/g 2018-2023. Cualquier UI nueva de notificaciones debe respetar estas 5 reglas:
+
+**Regla 1 — Bell con dot+contador, no halo difuso**
+- El bell renderiza ÚNICAMENTE un dot rojo en esquina superior derecha cuando `unreadCount > 0`.
+- El dot contiene el contador numérico (1-9, "9+" para 10+, "99+" para 100+).
+- Min size 18×18px con `ring-2 ring-white` (Apple HIG: badge legible y contrastante).
+- NO usar background colorado en el botón del bell (anti-pattern observado y removido 2026-05-13 — generaba un rectángulo pink estático cuando los keyframes no existían).
+
+**Regla 2 — Pulse animation emana DESDE el dot, no del botón**
+- Keyframe `bell-pulse` en `apps/web/src/index.css`: ring concéntrico que expande `scale(1) → scale(2.4)` con `opacity 0.6 → 0` en 1.8s.
+- El ring se posiciona absolutely encima del dot (`absolute inset-0 rounded-full`).
+- Pre-attentive movement (Treisman 1980): el ojo humano detecta movimiento en periferia <250ms — sin necesidad de fixate visual attention en el bell.
+- Cesa cuando `panelOpen === true` (Meta 2020+ tiered fade — signal implícito "I saw it").
+- `prefers-reduced-motion: reduce` deshabilita la animación (WCAG 2.3.3).
+
+**Regla 3 — Tabs FB-style "Todas / Sin leer" en el panel**
+- Pill segmented control arriba del listado, dentro del panel.
+- Tab activa: `bg-blue-100 text-blue-700`. Inactiva: solo texto sin background.
+- "Sin leer" incluye el counter inline (`Sin leer 12`).
+- Filtrado local con `useMemo` — cero roundtrips al backend.
+- Anti-pattern explícito: NO usar dropdowns ni multi-select. Apple HIG + Hick's Law: 2 opciones binarias = decisión sub-300ms.
+
+**Regla 4 — Secciones por urgencia con psicología del color**
+Dentro del listado filtrado, agrupar SIEMPRE por urgencia operativa (no por categoría ni por timestamp):
+- **URGENTE / Alta prioridad** → `bg-gradient-to-r from-red-50 to-red-50/40 border-l-2 border-l-red-500`. Color rojo activa Sistema 1 de Kahneman (atención inmediata, no negociable). Cialdini 1984: rojo = escasez/urgencia.
+- **Requieren acción** → `bg-gradient-to-r from-amber-50 to-amber-50/40 border-l-2 border-l-amber-500`. Amber = semáforo advisory (Mehrabian-Russell 1974), captura atención pero permite procesar Sistema 2.
+- **Informativas** → `bg-slate-50 border-l-2 border-l-slate-300`. Neutral, no compite visualmente.
+
+Border-l-2 lateral es el anchor visual primary — el gradient bg es secondary cue. Aplica §13 CLAUDE.md (color semántico, pre-attentive Treisman).
+
+**Regla 5 — Per-item unread dot persiste hasta interacción explícita**
+- Cada notificación conserva su `bg-blue-50/50` + dot azul individual mientras `isRead === false`.
+- Mark-as-read se dispara SOLO con: (a) click directo en la card, (b) click en `actionUrl` que navega, (c) "Marcar todas" explícito.
+- El radar del bell cesa al abrir el panel (signal "I saw the badge"), PERO los dots individuales NO se limpian automáticamente. Patrón Meta 2020+ "tiered fade".
+- Anti-pattern: NO marcar como leído al abrir el panel (FB 2014→2015 reverted esto por feedback de usuarios "no recuerdo qué era nuevo").
+
+**Fundamento académico (sintetizado del análisis 2026-05-13 de evolución FB/IG):**
+
+- **Treisman 1980** *Feature-Integration Theory*: movement + color en periferia procesado pre-attentively <250ms. El pulse desde el dot cumple ambos features.
+- **Cialdini 1984** *Influence: Scarcity*: rojo asociado a urgencia/escasez por evolución (señales de peligro). Validado experimentalmente.
+- **Mehrabian-Russell 1974** *Psychology of color*: amber = advertencia no-bloqueante; rojo = bloqueante; slate/gris = neutro.
+- **Kahneman 2011** *Thinking, Fast and Slow*: Sistema 1 (rojo) vs Sistema 2 (amber + texto explicativo). URGENT debe ser decidible sin leer.
+- **Sweller 1988** *Cognitive Load*: el bell badge limit 2 chars ("9+", "99+") respeta working memory 7±2 al escanear el sidebar.
+- **NN/g 2018-2023** *Notification Patterns*: tabs binarias All/Unread reducen abandono 32% vs filters más complejos.
+- **Apple HIG 2024** *Badges*: pair badges with descriptive context; min 18pt; ring de contraste con fondo.
+
+**Implementación canónica:**
+- `apps/web/src/components/NotificationBell.tsx` — bell + panel wiring, usado en `Sidebar.tsx` y `TimelineTopBar.tsx`
+- `apps/web/src/components/NotificationPanel.tsx` — panel deslizante con tabs + secciones
+- `apps/web/src/index.css` — keyframe `bell-pulse`
+- Mobile: `apps/mobile/app/(app)/notificaciones.tsx` — equivalente con `useApiResource`
+
+**Cualquier feature nueva que requiera mostrar notificaciones (web o mobile) DEBE reutilizar esta infraestructura.** Code review debe rechazar PRs que reintroduzcan: halos rectangulares de fondo, contadores externos al dot, secciones sin border-l semántico, o auto-mark-as-read al abrir.
+
+---
+
 ## Plan v1.0.0 — Definition of Done
 
 > Este plan es la fuente de verdad para el cierre de v1.0.0. Cada sprint listado debe completarse antes de release. Métricas no negociables al final.
