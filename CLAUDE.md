@@ -2924,6 +2924,78 @@ Border-l-2 lateral es el anchor visual primary — el gradient bg es secondary c
 
 ---
 
+### §62. D21 — Política de expiración y archivado de notificaciones
+
+**Decisión no-negociable, regla global plataforma (web + mobile):** las notificaciones del NotificationCenter siguen reglas explícitas de retención que combinan UX (Sprint 7D Notification Discipline) + compliance hospitality (USALI / CFDI / Visa Core Rules audit trail).
+
+**Regla 1 — Nunca auto-delete de la base de datos**
+- `AppNotification` es append-only. Ningún cron job, scheduler ni endpoint borra registros.
+- Solo se controla la **visibilidad** en el feed via `expiresAt`.
+- Razón: auditoría hospitality requiere histórico completo (Visa Core Rules §5.9.2 — evidencia de contacto al huésped; USALI Schedule 11 — eventos de revenue).
+
+**Regla 2 — `expiresAt` configurable por categoría al CREAR**
+- El `NotificationCenterService.send()` setea `expiresAt` según la categoría/tipo.
+- `listForUser` ya filtra `WHERE expiresAt IS NULL OR expiresAt > NOW()`.
+
+**Reglas de expiración por categoría** (tabla canónica):
+
+| Categoría | TTL desde creación | Justificación |
+|-----------|---------------------|---------------|
+| `MAINTENANCE_TICKET_CRITICAL` | **Sin expiración** | Habitación bloqueada — compliance + revenue impact |
+| `MAINTENANCE_TICKET_NEEDS_APPROVAL` | **Sin expiración** hasta approval/reject | Actionable — requiere decisión |
+| `MAINTENANCE_SLA_BREACH` | **Sin expiración** | Compliance — registro de incumplimiento |
+| `NO_SHOW` | **Sin expiración** | Fiscal — referencia para chargeback hasta 120d |
+| `EARLY_CHECKOUT` | 7 días | Operativo — relevante en ventana de turno |
+| `MAINTENANCE_TICKET_CREATED` | 7 días | Informativo |
+| `MAINTENANCE_TICKET_UPDATED` | 7 días | Informativo |
+| `MAINTENANCE_TICKET_ASSIGNED` | 24 horas | Acción tomada — solo recordatorio inicial |
+| `MAINTENANCE_TICKET_RESOLVED` | 48 horas | Espera verificación del supervisor |
+| `MAINTENANCE_TICKET_VERIFIED` | 4 horas | Cierre — confirmación visual breve |
+| `MAINTENANCE_TICKET_QUEUED` | 24 horas | Disponible para técnicos en turno |
+| `TASK_VERIFIED_READY` | 4 horas | (Ya documentado §57) — limpieza visual del feed |
+| `CHECKOUT_COMPLETE` | 24 horas | Confirmación efímera |
+| `TASK_COMPLETED` | 24 horas | Informativo |
+| `LATE_CHECKOUT_PENDING` | Sin expiración hasta resolver | Operativo en curso |
+| `LATE_CHECKOUT_ESCALATED` | Sin expiración | Escalación URGENT |
+| `ARRIVAL_RISK` | Hasta `noShowCutoffHour` del día | Operativo — pierde sentido tras corte |
+| `CHECKIN_UNCONFIRMED` | Hasta `noShowCutoffHour` | Mismo |
+| `PAYMENT_PENDING` | Sin expiración hasta pago | Fiscal |
+| `SYSTEM` | 30 días | Informativo general |
+| `MAINTENANCE_REPORTED` (legacy) | 7 días | Legacy Sprint 7D — usar `MAINTENANCE_TICKET_CREATED` en código nuevo |
+| `NO_SHOW_REVERTED` | 48 horas | Aviso reciente |
+
+**Regla 3 — "Sin leer" tab muestra solo `!isRead`**
+- Cada notificación tiene su flag `isRead` que persiste hasta que el usuario interactúe.
+- "Sin leer" filtra `notifications.filter(n => !n.isRead)`.
+- Cuando expira por `expiresAt`, desaparece de AMBAS tabs (Todas y Sin leer) sin importar el flag isRead.
+
+**Regla 4 — Vista "Archivado" (post-v1.0.0)**
+- v1.1.0 agregará una vista `GET /v1/notification-center/archived` que ignore el filtro `expiresAt` y retorne TODO el histórico (con paginación).
+- Acceso restringido por rol: SUPERVISOR y AUDITOR (no operativo).
+- Permite búsqueda y export CSV para auditoría/disputas.
+
+**Regla 5 — Re-aparición no permitida**
+- Si un evento se repite (ej. otro ticket CRITICAL en la misma habitación), se crea una **nueva** `AppNotification` con timestamp nuevo.
+- Nunca se "revive" una notificación expirada — el audit trail queda más limpio.
+
+**Implementación en el backend:**
+- Helper `computeExpiresAt(category, type)` en `NotificationCenterService`.
+- Tests deben verificar: CRITICAL → null, VERIFIED → +4h, INFORMATIONAL legacy → +7d.
+
+**Fundamento:**
+- **Hospitality compliance**: USALI 12ª ed. §4.2 — events must be retained 7 years post-fiscal.
+- **Visa Core Rules §5.9.2**: chargeback dispute evidence retained 120d minimum.
+- **NN/g 2018**: "Inbox decay strategy reduces cognitive load while preserving audit access."
+- **Apple HIG 2024 Notifications**: "Expire content that loses meaning — keep what users need to act on."
+
+**Anti-patterns prohibidos** en código nuevo:
+- ❌ `DELETE FROM AppNotification` en cualquier scheduler o endpoint
+- ❌ Categorías nuevas sin TTL definido en la tabla canónica
+- ❌ Re-uso de un id antiguo (idempotency violation)
+- ❌ Hide en frontend ignorando `expiresAt` del backend (single source of truth)
+
+---
+
 ## Plan v1.0.0 — Definition of Done
 
 > Este plan es la fuente de verdad para el cierre de v1.0.0. Cada sprint listado debe completarse antes de release. Métricas no negociables al final.

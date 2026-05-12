@@ -47,6 +47,24 @@ export interface AppNotification {
   expiresAt:   string | null
 }
 
+/**
+ * Parser de actionUrl para abrir el detalle correcto al tap-ear una notif.
+ * Soporta dos formatos:
+ *   · `/maintenance?ticketId=X` (formato nuevo, backend post-commit 414889f)
+ *   · `/maintenance/tickets/X`  (formato legacy en notifs persistidas viejas)
+ *
+ * W3.7 mobile: paridad con apps/web/src/store/maintenanceDrawer.ts.
+ * Returns el ticketId si es URL de ticket de mantenimiento; null si es
+ * otra ruta (caller decide qué hacer).
+ */
+export function parseMaintenanceTicketUrl(url: string): string | null {
+  const qmatch = url.match(/^\/maintenance\?(?:.*&)?ticketId=([^&]+)/)
+  if (qmatch) return qmatch[1]
+  const lmatch = url.match(/^\/maintenance\/tickets\/([^/?#]+)/)
+  if (lmatch) return lmatch[1]
+  return null
+}
+
 export const notificationsApi = {
   list: (propertyId: string, limit = 50) =>
     api.get<AppNotification[]>(`${BASE}?propertyId=${propertyId}&limit=${limit}`),

@@ -50,12 +50,14 @@ import Animated, {
 import { colors } from '../../src/design/colors'
 import { typography } from '../../src/design/typography'
 import { MOTION } from '../../src/design/motion'
+import { useRouter } from 'expo-router'
 import { useApiResource } from '../../src/api/useApiResource'
 import { useSSE } from '../../src/api/useSSE'
 import { useAuthStore } from '../../src/store/auth'
 import {
   notificationsApi,
   CATEGORY_AVATAR,
+  parseMaintenanceTicketUrl,
   type AppNotification,
 } from '../../src/features/notifications/notifications.api'
 
@@ -94,6 +96,7 @@ type Item =
   | { type: 'row'; data: AppNotification }
 
 export default function NotificacionesScreen() {
+  const router = useRouter()
   const propertyId = useAuthStore((s) => s.user?.propertyId) ?? null
 
   // Conectado al backend real (era MOCK hasta 2026-05-13). El endpoint sigue
@@ -160,17 +163,38 @@ export default function NotificacionesScreen() {
     })
   }
 
-  function handleRowTap(id: string) {
+  /*
+   * W3.7 mobile — paridad con W3.6 web (GlobalMaintenanceDrawer).
+   *
+   * Tap en notif hace 2 cosas atómicas:
+   *   1) Mark as read (optimistic, rollback en error)
+   *   2) Navegar al detalle correspondiente segun actionUrl:
+   *      · /maintenance?ticketId=X (formato nuevo)  → push /maintenance/ticket/X
+   *      · /maintenance/tickets/X  (formato legacy) → push /maintenance/ticket/X
+   *      · /reservations/{id}                       → push /reservas/{id} (futuro)
+   *      · sin actionUrl                            → solo marca leída
+   *
+   * iOS native push transition (slide right-to-left) preserva el contexto
+   * — el usuario tap-ea atrás para volver a la lista (Apple HIG 2024
+   * Navigation: "always offer a way back").
+   */
+  function handleRowTap(notif: AppNotification) {
     void Haptics.selectionAsync()
-    // Optimistic
-    setReadIds((prev) => new Set([...prev, id]))
-    notificationsApi.markRead(id).catch(() => {
+    // Optimistic mark-as-read
+    setReadIds((prev) => new Set([...prev, notif.id]))
+    notificationsApi.markRead(notif.id).catch(() => {
       setReadIds((prev) => {
         const next = new Set(prev)
-        next.delete(id)
+        next.delete(notif.id)
         return next
       })
     })
+    // Navegar al detalle si hay actionUrl
+    if (!notif.actionUrl) return
+    const ticketId = parseMaintenanceTicketUrl(notif.actionUrl)
+    if (ticketId) {
+      router.push(`/maintenance/ticket/${ticketId}`)
+    }
   }
 
   function handleRefresh() {
@@ -221,7 +245,7 @@ export default function NotificacionesScreen() {
             item.type === 'header' ? (
               <SectionHeader label={GROUP_LABEL[item.group]} />
             ) : (
-              <NotificationRow data={item.data} onPress={() => handleRowTap(item.data.id)} />
+              <NotificationRow data={item.data} onPress={() => handleRowTap(item.data)} />
             )
           }
           contentContainerStyle={styles.listContent}
