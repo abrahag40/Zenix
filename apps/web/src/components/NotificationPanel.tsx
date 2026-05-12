@@ -81,85 +81,94 @@ function NotificationCard({ notif, onRead, onApprove, onReject, onNavigate }: Ca
   const meta   = CATEGORY_META[notif.category] ?? CATEGORY_META.SYSTEM
   const Icon   = meta.icon
   const stripe = PRIORITY_STRIPE[notif.priority] ?? PRIORITY_STRIPE.MEDIUM
-  // Fallback robusto — si backend agrega un tipo nuevo no rompe el render.
-  const typeBadge = TYPE_LABEL[notif.type] ?? TYPE_LABEL.INFORMATIONAL
 
   const handleClick = () => {
     if (!notif.isRead) onRead(notif.id)
     if (notif.actionUrl) onNavigate?.(notif.actionUrl)
   }
 
+  const relativeTime = formatDistanceToNow(new Date(notif.createdAt), { addSuffix: true, locale: es })
+
+  /*
+   * W3.5 pixel-perfect (debate 2026-05-13):
+   *
+   * Typography: text-[13px] title + text-xs body — alineado con cards
+   *   del sistema (Kanban, BookingDetailSheet). Antes text-sm (14px) era
+   *   inconsistente.
+   *
+   * Chips: solo 1 chip de categoría. Antes había 2 (type + category) que
+   *   eran redundantes ("Aprobación" + "Aprobación requerida"). Drop type.
+   *
+   * Unread dot: movido al far-right del card, vertically centered con
+   *   `self-center`. Justificación: pre-attentive Treisman 1980 (scent
+   *   independiente del bg sutil). Patrón FB/iOS Mail/Linear.
+   *
+   * Icono "!": ahora vertically centered via grid template (no flex+mt-0.5)
+   *   — Apple HIG composed list items con contenido variable.
+   *
+   * Meta footer: "Por X" + "hace Yh" mismo baseline (flex con gap, no
+   *   bloques separados).
+   */
   return (
     <div
       className={cn(
-        'relative flex gap-3 px-4 py-3.5 transition-colors cursor-pointer',
+        'group relative grid gap-2.5 px-4 py-3 transition-colors cursor-pointer',
         notif.isRead
           ? 'bg-white hover:bg-slate-50'
-          : 'bg-blue-50/50 hover:bg-blue-50',
+          : 'bg-blue-50/40 hover:bg-blue-50',
       )}
+      style={{ gridTemplateColumns: 'auto minmax(0, 1fr) auto' }}
       onClick={handleClick}
     >
-      {/* Priority stripe */}
+      {/* Priority stripe — accent vertical izquierdo, full height */}
       <div className={cn('absolute left-0 top-0 bottom-0 w-0.5', stripe)} />
 
-      {/* Category icon */}
-      <div className={cn(
-        'flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center mt-0.5 border',
-        meta.bg, meta.border,
-      )}>
+      {/* Category icon — vertically centered con todo el contenido (Apple HIG
+          composed list) */}
+      <div
+        className={cn(
+          'flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center border self-center',
+          meta.bg, meta.border,
+        )}
+      >
         <Icon className={cn('h-4 w-4', meta.color)} />
       </div>
 
-      <div className="flex-1 min-w-0">
-        <div className="flex items-start justify-between gap-2">
-          <p className={cn(
-            'text-sm leading-snug line-clamp-2',
-            notif.isRead ? 'text-slate-600 font-normal' : 'text-slate-900 font-medium',
-          )}>
-            {notif.title}
-          </p>
-          <div className="flex items-center gap-1 flex-shrink-0">
-            {/* Unread dot */}
-            {!notif.isRead && (
-              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1" />
-            )}
-            <button
-              className="p-0.5 text-slate-300 hover:text-slate-500 rounded transition-colors"
-              onClick={(e) => { e.stopPropagation(); onRead(notif.id) }}
-              aria-label="Marcar como leída"
-            >
-              <X className="h-3 w-3" />
-            </button>
-          </div>
-        </div>
+      {/* Content column */}
+      <div className="min-w-0 flex flex-col gap-1.5">
+        {/* Title — text-[13px] alineado con sistema */}
+        <p className={cn(
+          'text-[13px] leading-snug line-clamp-2',
+          notif.isRead ? 'text-slate-600 font-normal' : 'text-slate-900 font-semibold',
+        )}>
+          {notif.title}
+        </p>
 
-        <p className="text-xs text-slate-500 mt-0.5 line-clamp-2 leading-relaxed">
+        {/* Body */}
+        <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">
           {notif.body}
         </p>
 
-        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-          {/* Type badge */}
-          <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded', typeBadge.color)}>
-            {typeBadge.label}
-          </span>
-
-          {/* Category label */}
-          <span className={cn('text-[10px] font-medium px-1.5 py-0.5 rounded border', meta.color, meta.bg, meta.border)}>
+        {/* Single category chip — drop redundant type chip */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={cn(
+            'text-[10px] font-semibold px-1.5 py-0.5 rounded',
+            meta.color, meta.bg,
+          )}>
             {meta.label}
-          </span>
-
-          {/* Timestamp */}
-          <span className="text-[10px] text-slate-400 ml-auto">
-            {formatDistanceToNow(new Date(notif.createdAt), { addSuffix: true, locale: es })}
           </span>
         </div>
 
-        {/* Who triggered it */}
-        {notif.triggeredBy && (
-          <p className="text-[10px] text-slate-400 mt-0.5">
-            Por {notif.triggeredBy}
-          </p>
-        )}
+        {/* Footer meta: author + time SAME baseline (was 2 separate blocks) */}
+        <div className="flex items-baseline gap-1.5 text-[10px] text-slate-400">
+          {notif.triggeredBy && (
+            <>
+              <span>Por {notif.triggeredBy}</span>
+              <span className="text-slate-300">·</span>
+            </>
+          )}
+          <span>{relativeTime}</span>
+        </div>
 
         {/* Approval actions */}
         {notif.type === 'APPROVAL_REQUIRED' && !notif.approval && (
@@ -187,7 +196,7 @@ function NotificationCard({ notif, onRead, onApprove, onReject, onNavigate }: Ca
         {/* Approval result */}
         {notif.approval && (
           <div className={cn(
-            'mt-2 text-[10px] font-semibold px-2 py-1 rounded',
+            'mt-1 text-[10px] font-semibold px-2 py-1 rounded',
             notif.approval.action === 'APPROVED'
               ? 'bg-emerald-50 text-emerald-700'
               : 'bg-red-50 text-red-700',
@@ -195,6 +204,27 @@ function NotificationCard({ notif, onRead, onApprove, onReject, onNavigate }: Ca
             {notif.approval.action === 'APPROVED' ? '✓ Aprobado' : '✗ Rechazado'}
             {notif.approval.reason ? ` — ${notif.approval.reason}` : ''}
           </div>
+        )}
+      </div>
+
+      {/* Side column — X (top) + unread dot (vertical center, far right).
+          Patrón FB/iOS Mail: unread dot SIEMPRE en el borde derecho del card,
+          vertical-centered con todo el contenido — pre-attentive scent
+          independiente del bg sutil (Treisman 1980). */}
+      <div className="relative flex flex-col items-end gap-2 self-stretch shrink-0">
+        <button
+          className="p-0.5 text-slate-300 hover:text-slate-600 rounded transition-colors"
+          onClick={(e) => { e.stopPropagation(); onRead(notif.id) }}
+          aria-label="Marcar como leída"
+          title="Marcar como leída"
+        >
+          <X className="h-3 w-3" />
+        </button>
+        {!notif.isRead && (
+          <span
+            className="absolute right-0 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-blue-500"
+            aria-label="Sin leer"
+          />
         )}
       </div>
     </div>
