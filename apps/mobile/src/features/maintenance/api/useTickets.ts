@@ -6,7 +6,7 @@
  *   - SSE para refresh automático cuando llega evento maintenance:ticket:*
  *   - 3 vistas: mis tickets activos, cola (sin asignar), todos
  */
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import type {
   MaintenanceTicketDto,
   MaintenanceTicketDetailDto,
@@ -59,9 +59,13 @@ export function useMaintenanceTickets() {
   const [isRefreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<Error | null>(null)
 
-  const fetchTickets = useCallback(async (asRefresh = false) => {
-    if (asRefresh) setRefreshing(true)
-    else setLoading(true)
+  // M3.4 — Track del último evento SSE para polling fallback inteligente.
+  const lastSseAt = useRef<number>(Date.now())
+
+  const fetchTickets = useCallback(async (mode: 'initial' | 'refresh' | 'silent') => {
+    if (mode === 'refresh') setRefreshing(true)
+    else if (mode === 'initial') setLoading(true)
+    // 'silent' → no toggle visual; sólo actualiza datos al background
     try {
       const data = await maintenanceApi.list({ activeOnly: true })
       setTickets(data)
@@ -76,14 +80,43 @@ export function useMaintenanceTickets() {
 
   // Initial fetch
   useEffect(() => {
-    void fetchTickets(false)
+    void fetchTickets('initial')
   }, [fetchTickets])
 
   // SSE — refresh al recibir cualquier maintenance:ticket:*
   useEffect(() => {
     return registerSseConsumer(TICKET_TRIGGERS, () => {
-      void fetchTickets(true)
+      lastSseAt.current = Date.now()
+      void fetchTickets('refresh')
     })
+  }, [fetchTickets])
+
+  /*
+   * M3.4 — Polling fallback inteligente cuando SSE está "silent" >90s.
+   *
+   * Razón: el técnico opera en pisos con wifi inestable. SSE puede
+   * desconectarse sin que la UI lo sepa (no hay heartbeat explícito en
+   * useGlobalSSEListener). Sin polling, los datos quedan stale por
+   * minutos hasta que el usuario hace pull-to-refresh manual.
+   *
+   * Estrategia (Apple HIG 2024 background refresh):
+   *   · Interval cada 60s evalúa: ¿llegó evento SSE en los últimos 90s?
+   *   · Sí → skip (SSE activo, no spam de requests)
+   *   · No → fetch silent (sin spinner — el usuario no debe notar)
+   *
+   * Cost: ~1 request/min cuando red está mala. Aceptable vs el riesgo
+   * operativo de ver tickets fantasma (ya cerrados pero visibles).
+   *
+   * Pattern aplicado por Slack/Linear/Mews tras detectar el bug similar
+   * en sus apps mobile (Mews changelog 2023 documenta el fix exacto).
+   */
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const sinceSse = Date.now() - lastSseAt.current
+      if (sinceSse < 90_000) return // SSE activo en los últimos 90s
+      void fetchTickets('silent')
+    }, 60_000)
+    return () => clearInterval(interval)
   }, [fetchTickets])
 
   const groups = useMemo<TicketGroups>(() => {
@@ -123,7 +156,7 @@ export function useMaintenanceTickets() {
     return result
   }, [tickets, user?.id, user?.role])
 
-  return { tickets, groups, isLoading, isRefreshing, error, refetch: () => fetchTickets(true) }
+  return { tickets, groups, isLoading, isRefreshing, error, refetch: () => fetchTickets('refresh') }
 }
 
 /**
