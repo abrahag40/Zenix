@@ -64,6 +64,8 @@ import {
 type ReasonPrompt =
   | { kind: 'reject'; minLength: 5 }
   | { kind: 'verify-reject'; minLength: 5 }
+  // M3.1 — reopen requiere razón (ReopenMaintenanceTicketInput.reason)
+  | { kind: 'reopen'; minLength: 5 }
 
 export default function TicketDetailScreen() {
   const router = useRouter()
@@ -174,6 +176,25 @@ export default function TicketDetailScreen() {
       },
       'Verificado · Habitación regresa a venta · Ticket archivado',
     )
+  }
+
+  // M3.1 — Cerrar ticket VERIFIED: archiva el ticket (CLOSED final state).
+  // Solo SUPERVISOR puede cerrar. Backend retorna error 403 si rol no aplica.
+  function onClose() {
+    if (!ticketId) return
+    void runAction(
+      'close',
+      async () => {
+        await maintenanceApi.close(ticketId)
+        setTimeout(() => router.replace('/(app)/trabajo'), 600)
+      },
+      'Ticket cerrado · Movido a histórico',
+    )
+  }
+
+  // M3.1 — Reabrir ticket CLOSED requires razón (auditoría). Abre InputSheet.
+  function onReopen() {
+    setReasonPrompt({ kind: 'reopen', minLength: 5 })
   }
 
   // Mx-1B-W2 — comentar desde el detail (B4)
@@ -599,6 +620,33 @@ export default function TicketDetailScreen() {
               />
             </>
           )}
+
+          {/* M3.1 — SUPERVISOR + VERIFIED → Cerrar ticket (archivar a CLOSED).
+              El ciclo del ticket queda completo: VERIFIED es status visible aún
+              en el feed activo (depende de filtro activeOnly). CLOSED lo
+              mueve definitivamente al histórico. Solo SUPERVISOR puede.
+              Backend: PATCH /tickets/:id/close, role-gated. */}
+          {isSupervisor && ticket.status === 'VERIFIED' && (
+            <ActionBtn
+              label="📋 Cerrar ticket · archivar"
+              onPress={onClose}
+              loading={actionLoading === 'close'}
+              tone="primary"
+            />
+          )}
+
+          {/* M3.1 — SUPERVISOR + CLOSED → Reabrir ticket. Caso recurrente:
+              el problema se reportó como resuelto pero reaparece, o se
+              cerró por error. Requiere razón (audit trail USALI).
+              Solo SUPERVISOR — el backend valida. */}
+          {isSupervisor && ticket.status === 'CLOSED' && (
+            <ActionBtn
+              label="↩ Reabrir ticket"
+              onPress={onReopen}
+              loading={actionLoading === 'reopen'}
+              tone="primary"
+            />
+          )}
         </View>
 
         {/* Historial (T-5 fix — humanizado, no enum raw) */}
@@ -621,15 +669,21 @@ export default function TicketDetailScreen() {
           Sustituye al Alert.prompt iOS-only + al modal custom anterior. */}
       <InputSheet
         open={!!reasonPrompt}
-        tone={reasonPrompt?.kind === 'verify-reject' ? 'warning' : 'error'}
+        tone={
+          reasonPrompt?.kind === 'verify-reject' ? 'warning'
+          : reasonPrompt?.kind === 'reopen' ? 'info'
+          : 'error'
+        }
         title={
-          reasonPrompt?.kind === 'verify-reject'
-            ? 'Rechazar calidad'
-            : 'Rechazar reporte'
+          reasonPrompt?.kind === 'verify-reject' ? 'Rechazar calidad'
+          : reasonPrompt?.kind === 'reopen' ? 'Reabrir ticket'
+          : 'Rechazar reporte'
         }
         description={
           reasonPrompt?.kind === 'verify-reject'
             ? 'El ticket regresará al técnico para que retome el trabajo. Verá tu razón en sus notificaciones.'
+            : reasonPrompt?.kind === 'reopen'
+            ? 'El ticket vuelve a estar activo. Documenta por qué se reabre — queda en el audit trail.'
             : 'El reporte se cerrará y la persona que lo levantó recibirá tu razón por notificación.'
         }
         placeholder="Razón mínimo 5 caracteres…"
@@ -637,9 +691,11 @@ export default function TicketDetailScreen() {
         maxLength={300}
         minLength={reasonPrompt?.minLength ?? 5}
         primaryLabel={
-          reasonPrompt?.kind === 'verify-reject' ? 'Rechazar y reabrir' : 'Rechazar'
+          reasonPrompt?.kind === 'verify-reject' ? 'Rechazar y reabrir'
+          : reasonPrompt?.kind === 'reopen' ? 'Reabrir ticket'
+          : 'Rechazar'
         }
-        primaryTone="destructive"
+        primaryTone={reasonPrompt?.kind === 'reopen' ? 'primary' : 'destructive'}
         onClose={() => setReasonPrompt(null)}
         onSubmit={(text) => {
           if (!ticketId || !reasonPrompt) return
@@ -651,11 +707,18 @@ export default function TicketDetailScreen() {
               () => maintenanceApi.reject(ticketId, { reason: text }),
               'Ticket rechazado',
             )
-          } else {
+          } else if (prompt.kind === 'verify-reject') {
             void runAction(
               'verify-reject',
               () => maintenanceApi.verify(ticketId, { approved: false, rejectionReason: text }),
               'Trabajo rechazado · reabierto al técnico',
+            )
+          } else {
+            // reopen
+            void runAction(
+              'reopen',
+              () => maintenanceApi.reopen(ticketId, { reason: text }),
+              'Ticket reabierto · status IN_PROGRESS',
             )
           }
         }}

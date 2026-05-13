@@ -10,6 +10,7 @@ import type {
   MaintenanceTicketDto,
   MaintenanceTicketListQuery,
   RejectMaintenanceTicketInput,
+  ReopenMaintenanceTicketInput,
   ResolveMaintenanceTicketInput,
   VerifyMaintenanceTicketInput,
 } from '@zenix/shared'
@@ -49,6 +50,15 @@ export const maintenanceApi = {
     api.patch<MaintenanceTicketDto>(`${ROOT}/tickets/${id}/reject`, dto),
   verify: (id: string, dto: VerifyMaintenanceTicketInput = {}) =>
     api.patch<MaintenanceTicketDto>(`${ROOT}/tickets/${id}/verify`, dto),
+
+  // Sprint M3.1 — endpoints faltantes para cierre completo del ciclo del ticket.
+  // close():  VERIFIED → CLOSED (archivado). Solo SUPERVISOR.
+  // reopen(): CLOSED → IN_PROGRESS con razón obligatoria. Solo SUPERVISOR.
+  // El backend ya los expone (controller líneas 143-157), faltaba surface mobile.
+  close: (id: string) =>
+    api.patch<MaintenanceTicketDto>(`${ROOT}/tickets/${id}/close`),
+  reopen: (id: string, dto: ReopenMaintenanceTicketInput) =>
+    api.patch<MaintenanceTicketDto>(`${ROOT}/tickets/${id}/reopen`, dto),
 
   addPhoto: (id: string, dto: { url: string; caption?: string; isAfterPhoto?: boolean }) =>
     api.post<{ id: string }>(`${ROOT}/tickets/${id}/photos`, dto),
