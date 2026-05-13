@@ -11,6 +11,7 @@ import { Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { TenantContextService } from '../common/tenant-context.service'
 import { NotificationsService } from '../notifications/notifications.service'
+import { PushService } from '../notifications/push.service'
 
 export interface SendNotificationDto {
   propertyId?: string
@@ -36,6 +37,7 @@ export class NotificationCenterService {
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
     private readonly sse: NotificationsService,
+    private readonly push: PushService,
   ) {}
 
   async send(dto: SendNotificationDto): Promise<string> {
@@ -80,6 +82,19 @@ export class NotificationCenterService {
       })
     }
 
+    // M3.2 — OS-level push para alcanzar al usuario cuando la app mobile
+    // está backgrounded/cerrada. SSE solo funciona en foreground.
+    // Política:
+    //   · priority LOW → solo SSE (no spam de push para info no actionable)
+    //   · priority MEDIUM/HIGH/URGENT → push a recipient(s)
+    //   · best-effort: fire-and-forget; cualquier error de Expo se loguea
+    //     pero NO bloquea la transacción del notif.
+    if (notification.priority !== 'LOW') {
+      void this.sendPush(dto, notification, orgId).catch((err) =>
+        this.logger.warn(`[NotifCenter] push fallback failed: ${err.message}`),
+      )
+    }
+
     this.logger.log(
       `[NotifCenter] sent category=${dto.category} type=${dto.type} ` +
       `recipient=${dto.recipientType}:${dto.recipientRole ?? dto.recipientId ?? 'all'} ` +
@@ -87,6 +102,66 @@ export class NotificationCenterService {
     )
 
     return notification.id
+  }
+
+  /**
+   * M3.2 — Resuelve los recipients (USER/ROLE/PROPERTY_ALL) y dispara push
+   * OS-level via Expo Push API. Construye el data payload con deep-link
+   * (ticketId/taskId/stayId) para que el mobile listener navegue al detail
+   * correcto al tap-ear la notif.
+   *
+   * Fire-and-forget — los errores se loguean pero NO bloquean la creación
+   * del notif (el SSE + AppNotification BD ya son la fuente de verdad).
+   */
+  private async sendPush(
+    dto: SendNotificationDto,
+    notification: { id: string; actionUrl: string | null },
+    orgId: string,
+  ): Promise<void> {
+    // Resolver staffIds destinatarios según recipientType
+    const staffIds: string[] = []
+    if (dto.recipientType === 'USER' && dto.recipientId) {
+      staffIds.push(dto.recipientId)
+    } else if (dto.recipientType === 'ROLE' && dto.recipientRole && dto.propertyId) {
+      const staff = await this.prisma.staff.findMany({
+        where: {
+          organizationId: orgId,
+          propertyId:     dto.propertyId,
+          role:           dto.recipientRole,
+          active:         true,
+        },
+        select: { id: true },
+      })
+      staffIds.push(...staff.map((s) => s.id))
+    } else if (dto.recipientType === 'PROPERTY_ALL' && dto.propertyId) {
+      const staff = await this.prisma.staff.findMany({
+        where: { organizationId: orgId, propertyId: dto.propertyId, active: true },
+        select: { id: true },
+      })
+      staffIds.push(...staff.map((s) => s.id))
+    }
+    if (staffIds.length === 0) return
+
+    // Parse actionUrl → deep-link payload para el listener mobile.
+    // Soporta los 3 formatos que el sistema produce hoy:
+    //   /maintenance?ticketId=X         → ticketId=X
+    //   /maintenance/tickets/X (legacy) → ticketId=X
+    //   /(app)/task/X                   → taskId=X
+    //   /reservations/X                 → stayId=X
+    const data: Record<string, string> = { notificationId: notification.id }
+    if (notification.actionUrl) {
+      const m1 = notification.actionUrl.match(/^\/maintenance\?(?:.*&)?ticketId=([^&]+)/)
+      const m2 = notification.actionUrl.match(/^\/maintenance\/tickets\/([^/?#]+)/)
+      const m3 = notification.actionUrl.match(/^\/\(app\)\/task\/([^/?#]+)/)
+      const m4 = notification.actionUrl.match(/^\/reservations\/([^/?#]+)/)
+      if (m1 || m2) data.ticketId = (m1 ?? m2)![1]
+      else if (m3) data.taskId = m3[1]
+      else if (m4) data.stayId = m4[1]
+    }
+
+    // sendToMultipleStaff de PushService maneja chunking (Expo límite 100/req)
+    // + dedup de tokens inactivos + retries internos.
+    await this.push.sendToMultipleStaff(staffIds, dto.title, dto.body, data)
   }
 
   async listForUser(staffId: string, propertyId: string, limit = 50) {

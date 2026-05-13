@@ -168,12 +168,26 @@ export async function registerForPushNotificationsAsync(): Promise<void> {
   }
 }
 
+/**
+ * Payload deep-link de cualquier notificación push del sistema Zenix.
+ * Cada notif puede transportar SOLO uno de estos identificadores (el más
+ * específico). Si llegan varios, prioridad: ticketId > taskId > stayId.
+ * El consumer decide a qué screen navegar.
+ *
+ * Sprint M3.2 — agregado ticketId para soportar push de mantenimiento.
+ */
+export interface NotificationDeepLink {
+  taskId?: string       // CleaningTask housekeeping
+  ticketId?: string     // MaintenanceTicket (Sprint M3.2)
+  stayId?: string       // Reserva PMS (futuro)
+}
+
 /** Listen for notification taps and return cleanup function */
 export function setupNotificationListeners(
-  onNotificationResponse: (data: { taskId?: string }) => void,
+  onNotificationResponse: (data: NotificationDeepLink) => void,
 ): () => void {
   const sub = Notifications.addNotificationResponseReceivedListener((response) => {
-    const data = response.notification.request.content.data as { taskId?: string }
+    const data = response.notification.request.content.data as NotificationDeepLink
     onNotificationResponse(data)
   })
   return () => sub.remove()

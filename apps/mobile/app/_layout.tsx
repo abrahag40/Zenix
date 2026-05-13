@@ -115,8 +115,13 @@ export default function RootLayout() {
     // Push token registration — skipped automatically in Expo Go.
     registerForPushNotificationsAsync().catch(() => undefined)
     startSyncManager()
-    const cleanup = setupNotificationListeners(({ taskId }) => {
-      if (taskId) router.push(`/(app)/task/${taskId}`)
+    // M3.2 — deep link tap → screen correcta según el tipo de notif.
+    // Prioridad: ticketId > taskId > stayId (más específico primero).
+    // Backend pone solo UNO de estos según la categoría del notif.
+    const cleanup = setupNotificationListeners(({ taskId, ticketId, stayId }) => {
+      if (ticketId) router.push(`/(app)/maintenance/ticket/${ticketId}`)
+      else if (taskId) router.push(`/(app)/task/${taskId}`)
+      else if (stayId) router.push(`/(app)/reservation/${stayId}`)
     })
     return () => {
       cleanup()
