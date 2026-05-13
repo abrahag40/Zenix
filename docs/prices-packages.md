@@ -2,7 +2,7 @@
 
 > **Documento operativo de pricing**. Base para el equipo comercial, ventas consultivas, y decisiones de roadmap (qué feature va en qué tier).
 > Fuente de verdad: este archivo + `docs/zenix-sales-master.md` (justificación comercial). Cualquier cambio se refleja en ambos.
-> Última actualización: 2026-05-12 (Sprint Mx-1B-W3 W3.0-W3.4 cerrados).
+> Última actualización: 2026-05-13 — Sprint Mx-1B-W3 W3.0-W3.7 + Tier 1 notifs (A+B+F) + **Sprint Mx-1B-M M3.1-M3.5 cerrado**. Módulo de Mantenimiento feature-complete en backend + web + mobile.
 
 ---
 
@@ -73,17 +73,32 @@ Cumplimiento fiscal CFDI 4.0 / DIAN / SUNAT (v1.2.0), WhatsApp nativo 360Dialog 
 - ✅ **Hub Recamarista mobile** — 4 secciones priorizadas (doble urgente · hoy entra · carryover · normal · estadías)
 - ✅ **Cola offline** con sync al reconectar (crítico para pisos sin wifi consistente)
 
-#### Mantenimiento (módulo completo — Mx-1 entero)
+#### Mantenimiento (módulo completo — Mx-1 + Mx-1B-W + Mx-1B-M, feature-complete)
 
-- ✅ **Sistema de tickets work-order** con 7 estados auditados
-- ✅ **3 flujos**: A top-down (supervisor crea + asigna), B bottom-up (housekeeper reporta → supervisor aprueba), C cola (técnico claim voluntario)
+**Backend (Sprint Mx-1):**
+- ✅ **Sistema de tickets work-order** con 7 estados auditados (OPEN → ACKNOWLEDGED → IN_PROGRESS → WAITING_PARTS → RESOLVED → VERIFIED → CLOSED)
+- ✅ **3 flujos de creación**: A top-down (supervisor crea + asigna), B bottom-up (housekeeper reporta → supervisor aprueba), C cola (técnico claim voluntario)
 - ✅ **CRITICAL → auto-bloqueo de inventario** vía `RoomBlock` con FK al ticket (`§Mx2 D-Mx2`)
 - ✅ **VERIFIED → auto-liberación** de bloqueo y limpieza post-mantenimiento
 - ✅ **Audit trail USALI** — 19 eventos por ticket, append-only, exportable
-- ✅ **Histórico por habitación** y por asset (lavadora, generador, vehículo) — solo Optii/Quore lo tienen, ambos $135-500/mes EXTRA en otros PMS
-- ✅ **Cross-integración calendario** — badge 🔧 dot indicator en RoomColumn, sección en BookingDetailSheet, click bloque → ticket drawer in-place (Sprint Mx-1B-W3)
+- ✅ **Histórico por habitación** y por asset (lavadora, generador, vehículo) — solo Optii ($350-500/mes) y Quore ($135-171/mes) lo tienen EXTRA al PMS
+
+**Web (Sprint Mx-1B-W1 + W2 + W3):**
+- ✅ **Vista raíz adaptativa por rol** (SUPERVISOR · TECHNICIAN · RECEPTIONIST)
+- ✅ **Kanban supervisor** con 7+1 columnas, scrollbar permanente, pixel-perfect Apple HIG
+- ✅ **TicketDetailDrawer global** — montado a nivel App, accesible desde cualquier vista (W3.6 GlobalMaintenanceDrawer + Zustand store)
+- ✅ **Cross-integración calendario** — badge 🔧 dot indicator en RoomColumn, sección en BookingDetailSheet, click bloque originado por ticket abre drawer in-place
+- ✅ **Click notificación → drawer in-place** (no navega fuera del contexto)
 - ✅ **SLA 2 tiers automatizado** — CRITICAL 15min · HIGH 60min con escalación al supervisor (solo Optii/Quore/MaintainX en otros PMS)
-- ✅ **Mobile reporte rápido** desde tarea de limpieza con foto
+
+**Mobile (Sprint Mx-1B-M, completo M3.1-M3.5):**
+- ✅ **MaintenanceHub** para técnicos — 5 secciones priorizadas (Esperando aprobación · Crítico · Mis tickets · Disponibles · Esperando piezas) con border-l semántico color-coded
+- ✅ **ReportProblem screen** con captura de foto, selector room/asset/área general, 11 categorías
+- ✅ **TicketDetailScreen** con ciclo de vida completo: claim/start/resolve/verify/reject/close/reopen + photos + comments + audit log humanizado
+- ✅ **Push OS-level (M3.2)** — el técnico recibe notificación CRITICAL aunque la app esté cerrada, tap abre directo al ticket detail
+- ✅ **Polling fallback (M3.4)** — datos siempre frescos aunque SSE falle (wifi intermitente en pisos)
+- ✅ **Bulk-start multi-select (M3.5)** — long-press inicia modo selección, técnico arranca N tickets ACKNOWLEDGED en 1 acción (único en el mercado)
+- ✅ **Deep-link tap multi-tipo** — taskId/ticketId/stayId routing automático
 
 #### No-Shows (cumplimiento fiscal)
 
@@ -311,9 +326,15 @@ Cumplimiento fiscal CFDI 4.0 / DIAN / SUNAT (v1.2.0), WhatsApp nativo 360Dialog 
 | **Housekeeping completo (web + mobile)** | ✅ | ✅ | ✅ |
 | **Hub Recamarista mobile (Sprint 8I)** | ✅ | ✅ | ✅ |
 | **KanbanPage supervisor** | ✅ | ✅ | ✅ |
-| **Mantenimiento completo (3 flujos + SLA)** | ✅ | ✅ | ✅ |
+| **Mantenimiento completo (3 flujos + SLA 2-tier)** | ✅ | ✅ | ✅ |
 | **Auto-bloqueo CRITICAL + auto-liberación** | ✅ | ✅ | ✅ |
 | **Histórico mantenimiento por habitación/asset** | ✅ | ✅ | ✅ |
+| **Mobile MaintenanceHub para técnicos (Mx-1B-M)** | ✅ | ✅ | ✅ |
+| **Push OS-level con deep-link al ticket (M3.2)** | ✅ | ✅ | ✅ |
+| **Bulk-start mobile multi-select (M3.5)** | ✅ | ✅ | ✅ |
+| **Polling fallback SSE (M3.4)** | ✅ | ✅ | ✅ |
+| **Click notif → drawer in-place (W3.6)** | ✅ | ✅ | ✅ |
+| **Bridge HK→Mtto con sourceTaskId** | ✅ | ✅ | ✅ |
 | **No-show fiscal completo + WhatsApp** | ✅ | ✅ | ✅ |
 | **NotificationCenter (Sprint 7D) 3 tiers** | ✅ | ✅ | ✅ |
 | **Audit trail USALI append-only** | ✅ | ✅ | ✅ |
@@ -332,7 +353,6 @@ Cumplimiento fiscal CFDI 4.0 / DIAN / SUNAT (v1.2.0), WhatsApp nativo 360Dialog 
 | **Mantenimiento preventivo recurrente** | ❌ | ✅ | ✅ |
 | **Marketing module 4 segmentos** | ❌ | ✅ | ✅ |
 | **RBAC granular** | ❌ | ✅ | ✅ |
-| **Mobile MaintenanceHub (técnicos)** | ❌ | ✅ | ✅ |
 | **Multi-property dashboard** | ❌ | ❌ | ✅ |
 | **Property switcher cross-property** | ❌ | ❌ | ✅ |
 | **CFDI 4.0 / DIAN / SUNAT generación XML** | ❌ | ❌ | ✅ |
