@@ -196,14 +196,19 @@ export function MaintenanceHub() {
           if (item.type === 'header') {
             const secKey = sectionKeyFromHeaderKey(item.key)
             const isCol = collapsed[secKey] ?? false
+            // M3.3 — border-l semántico + bg tint sutil (paridad W3.5d).
+            // hexToRgba con alpha 0.10 da el wash de color de fondo.
+            const tintBg = hexToRgba(item.tint, 0.10)
             return (
               <Pressable
                 onPress={() =>
                   setCollapsed((s) => ({ ...s, [secKey]: !(s[secKey] ?? false) }))
                 }
-                style={styles.sectionHeader}
+                style={[
+                  styles.sectionHeader,
+                  { borderLeftColor: item.tint, backgroundColor: tintBg },
+                ]}
               >
-                <View style={[styles.sectionAccent, { backgroundColor: item.tint }]} />
                 <Text style={styles.sectionLabel}>{item.label}</Text>
                 <View style={styles.sectionCountWrap}>
                   <Text style={styles.sectionCount}>{item.count}</Text>
@@ -243,6 +248,21 @@ function sectionKeyFromHeaderKey(key: string) {
   return key.replace(/^h-/, '')
 }
 
+/**
+ * Convierte un hex color a rgba con alpha — para tint backgrounds de los
+ * section headers (M3.3 paridad W3.5d). Acepta #RGB o #RRGGBB.
+ */
+function hexToRgba(hex: string, alpha: number): string {
+  const h = hex.replace('#', '')
+  const full = h.length === 3
+    ? h.split('').map((c) => c + c).join('')
+    : h
+  const r = parseInt(full.slice(0, 2), 16)
+  const g = parseInt(full.slice(2, 4), 16)
+  const b = parseInt(full.slice(4, 6), 16)
+  return `rgba(${r},${g},${b},${alpha})`
+}
+
 function greet(name?: string | null) {
   const h = new Date().getHours()
   const slot = h < 12 ? 'Buen día' : h < 19 ? 'Buena tarde' : 'Buena noche'
@@ -275,14 +295,19 @@ const styles = StyleSheet.create({
   summary: { color: colors.text.secondary, fontSize: typography.size.body, marginTop: 6 },
   listContent: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 110 },
   sectionHeader: {
+    // M3.3 paridad W3.5d — section headers con border-l semántico (4px)
+    // + bg sutil del tint (alpha 8%). Pattern NotificationPanel web.
+    // Color psicológico §61 D20 — red/amber/blue/violet por urgencia.
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
     marginTop: 8,
+    marginBottom: 4,
     gap: 10,
+    borderRadius: 8,
+    borderLeftWidth: 3,
   },
-  sectionAccent: { width: 4, height: 18, borderRadius: 2 },
   sectionLabel: {
     color: colors.text.primary,
     fontSize: typography.size.bodyLg, // Headline 17pt
@@ -290,7 +315,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   sectionCountWrap: {
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(255,255,255,0.10)',
     paddingHorizontal: 10,
     paddingVertical: 3,
     borderRadius: 12,

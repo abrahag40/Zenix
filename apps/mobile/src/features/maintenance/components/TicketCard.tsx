@@ -51,7 +51,9 @@ export function TicketCard({ ticket, onPress }: Props) {
         pressed && styles.cardPressed,
       ]}
     >
-      {/* Zone 1 — Identity */}
+      {/* Zone 1 — Identity. M3.3 paridad W3.5: friendlyId removido del header
+          (redundante; visible en TicketDetail). categoría sin emoji para
+          consistencia tipográfica con web (TicketCard.tsx Kanban). */}
       <View style={styles.row}>
         <View style={[styles.priorityPill, { backgroundColor: priorityBg }]}>
           <Text style={[styles.priorityText, { color: priorityTextColor }]}>
@@ -59,16 +61,19 @@ export function TicketCard({ ticket, onPress }: Props) {
           </Text>
         </View>
         <Text style={styles.categoryText}>
-          {CATEGORY_EMOJI[ticket.category]} {CATEGORY_LABEL[ticket.category]}
+          {CATEGORY_LABEL[ticket.category]}
         </Text>
-        <View style={{ flex: 1 }} />
-        <Text style={styles.friendlyId}>{ticket.friendlyId}</Text>
       </View>
 
-      {/* Zone 2 — Title + context */}
+      {/* Zone 2 — Title + body preview + context */}
       <Text style={styles.title} numberOfLines={2}>
         {ticket.title}
       </Text>
+      {ticket.description && (
+        <Text style={styles.bodyPreview} numberOfLines={2}>
+          {ticket.description}
+        </Text>
+      )}
       <Text style={styles.context}>{contextLabel}</Text>
 
       {/* Zone 3 — Footer */}
@@ -134,15 +139,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   categoryText: { fontSize: typography.size.small, color: colors.text.tertiary, fontWeight: '500' },
-  friendlyId: {
-    fontSize: typography.size.micro,
-    color: colors.text.tertiary,
-    fontFamily: 'monospace',
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 5,
-  },
   title: {
     fontSize: typography.size.bodyLg, // 17pt Headline
     fontWeight: '600',
@@ -151,6 +147,15 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   context: { fontSize: typography.size.small, color: colors.text.secondary, marginBottom: 12 },
+  bodyPreview: {
+    // M3.3 — preview de description (1-2 líneas). Body 15pt secondary,
+    // leading relajado para legibilidad en thumb-scroll. Pattern Apple
+    // Mail / iOS Notifications.
+    fontSize: typography.size.body,
+    color: colors.text.secondary,
+    lineHeight: 20,
+    marginBottom: 6,
+  },
   footer: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   assignee: {
     fontSize: typography.size.small,
