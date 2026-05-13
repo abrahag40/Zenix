@@ -941,6 +941,58 @@ export class MaintenanceService {
     })
   }
 
+  /**
+   * M3.5 — Bulk start: arranca N tickets ACKNOWLEDGED del mismo técnico en
+   * UNA acción. Iteramos secuencialmente (no Promise.all) para que cada
+   * transición tenga su propio commit + log + SSE event, igual que si el
+   * usuario hubiera tap-eado uno por uno.
+   *
+   * Si algún ticket NO cumple validación (status != ACK, no es el assignee,
+   * ya iniciado, etc.) el método continúa con los demás y retorna el
+   * resumen { started, skipped, errors } para que el cliente sepa qué pasó.
+   *
+   * Decision NOT atomic transaction: si 3 de 5 funcionan, los 3 quedan
+   * iniciados. Razón: caso real → el técnico tap-eó hace rato y alguien
+   * más resolvió uno. Mejor avanzar con los 4 buenos que rollback total.
+   */
+  async bulkStartTickets(ticketIds: string[], actor: JwtPayload) {
+    if (!Array.isArray(ticketIds) || ticketIds.length === 0) {
+      return { started: [], skipped: [], errors: [] }
+    }
+    const started: string[] = []
+    const skipped: Array<{ id: string; reason: string }> = []
+    const errors: Array<{ id: string; message: string }> = []
+
+    for (const id of ticketIds) {
+      try {
+        const ticket = await this.findOrThrow(id)
+        // Skip silently si ya no es ACK (otro técnico/proceso ya lo movió)
+        if (ticket.status !== TicketStatus.ACKNOWLEDGED) {
+          skipped.push({ id, reason: `status=${ticket.status}` })
+          continue
+        }
+        if (ticket.assignedToId !== actor.sub) {
+          skipped.push({ id, reason: 'not_assignee' })
+          continue
+        }
+        await this.startTicket(id, actor)
+        started.push(id)
+      } catch (err) {
+        errors.push({
+          id,
+          message: err instanceof Error ? err.message : String(err),
+        })
+      }
+    }
+
+    this.logger.log(
+      `[Mx-1B-M M3.5] bulkStart by=${actor.sub} started=${started.length} ` +
+      `skipped=${skipped.length} errors=${errors.length}`,
+    )
+
+    return { started, skipped, errors }
+  }
+
   async requestParts(ticketId: string, note: string | undefined, actor: JwtPayload) {
     const ticket = await this.findOrThrow(ticketId)
     this.assertActor(ticket, actor, ['assignee'])

@@ -28,9 +28,14 @@ import {
 interface Props {
   ticket: MaintenanceTicketDto
   onPress: (id: string) => void
+  // M3.5 — multi-select bulk-start mode
+  onLongPress?: (id: string) => void
+  selected?: boolean
+  selectionMode?: boolean
+  selectable?: boolean  // false = no es ACK propio, render dimmed
 }
 
-export function TicketCard({ ticket, onPress }: Props) {
+export function TicketCard({ ticket, onPress, onLongPress, selected, selectionMode, selectable }: Props) {
   const priorityColor = PRIORITY_HEX[ticket.priority]          // border-left saturated
   const priorityTextColor = PRIORITY_HEX_DARK[ticket.priority] // texto sobre pill dark
   const priorityBg = PRIORITY_BG[ticket.priority]
@@ -41,16 +46,31 @@ export function TicketCard({ ticket, onPress }: Props) {
     ? `🔧 ${ticket.assetTag}`
     : '📍 Área general'
 
+  // M3.5 — multi-select visual feedback:
+  //   · selected → border accent emerald + bg tint sutil
+  //   · selectionMode && !selectable → opacity reducida (dimmed)
+  //   · selectionMode && selectable && !selected → cursor de selección
+  const isDimmed = selectionMode && !selectable
   return (
     <Pressable
       onPress={() => onPress(ticket.id)}
+      onLongPress={onLongPress ? () => onLongPress(ticket.id) : undefined}
+      delayLongPress={400}
       android_ripple={{ color: 'rgba(255,255,255,0.06)' }}
       style={({ pressed }) => [
         styles.card,
         { borderLeftColor: priorityColor },
         pressed && styles.cardPressed,
+        selected && styles.cardSelected,
+        isDimmed && styles.cardDimmed,
       ]}
     >
+      {/* Checkbox de selección — solo visible en multi-select mode */}
+      {selectionMode && selectable && (
+        <View style={[styles.selectCheckbox, selected && styles.selectCheckboxOn]}>
+          {selected && <Text style={styles.selectCheckboxMark}>✓</Text>}
+        </View>
+      )}
       {/* Zone 1 — Identity. M3.3 paridad W3.5: friendlyId removido del header
           (redundante; visible en TicketDetail). categoría sin emoji para
           consistencia tipográfica con web (TicketCard.tsx Kanban). */}
@@ -130,6 +150,33 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border.subtle,
   },
   cardPressed: { opacity: 0.7 },
+  // M3.5 — multi-select visual states
+  cardSelected: {
+    backgroundColor: 'rgba(16,185,129,0.10)', // emerald-500 alpha 10%
+    borderTopColor: colors.brand[500],
+    borderRightColor: colors.brand[500],
+    borderBottomColor: colors.brand[500],
+  },
+  cardDimmed: { opacity: 0.4 },
+  selectCheckbox: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: colors.border.default,
+    backgroundColor: colors.canvas.tertiary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
+  },
+  selectCheckboxOn: {
+    borderColor: colors.brand[500],
+    backgroundColor: colors.brand[500],
+  },
+  selectCheckboxMark: { color: colors.text.inverse, fontSize: 14, fontWeight: '700' },
   row: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 8 },
   priorityPill: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 5 },
   priorityText: {

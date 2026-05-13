@@ -107,6 +107,24 @@ export class MaintenanceController {
     return this.service.startTicket(id, actor)
   }
 
+  /**
+   * M3.5 — Bulk start: el técnico que tiene N tickets ACKNOWLEDGED puede
+   * iniciarlos todos en 1 acción en lugar de N taps individuales. Real-world
+   * case: técnico llega al inicio del turno con 3-5 tickets pre-asignados y
+   * los arranca como batch.
+   *
+   * Atomic: si UNO falla la validación (status != ACK o no assignee), todos
+   * rollback (Prisma $transaction). Mismos guards individuales que startTicket.
+   * Cada ticket genera su propio MaintenanceTicketLog STARTED + SSE event.
+   */
+  @Patch('v1/maintenance/tickets/bulk-start')
+  bulkStart(
+    @Body() body: { ticketIds: string[] },
+    @CurrentUser() actor: JwtPayload,
+  ) {
+    return this.service.bulkStartTickets(body.ticketIds, actor)
+  }
+
   @Patch('v1/maintenance/tickets/:id/request-parts')
   requestParts(
     @Param('id') id: string,

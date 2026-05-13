@@ -38,6 +38,15 @@ export const maintenanceApi = {
     api.post<MaintenanceTicketDto>(`${ROOT}/tickets`, dto),
   claim: (id: string) => api.patch<MaintenanceTicketDto>(`${ROOT}/tickets/${id}/claim`),
   start: (id: string) => api.patch<MaintenanceTicketDto>(`${ROOT}/tickets/${id}/start`),
+  // M3.5 — arranca N tickets ACKNOWLEDGED en 1 request. Backend retorna
+  // resumen detallado: { started, skipped, errors } para mostrar al user
+  // si alguno no procedió (ej. otro técnico ya lo resolvió mid-tap).
+  bulkStart: (ticketIds: string[]) =>
+    api.patch<{
+      started: string[]
+      skipped: Array<{ id: string; reason: string }>
+      errors: Array<{ id: string; message: string }>
+    }>(`${ROOT}/tickets/bulk-start`, { ticketIds }),
   resolve: (id: string, dto: ResolveMaintenanceTicketInput) =>
     api.patch<MaintenanceTicketDto>(`${ROOT}/tickets/${id}/resolve`, dto),
   requestParts: (id: string, note?: string) =>

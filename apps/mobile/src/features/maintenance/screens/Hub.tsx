@@ -15,7 +15,7 @@
  * Pull-to-refresh + tap-to-detail + FAB "+ Reportar problema".
  */
 
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import {
   View,
   Text,
@@ -24,12 +24,15 @@ import {
   RefreshControl,
   Pressable,
   ActivityIndicator,
+  Alert,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useRouter } from 'expo-router'
+import * as Haptics from 'expo-haptics'
 import type { MaintenanceTicketDto } from '@zenix/shared'
 import { useAuthStore } from '../../../store/auth'
 import { useMaintenanceTickets } from '../api/useTickets'
+import { maintenanceApi } from '../api/maintenance.api'
 import { TicketCard } from '../components/TicketCard'
 import { colors } from '../../../design/colors'
 import { typography } from '../../../design/typography'
@@ -126,12 +129,86 @@ export function MaintenanceHub() {
     }
   }
 
+  /*
+   * M3.5 — Multi-select mode para bulk-start.
+   *
+   * UX: long-press en card ACK → entra en multi-select + selecciona ese.
+   * Tap toggles selection. FAB cambia a "Iniciar N · Cancelar".
+   * Solo tickets ACK pueden ser seleccionados (los demás se ignoran).
+   *
+   * Pattern iOS Photos / iOS Mail: long-press inicia el mode, tap toggle.
+   * Apple HIG 2024: "Enter multi-select via gesture, exit via cancel or
+   * action confirmation."
+   */
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkStarting, setBulkStarting] = useState(false)
+
+  function exitSelectionMode() {
+    setSelectionMode(false)
+    setSelectedIds(new Set())
+  }
+
+  // Validador: solo los ACK del usuario son seleccionables para bulk-start.
+  const ackTicketIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const t of groups.mine) {
+      if (t.status === 'ACKNOWLEDGED') ids.add(t.id)
+    }
+    return ids
+  }, [groups.mine])
+
   const onPressTicket = useCallback(
     (id: string) => {
+      if (selectionMode) {
+        // En multi-select, tap toggles selection (solo ACK son válidos)
+        if (!ackTicketIds.has(id)) return
+        void Haptics.selectionAsync()
+        setSelectedIds((prev) => {
+          const next = new Set(prev)
+          if (next.has(id)) next.delete(id)
+          else next.add(id)
+          return next
+        })
+        return
+      }
       router.push(`/maintenance/ticket/${id}` as never)
     },
-    [router],
+    [router, selectionMode, ackTicketIds],
   )
+
+  const onLongPressTicket = useCallback(
+    (id: string) => {
+      // Solo ACK habilita el modo bulk-start
+      if (!ackTicketIds.has(id)) return
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+      setSelectionMode(true)
+      setSelectedIds(new Set([id]))
+    },
+    [ackTicketIds],
+  )
+
+  async function onBulkStart() {
+    if (selectedIds.size === 0) return
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+    setBulkStarting(true)
+    try {
+      const res = await maintenanceApi.bulkStart(Array.from(selectedIds))
+      const startedN = res.started.length
+      const skippedN = res.skipped.length + res.errors.length
+      const msg = skippedN === 0
+        ? `${startedN} ticket${startedN === 1 ? '' : 's'} iniciado${startedN === 1 ? '' : 's'}`
+        : `${startedN} iniciados · ${skippedN} no se pudieron procesar`
+      Alert.alert('Bulk start', msg)
+      exitSelectionMode()
+      void refetch()
+    } catch (err) {
+      const m = err instanceof Error ? err.message : 'Error de red'
+      Alert.alert('No se pudo iniciar', m)
+    } finally {
+      setBulkStarting(false)
+    }
+  }
 
   const onReport = useCallback(() => {
     router.push('/maintenance/report' as never)
@@ -224,7 +301,16 @@ export function MaintenanceHub() {
               </View>
             )
           }
-          return <TicketCard ticket={item.ticket} onPress={onPressTicket} />
+          return (
+            <TicketCard
+              ticket={item.ticket}
+              onPress={onPressTicket}
+              onLongPress={onLongPressTicket}
+              selected={selectedIds.has(item.ticket.id)}
+              selectionMode={selectionMode}
+              selectable={ackTicketIds.has(item.ticket.id)}
+            />
+          )
         }}
         ListFooterComponent={
           <Pressable
@@ -236,10 +322,35 @@ export function MaintenanceHub() {
         }
       />
 
-      {/* FAB "+ Reportar problema" — visible siempre para el técnico */}
-      <Pressable onPress={onReport} style={styles.fab} android_ripple={{ color: '#fff' }}>
-        <Text style={styles.fabText}>+ Reportar problema</Text>
-      </Pressable>
+      {/* M3.5 — FAB cambia según mode:
+            · Default → "+ Reportar problema"
+            · Multi-select → toolbar Cancelar / Iniciar N
+          Apple HIG: el bottom action bar reemplaza el FAB cuando hay
+          selección activa (iOS Photos pattern). */}
+      {selectionMode ? (
+        <View style={styles.bulkBar}>
+          <Pressable onPress={exitSelectionMode} style={styles.bulkCancelBtn}>
+            <Text style={styles.bulkCancelText}>Cancelar</Text>
+          </Pressable>
+          <Pressable
+            onPress={onBulkStart}
+            disabled={selectedIds.size === 0 || bulkStarting}
+            style={[styles.bulkStartBtn, (selectedIds.size === 0 || bulkStarting) && styles.bulkStartBtnDisabled]}
+          >
+            {bulkStarting ? (
+              <ActivityIndicator color={colors.text.inverse} />
+            ) : (
+              <Text style={styles.bulkStartText}>
+                Iniciar {selectedIds.size} ticket{selectedIds.size === 1 ? '' : 's'}
+              </Text>
+            )}
+          </Pressable>
+        </View>
+      ) : (
+        <Pressable onPress={onReport} style={styles.fab} android_ripple={{ color: '#fff' }}>
+          <Text style={styles.fabText}>+ Reportar problema</Text>
+        </Pressable>
+      )}
     </SafeAreaView>
   )
 }
@@ -349,6 +460,39 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   fabText: { color: colors.text.inverse, fontWeight: '700', fontSize: typography.size.body },
+  // M3.5 — Bulk action bar (reemplaza el FAB cuando hay multi-select)
+  bulkBar: {
+    position: 'absolute',
+    left: 20,
+    right: 20,
+    bottom: 28,
+    flexDirection: 'row',
+    gap: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.35,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  bulkCancelBtn: {
+    flex: 1,
+    backgroundColor: colors.canvas.secondary,
+    paddingVertical: 14,
+    borderRadius: 999,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border.default,
+  },
+  bulkCancelText: { color: colors.text.primary, fontWeight: '600', fontSize: typography.size.body },
+  bulkStartBtn: {
+    flex: 2,
+    backgroundColor: colors.brand[500],
+    paddingVertical: 14,
+    borderRadius: 999,
+    alignItems: 'center',
+  },
+  bulkStartBtnDisabled: { opacity: 0.5 },
+  bulkStartText: { color: colors.text.inverse, fontWeight: '700', fontSize: typography.size.body },
   // Link discreto al histórico — Apple HIG: discoverability sin saturar el Hub.
   historyLink: {
     marginTop: 24,
