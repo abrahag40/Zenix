@@ -42,11 +42,14 @@ const ALL_SSE_TYPES: SseEventType[] = [
 ]
 
 export function useSSE(onEvent: Handler) {
+  // Sprint SEC-α — bug MT-7. Subscribe to token from Zustand so the
+  // effect re-runs after switchProperty issues a new JWT — otherwise the
+  // old EventSource keeps emitting events scoped to the previous property.
+  const token = useAuthStore((s) => s.token)
   const handlerRef = useRef(onEvent)
   handlerRef.current = onEvent
 
   useEffect(() => {
-    const token = localStorage.getItem('hk_token')
     if (!token) return
 
     const base = import.meta.env.VITE_API_URL ?? ''
@@ -108,5 +111,5 @@ export function useSSE(onEvent: Handler) {
       cancelled = true
       es?.close()
     }
-  }, [])
+  }, [token])
 }

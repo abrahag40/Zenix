@@ -45,6 +45,7 @@ import { TenantContextMiddleware } from './common/tenant-context.middleware'
 import { TenantContextService } from './common/tenant-context.service'
 import { TenantGuard } from './common/guards/tenant.guard'
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
+import { PropertyScopeGuard } from './common/guards/property-scope.guard'
 
 @Module({
   imports: [
@@ -103,6 +104,11 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
     {
       provide: APP_GUARD,
       useClass: TenantGuard,
+    },
+    {
+      // Sprint SEC-α — bug MT-5 — blocks IDOR via ?propertyId= query param.
+      provide: APP_GUARD,
+      useClass: PropertyScopeGuard,
     },
   ],
 })

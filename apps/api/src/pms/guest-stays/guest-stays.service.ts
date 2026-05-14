@@ -1513,6 +1513,25 @@ export class GuestStaysService {
       throw new ConflictException('No se puede marcar no-show antes de la fecha de llegada')
     }
 
+    // Sprint SEC-α — bug NS-6 (CLAUDE.md §41 ventana día hotelero real).
+    // Mismo día de llegada: bloquear marcado antes de potentialNoShowWarningHour
+    // (default 20:00 local) excepto si actor tiene rol SUPERVISOR.
+    // El huésped puede llegar tarde — marcar a las 4 PM es prematuro y
+    // genera disputas / chargebacks injustificables (Visa Core Rules §5.9.2).
+    if (checkinLocal === todayLocal) {
+      const warningHour = stay.room.property.settings?.potentialNoShowWarningHour ?? 20
+      const currentLocalHour = toLocalHour(new Date(), tz)
+      const actorRole = (() => {
+        try { return this.tenant.get().role } catch { return '' }
+      })()
+      if (currentLocalHour < warningHour && actorRole !== 'SUPERVISOR') {
+        throw new ConflictException(
+          `No se puede marcar no-show antes de las ${warningHour}:00 hora local en el día de llegada. ` +
+          `El huésped aún puede llegar — espera hasta la hora de corte o pide al supervisor que lo marque.`,
+        )
+      }
+    }
+
     const feeAmount    = opts?.waiveCharge ? new Prisma.Decimal(0) : stay.ratePerNight
     const chargeStatus = opts?.waiveCharge ? 'WAIVED' : 'PENDING'
 
