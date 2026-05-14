@@ -1,0 +1,6 @@
+# Uploaded user content — Sprint Mx-1B-W2 / Mx-1C.
+# En producción esto migra a S3; durante el piloto vive en disco local.
+# Pattern anclado a la raíz (con `/` inicial) para NO matchear el módulo
+# de código fuente `src/uploads/`.
+/uploads/
+!/uploads/.gitkeep

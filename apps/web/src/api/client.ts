@@ -115,4 +115,12 @@ export const api = {
 
   delete: <T>(path: string, opts?: RequestOptions) =>
     request<T>(path, { method: 'DELETE', ...opts }),
+
+  /**
+   * Multipart POST — para upload de archivos (Sprint Mx-1B-W2).
+   * El browser fija automáticamente el `Content-Type: multipart/form-data;
+   * boundary=…`; nuestro wrapper detecta FormData y NO sobrescribe el header.
+   */
+  postForm: <T>(path: string, form: FormData, opts?: RequestOptions) =>
+    request<T>(path, { method: 'POST', body: form, ...opts }),
 }

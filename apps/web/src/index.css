@@ -113,6 +113,31 @@
   .journey-pulse-ring { animation: none; }
 }
 
+/* ── Notification bell pulse — Sprint Mx-1B-W3 W3.5 ──────────────────────── */
+/* El pulso emana DESDE EL DOT (esquina superior derecha), no desde el botón
+   entero. Esto evita el "halo pink rectangular" que se veía cuando los
+   keyframes no estaban definidos. Patrón Meta/Instagram bell: el dot crece
+   y se desvanece en círculos concéntricos, transmitiendo urgencia sin
+   sobrecargar el chrome (Treisman 1980 — pre-attentive movement).
+
+   Color psicológico (Mehrabian-Russell 1974 + Cialdini 1984):
+     · red-500 sólido = atención inmediata, no negociable
+     · ring expansion = movimiento periférico que captura sin distraer
+
+   Psicofísica: 1.8s ciclo = sweet spot entre "estoy viva" y "molesta".
+   FB usa ~2.0s, Apple iOS badge usa ~1.6s. */
+@keyframes bell-pulse {
+  0%   { transform: scale(1);   opacity: 0.6; }
+  70%  { transform: scale(2.4); opacity: 0;   }
+  100% { transform: scale(2.4); opacity: 0;   }
+}
+.bell-pulse-ring {
+  animation: bell-pulse 1.8s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bell-pulse-ring { animation: none; }
+}
+
 /* ── shadcn/ui CSS variables (neutral / radix-nova) ───────────────────────── */
 @layer base {
   /* Channel-only values so Tailwind's <alpha-value> interpolation works:

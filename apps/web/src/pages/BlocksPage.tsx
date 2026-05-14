@@ -1,4 +1,5 @@
 import { useState, useMemo, Fragment } from 'react'
+import { useShakeOnInvalid } from '../hooks/useShakeOnInvalid'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   differenceInCalendarDays,
@@ -575,10 +576,18 @@ function CancelBlockDialog({
       ? `${selectedChip}${customText.trim() ? ` — ${customText.trim()}` : ''}`
       : customText.trim()
 
-  const canConfirm = reason.length >= 10
+  const [reasonError, setReasonError] = useState<string | null>(null)
+  const { shakeClass, trigger: triggerShake } = useShakeOnInvalid()
 
   function handleConfirm() {
-    if (!canConfirm) return
+    if (working) return
+    // §60 D19: validate-on-click.
+    if (reason.length < 10) {
+      setReasonError('Necesitas al menos 10 caracteres explicando el motivo.')
+      triggerShake()
+      return
+    }
+    setReasonError(null)
     onCancel(block.id, reason)
     onOpenChange(false)
     setSelectedChip(null)
@@ -654,15 +663,22 @@ function CancelBlockDialog({
           <textarea
             rows={2}
             value={customText}
-            onChange={(e) => setCustomText(e.target.value)}
+            onChange={(e) => {
+              setCustomText(e.target.value)
+              if (reasonError) setReasonError(null)
+            }}
             placeholder={selectedChip && selectedChip !== 'Otro motivo'
               ? 'Detalles adicionales (opcional)…'
-              : 'Describe el motivo (mínimo 10 caracteres)…'}
-            className="w-full text-[12.5px] border border-gray-200 rounded-lg px-3 py-2 resize-none text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-red-400"
+              : 'Describe el motivo…'}
+            className={`w-full text-[12.5px] border rounded-lg px-3 py-2 resize-none text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-red-400 ${shakeClass} ${
+              reasonError ? 'border-red-400' : 'border-gray-200'
+            }`}
           />
-          <p className="text-[11px] text-gray-400 mt-1 mb-4">
-            {reason.length}/10 caracteres mínimos
-          </p>
+          {reasonError ? (
+            <p className="text-[11px] text-red-600 mt-1 mb-4">{reasonError}</p>
+          ) : (
+            <p className="text-[11px] text-gray-400 mt-1 mb-4">{reason.length} caracteres</p>
+          )}
 
           {/* Actions */}
           <div className="flex items-center gap-2 justify-end">
@@ -673,7 +689,7 @@ function CancelBlockDialog({
               Cancelar
             </button>
             <button
-              disabled={!canConfirm || working}
+              disabled={working}
               onClick={handleConfirm}
               className="px-4 py-2 text-[13px] font-semibold bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-40 transition-colors"
             >

@@ -16,7 +16,10 @@ import { ReportsPage } from './pages/ReportsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { DiscrepanciesPage } from './pages/DiscrepanciesPage'
 import { BlocksPage } from './pages/BlocksPage'
+import { MaintenancePage } from './pages/MaintenancePage'
 import { ReservationDetailPage } from './pages/ReservationDetailPage'
+import { GlobalMaintenanceDrawer } from './components/GlobalMaintenanceDrawer'
+import { useNotificationAlerts } from './hooks/useNotificationAlerts'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -56,10 +59,19 @@ function ProtectedLayout({ children }: { children: React.ReactNode }) {
   )
 }
 
+function NotificationAlertsMount() {
+  // Hook mounted UNA vez global para escuchar SSE notification:new y
+  // disparar sound + sonner banner. Vive en un componente propio porque
+  // useSSE/useNotificationAlerts requieren estar dentro del React tree.
+  useNotificationAlerts()
+  return null
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
+        <NotificationAlertsMount />
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/dashboard"       element={<ProtectedLayout><DashboardPage /></ProtectedLayout>} />
@@ -75,6 +87,7 @@ export default function App() {
           <Route path="/checkouts"       element={<ProtectedLayout><CheckoutsPage /></ProtectedLayout>} />
           <Route path="/discrepancies"   element={<ProtectedLayout><DiscrepanciesPage /></ProtectedLayout>} />
           <Route path="/blocks"          element={<ProtectedLayout><BlocksPage /></ProtectedLayout>} />
+          <Route path="/maintenance"     element={<ProtectedLayout><MaintenancePage /></ProtectedLayout>} />
           <Route path="/reports"         element={<ProtectedLayout><ReportsPage /></ProtectedLayout>} />
           <Route path="/settings/:section?" element={<ProtectedLayout><SettingsPage /></ProtectedLayout>} />
           <Route path="/reservations/:id"  element={<ProtectedLayout><ReservationDetailPage /></ProtectedLayout>} />
@@ -83,6 +96,12 @@ export default function App() {
       </BrowserRouter>
       <Toaster position="top-right" toastOptions={{ className: 'text-sm' }} />
       <SonnerToaster richColors position="bottom-right" />
+      {/* Sprint Mx-1B-W3 W3.6 — TicketDetailDrawer global. Cualquier
+          componente (NotificationBell, BookingDetailSheet, TimelineScheduler,
+          KanbanPage, etc.) puede abrirlo via useMaintenanceDrawer.open(id)
+          sin acoplar state. El drawer aparece sobre la página actual
+          manteniendo el contexto (Apple HIG 2024 Modality). */}
+      <GlobalMaintenanceDrawer />
     </QueryClientProvider>
   )
 }

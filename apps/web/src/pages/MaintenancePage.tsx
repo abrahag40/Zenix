@@ -1,147 +1,221 @@
-import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { format } from 'date-fns'
-import toast from 'react-hot-toast'
-import { api } from '../api/client'
-import type { MaintenanceIssueDto } from '@zenix/shared'
-import { MaintenanceCategory } from '@zenix/shared'
-
-const CATEGORY_LABEL: Record<MaintenanceCategory, string> = {
-  [MaintenanceCategory.PLUMBING]: 'Plomería',
-  [MaintenanceCategory.ELECTRICAL]: 'Eléctrico',
-  [MaintenanceCategory.FURNITURE]: 'Mobiliario',
-  [MaintenanceCategory.PEST]: 'Plagas',
-  [MaintenanceCategory.OTHER]: 'Otro',
-}
-
-const CATEGORY_STYLE: Record<MaintenanceCategory, string> = {
-  [MaintenanceCategory.PLUMBING]: 'bg-blue-50 text-blue-700',
-  [MaintenanceCategory.ELECTRICAL]: 'bg-yellow-50 text-yellow-700',
-  [MaintenanceCategory.FURNITURE]: 'bg-orange-50 text-orange-700',
-  [MaintenanceCategory.PEST]: 'bg-red-50 text-red-700',
-  [MaintenanceCategory.OTHER]: 'bg-gray-100 text-gray-600',
-}
-
-interface IssueWithContext extends MaintenanceIssueDto {
-  roomNumber?: string
-  unitLabel?: string
-  reporterName?: string
-}
+/**
+ * MaintenancePage.tsx — Sprint Mx-1B-W1
+ *
+ * Vista raíz del módulo de mantenimiento. Adaptativa por rol del actor:
+ *   · SUPERVISOR  → "¿Qué necesita mi atención AHORA?" (aprobación + críticos + verificar)
+ *   · HOUSEKEEPER (department=MAINTENANCE) → "¿Qué tengo asignado + cola?"
+ *   · RECEPTIONIST → "¿Hay habitaciones bloqueadas?"
+ *
+ * Estructura:
+ *   ┌────────────────────────────────────────────────────────────────┐
+ *   │ Header: "Mantenimiento"            [+ Nuevo ticket]             │
+ *   │ KpiBar adaptativa (clickeable como filtro)                      │
+ *   │ KanbanBoard 7 columnas (+ esperando aprobación si SUP)          │
+ *   └────────────────────────────────────────────────────────────────┘
+ *
+ * Side-effect: TicketDetailDrawer 480px slide-in al click en una card.
+ *
+ * El PropertySwitcher es heredado del GlobalTopBar — `/maintenance` no está
+ * en `ROUTES_WITHOUT_SWITCHER` así que aparece automáticamente.
+ */
+import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { Plus, Search, X } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
+import { useAuthStore } from '../store/auth'
+import {
+  useMaintenanceTickets,
+  useMaintenanceSSE,
+} from '../modules/maintenance/hooks/useMaintenanceTickets'
+import {
+  useMaintenanceKpis,
+  type KpiCard,
+} from '../modules/maintenance/hooks/useMaintenanceKpis'
+import { KpiBar } from '../modules/maintenance/components/KpiBar'
+import { KanbanBoard } from '../modules/maintenance/components/KanbanBoard'
+import { useMaintenanceDrawer } from '../store/maintenanceDrawer'
+import { CreateTicketDialog } from '../modules/maintenance/components/CreateTicketDialog'
+import type { MaintenanceTicketListQuery } from '@zenix/shared'
 
 export function MaintenancePage() {
-  const qc = useQueryClient()
-  const [showResolved, setShowResolved] = useState(false)
+  const user = useAuthStore((s) => s.user)
+  const token = useAuthStore((s) => s.token)
 
-  const { data: issues = [], isLoading } = useQuery<IssueWithContext[]>({
-    queryKey: ['maintenance-issues', showResolved],
-    queryFn: () =>
-      api.get(showResolved ? '/maintenance' : '/maintenance?resolved=false'),
+  // W3.6 — Drawer global vive en App.tsx. Esta página lo abre via store.
+  const openMaintenanceDrawer = useMaintenanceDrawer((s) => s.open)
+
+  // W3.2 — Deep-link `?ticketId=X` auto-abre el drawer global.
+  const [searchParams, setSearchParams] = useSearchParams()
+  useEffect(() => {
+    const ticketId = searchParams.get('ticketId')
+    if (ticketId) {
+      openMaintenanceDrawer(ticketId)
+      // Limpia el query param para que un refresh no re-abra el drawer.
+      const next = new URLSearchParams(searchParams)
+      next.delete('ticketId')
+      setSearchParams(next, { replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
+  const [createOpen, setCreateOpen] = useState(false)
+
+  // SSE subscription — UNA sola vez por página. NO mover dentro de hooks
+  // hijos: cada useSSE abre EventSource y Chrome agota su pool HTTP/1.1.
+  useMaintenanceSSE()
+
+  // KPI activo (filtro aplicado al Kanban)
+  const [activeKpi, setActiveKpi] = useState<KpiCard | null>(null)
+  // Búsqueda local por friendlyId / título / habitación / asset.
+  const [search, setSearch] = useState('')
+
+  const queryFilter: MaintenanceTicketListQuery = activeKpi?.filter ?? { activeOnly: true }
+
+  const { data: rawTickets = [], isLoading } = useMaintenanceTickets(queryFilter)
+  // Para los KPIs queremos el universo completo, no el filtrado.
+  const { data: allTickets = [] } = useMaintenanceTickets({ activeOnly: true })
+
+  // Filtro local — case-insensitive sobre friendlyId, título, habitación, asset.
+  const tickets = useMemo(() => {
+    if (!search.trim()) return rawTickets
+    const q = search.trim().toLowerCase()
+    return rawTickets.filter((t) =>
+      [t.friendlyId, t.title, t.roomNumber, t.assetTag, t.assignedToName, t.reportedByName]
+        .filter(Boolean)
+        .some((s) => String(s).toLowerCase().includes(q)),
+    )
+  }, [rawTickets, search])
+
+  if (!user || !token) {
+    return null
+  }
+
+  const kpis = useMaintenanceKpis({
+    role: user.role,
+    staffId: user.id,
+    tickets: allTickets,
   })
-
-  const resolveMutation = useMutation({
-    mutationFn: (id: string) => api.patch(`/maintenance/${id}/resolve`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['maintenance-issues'] })
-      toast.success('Issue marcado como resuelto')
-    },
-    onError: () => toast.error('Error al resolver'),
-  })
-
-  if (isLoading) return <div className="text-sm text-gray-500 py-8 text-center">Cargando...</div>
-
-  const open = issues.filter((i) => !i.resolved)
-  const resolved = issues.filter((i) => i.resolved)
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-gray-900">Mantenimiento</h1>
-        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={showResolved}
-            onChange={(e) => setShowResolved(e.target.checked)}
-            className="rounded"
-          />
-          Ver resueltos
-        </label>
-      </div>
+    <div className="space-y-5">
+      {/* ── Header ────────────────────────────────────────────────────── */}
+      <header className="flex items-end justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-xl font-semibold text-slate-900">Mantenimiento</h1>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {roleSubtitle(user.role)}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {/* Búsqueda local — friendlyId / título / habitación / asset */}
+          <div className="relative">
+            <Search
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none"
+              aria-hidden
+            />
+            <Input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar por ID, título, hab. o asset…"
+              className="pl-8 pr-8 h-9 w-64 text-sm"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                aria-label="Limpiar búsqueda"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+          <Button
+            size="sm"
+            onClick={() => setCreateOpen(true)}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white"
+          >
+            <Plus className="h-4 w-4 mr-1.5" />
+            Nuevo ticket
+          </Button>
+        </div>
+      </header>
 
-      {open.length === 0 && !showResolved && (
-        <div className="text-center py-12 text-gray-400 text-sm">
-          No hay incidencias abiertas
+      {/* ── KPI Bar adaptativa ────────────────────────────────────────── */}
+      <KpiBar
+        kpis={kpis}
+        activeKpiId={activeKpi?.id ?? null}
+        onToggle={setActiveKpi}
+      />
+
+      {/* Indicador de filtro activo */}
+      {activeKpi && (
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-slate-500">Filtro activo:</span>
+          <button
+            onClick={() => setActiveKpi(null)}
+            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700"
+          >
+            {activeKpi.emoji} {activeKpi.label}
+            <span className="ml-1 text-slate-400">✕</span>
+          </button>
         </div>
       )}
 
-      {open.length > 0 && (
-        <IssueList title="Abiertas" issues={open} onResolve={(id) => resolveMutation.mutate(id)} />
+      {/* ── Kanban ─────────────────────────────────────────────────────── */}
+      {isLoading ? (
+        <KanbanSkeleton />
+      ) : (
+        <KanbanBoard
+          tickets={tickets}
+          role={user.role}
+          onSelectTicket={openMaintenanceDrawer}
+        />
       )}
 
-      {showResolved && resolved.length > 0 && (
-        <IssueList title="Resueltas" issues={resolved} />
-      )}
+      {/* W3.6 — Drawer ahora vive como GlobalMaintenanceDrawer en App.tsx.
+          Abrir desde aquí: openMaintenanceDrawer(ticketId) — Zustand store. */}
+
+      {/* ── Dialog crear ───────────────────────────────────────────────── */}
+      <CreateTicketDialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        defaultRequireApproval={
+          // Housekeepers y recepcionistas crean con aprobación por default
+          user.role !== 'SUPERVISOR'
+        }
+      />
     </div>
   )
 }
 
-function IssueList({
-  title,
-  issues,
-  onResolve,
-}: {
-  title: string
-  issues: IssueWithContext[]
-  onResolve?: (id: string) => void
-}) {
-  return (
-    <section>
-      <h2 className="text-sm font-medium text-gray-500 uppercase tracking-wide mb-3">{title}</h2>
-      <div className="space-y-3">
-        {issues.map((issue) => (
-          <div key={issue.id} className="bg-white rounded-xl border border-gray-200 p-4">
-            <div className="flex items-start justify-between gap-4">
-              <div className="space-y-1 flex-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${CATEGORY_STYLE[issue.category as MaintenanceCategory]}`}>
-                    {CATEGORY_LABEL[issue.category as MaintenanceCategory]}
-                  </span>
-                  {issue.roomNumber && (
-                    <span className="text-xs text-gray-500">Room {issue.roomNumber}</span>
-                  )}
-                  {issue.unitLabel && (
-                    <span className="text-xs text-gray-400">· {issue.unitLabel}</span>
-                  )}
-                  <span className="text-xs text-gray-400 ml-auto">
-                    {format(new Date(issue.createdAt), 'dd/MM HH:mm')}
-                  </span>
-                </div>
-                <p className="text-sm text-gray-800">{issue.description}</p>
-                {issue.reporterName && (
-                  <p className="text-xs text-gray-400">Reportado por {issue.reporterName}</p>
-                )}
-                {issue.photoUrl && (
-                  <a href={issue.photoUrl} target="_blank" rel="noopener noreferrer"
-                    className="text-xs text-indigo-600 hover:underline">
-                    Ver foto
-                  </a>
-                )}
-              </div>
-              {onResolve && !issue.resolved && (
-                <button
-                  onClick={() => onResolve(issue.id)}
-                  className="text-xs bg-green-50 text-green-700 rounded-lg px-3 py-1.5 hover:bg-green-100 font-medium whitespace-nowrap"
-                >
-                  Marcar resuelto
-                </button>
-              )}
-              {issue.resolved && (
-                <span className="text-xs text-green-600 font-medium whitespace-nowrap">Resuelto</span>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  )
+// ─── Helpers ────────────────────────────────────────────────────────────
+
+function roleSubtitle(role: string): string {
+  switch (role) {
+    case 'SUPERVISOR':
+      return 'Aprueba reportes, asigna técnicos, verifica resoluciones.'
+    case 'HOUSEKEEPER':
+      return 'Tus tickets activos y disponibles en cola.'
+    case 'RECEPTIONIST':
+      return 'Habitaciones bloqueadas y tus reportes en proceso.'
+    default:
+      return 'Sistema de tickets de mantenimiento.'
+  }
 }
 
+function KanbanSkeleton() {
+  return (
+    <div className="flex gap-3 overflow-hidden">
+      {[1, 2, 3, 4].map((i) => (
+        <div key={i} className="w-72 shrink-0 space-y-2">
+          <Skeleton className="h-7 w-full" />
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-24 w-full" />
+        </div>
+      ))}
+    </div>
+  )
+}

@@ -377,3 +377,68 @@ export enum BlockLogEvent {
   EXPIRED       = 'EXPIRED',      // cron: endDate pasó
   NOTE_ADDED    = 'NOTE_ADDED',
 }
+
+// ============================================================================
+// Sprint Mx-1 — Maintenance ticketing enums (mirror Prisma)
+// ============================================================================
+
+export enum TicketStatus {
+  OPEN          = 'OPEN',
+  ACKNOWLEDGED  = 'ACKNOWLEDGED',
+  IN_PROGRESS   = 'IN_PROGRESS',
+  WAITING_PARTS = 'WAITING_PARTS',
+  RESOLVED      = 'RESOLVED',
+  VERIFIED      = 'VERIFIED',
+  CLOSED        = 'CLOSED',
+}
+
+export enum TicketPriority {
+  LOW      = 'LOW',
+  MEDIUM   = 'MEDIUM',
+  HIGH     = 'HIGH',
+  CRITICAL = 'CRITICAL',
+}
+
+export enum TicketCategory {
+  PLUMBING       = 'PLUMBING',
+  ELECTRICAL     = 'ELECTRICAL',
+  FURNITURE      = 'FURNITURE',
+  APPLIANCE      = 'APPLIANCE',
+  HVAC           = 'HVAC',
+  STRUCTURAL     = 'STRUCTURAL',
+  COSMETIC       = 'COSMETIC',
+  SAFETY         = 'SAFETY',
+  PEST           = 'PEST',
+  DEEP_CLEANING  = 'DEEP_CLEANING',
+  OTHER          = 'OTHER',
+}
+
+export enum TicketLogEvent {
+  CREATED              = 'CREATED',
+  ACKNOWLEDGED         = 'ACKNOWLEDGED',
+  ASSIGNED             = 'ASSIGNED',
+  AUTO_ASSIGNED        = 'AUTO_ASSIGNED',
+  CLAIMED              = 'CLAIMED',
+  QUEUED               = 'QUEUED',
+  APPROVED             = 'APPROVED',
+  REJECTED             = 'REJECTED',
+  STARTED              = 'STARTED',
+  WAITING_PARTS        = 'WAITING_PARTS',
+  RESOLVED             = 'RESOLVED',
+  VERIFIED             = 'VERIFIED',
+  CLOSED               = 'CLOSED',
+  REOPENED             = 'REOPENED',
+  COMMENT_ADDED        = 'COMMENT_ADDED',
+  PHOTO_ADDED          = 'PHOTO_ADDED',
+  PHOTO_DELETED        = 'PHOTO_DELETED', // Mx-1B-W2 — soft-delete fotos
+  BLOCK_AUTO_CREATED   = 'BLOCK_AUTO_CREATED',
+  BLOCK_AUTO_RELEASED  = 'BLOCK_AUTO_RELEASED',
+  SLA_BREACH           = 'SLA_BREACH',
+}
+
+export enum RecurrenceScope {
+  PER_ROOM      = 'PER_ROOM',
+  PER_ASSET     = 'PER_ASSET',
+  PER_PROPERTY  = 'PER_PROPERTY',
+  COMMON_AREAS  = 'COMMON_AREAS',
+}

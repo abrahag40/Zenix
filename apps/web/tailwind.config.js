@@ -60,6 +60,23 @@ export default {
         // Expo-in exit — panel accelerates away cleanly.
         'sharp-out': 'cubic-bezier(0.55, 0, 1, 0.45)',
       },
+      // ── Shake animation para validate-on-click (§60 D19 CLAUDE.md) ──────
+      // Patrón Meta/Apple/Stripe: cuando el usuario tap-ea submit con input
+      // inválido, el contenedor del campo se sacude horizontalmente 4 veces
+      // (4px amplitude, 400ms total). Acompañado de mensaje inline + (mobile)
+      // haptic error. NUNCA disabled como medio de validación.
+      keyframes: {
+        shake: {
+          '0%, 100%': { transform: 'translateX(0)' },
+          '20%':       { transform: 'translateX(-4px)' },
+          '40%':       { transform: 'translateX(4px)' },
+          '60%':       { transform: 'translateX(-3px)' },
+          '80%':       { transform: 'translateX(3px)' },
+        },
+      },
+      animation: {
+        shake: 'shake 400ms cubic-bezier(0.36, 0.07, 0.19, 0.97)',
+      },
     },
   },
   plugins: [

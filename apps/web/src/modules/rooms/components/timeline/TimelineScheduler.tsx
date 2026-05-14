@@ -12,6 +12,8 @@ import { useStayJourneys } from '../../hooks/useStayJourneys'
 import { useBlocks, useCreateBlock, useReleaseBlock, useCancelBlock } from '../../hooks/useBlocks'
 import { useRoomSSE } from '../../hooks/useRoomSSE'
 import { useSoftLockSSE } from '@/hooks/useSoftLock'
+import { useMaintenanceTickets } from '../../../maintenance/hooks/useMaintenanceTickets'
+import { useNavigate } from 'react-router-dom'
 import { usePropertySettings } from '@/hooks/usePropertySettings'
 import { useDateVirtualizer } from '../../hooks/useDateVirtualizer'
 import { TimelineTopBar } from './TimelineTopBar'
@@ -25,6 +27,7 @@ import { TodayColumnHighlight } from './TodayColumnHighlight'
 import { OccupancyFooter } from './OccupancyFooter'
 import { DragGhost } from './DragGhost'
 import { BookingDetailSheet } from '../dialogs/BookingDetailSheet'
+import { useMaintenanceDrawer } from '../../../../store/maintenanceDrawer'
 import { CheckInDialog } from '../dialogs/CheckInDialog'
 import type { NewStayData } from '../dialogs/CheckInDialog'
 import { CheckOutDialog } from '../dialogs/CheckOutDialog'
@@ -244,6 +247,34 @@ export function TimelineScheduler() {
   // Using useState with functional setter avoids stale closures over the Map.
   const [lockedRooms, setLockedRooms] = useState<Map<string, string>>(new Map())
   useSoftLockSSE(setLockedRooms)
+
+  const navigate = useNavigate()
+  void navigate
+
+  // W3.3 + W3.6 — abre el GlobalMaintenanceDrawer (montado en App.tsx)
+  // via el store Zustand. Sin acoplar state local con un drawer propio.
+  const openMaintenanceDrawer = useMaintenanceDrawer((s) => s.open)
+
+  // W3.1 — Maintenance tickets activos por habitación (badge 🔧 en RoomColumn).
+  // Shared query con MaintenancePage + sidebar badge (W3.4) — staleTime 30s + SSE.
+  const { data: activeTickets = [] } = useMaintenanceTickets({ activeOnly: true })
+  const maintenanceByRoom = useMemo(() => {
+    const map = new Map<string, { count: number; highest: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'; blocked: boolean }>()
+    const priorityRank: Record<string, number> = { LOW: 0, MEDIUM: 1, HIGH: 2, CRITICAL: 3 }
+    for (const t of activeTickets) {
+      if (!t.roomId) continue
+      const cur = map.get(t.roomId)
+      const next = {
+        count: (cur?.count ?? 0) + 1,
+        highest: (priorityRank[t.priority] > priorityRank[cur?.highest ?? 'LOW']
+          ? t.priority
+          : cur?.highest ?? t.priority) as 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL',
+        blocked: (cur?.blocked ?? false) || !!t.hasAutoBlock,
+      }
+      map.set(t.roomId, next)
+    }
+    return map
+  }, [activeTickets])
 
   // Room readiness tasks for visual indicators
   const { data: rawReadinessTasks = [] } = useRoomReadinessTasks(PROPERTY_ID)
@@ -726,6 +757,7 @@ export function TimelineScheduler() {
               onToggleGroup={toggleGroup}
               readinessTasks={readinessTasks}
               lockedRooms={lockedRooms}
+              maintenanceByRoom={maintenanceByRoom}
               onBlockRequest={(roomId) => setBlockModal({ roomId })}
             />
           </div>
@@ -834,7 +866,17 @@ export function TimelineScheduler() {
               calendarStart={POOL_START}
               calendarEnd={dataWindow.to}
               totalWidth={totalWidth}
-              onBlockClick={setBlockDetail}
+              onBlockClick={(block) => {
+                // W3.3 — Si el bloque fue auto-creado por un ticket CRITICAL,
+                // abrir el TicketDetailDrawer in-place sobre el calendario
+                // (mantiene contexto — Apple HIG 2024 + NN/g 2020). El
+                // BlockModal sigue cubriendo bloqueos no-de-mantenimiento.
+                if (block.maintenanceTicketId) {
+                  openMaintenanceDrawer(block.maintenanceTicketId)
+                  return
+                }
+                setBlockDetail(block)
+              }}
             />
             <BookingsLayer
               stays={hideNoShows ? staysWithoutJourneys.filter((s) => !s.noShowAt) : staysWithoutJourneys}
@@ -979,6 +1021,7 @@ export function TimelineScheduler() {
           closeSheet()
           setCheckinDialog({ stayId })
         }}
+        onOpenMaintenanceTicket={(id) => openMaintenanceDrawer(id)}
         propertyId={PROPERTY_ID}
       />
 
@@ -1184,6 +1227,10 @@ export function TimelineScheduler() {
           }}
         />
       )}
+
+      {/* W3.6 — Drawer local removido. Ahora vive en App.tsx como
+          GlobalMaintenanceDrawer leyendo del store useMaintenanceDrawer.
+          Cualquier componente puede abrirlo sin acoplar state. */}
 
       {/* ─── BlockModal — create new block ──────────────────── */}
       <BlockModal

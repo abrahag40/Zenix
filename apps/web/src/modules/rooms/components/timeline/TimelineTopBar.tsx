@@ -1,4 +1,4 @@
-import { Search, Plus, Calendar, Bell } from 'lucide-react'
+import { Search, Plus, Calendar } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -7,10 +7,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { cn } from '@/lib/utils'
 import { AppDrawer } from '@/components/AppDrawer'
 import { PropertySwitcher } from '@/components/PropertySwitcher'
 import { UserMenu } from '@/components/UserMenu'
+import { NotificationBell } from '@/components/NotificationBell'
 
 /**
  * TimelineTopBar — sticky header for the PMS timeline.
@@ -33,37 +33,16 @@ import { UserMenu } from '@/components/UserMenu'
  *     └ AppDrawer (hamburger → module nav)
  */
 
-function NotificationBell({ count = 0 }: { count?: number }) {
-  const hasNew = count > 0
-
-  return (
-    <button
-      className={cn(
-        'relative flex items-center justify-center',
-        'w-9 h-9 rounded-lg',
-        'text-slate-500 hover:text-slate-700',
-        'hover:bg-slate-100 transition-colors duration-150',
-      )}
-      aria-label="Notificaciones"
-    >
-      <Bell className="h-5 w-5" strokeWidth={1.75} />
-
-      {hasNew && (
-        <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <span
-            className="absolute w-9 h-9 rounded-lg bg-red-400/20"
-            style={{ animation: 'radar1 2.5s ease-out infinite' }}
-          />
-          <span
-            className="absolute w-9 h-9 rounded-lg bg-red-400/15"
-            style={{ animation: 'radar2 2.5s ease-out 0.6s infinite' }}
-          />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500 ring-2 ring-white" />
-        </span>
-      )}
-    </button>
-  )
-}
+/**
+ * NotificationBell antes era un stub decorativo en este archivo (sin onClick,
+ * count hardcoded a 3, no abría panel). Ahora importa el componente real
+ * de `@/components/NotificationBell` que se conecta al NotificationCenter
+ * y abre el panel deslizante con todas las notificaciones reales.
+ *
+ * Bug 2026-05-13: el usuario reportaba "click en la campana no hace nada"
+ * — porque clickeaba el stub. Fix: extracted to shared component used in
+ * both Sidebar.tsx and TimelineTopBar.tsx.
+ */
 
 interface TimelineTopBarProps {
   onNewReservation?: () => void
@@ -112,7 +91,7 @@ export function TimelineTopBar({ onNewReservation }: TimelineTopBarProps) {
           <Calendar className="h-4 w-4" />
         </Button>
 
-        <NotificationBell count={3} />
+        <NotificationBell />
 
         <UserMenu />
       </div>

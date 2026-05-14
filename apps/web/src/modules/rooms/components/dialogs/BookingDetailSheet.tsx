@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useSoftLock } from '@/hooks/useSoftLock'
+import { useShakeOnInvalid } from '@/hooks/useShakeOnInvalid'
+import { useMaintenanceTickets } from '../../../maintenance/hooks/useMaintenanceTickets'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
@@ -51,6 +53,9 @@ interface BookingDetailSheetProps {
   onNoShow: (stayId: string, opts: { reason?: string; waiveCharge?: boolean }) => void
   onRevertNoShow: (stayId: string) => void
   onStartCheckin?: (stayId: string) => void
+  /** W3.3 — Abre el TicketDetailDrawer in-place sobre el calendario.
+   *  Si no se provee, hace fallback a navigate(/maintenance?ticketId=X). */
+  onOpenMaintenanceTicket?: (ticketId: string) => void
   /** propertyId needed for soft-lock advisory (Sprint 7C). */
   propertyId?: string
 }
@@ -64,6 +69,7 @@ export function BookingDetailSheet({
   onNoShow,
   onRevertNoShow,
   onStartCheckin,
+  onOpenMaintenanceTicket,
   propertyId,
 }: BookingDetailSheetProps) {
   /**
@@ -87,6 +93,15 @@ export function BookingDetailSheet({
   const waiveNoShow  = useWaiveNoShow(stay?.id ?? '')
   const [showWaiveInput, setShowWaiveInput] = useState(false)
   const [waiveReason, setWaiveReason] = useState('')
+  const [waiveError, setWaiveError] = useState<string | null>(null)
+  const { shakeClass: waiveShake, trigger: triggerWaiveShake } = useShakeOnInvalid()
+
+  // W3.2 — Maintenance tickets activos en la habitación de esta reserva.
+  // Shared query; staleTime 30s + SSE invalida en tiempo real.
+  const { data: allActiveTickets = [] } = useMaintenanceTickets({ activeOnly: true })
+  const roomTickets = stay?.roomId
+    ? allActiveTickets.filter((t) => t.roomId === stay.roomId)
+    : []
   const [showEarlyCheckout, setShowEarlyCheckout] = useState(false)
   const earlyCheckoutMutation = useEarlyCheckout(propertyId ?? '')
 
@@ -304,6 +319,78 @@ export function BookingDetailSheet({
             {/* TAB ESTADÍA */}
             <TabsContent value="stay" className="mt-0 ">
               <div className="p-4 space-y-3">
+                {/* W3.2 — Maintenance callout: tickets activos en esta habitación.
+                    Color por prioridad más alta. Click → /maintenance?ticketId=X
+                    abre el TicketDetailDrawer en el módulo dedicado. */}
+                {roomTickets.length > 0 && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-amber-900">
+                      <span className="text-base leading-none">🔧</span>
+                      <span>
+                        {roomTickets.length} ticket{roomTickets.length === 1 ? '' : 's'} de mantenimiento en esta habitación
+                      </span>
+                    </div>
+                    <ul className="space-y-1.5">
+                      {roomTickets.slice(0, 3).map((t) => (
+                        <li key={t.id}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (onOpenMaintenanceTicket) {
+                                onOpenMaintenanceTicket(t.id)
+                              } else {
+                                navigate(`/maintenance?ticketId=${t.id}`)
+                              }
+                            }}
+                            className="w-full text-left flex items-start gap-2 p-2 rounded-lg bg-white hover:bg-amber-100/50 transition-colors"
+                          >
+                            <span
+                              className={cn(
+                                'text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 mt-0.5',
+                                t.priority === 'CRITICAL'
+                                  ? 'bg-red-50 text-red-700'
+                                  : t.priority === 'HIGH'
+                                  ? 'bg-red-50 text-red-600'
+                                  : t.priority === 'MEDIUM'
+                                  ? 'bg-amber-100 text-amber-700'
+                                  : 'bg-slate-100 text-slate-600',
+                              )}
+                            >
+                              {t.priority === 'CRITICAL'
+                                ? 'Crítico'
+                                : t.priority === 'HIGH'
+                                ? 'Alto'
+                                : t.priority === 'MEDIUM'
+                                ? 'Medio'
+                                : 'Bajo'}
+                            </span>
+                            <span className="flex-1 text-xs text-slate-900 line-clamp-2 leading-snug">
+                              {t.title}
+                            </span>
+                            {t.hasAutoBlock && (
+                              <span
+                                title="Habitación bloqueada en OTAs"
+                                className="text-[10px] shrink-0 mt-0.5"
+                              >
+                                🔒
+                              </span>
+                            )}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                    {roomTickets.length > 3 && (
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/maintenance?roomId=${stay.roomId}`)}
+                        className="text-[11px] text-amber-700 hover:text-amber-900 font-medium underline"
+                      >
+                        Ver los {roomTickets.length - 3} restantes →
+                      </button>
+                    )}
+                  </div>
+                )}
+
                 {/* Fechas */}
                 <div className="bg-slate-50 rounded-xl p-4">
                   <div className="flex items-stretch gap-3">
@@ -623,28 +710,44 @@ export function BookingDetailSheet({
                         </div>
                       ) : (
                         <div className="space-y-2">
-                          <input
-                            autoFocus
-                            type="text"
-                            placeholder="Razón para perdonar (obligatoria)"
-                            value={waiveReason}
-                            onChange={(e) => setWaiveReason(e.target.value)}
-                            className="w-full text-xs border border-red-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-red-300"
-                          />
+                          <div className={waiveShake}>
+                            <input
+                              autoFocus
+                              type="text"
+                              placeholder="Razón para perdonar"
+                              value={waiveReason}
+                              onChange={(e) => {
+                                setWaiveReason(e.target.value)
+                                if (waiveError) setWaiveError(null)
+                              }}
+                              className={`w-full text-xs border rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-red-300 ${
+                                waiveError ? 'border-red-400' : 'border-red-200'
+                              }`}
+                            />
+                          </div>
+                          {waiveError && (
+                            <p className="text-[11px] text-red-600">{waiveError}</p>
+                          )}
                           <div className="flex gap-2">
                             <Button
                               size="sm"
                               variant="outline"
                               className="flex-1 text-xs h-8"
-                              onClick={() => { setShowWaiveInput(false); setWaiveReason('') }}
+                              onClick={() => { setShowWaiveInput(false); setWaiveReason(''); setWaiveError(null) }}
                             >
                               Cancelar
                             </Button>
                             <Button
                               size="sm"
                               className="flex-1 text-xs h-8 bg-amber-600 hover:bg-amber-700 text-white"
-                              disabled={waiveReason.trim().length < 5 || waiveNoShow.isPending}
+                              disabled={waiveNoShow.isPending}
                               onClick={() => {
+                                if (waiveReason.trim().length < 5) {
+                                  setWaiveError('Escribe al menos 5 caracteres explicando el motivo.')
+                                  triggerWaiveShake()
+                                  return
+                                }
+                                setWaiveError(null)
                                 waiveNoShow.mutate(waiveReason)
                                 setShowWaiveInput(false)
                                 setWaiveReason('')

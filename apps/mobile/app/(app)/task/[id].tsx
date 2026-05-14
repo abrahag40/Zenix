@@ -78,6 +78,8 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTaskStore } from '../../../src/store/tasks'
 import { api, ApiError } from '../../../src/api/client'
+import { maintenanceApi } from '../../../src/features/maintenance/api/maintenance.api'
+import { useShakeOnInvalid } from '../../../src/hooks/useShakeOnInvalid'
 import type { CleaningTaskDto, CleaningNoteDto } from '@zenix/shared'
 import { CleaningStatus, TaskType } from '@zenix/shared'
 import { colors } from '../../../src/design/colors'
@@ -313,6 +315,7 @@ export default function TaskDetailScreen() {
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
       >
         <TaskHero task={task} />
 
@@ -460,7 +463,12 @@ export default function TaskDetailScreen() {
         animationType="slide"
         onRequestClose={() => setShowIssueModal(false)}
       >
-        <IssueReportScreen taskId={id!} onClose={() => setShowIssueModal(false)} />
+        <IssueReportScreen
+          taskId={id!}
+          roomNumber={task?.unit?.room?.number ?? null}
+          unitLabel={task?.unit?.label ?? null}
+          onClose={() => setShowIssueModal(false)}
+        />
       </Modal>
     </SafeAreaView>
   )
@@ -921,7 +929,25 @@ const CATEGORIES = [
 
 type CategoryId = (typeof CATEGORIES)[number]['id']
 
-function IssueReportScreen({ taskId, onClose }: { taskId: string; onClose: () => void }) {
+function IssueReportScreen({
+  taskId,
+  roomNumber,
+  unitLabel,
+  onClose,
+}: {
+  taskId: string
+  roomNumber: string | null
+  unitLabel: string | null
+  onClose: () => void
+}) {
+  // Bug B8 — el housekeeper a veces abre la tarea equivocada y reporta sin
+  // saber a qué habitación está apuntando. Mostramos el contexto inequívoco
+  // en el subtítulo de la nav bar (§33 feedback informativo).
+  const contextLabel = roomNumber
+    ? unitLabel
+      ? `Hab. ${roomNumber} · ${unitLabel}`
+      : `Hab. ${roomNumber}`
+    : 'Sin habitación asociada'
   // useSafeAreaInsets instead of SafeAreaView because SafeAreaView inside a
   // Modal does not compute insets correctly on all iOS devices — the nav bar
   // ends up behind the OS clock/status bar (Expo Router + Modal interaction).
@@ -931,18 +957,45 @@ function IssueReportScreen({ taskId, onClose }: { taskId: string; onClose: () =>
 
   const [category, setCategory] = useState<CategoryId>('OTHER')
   const [description, setDescription] = useState('')
+  const [descError, setDescError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const canSubmit = description.trim().length > 0 && !loading
+  const { shakeStyle: descShake, trigger: triggerDescShake } = useShakeOnInvalid()
 
   async function handleSubmit() {
-    if (!canSubmit) return
+    if (loading) return
+    // §60 D19: validate-on-click. Botón siempre activo (excepto isPending).
+    if (description.trim().length === 0) {
+      setDescError('Describe el problema antes de enviar.')
+      triggerDescShake()
+      return
+    }
+    setDescError(null)
     setLoading(true)
     try {
-      await api.post(`/tasks/${taskId}/issues`, { category, description: description.trim() })
-      Alert.alert('Problema reportado', 'El supervisor recibirá el aviso de inmediato.')
+      // Sprint Mx-1B-M (CLAUDE.md §47 D-Mx1): el housekeeper crea un
+      // MaintenanceTicket nuevo (flujo B — bottom-up con aprobación) en lugar
+      // del legacy MaintenanceIssue. El sourceTaskId mantiene la trazabilidad
+      // con la tarea de limpieza original.
+      const desc = description.trim()
+      // Bug B9 — surrogate-safe truncation. `String.slice` cuenta code units
+      // (UTF-16) y puede partir un emoji compuesto (👨‍🔧 = 4 codepoints) →
+      // título con high-surrogate huérfano que renderiza como ▢. Usar
+      // Array.from para iterar code points completos.
+      const chars = Array.from(desc)
+      const title = chars.length <= 60 ? desc : chars.slice(0, 57).join('') + '…'
+      await maintenanceApi.create({
+        category,
+        title,
+        description: desc,
+        sourceTaskId: taskId,
+        requiresApproval: true,
+        priority: 'MEDIUM',
+      })
+      Alert.alert('Problema reportado', 'El supervisor de mantenimiento recibirá el aviso de inmediato.')
       onClose()
-    } catch {
-      Alert.alert('Error', 'No se pudo enviar el reporte. Inténtalo de nuevo.')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'No se pudo enviar el reporte. Inténtalo de nuevo.'
+      Alert.alert('Error', msg)
     } finally {
       setLoading(false)
     }
@@ -958,19 +1011,22 @@ function IssueReportScreen({ taskId, onClose }: { taskId: string; onClose: () =>
         <TouchableOpacity onPress={onClose} hitSlop={12} style={styles.issueNavSide}>
           <Text style={styles.issueNavCancelText}>Cancelar</Text>
         </TouchableOpacity>
-        <Text style={styles.issueNavTitle}>Reportar problema</Text>
+        <View style={{ alignItems: 'center', flex: 1 }}>
+          <Text style={styles.issueNavTitle}>Reportar problema</Text>
+          <Text style={styles.issueNavSubtitle} numberOfLines={1}>
+            {contextLabel}
+          </Text>
+        </View>
         <TouchableOpacity
           onPress={handleSubmit}
-          disabled={!canSubmit}
+          disabled={loading}
           hitSlop={12}
           style={[styles.issueNavSide, styles.issueNavSubmit]}
         >
           {loading ? (
             <ActivityIndicator color={colors.brand[400]} size="small" />
           ) : (
-            <Text style={[styles.issueNavSubmitText, !canSubmit && styles.issueNavSubmitTextDisabled]}>
-              Enviar
-            </Text>
+            <Text style={styles.issueNavSubmitText}>Enviar</Text>
           )}
         </TouchableOpacity>
       </View>
@@ -980,6 +1036,7 @@ function IssueReportScreen({ taskId, onClose }: { taskId: string; onClose: () =>
           style={styles.issueScroll}
           contentContainerStyle={styles.issueContent}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator={false}
           automaticallyAdjustKeyboardInsets={true}
         >
@@ -1020,12 +1077,16 @@ function IssueReportScreen({ taskId, onClose }: { taskId: string; onClose: () =>
           </View>
 
           <Text style={[styles.issueFieldLabel, styles.issueFieldLabelSpaced]}>DESCRIPCIÓN</Text>
+          <Animated.View style={descShake}>
           <TextInput
-            style={styles.issueDescInput}
+            style={[styles.issueDescInput, descError ? { borderColor: '#F87171' } : null]}
             placeholder="Describe el problema con detalle..."
             placeholderTextColor={colors.text.tertiary}
             value={description}
-            onChangeText={setDescription}
+            onChangeText={(v) => {
+              setDescription(v)
+              if (descError) setDescError(null)
+            }}
             multiline
             textAlignVertical="top"
             autoCorrect={false}
@@ -1037,6 +1098,10 @@ function IssueReportScreen({ taskId, onClose }: { taskId: string; onClose: () =>
               }, 150)
             }}
           />
+          </Animated.View>
+          {descError && (
+            <Text style={{ color: '#FCA5A5', fontSize: 13, marginTop: 6 }}>{descError}</Text>
+          )}
         </ScrollView>
     </View>
   )
@@ -1635,11 +1700,16 @@ const styles = StyleSheet.create({
     color: colors.text.tertiary,
   },
   issueNavTitle: {
-    flex: 1,
     textAlign: 'center',
     fontSize: typography.size.bodyLg,
     fontWeight: typography.weight.semibold,
     color: colors.text.primary,
+  },
+  issueNavSubtitle: {
+    textAlign: 'center',
+    fontSize: 11,
+    color: colors.text.tertiary,
+    marginTop: 1,
   },
   issueScroll: {
     flex: 1,

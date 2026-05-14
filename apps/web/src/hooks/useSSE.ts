@@ -21,14 +21,35 @@ const ALL_SSE_TYPES: SseEventType[] = [
   'soft:lock:acquired', 'soft:lock:released',
   'notification:new',
   'checkin:confirmed',
+  // Sprint Mx-1 — Maintenance work-orders
+  'maintenance:ticket:created',
+  'maintenance:ticket:approved',
+  'maintenance:ticket:rejected',
+  'maintenance:ticket:claimed',
+  'maintenance:ticket:assigned',
+  'maintenance:ticket:auto-assigned',
+  'maintenance:ticket:acknowledged',
+  'maintenance:ticket:started',
+  'maintenance:ticket:waiting-parts',
+  'maintenance:ticket:resumed',
+  'maintenance:ticket:resolved',
+  'maintenance:ticket:verified',
+  'maintenance:ticket:closed',
+  'maintenance:ticket:reopened',
+  'maintenance:ticket:commented',
+  'maintenance:ticket:photo-added',
+  'maintenance:ticket:sla-breach',
 ]
 
 export function useSSE(onEvent: Handler) {
+  // Sprint SEC-α — bug MT-7. Subscribe to token from Zustand so the
+  // effect re-runs after switchProperty issues a new JWT — otherwise the
+  // old EventSource keeps emitting events scoped to the previous property.
+  const token = useAuthStore((s) => s.token)
   const handlerRef = useRef(onEvent)
   handlerRef.current = onEvent
 
   useEffect(() => {
-    const token = localStorage.getItem('hk_token')
     if (!token) return
 
     const base = import.meta.env.VITE_API_URL ?? ''
@@ -90,5 +111,5 @@ export function useSSE(onEvent: Handler) {
       cancelled = true
       es?.close()
     }
-  }, [])
+  }, [token])
 }

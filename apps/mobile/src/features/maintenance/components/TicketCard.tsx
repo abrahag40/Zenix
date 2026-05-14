@@ -1,0 +1,233 @@
+/**
+ * TicketCard — card de ticket para el Hub mobile (Sprint Mx-1B-M).
+ *
+ * Diseño dark-canvas alineado con HousekeepingHub (CLAUDE.md §13b):
+ *   · Border-left 4px por priority (Treisman pre-attentive)
+ *   · 3-zonas: identity (priority pill + categoría + friendlyId) /
+ *     contenido (título + contexto) /
+ *     footer (asignado + aging chip + tiempo)
+ *   · Tap full → onPress (a TicketDetail)
+ *   · Apple HIG: 44pt min touch target
+ */
+import { Pressable, StyleSheet, Text, View } from 'react-native'
+import type { MaintenanceTicketDto } from '@zenix/shared'
+import { colors } from '../../../design/colors'
+import { typography } from '../../../design/typography'
+import {
+  AGING_HEX,
+  CATEGORY_EMOJI,
+  CATEGORY_LABEL,
+  PRIORITY_BG,
+  PRIORITY_HEX,
+  PRIORITY_HEX_DARK,
+  PRIORITY_LABEL,
+  estimateAging,
+  formatElapsed,
+} from '../utils/constants'
+
+interface Props {
+  ticket: MaintenanceTicketDto
+  onPress: (id: string) => void
+  // M3.5 — multi-select bulk-start mode
+  onLongPress?: (id: string) => void
+  selected?: boolean
+  selectionMode?: boolean
+  selectable?: boolean  // false = no es ACK propio, render dimmed
+}
+
+export function TicketCard({ ticket, onPress, onLongPress, selected, selectionMode, selectable }: Props) {
+  const priorityColor = PRIORITY_HEX[ticket.priority]          // border-left saturated
+  const priorityTextColor = PRIORITY_HEX_DARK[ticket.priority] // texto sobre pill dark
+  const priorityBg = PRIORITY_BG[ticket.priority]
+  const aging = estimateAging(ticket.estimatedEndAt, ticket.status)
+  const contextLabel = ticket.roomNumber
+    ? `Hab. ${ticket.roomNumber}`
+    : ticket.assetTag
+    ? `🔧 ${ticket.assetTag}`
+    : '📍 Área general'
+
+  // M3.5 — multi-select visual feedback:
+  //   · selected → border accent emerald + bg tint sutil
+  //   · selectionMode && !selectable → opacity reducida (dimmed)
+  //   · selectionMode && selectable && !selected → cursor de selección
+  const isDimmed = selectionMode && !selectable
+  return (
+    <Pressable
+      onPress={() => onPress(ticket.id)}
+      onLongPress={onLongPress ? () => onLongPress(ticket.id) : undefined}
+      delayLongPress={400}
+      android_ripple={{ color: 'rgba(255,255,255,0.06)' }}
+      style={({ pressed }) => [
+        styles.card,
+        { borderLeftColor: priorityColor },
+        pressed && styles.cardPressed,
+        selected && styles.cardSelected,
+        isDimmed && styles.cardDimmed,
+      ]}
+    >
+      {/* Checkbox de selección — solo visible en multi-select mode */}
+      {selectionMode && selectable && (
+        <View style={[styles.selectCheckbox, selected && styles.selectCheckboxOn]}>
+          {selected && <Text style={styles.selectCheckboxMark}>✓</Text>}
+        </View>
+      )}
+      {/* Zone 1 — Identity. M3.3 paridad W3.5: friendlyId removido del header
+          (redundante; visible en TicketDetail). categoría sin emoji para
+          consistencia tipográfica con web (TicketCard.tsx Kanban). */}
+      <View style={styles.row}>
+        <View style={[styles.priorityPill, { backgroundColor: priorityBg }]}>
+          <Text style={[styles.priorityText, { color: priorityTextColor }]}>
+            {PRIORITY_LABEL[ticket.priority]}
+          </Text>
+        </View>
+        <Text style={styles.categoryText}>
+          {CATEGORY_LABEL[ticket.category]}
+        </Text>
+      </View>
+
+      {/* Zone 2 — Title + body preview + context */}
+      <Text style={styles.title} numberOfLines={2}>
+        {ticket.title}
+      </Text>
+      {ticket.description && (
+        <Text style={styles.bodyPreview} numberOfLines={2}>
+          {ticket.description}
+        </Text>
+      )}
+      <Text style={styles.context}>{contextLabel}</Text>
+
+      {/* Zone 3 — Footer */}
+      <View style={styles.footer}>
+        {ticket.assignedToName ? (
+          <Text style={styles.assignee} numberOfLines={1}>
+            👤 {ticket.assignedToName}
+          </Text>
+        ) : (
+          <Text style={styles.unassigned}>Sin asignar</Text>
+        )}
+        <View style={{ flex: 1 }} />
+        {aging && (
+          <View
+            style={[
+              styles.agingChip,
+              { backgroundColor: AGING_HEX[aging.color].bg },
+            ]}
+          >
+            <Text style={[styles.agingText, { color: AGING_HEX[aging.color].fg }]}>
+              {aging.label}
+            </Text>
+          </View>
+        )}
+        <Text style={styles.elapsed}>{formatElapsed(ticket.createdAt)}</Text>
+      </View>
+
+      {/* Banners de estado especial */}
+      {ticket.hasAutoBlock && (
+        <View style={styles.blockBanner}>
+          <Text style={styles.blockBannerText}>🔒 Habitación fuera de venta</Text>
+        </View>
+      )}
+      {ticket.requiresApproval && ticket.pendingApproval && (
+        <View style={styles.approvalBanner}>
+          <Text style={styles.approvalBannerText}>🟡 Esperando aprobación</Text>
+        </View>
+      )}
+    </Pressable>
+  )
+}
+
+const styles = StyleSheet.create({
+  // Apple HIG: padding 16-18pt, body 15pt, Footnote 13pt, Caption 11pt
+  card: {
+    backgroundColor: colors.canvas.secondary,
+    borderLeftWidth: 4,
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderTopColor: colors.border.subtle,
+    borderRightColor: colors.border.subtle,
+    borderBottomColor: colors.border.subtle,
+  },
+  cardPressed: { opacity: 0.7 },
+  // M3.5 — multi-select visual states
+  cardSelected: {
+    backgroundColor: 'rgba(16,185,129,0.10)', // emerald-500 alpha 10%
+    borderTopColor: colors.brand[500],
+    borderRightColor: colors.brand[500],
+    borderBottomColor: colors.brand[500],
+  },
+  cardDimmed: { opacity: 0.4 },
+  selectCheckbox: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: colors.border.default,
+    backgroundColor: colors.canvas.tertiary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
+  },
+  selectCheckboxOn: {
+    borderColor: colors.brand[500],
+    backgroundColor: colors.brand[500],
+  },
+  selectCheckboxMark: { color: colors.text.inverse, fontSize: 14, fontWeight: '700' },
+  row: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 8 },
+  priorityPill: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 5 },
+  priorityText: {
+    fontSize: typography.size.micro, // 11pt Caption
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  categoryText: { fontSize: typography.size.small, color: colors.text.tertiary, fontWeight: '500' },
+  title: {
+    fontSize: typography.size.bodyLg, // 17pt Headline
+    fontWeight: '600',
+    color: colors.text.primary,
+    lineHeight: 22,
+    marginBottom: 4,
+  },
+  context: { fontSize: typography.size.small, color: colors.text.secondary, marginBottom: 12 },
+  bodyPreview: {
+    // M3.3 — preview de description (1-2 líneas). Body 15pt secondary,
+    // leading relajado para legibilidad en thumb-scroll. Pattern Apple
+    // Mail / iOS Notifications.
+    fontSize: typography.size.body,
+    color: colors.text.secondary,
+    lineHeight: 20,
+    marginBottom: 6,
+  },
+  footer: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  assignee: {
+    fontSize: typography.size.small,
+    color: colors.text.secondary,
+    fontWeight: '500',
+    maxWidth: 140,
+  },
+  unassigned: { fontSize: typography.size.small, color: colors.text.tertiary, fontStyle: 'italic' },
+  agingChip: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 6 },
+  agingText: { fontSize: typography.size.micro, fontWeight: '600' },
+  elapsed: { fontSize: typography.size.micro, color: colors.text.tertiary },
+  blockBanner: {
+    marginTop: 12,
+    backgroundColor: 'rgba(239,68,68,0.12)',
+    borderRadius: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+  },
+  blockBannerText: { fontSize: typography.size.small, color: '#FCA5A5', fontWeight: '500' },
+  approvalBanner: {
+    marginTop: 12,
+    backgroundColor: 'rgba(245,158,11,0.12)',
+    borderRadius: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+  },
+  approvalBannerText: { fontSize: typography.size.small, color: '#FBBF24', fontWeight: '500' },
+})

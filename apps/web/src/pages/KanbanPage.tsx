@@ -26,6 +26,7 @@ import { differenceInCalendarDays, format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { api } from '../api/client'
 import { useSSE } from '../hooks/useSSE'
+import { useShakeOnInvalid } from '../hooks/useShakeOnInvalid'
 import { useAuthStore } from '../store/auth'
 import type { CleaningTaskDto, SseEvent, StaffDto, TaskLogDto } from '@zenix/shared'
 import { CleaningStatus, StaffRole, Priority, TaskLogEvent } from '@zenix/shared'
@@ -468,27 +469,28 @@ export function KanbanPage() {
         {COLUMNS.map((col) => {
           const colTasks = byStatus(col.status)
           return (
-            <div
+            <section
               key={col.status}
-              className={`flex-shrink-0 w-72 bg-gray-50 rounded-b-lg border-t-4 ${col.ringColor} flex flex-col`}
+              className={`flex-shrink-0 w-72 rounded-xl bg-slate-50/60 border-t-4 ${col.ringColor} ring-1 ring-slate-200/70 flex flex-col`}
             >
-              {/* Header con label + subtítulo (NN/g H6 — explicar, no obligar a memorizar).
-                  Pixel-perfect: padding p-3 (12px) idéntico al body para alineación
-                  vertical de elementos entre header y primera card. */}
-              <div className="p-3 border-b border-gray-200 bg-white">
+              {/* Header — pattern unificado con Maintenance Kanban (Sprint Mx-1B-W1.1):
+                  sticky top con backdrop-blur, count pill, hint inline.
+                  Reemplaza header viejo "white block separado" por diseño curvo
+                  consistente entre los dos kanbans del PMS (NN/g H4 consistency). */}
+              <header className="sticky top-0 z-[1] bg-slate-50/95 backdrop-blur-sm rounded-t-xl px-3 pt-3 pb-2 border-b border-slate-200/60">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-semibold text-gray-800 uppercase tracking-wide truncate">
+                  <h3 className="text-[11px] font-semibold uppercase tracking-wider text-slate-700 truncate">
                     {col.label}
-                  </span>
-                  <span className={`text-xs font-medium rounded-full px-2 py-0.5 flex-shrink-0 ${col.pillBg}`}>
+                  </h3>
+                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${col.pillBg}`}>
                     {colTasks.length}
                   </span>
                 </div>
-                <p className="text-[10px] text-gray-500 mt-1 leading-tight">{col.hint}</p>
-              </div>
+                <p className="text-[10px] text-slate-500 mt-0.5 leading-tight">{col.hint}</p>
+              </header>
               {/* Body con altura mínima fija — patrón Trello/Linear/Jira:
                   columnas con/sin cards mantienen tamaño consistente */}
-              <div className="p-3 space-y-3 min-h-[420px] flex-1 flex flex-col">
+              <div className="px-2 py-2 space-y-3 min-h-[420px] flex-1 flex flex-col">
                 {colTasks.length === 0 ? (
                   <EmptyColumn status={col.status} />
                 ) : (
@@ -522,7 +524,7 @@ export function KanbanPage() {
                   ))
                 )}
               </div>
-            </div>
+            </section>
           )
         })}
       </div>
@@ -1244,14 +1246,27 @@ function RejectTaskModal({
   onRejected: () => void
 }) {
   const [reason, setReason] = useState('')
+  const [reasonError, setReasonError] = useState<string | null>(null)
+  const { shakeClass, trigger: triggerShake } = useShakeOnInvalid()
   const trimmed = reason.trim()
-  const isValid = trimmed.length >= 5
 
   const rejectMut = useMutation({
     mutationFn: () => api.post(`/tasks/${taskId}/reject`, { reason: trimmed }),
     onSuccess: onRejected,
     onError: (e) => toast.error(e instanceof Error ? e.message : 'No se pudo rechazar la tarea'),
   })
+
+  // §60 D19: validate-on-click.
+  function handleReject() {
+    if (rejectMut.isPending) return
+    if (trimmed.length < 5) {
+      setReasonError('Escribe al menos 5 caracteres explicando el motivo.')
+      triggerShake()
+      return
+    }
+    setReasonError(null)
+    rejectMut.mutate()
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -1270,17 +1285,26 @@ function RejectTaskModal({
             <label className="text-xs font-medium text-gray-700 block mb-1">
               Razón del rechazo <span className="text-red-600">*</span>
             </label>
-            <textarea
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="Ej. Baño con agua acumulada, sábanas mal puestas, polvo en ventanas..."
-              rows={4}
-              autoFocus
-              className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 resize-none focus:outline-none focus:ring-2 focus:ring-red-200"
-            />
-            <p className="text-[11px] text-gray-500 mt-1">
-              Mínimo 5 caracteres ({trimmed.length}/5)
-            </p>
+            <div className={shakeClass}>
+              <textarea
+                value={reason}
+                onChange={(e) => {
+                  setReason(e.target.value)
+                  if (reasonError) setReasonError(null)
+                }}
+                placeholder="Ej. Baño con agua acumulada, sábanas mal puestas, polvo en ventanas..."
+                rows={4}
+                autoFocus
+                className={`w-full text-sm border rounded px-2 py-1.5 resize-none focus:outline-none focus:ring-2 focus:ring-red-200 ${
+                  reasonError ? 'border-red-400' : 'border-gray-300'
+                }`}
+              />
+            </div>
+            {reasonError ? (
+              <p className="text-[11px] text-red-600 mt-1">{reasonError}</p>
+            ) : (
+              <p className="text-[11px] text-gray-500 mt-1">{trimmed.length}/300</p>
+            )}
           </div>
         </div>
         <div className="px-5 py-3 border-t border-gray-200 flex justify-end gap-2">
@@ -1291,8 +1315,8 @@ function RejectTaskModal({
             Cancelar
           </button>
           <button
-            onClick={() => rejectMut.mutate()}
-            disabled={!isValid || rejectMut.isPending}
+            onClick={handleReject}
+            disabled={rejectMut.isPending}
             className="text-sm px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded font-medium disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {rejectMut.isPending ? 'Rechazando...' : '🔄 Rechazar limpieza'}

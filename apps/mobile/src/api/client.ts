@@ -248,4 +248,13 @@ export const api = {
 
   delete: <T>(path: string, opts?: RequestOptions) =>
     request<T>(path, { method: 'DELETE', ...opts }),
+
+  /**
+   * Multipart POST — para upload de archivos (Sprint Mx-1B-W2).
+   * El cliente fija automáticamente el header multipart con boundary; nuestro
+   * `attemptRequest` ya detecta FormData y NO sobrescribe Content-Type. Por
+   * defecto NO retry (efecto colateral: subir 2 veces la misma foto).
+   */
+  postForm: <T>(path: string, form: FormData, opts?: RequestOptions) =>
+    request<T>(path, { method: 'POST', body: form as unknown as BodyInit, ...opts }),
 }

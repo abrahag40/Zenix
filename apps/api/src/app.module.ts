@@ -40,10 +40,12 @@ import { SchedulingModule } from './scheduling/scheduling.module'
 import { AssignmentModule } from './assignment/assignment.module'
 import { StaffPreferencesModule } from './staff-preferences/staff-preferences.module'
 import { FeatureFlagsModule } from './feature-flags/feature-flags.module'
+import { UploadsModule } from './uploads/uploads.module'
 import { TenantContextMiddleware } from './common/tenant-context.middleware'
 import { TenantContextService } from './common/tenant-context.service'
 import { TenantGuard } from './common/guards/tenant.guard'
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
+import { PropertyScopeGuard } from './common/guards/property-scope.guard'
 
 @Module({
   imports: [
@@ -91,6 +93,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
     StaffPreferencesModule,
     // Server-side feature toggles (testing envs + future feature flags)
     FeatureFlagsModule,
+    UploadsModule, // Mx-1B-W2 — image upload + static serve (foundation for Mx-1C)
   ],
   providers: [
     TenantContextService,
@@ -101,6 +104,11 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
     {
       provide: APP_GUARD,
       useClass: TenantGuard,
+    },
+    {
+      // Sprint SEC-α — bug MT-5 — blocks IDOR via ?propertyId= query param.
+      provide: APP_GUARD,
+      useClass: PropertyScopeGuard,
     },
   ],
 })
