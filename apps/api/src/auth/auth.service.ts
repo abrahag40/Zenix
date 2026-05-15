@@ -88,9 +88,44 @@ export class AuthService {
 
     const staff = await this.prisma.staff.findUnique({
       where: { id: actor.sub },
-      select: { id: true, name: true, email: true, role: true, department: true, level: true },
+      select: { id: true, name: true, email: true, role: true, department: true, level: true, userId: true, propertyId: true },
     })
     if (!staff) throw new UnauthorizedException('Staff not found')
+
+    // SEC-α MT-3 — Authorization gate: validar pivot UserPropertyRole.
+    // Bug 2026-05-13 punteado como "no aplica en schema actual" — la auditoría
+    // estaba mal: UserPropertyRole model SÍ existe (schema.prisma:468) y es el
+    // mecanismo para autorizar acceso multi-propiedad de un mismo User. Sin
+    // este guard, cualquier supervisor en una org puede switch a CUALQUIER
+    // propiedad de esa org — violación de OWASP API5:2023 (BFLA, Broken
+    // Function Level Authorization) + OWASP API1:2023 (BOLA si el target
+    // contiene PII de otra propiedad).
+    //
+    // Casos:
+    //  (a) Staff con userId vinculado a User → exigir UserPropertyRole row
+    //  (b) Staff sin userId (legacy) → solo permitir mismo propertyId (no-op
+    //      switch) hasta que la migración a User+pivot esté completa (v1.1)
+    //  (c) Switch al propio propertyId siempre permitido (idempotent)
+    if (targetPropertyId !== staff.propertyId) {
+      if (staff.userId) {
+        const grant = await this.prisma.userPropertyRole.findFirst({
+          where: { userId: staff.userId, propertyId: targetPropertyId },
+          select: { id: true },
+        })
+        if (!grant) {
+          throw new ForbiddenException(
+            'No tienes acceso autorizado a esta sucursal. Solicita asignación al administrador.',
+          )
+        }
+      } else {
+        // Legacy staff sin User vinculado — no soporta multi-propiedad.
+        // Convención v1.0: si el seed/admin no creó la pivot, el switch
+        // a otra propiedad NO está autorizado.
+        throw new ForbiddenException(
+          'Cuenta legacy sin permisos multi-sucursal. Pide al administrador vincular tu cuenta a User para acceso multi-propiedad.',
+        )
+      }
+    }
 
     const payload: JwtPayload = {
       sub: staff.id,
