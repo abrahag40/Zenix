@@ -793,8 +793,12 @@ export class BlocksService {
 
   /**
    * Computes absolute availability for the block's room and pushes to Channex.
-   * Called after every lifecycle transition that changes the room's occupancy.
-   * Fire-and-forget: failures are logged inside computeAndPushInventory.
+   * Called AFTER the local transaction commits — fire-and-forget so a Channex
+   * outage never rolls back the local block lifecycle (BLK-6, CLAUDE.md §37).
+   *
+   * Belt-and-suspenders: computeAndPushInventory catches internally, but we
+   * wrap here too so future refactors can't accidentally surface a rejected
+   * promise to the caller (the `void` keyword would then swallow it silently).
    */
   private async syncChannex(block: {
     roomId: string | null
@@ -807,6 +811,11 @@ export class BlocksService {
     if (!roomId) return
     const dates = this.blockDateRange(block)
     if (dates.length === 0) return
-    await this.availability.computeAndPushInventory(roomId, dates)
+    try {
+      await this.availability.computeAndPushInventory(roomId, dates)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      this.logger.error(`[syncChannex] roomId=${roomId}: ${msg}`)
+    }
   }
 }

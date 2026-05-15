@@ -32,6 +32,7 @@ export function NotificationBell() {
   const {
     notifications, unreadCount,
     markRead, markAllRead, approve, reject,
+    isApproveOrRejectPending,
   } = useNotifications(propertyId)
 
   /*
@@ -103,6 +104,7 @@ export function NotificationBell() {
         onApprove={approve}
         onReject={reject}
         onNavigate={handleNotificationNavigate}
+        isActionPending={isApproveOrRejectPending}
       />
     </>
   )

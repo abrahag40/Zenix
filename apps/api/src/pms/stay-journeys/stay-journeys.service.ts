@@ -352,6 +352,12 @@ export class StayJourneyService {
       throw new BadRequestException('effectiveDate cannot be in the past')
     }
 
+    // CAL-10: el room-move no puede tener fecha efectiva anterior al checkIn del
+    // segmento activo — crearía un segmento con fecha retroactiva inválida.
+    if (isBefore(effectiveDate, startOfDay(new Date(activeSegment.checkIn)))) {
+      throw new BadRequestException('effectiveDate cannot be before the active segment checkIn')
+    }
+
     if (dto.newRoomId === activeSegment.roomId) {
       throw new BadRequestException('newRoomId must be different from the current room')
     }

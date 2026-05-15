@@ -70,14 +70,15 @@ const TYPE_LABEL: Record<string, { label: string; color: string }> = {
 // ─── NotificationCard ─────────────────────────────────────────────────────────
 
 interface CardProps {
-  notif:       AppNotification
-  onRead:      (id: string) => void
-  onApprove?:  (id: string) => void
-  onReject?:   (id: string) => void
-  onNavigate?: (url: string) => void
+  notif:           AppNotification
+  onRead:          (id: string) => void
+  onApprove?:      (id: string) => void
+  onReject?:       (id: string) => void
+  onNavigate?:     (url: string) => void
+  isActionPending?: boolean
 }
 
-function NotificationCard({ notif, onRead, onApprove, onReject, onNavigate }: CardProps) {
+function NotificationCard({ notif, onRead, onApprove, onReject, onNavigate, isActionPending }: CardProps) {
   const meta   = CATEGORY_META[notif.category] ?? CATEGORY_META.SYSTEM
   const Icon   = meta.icon
   const stripe = PRIORITY_STRIPE[notif.priority] ?? PRIORITY_STRIPE.MEDIUM
@@ -172,11 +173,13 @@ function NotificationCard({ notif, onRead, onApprove, onReject, onNavigate }: Ca
           <span>{relativeTime}</span>
         </div>
 
-        {/* Approval actions */}
+        {/* Approval actions — NOTIF-11: disabled while a mutation is in flight
+            to prevent double-click duplicates (NN/g H5 error prevention). */}
         {notif.type === 'APPROVAL_REQUIRED' && !notif.approval && (
           <div className="flex gap-2 mt-2" onClick={(e) => e.stopPropagation()}>
             <Button
               size="sm"
+              disabled={isActionPending}
               className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
               onClick={() => { onApprove?.(notif.id); onRead(notif.id) }}
             >
@@ -186,6 +189,7 @@ function NotificationCard({ notif, onRead, onApprove, onReject, onNavigate }: Ca
             <Button
               size="sm"
               variant="outline"
+              disabled={isActionPending}
               className="h-7 text-xs border-red-200 text-red-600 hover:bg-red-50"
               onClick={() => { onReject?.(notif.id); onRead(notif.id) }}
             >
@@ -236,20 +240,22 @@ function NotificationCard({ notif, onRead, onApprove, onReject, onNavigate }: Ca
 // ─── NotificationPanel ────────────────────────────────────────────────────────
 
 interface NotificationPanelProps {
-  open:        boolean
-  onClose:     () => void
-  notifications: AppNotification[]
-  unreadCount: number
-  onRead:      (id: string) => void
-  onMarkAll:   () => void
-  onApprove:   (id: string) => void
-  onReject:    (id: string) => void
-  onNavigate:  (url: string) => void
+  open:            boolean
+  onClose:         () => void
+  notifications:   AppNotification[]
+  unreadCount:     number
+  onRead:          (id: string) => void
+  onMarkAll:       () => void
+  onApprove:       (id: string) => void
+  onReject:        (id: string) => void
+  onNavigate:      (url: string) => void
+  isActionPending?: boolean
 }
 
 export function NotificationPanel({
   open, onClose, notifications, unreadCount,
   onRead, onMarkAll, onApprove, onReject, onNavigate,
+  isActionPending,
 }: NotificationPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null)
 
@@ -420,6 +426,7 @@ export function NotificationPanel({
                     <NotificationCard
                       key={n.id} notif={n}
                       onRead={onRead} onApprove={onApprove} onReject={onReject} onNavigate={onNavigate}
+                      isActionPending={isActionPending}
                     />
                   ))}
                 </div>
@@ -438,6 +445,7 @@ export function NotificationPanel({
                     <NotificationCard
                       key={n.id} notif={n}
                       onRead={onRead} onApprove={onApprove} onReject={onReject} onNavigate={onNavigate}
+                      isActionPending={isActionPending}
                     />
                   ))}
                 </div>
@@ -457,6 +465,7 @@ export function NotificationPanel({
                     <NotificationCard
                       key={n.id} notif={n}
                       onRead={onRead} onApprove={onApprove} onReject={onReject} onNavigate={onNavigate}
+                      isActionPending={isActionPending}
                     />
                   ))}
                 </div>
