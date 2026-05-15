@@ -34,7 +34,7 @@
 
 - **Versión en curso:** v1.0.0 (piloto comercial — Hotel Monica Tulum)
 - **Últimos commits relevantes:** PR #8 (Sprint 9-HK ext + KP-01), Sprint Mx-1 backend (commit 1436f6c), Sprint Mx-1B (web + mobile completos en worktrees)
-- **Próximo bloque:** ~~SEC-α~~ ✅ → ~~POLISH-α~~ ✅ → Mx-1B finalización → HK-CFG (SettingsPage Recamaristas) → QA-α → CI-RESCUE → release v1.0.0
+- **Próximo bloque:** ~~SEC-α~~ ✅ → ~~POLISH-α~~ ✅ → ~~Mx-1B finalización~~ ✅ (PR #13) → ~~HK-CFG~~ ✅ (Sprint 8H) → **QA-α** → **CI-RESCUE** → release v1.0.0
 - **Auditoría completa:** [Modo auditoría 2026-05-13](#audit-20260513) — 1 bug crítico (MT-5 ✅), 2 altos (MT-3 ✅, NS-3 ✅), 11 medios (✅ los 11 resueltos en commits previos; MT-9 con componente ops pendiente fuera del repo), 5 acknowledged debt. **SEC-α + POLISH-α ambos cerrados** tras verificación 2026-05-15.
 
 ---
@@ -737,9 +737,9 @@ npx prisma studio
 |--------|---------|------|----------------|
 | ~~SEC-α~~ | ✅ CERRADO commit `aa6f122` + doc update PR #20 — MT-5/MT-3/NS-3 | — | Cerrado |
 | ~~POLISH-α~~ | ✅ CERRADO — los 11 bugs medios del audit ya estaban resueltos en commits previos (verificado 2026-05-15). Único pendiente: MT-9 ops (config proxy productivo, no código) | — | Cerrado |
-| **Mx-1B finalización** | Gaps menores web + mobile mantenimiento | 3-4 | Sí |
-| **HK-CFG (Setup Recamaristas)** | SettingsPage tab "Recamaristas" + wizard onboarding | 5-7 | Sí |
-| **QA-α** | Test coverage mobile Hub Recamarista | 4-5 | Sí |
+| ~~Mx-1B finalización~~ | ✅ CERRADO PR #13 (commit `6c09fab`) — MAINT-4 draft persist + NOTIF-7+13 toast + UX help text. 4 gaps menores deferidos con justificación (InputSheet, aria-labels, header flash, assign dialog) | — | Cerrado |
+| ~~HK-CFG (Setup Recamaristas)~~ | ✅ CERRADO Sprint 8H — `HousekeepingScheduleSection` 1138 líneas con 3 sub-tabs (Horarios + Cobertura + Reglas). Tab "Recamaristas" en `SettingsPage.tsx:28` | — | Cerrado |
+| **QA-α** | Test coverage mobile Hub Recamarista (jest-expo configurado, 0 specs aún en `apps/mobile`) | 4-5 | Sí |
 | **CI-RESCUE** | Pipeline CI: eslint configs + 110 tests rojos `@zenix/api` + migrar multer 1.x→2.x | 3-5 | No (lint/test non-blocking desde 2026-05-15) |
 
 ### Sprint CI-RESCUE — detalle técnico
@@ -845,7 +845,7 @@ Sprint 8H decisions completadas. Sprint Mx-1 backend completado (commit `1436f6c
 | Maintenance mobile (Mx-1B-M M3.1-M3.5) | ✅ |
 | Mobile Hub Recamarista | ✅ |
 | KanbanPage UX completo | ✅ |
-| Settings Recamaristas tab | ⏳ HK-CFG |
+| Settings Recamaristas tab | ✅ (HousekeepingScheduleSection 1138 LOC) |
 | QA test coverage mobile | ⏳ QA-α |
 | Security hardening | ⏳ SEC-α |
 | Payment processing | 📋 v1.0.1 |
@@ -866,6 +866,7 @@ Tres capas de defensa:
 
 ## Bitácora de cambios mayores a este documento
 
+- **2026-05-15** (final +2) — **Mx-1B finalización y HK-CFG también cerrados tras verificación.** Cuarto y quinto cierre silencioso del día. Mx-1B finalización: PR #13 (commit `6c09fab`) mergeó MAINT-4 draft persist + NOTIF-7+13 toast + UX help text "días estimados"; 4 gaps menores deferidos con justificación. HK-CFG: `HousekeepingScheduleSection` (1138 LOC, 3 sub-tabs Horarios+Cobertura+Reglas) ya implementado en Sprint 8H (commit más viejo) y tab "Recamaristas" registrado en `SettingsPage.tsx:28`. **Resultado final del día: 4 sprints v1.0.0 cerrados** (SEC-α + POLISH-α + Mx-1B finalización + HK-CFG). Únicos pendientes reales antes de release: **QA-α** (test coverage mobile, ~4-5 días) y **CI-RESCUE** (eslint configs + 110 tests rojos API + multer 1→2, ~3-5 días). Estimado total a v1.0.0: ~8-10 días enfocados.
 - **2026-05-15** (final +1) — POLISH-α también CERRADO tras verificación de los 11 bugs medios del audit 2026-05-13. Hallazgo paralelo al de SEC-α: el audit estaba desactualizado, todos los bugs (NS-6, MT-7, MT-8, PAY-8, CAL-10, CAL-4, BLK-6, MAINT-4, NOTIF-7+13, NOTIF-11) ya tenían su fix en main con comentarios trazables (`Sprint SEC-α`, `NOTIF-7+13 fix`, `BLK-6`, `NS-6`, etc.). Único pendiente: MT-9 — componente código (cookie httpOnly + sse-token) está en TODO para refactor v1.0.x SSE-auth; componente ops (proxy nginx redact `?token=`) requiere config productivo fuera del repo. CLAUDE.md actualizado con archivo:línea de cada fix para que el audit refleje la realidad. **Resultado neto: SEC-α y POLISH-α cerrados; quedan Mx-1B finalización, HK-CFG, QA-α, CI-RESCUE antes de release v1.0.0.**
 - **2026-05-15** (final) — SEC-α cerrado tras verificación. Items críticos+altos del audit 2026-05-13 (MT-5, MT-3, NS-3) **ya estaban resueltos** en main por commit `aa6f122` "feat(security): Sprint SEC-α — hardening multi-tenant pre-v1.0.0". MT-5 fixed con `PropertyScopeGuard` registrado como `APP_GUARD` global (más robusto que plan por-controller del audit original — protege TODO endpoint con `?propertyId=`, no solo los 5 listados). MT-3 fixed en `auth.service.ts:95-127` con guard de `UserPropertyRole` pivot. NS-3 fixed en `night-audit.scheduler.ts:146`. CLAUDE.md actualizado: items movidos de "🔴 pendiente" a "✅ DONE"; sprint SEC-α marcado cerrado; bugs medios (NS-6, MT-7, MT-8, etc.) reasignados a POLISH-α. Plan próximo: Mx-1B finalización → HK-CFG → POLISH-α → QA-α → CI-RESCUE → release v1.0.0.
 - **2026-05-15** (PM late) — Decisiones §91-§94 agregadas tras investigación profunda 32 estados MX + 9 países LATAM + fricción competitiva. Catálogo nativo `TaxCatalogEntry` curado internamente por rol `TAX_CURATOR` Zenix (NO Avalara/Vertex/Sovos en v1.0.x). Override en dos capas con precedencia PROPERTY > LEGAL_ENTITY > base. Brasil EXCLUIDO v1.0.x (entrar post v1.2 con Sovos como `FiscalAdapter`). DSA Tulum marcado `status='AMBIGUOUS'` — wizard solicita modalidad al cliente, Activate verifica con Tesorería Municipal. Nueva sección J en `14-payment-currency-tax-architecture.md` con matriz completa MX 32 estados (Yucatán bajó 5→4.5 %, tarifas diferenciadas plataformas digitales). Setup wizard objetivo: 6-8 clicks vs ~30 Cloudbeds.
