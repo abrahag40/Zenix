@@ -938,10 +938,15 @@ function RulesPanel() {
     return <div className="text-sm text-gray-400 py-8 text-center">Cargando...</div>
   }
 
+  // Antes: max-w-2xl space-y-5 → en pantallas ≥1280px dejaba 50%+ del ancho
+  // del DOM vacío a la derecha. Cambiamos a grid responsive 2-col en xl que
+  // distribuye los 4 cards en el espacio disponible. Mantiene una sola columna
+  // en <1280px (laptops chicas) para no apretar los radio buttons.
   return (
-    <div className="max-w-2xl space-y-5">
-      {/* Morning roster */}
-      <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-3">
+    <div className="max-w-6xl">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+        {/* Morning roster */}
+        <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-3">
         <div>
           <h3 className="text-sm font-semibold text-gray-900">Roster matutino</h3>
           <p className="text-xs text-gray-400 mt-0.5">
@@ -1082,7 +1087,9 @@ function RulesPanel() {
         </div>
       </div>
 
-      <div className="flex justify-end">
+      </div>
+
+      <div className="flex justify-end mt-5">
         <button
           onClick={() => saveMut.mutate(form)}
           disabled={saveMut.isPending}
