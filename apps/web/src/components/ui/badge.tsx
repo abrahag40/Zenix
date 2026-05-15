@@ -34,7 +34,12 @@ function Badge({
   ...props
 }: React.ComponentProps<"span"> &
   VariantProps<typeof badgeVariants> & { asChild?: boolean }) {
-  const Comp = asChild ? Slot.Root : "span"
+  // Radix Slot.Root espera ref<HTMLElement> mientras que un <span> nativo
+  // recibe ref<HTMLSpanElement>. La unión "span" | typeof Slot.Root crea un
+  // conflicto de inferencia con React 19 type-strict (cada rama de la unión
+  // exige un ref shape distinto). Cast a ElementType resuelve sin afectar el
+  // comportamiento runtime — el JSX sigue siendo válido para ambas ramas.
+  const Comp = (asChild ? Slot.Root : "span") as React.ElementType
 
   return (
     <Comp
