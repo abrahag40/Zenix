@@ -6,7 +6,11 @@ export const TIMELINE = {
     month: 48,
     quarter: 20,
   },
-  MIN_BLOCK_WIDTH: 40,
+  // Reducido 40→24 — los bloques de 1-2 noches en vista Mes (dayWidth 48) tienen
+  // ~48-96px y aún deben mostrar iniciales mínimas. Sin esto, los segmentos de
+  // extensión cortos (como James Wilson C1 = 2 noches) quedan sin etiqueta y
+  // el recepcionista no puede identificar el propietario sin hover.
+  MIN_BLOCK_WIDTH: 24,
   COLUMN_WIDTH: 220,
   HEADER_HEIGHT: 80,
   OVERSCAN: 3,
