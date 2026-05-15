@@ -436,7 +436,15 @@ function BookingBlockInner({
             ? 0.3
             : isInActiveJourney
             ? 1
-            : isSegmentLocked || stayStatus === 'DEPARTED' || isConfirmedNoShow
+            : isJourneyBlock && (isSegmentLocked || stayStatus === 'DEPARTED')
+            // Past segment de un journey (el huésped ya pasó por aquí pero
+            // su trayectoria sigue activa en otro segmento). Antes 0.72
+            // sugería "departed"; ahora 0.96 indica "history sutil, no muerto".
+            // El segmento ACTUAL/FUTURE de un journey queda a 1.0 (cae al
+            // último else) para no atenuar a huéspedes in-house.
+            ? 0.96
+            : stayStatus === 'DEPARTED' || isConfirmedNoShow
+            // Stay standalone (no-journey) realmente DEPARTED → 0.72.
             ? 0.72
             : 1,
           filter: isInActiveJourney ? 'brightness(1.06) saturate(1.08)' : undefined,

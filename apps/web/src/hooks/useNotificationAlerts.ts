@@ -20,11 +20,6 @@ import { useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 import { useSSE } from './useSSE'
 import {
-  playNotificationSound,
-  levelFromPriority,
-  unlockNotificationSound,
-} from '@/lib/notificationSound'
-import {
   useMaintenanceDrawer,
   parseMaintenanceTicketUrl,
 } from '@/store/maintenanceDrawer'
@@ -43,26 +38,16 @@ export function useNotificationAlerts(): void {
   // Dedupe: si SSE re-conecta puede repetir el evento. Ignoramos ids ya vistos.
   const seenIds = useRef<Set<string>>(new Set())
 
-  // Primer user gesture desbloquea AudioContext.
-  useEffect(() => {
-    const unlock = () => unlockNotificationSound()
-    document.addEventListener('click', unlock, { once: true })
-    document.addEventListener('keydown', unlock, { once: true })
-    return () => {
-      document.removeEventListener('click', unlock)
-      document.removeEventListener('keydown', unlock)
-    }
-  }, [])
-
   useSSE((event) => {
     if (event.type !== 'notification:new') return
     const data = event.data as NotifNewEvent
     if (!data?.id || seenIds.current.has(data.id)) return
     seenIds.current.add(data.id)
 
-    // Sound
-    const soundLevel = levelFromPriority(data.priority)
-    if (soundLevel) playNotificationSound(soundLevel)
+    // Sonido deshabilitado 2026-05-15 — feedback del usuario:
+    // "Quitar el sonido en web". El banner sonner queda como único feedback
+    // visual de URGENT/HIGH. Si se desea reactivar, restaurar imports y
+    // bloque `playNotificationSound(soundLevel)` de notificationSound.ts.
 
     // Banner — solo URGENT y HIGH (operacionalmente significativos).
     // MEDIUM/LOW van solo al panel sin interrumpir el flujo del usuario.

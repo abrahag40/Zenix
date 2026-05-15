@@ -895,7 +895,19 @@ export function TimelineScheduler() {
               dragState={dragState}
               onDragStart={handleDragStartWithPosition}
               onExtendStart={handleExtendStart}
-              onStayClick={openSheet}
+              onStayClick={(stayId) => {
+                // 2026-05-15 — click en cualquier bloque que sea parte de un
+                // journey activa el journey highlight (foto 3 del feedback).
+                // Esto dim los demás bloques al 0.15 y muestra el SVG arrow
+                // entre segmentos. Si el stay no tiene journey, solo abre
+                // el sheet (comportamiento previo). El sheet se abre siempre.
+                const block = stays.find((s) => s.id === stayId)
+                  ?? journeyBlocks.find((s) => s.id === stayId)
+                if (block?.journeyId) {
+                  setActiveJourneyId(block.journeyId)
+                }
+                openSheet(stayId)
+              }}
               onCheckout={(stayId) => {
                 closeSheet()
                 setActiveJourneyId(null)
