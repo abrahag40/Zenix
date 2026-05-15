@@ -85,13 +85,56 @@ async function main() {
   })
   console.log(`✅ Org: ${org.name}`)
 
-  // 2. PROPERTIES ───────────────────────────────────────────────────────────
+  // 2. LEGAL ENTITY (v1.0.5 ORG-HIERARCHY-SEED) ─────────────────────────────
+  // Seed demo: una sola LegalEntity para la org piloto, vinculada a FiscalRegime
+  // MX_CFDI4. Cuando llegue una cadena real multi-país, este pattern se repite
+  // por país. Ver docs/vision/11-multi-tenant-architecture.md.
+  const legalEntityMX = await prisma.legalEntity.upsert({
+    where: { id: 'legal-entity-seed-mx' },
+    update: { name: 'Zenix Demo S.A. de C.V.' },
+    create: {
+      id: 'legal-entity-seed-mx',
+      organizationId: org.id,
+      fiscalRegimeId: 'MX_CFDI4',
+      countryCode: 'MX',
+      name: 'Zenix Demo S.A. de C.V.',
+      taxId: 'ZDX240101ABC',
+      legalAddress: {
+        street: 'Av. Tulum',
+        numExt: '123',
+        colonia: 'Centro',
+        municipio: 'Tulum',
+        estado: 'Quintana Roo',
+        cp: '77780',
+        country: 'MX',
+      },
+      baseCurrency: 'MXN',
+      accountingPeriodStart: 1,
+      active: true,
+    },
+  })
+  console.log(`✅ LegalEntity: ${legalEntityMX.name} (RFC ${legalEntityMX.taxId})`)
+
+  // Limpiar placeholder PENDING auto-creado por la migration backfill cuando el
+  // seed re-ejecuta. Simula lo que Zenix Activate hace cuando el consultor
+  // configura la LegalEntity "real" del cliente (reemplaza al placeholder).
+  await prisma.legalEntity.deleteMany({
+    where: {
+      organizationId: org.id,
+      taxId: { startsWith: 'PENDING-' },
+    },
+  })
+
+  // 3. PROPERTIES ───────────────────────────────────────────────────────────
+  // v1.0.5 — Properties ahora se vinculan a una LegalEntity. Esto será NOT NULL
+  // en v1.1 cuando todos los onboardings nuevos pasen por Zenix Activate.
   const tulum = await prisma.property.upsert({
     where: { id: 'prop-hotel-tulum-001' },
-    update: { name: 'Hotel Tulum', region: 'Riviera Maya', city: 'Tulum' },
+    update: { name: 'Hotel Tulum', region: 'Riviera Maya', city: 'Tulum', legalEntityId: legalEntityMX.id },
     create: {
       id: 'prop-hotel-tulum-001',
       organizationId: org.id,
+      legalEntityId: legalEntityMX.id,
       name: 'Hotel Tulum',
       type: 'HOTEL',
       region: 'Riviera Maya',
@@ -100,17 +143,18 @@ async function main() {
   })
   const cancun = await prisma.property.upsert({
     where: { id: 'prop-hotel-cancun-001' },
-    update: { name: 'Hotel Cancún', region: 'Zona Hotelera Cancún', city: 'Cancún' },
+    update: { name: 'Hotel Cancún', region: 'Zona Hotelera Cancún', city: 'Cancún', legalEntityId: legalEntityMX.id },
     create: {
       id: 'prop-hotel-cancun-001',
       organizationId: org.id,
+      legalEntityId: legalEntityMX.id,
       name: 'Hotel Cancún',
       type: 'HOTEL',
       region: 'Zona Hotelera Cancún',
       city: 'Cancún',
     },
   })
-  console.log(`✅ Properties: ${tulum.name}, ${cancun.name}`)
+  console.log(`✅ Properties: ${tulum.name}, ${cancun.name} (ambos bajo LegalEntity MX)`)
 
   // 3. ROOM TYPES ───────────────────────────────────────────────────────────
 
