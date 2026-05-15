@@ -567,12 +567,15 @@ function Step2({
               if (!isNaN(n) && n >= 1 && n <= 60) setEstimatedDays(n)
             }}
             className="w-20 text-sm"
+            title="Define cuántos días la habitación queda bloqueada en el calendario y cerrada para OTAs (Booking, Airbnb, etc.) mientras dura la reparación."
           />
           <span className="text-xs text-slate-500">
             días {estimatedDays === 1 ? '(la habitación reabre mañana)' : `(la habitación reabre en ${estimatedDays} días)`}
           </span>
         </div>
-        <p className="text-[10px] text-slate-400 mt-1">
+        <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
+          <strong className="text-slate-500">Impacto operativo:</strong> durante este período la habitación queda
+          fuera del calendario y desaparece de las OTAs (Booking, Airbnb, Expedia) vía Channel Manager.
           Default ajustado por categoría. Si el trabajo se atrasa, podrás extender desde el panel del ticket.
         </p>
       </div>

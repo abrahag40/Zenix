@@ -20,7 +20,8 @@
  *   · Confirmaciones §32 con preview real para verify/reopen/close
  *   · Toast en cada mutación (§33)
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import toast from 'react-hot-toast'
 import {
   X,
   CheckCircle2,
@@ -96,6 +97,21 @@ export function TicketDetailDrawer({ ticketId, actor, onClose }: Props) {
   // Confirm-step state — todo cambio destructivo pasa por confirmación con
   // preview real (§32). El componente nunca dispara un mutation directo.
   const [confirm, setConfirm] = useState<ConfirmAction>(null)
+
+  // NOTIF-7+13 fix — toast.error cuando la query falla (típicamente 404 porque
+  // el ticket fue eliminado o el deep-link expiró). Antes solo se mostraba el
+  // banner interno del drawer, que el usuario podía no ver si estaba con foco
+  // en otra parte de la pantalla. NN/g H1 (Visibility of system status) +
+  // CLAUDE.md §39 (feedback informativo obligatorio). Disparado UNA vez por
+  // ticketId para no spamear si el usuario se queda con el drawer abierto.
+  const lastErrorToastedTicket = useRef<string | null>(null)
+  useEffect(() => {
+    if (!error || !ticketId) return
+    if (lastErrorToastedTicket.current === ticketId) return
+    lastErrorToastedTicket.current = ticketId
+    const msg = error instanceof Error ? error.message : 'Ticket no disponible'
+    toast.error(`Ticket no se pudo cargar — ${msg}`)
+  }, [error, ticketId])
 
   const isSupervisor = actor.role === 'SUPERVISOR'
   const isAssignee = ticket?.assignedToId === actor.sub

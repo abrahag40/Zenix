@@ -32,11 +32,34 @@ interface Props {
 // W2-12 — modelo combinado: comentario persistido del servidor O pendiente local.
 type DisplayComment = MaintenanceTicketCommentDto & { __pending?: boolean }
 
+// MAINT-4 fix — persistencia de borrador por ticket. Si el supervisor cierra
+// el drawer / cambia de tab / refresca con un comentario a medio escribir, el
+// texto se conserva. Slack y Linear hacen esto mismo desde 2019. Sin esto
+// los tickets de mantenimiento con instrucciones largas pierden trabajo al
+// menor descuido (reportado en piloto).
+const DRAFT_STORAGE_KEY = (ticketId: string) => `mx-comment-draft:${ticketId}`
+
 export function CommentsThread({ ticketId, comments, currentUserId }: Props) {
   const addComment = useAddComment(ticketId)
-  const [draft, setDraft] = useState('')
+  // Cargar borrador persistido al montar (per-ticket). Si nunca hubo, ''.
+  const [draft, setDraft] = useState(() => {
+    if (typeof window === 'undefined') return ''
+    try { return window.localStorage.getItem(DRAFT_STORAGE_KEY(ticketId)) ?? '' }
+    catch { return '' }
+  })
   const [pending, setPending] = useState<DisplayComment[]>([])
   const listEndRef = useRef<HTMLDivElement>(null)
+
+  // Persistir borrador con debounce-on-change (escribir cada keystroke al
+  // localStorage es ok para textos cortos — máx ~300 caracteres). Si el draft
+  // queda vacío limpiamos la entrada para no dejar basura.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      if (draft.length === 0) window.localStorage.removeItem(DRAFT_STORAGE_KEY(ticketId))
+      else window.localStorage.setItem(DRAFT_STORAGE_KEY(ticketId), draft)
+    } catch { /* quota / private-mode — ignorar */ }
+  }, [draft, ticketId])
 
   // Auto-scroll al fondo cuando llega nuevo comentario (persistido o pendiente).
   useEffect(() => {
