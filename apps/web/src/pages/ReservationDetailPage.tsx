@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { format, differenceInDays, differenceInHours } from 'date-fns'
 import { es } from 'date-fns/locale'
+import toast from 'react-hot-toast'
 import {
   ArrowLeft,
   Moon,
@@ -23,6 +24,8 @@ import {
   KeyRound,
   Smartphone,
   StickyNote,
+  Copy,
+  Check,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -92,6 +95,45 @@ function SectionCard({ children, className }: { children: React.ReactNode; class
     <div className={cn('bg-white rounded-xl border border-slate-200 overflow-hidden', className)}>
       {children}
     </div>
+  )
+}
+
+// ─── CopyableRef — chip de identificador con icono de copia ──────────────────
+// Pegado al nombre del huésped en el hero: el ID único de reserva (bookingRef
+// cuando existe, GuestStay.id en fallback) acompañado de un click-to-copy. NN/g
+// H7 (flexibility): recepcionistas leen este ID en mails y llamadas con OTAs,
+// por eso vive arriba a un solo clic en vez de oculto dentro del tab Estadía.
+
+function CopyableRef({ id, accentColor }: { id: string; accentColor: string }) {
+  const [copied, setCopied] = useState(false)
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(id)
+      setCopied(true)
+      toast.success('ID copiado')
+      window.setTimeout(() => setCopied(false), 1500)
+    } catch {
+      toast.error('No se pudo copiar')
+    }
+  }
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      title="Copiar ID de reserva"
+      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-mono text-[11px] font-semibold transition-colors group"
+      style={{
+        backgroundColor: `${accentColor}15`,
+        color: accentColor,
+        border: `1px solid ${accentColor}30`,
+      }}
+    >
+      <Hash className="h-3 w-3 opacity-60" />
+      <span className="select-all">{id}</span>
+      {copied
+        ? <Check className="h-3 w-3 text-emerald-600" />
+        : <Copy className="h-3 w-3 opacity-50 group-hover:opacity-100 transition-opacity" />}
+    </button>
   )
 }
 
@@ -204,11 +246,15 @@ export function ReservationDetailPage() {
                 {data.guestName}
               </h1>
 
-              {roomNumber && (
-                <p className="text-sm mt-1" style={{ color: `${statusColors.text}99` }}>
-                  Habitación {roomNumber}
-                </p>
-              )}
+              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                {roomNumber && (
+                  <span className="text-sm" style={{ color: `${statusColors.text}99` }}>
+                    Habitación {roomNumber}
+                  </span>
+                )}
+                {roomNumber && <span className="text-slate-300">·</span>}
+                <CopyableRef id={data.bookingRef ?? data.id} accentColor={otaColor} />
+              </div>
             </div>
 
             {/* Actions */}

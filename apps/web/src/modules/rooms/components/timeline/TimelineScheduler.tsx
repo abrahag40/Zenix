@@ -473,9 +473,14 @@ export function TimelineScheduler() {
 
   // Merge journeyBlocks into conflict detection so dragging a stay
   // can't overwrite a pre-planned ROOM_MOVE/EXTENSION segment.
+  // Use staysWithoutJourneys to avoid double-counting: stays with a journey
+  // are already represented by their segments in journeyBlocks. Including the
+  // raw GuestStay too marks phantom occupancy when stay.roomId differs from
+  // a segment.roomId (e.g. post ROOM_MOVE), making rooms appear falsely busy
+  // in MoveRoomDialog / drag-drop conflict checks.
   const allBlocksForDragCheck = useMemo(
-    () => [...stays, ...journeyBlocks],
-    [stays, journeyBlocks],
+    () => [...staysWithoutJourneys, ...journeyBlocks],
+    [staysWithoutJourneys, journeyBlocks],
   )
 
   // Pre-built occupancy Set for O(1) per-cell lookup in TimelineGrid.
@@ -915,6 +920,7 @@ export function TimelineScheduler() {
               journeyStays={hideNoShows ? journeyBlocks.filter((s) => !s.noShowAt) : journeyBlocks}
               activeJourneyId={activeJourneyId}
               onSetActiveJourneyId={handleSetActiveJourneyId}
+              onActivateJourney={handleSetActiveJourneyId}
             />
           </div>
         </div>
@@ -1158,7 +1164,16 @@ export function TimelineScheduler() {
             isInHouse={isInHouse}
             isPending={isBusy}
             initialNewRoomId={moveRoomDialog.preselectedNewRoomId}
-            initialSplitMode={isInHouse && !!moveRoomDialog.preselectedNewRoomId}
+            // Antes: drag IN_HOUSE + preselectedNewRoomId activaba split-mode
+            // automáticamente, forzando al usuario a fijar boundaries de N partes
+            // y disparando validación "primera parte debe mantener la habitación
+            // actual" cuando no lo hacían. Caso Amelia 205→202.
+            // Ahora: abre en modo simple → onConfirm route a executeMidStayRoomMove
+            // (segmento ROOM_MOVE con effectiveDate) que preserva historia 205 +
+            // futuro 202 sin necesidad de pelearse con split. Si el usuario quiere
+            // dividir en >2 partes puede activar el toggle "Dividir en varias
+            // habitaciones" manualmente.
+            initialSplitMode={false}
             onClose={() => setMoveRoomDialog(null)}
             onConfirm={(newRoomId, effectiveDate) => {
               if (isInHouse && moveRoomTarget.journeyId) {

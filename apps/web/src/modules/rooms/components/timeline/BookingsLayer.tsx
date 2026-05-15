@@ -29,6 +29,8 @@ interface BookingsLayerProps {
   dragState?: DragState | null
   onDragStart: (stayId: string, clientX: number, clientY: number) => void
   onExtendStart?: (stayId: string, roomId: string, rowIndex: number, groupHeaderOffsetY: number, originalCheckOut: Date, clientX: number) => void
+  /** Activa el resaltado del journey completo (chain indicator). */
+  onActivateJourney?: (journeyId: string) => void
   onStayClick: (stayId: string) => void
   onCheckout: (stayId: string) => void
   onNoShow?: (stayId: string) => void
@@ -139,6 +141,7 @@ export function BookingsLayer({
   dragState,
   onDragStart,
   onExtendStart,
+  onActivateJourney,
   onStayClick,
   onCheckout,
   onNoShow,
@@ -389,6 +392,7 @@ export function BookingsLayer({
             isDragging={dragState?.stayId === stay.id}
             onDragStart={onDragStart}
             onExtendStart={onExtendStart}
+            onActivateJourney={onActivateJourney}
             onClick={() => handleBlockClickCb(stay)}
             onCheckout={onCheckout}
             onNoShow={onNoShow}
@@ -422,6 +426,7 @@ export function BookingsLayer({
             isDragging={dragState?.stayId === stay.id}
             onDragStart={onDragStart}
             onExtendStart={onExtendStart}
+            onActivateJourney={onActivateJourney}
             onClick={() => handleBlockClickCb(stay)}
             onCheckout={onCheckout}
             onNoShow={onNoShow}

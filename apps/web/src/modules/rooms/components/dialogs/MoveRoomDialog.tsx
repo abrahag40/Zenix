@@ -17,6 +17,7 @@ import { Popover } from 'radix-ui'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { GuestStayBlock, FlatRow, RoomTypeGroup } from '../../types/timeline.types'
+import { useTodayTick } from '../../hooks/useTodayTick'
 
 // ── Minimal custom date picker ────────────────────────────────────────────────
 // Replaces <input type="date"> to: (a) match the "Desde" display format
@@ -171,9 +172,11 @@ export function MoveRoomDialog({
   initialNewRoomId,
   initialSplitMode = false,
 }: MoveRoomDialogProps) {
-  // today: estable durante la vida del dialog. Sin useMemo se creaba un Date
-  // nuevo cada render, invalidando `validation` useMemo aun sin cambios.
-  const today = useMemo(() => startOfDay(new Date()), [])
+  // today: estable durante la vida del dialog, pero refresca en el cambio de
+  // día — sesiones que cruzan medianoche con el dialog abierto invalidan la
+  // regla IN_HOUSE "primera parte debe incluir al menos hasta hoy".
+  const todayTick = useTodayTick()
+  const today = useMemo(() => startOfDay(new Date(todayTick)), [todayTick])
   // For split mode, the range must cover the entire journey — not just this
   // segment/block. When the stay is part of a journey, compute the combined
   // range from all of the journey's segments (min checkIn, max checkOut).
@@ -249,6 +252,7 @@ export function MoveRoomDialog({
     const m = new Map<string, StayIndexEntry[]>()
     for (const s of stays) {
       if (s.actualCheckout) continue
+      if (s.noShowAt) continue // CLAUDE.md §17 — no-shows release inventory
       const entry: StayIndexEntry = {
         id: s.id,
         journeyId: s.journeyId,

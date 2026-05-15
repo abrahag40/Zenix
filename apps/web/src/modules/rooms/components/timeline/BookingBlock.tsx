@@ -1,6 +1,8 @@
 import { memo, useMemo, useRef } from 'react'
-import { startOfDay, addDays } from 'date-fns'
-import { Lock, Unlock, LogOut, UserX } from 'lucide-react'
+import { startOfDay, addDays, format } from 'date-fns'
+import { es } from 'date-fns/locale'
+import { Lock, Unlock, LogOut, UserX, ArrowUpRight } from 'lucide-react'
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { STAY_STATUS_COLORS, OTA_ACCENT_COLORS, TIMELINE } from '../../utils/timeline.constants'
 import type { StayStatusKey } from '../../utils/timeline.constants'
@@ -18,6 +20,9 @@ interface BookingBlockProps {
   staggerIndex: number
   onDragStart: (stayId: string, clientX: number, clientY: number) => void
   onExtendStart?: (stayId: string, roomId: string, rowIndex: number, groupHeaderOffsetY: number, originalCheckOut: Date, clientX: number) => void
+  /** Activa el resaltado del journey completo (cadena de segmentos). Click del
+   *  indicador ↗ de un segmento intermedio lo dispara — Opera Cloud / Mews pattern. */
+  onActivateJourney?: (journeyId: string) => void
   onClick: () => void
   onCheckout?: (stayId: string) => void
   onNoShow?: (stayId: string) => void
@@ -98,6 +103,7 @@ function BookingBlockInner({
   staggerIndex,
   onDragStart,
   onExtendStart,
+  onActivateJourney,
   onClick,
   onCheckout,
   onNoShow,
@@ -442,9 +448,14 @@ function BookingBlockInner({
           animationFillMode: 'forwards',
           animationDelay: `${staggerIndex * 20}ms`,
           zIndex: isNsStripe ? 2 : dimmed ? 3 : visible ? 20 : 6,
+          // Width + left transitions: animan el "estiramiento" del bloque
+          // cuando se confirma una extensión (o cuando un early-checkout lo
+          // acorta). 360ms con --ease-spring (CLAUDE.md §Animaciones) — entrada
+          // SwiftUI: arranque rápido, desacelera al final. Sin transición durante
+          // drag para no pelear con el seguimiento del cursor.
           transition: isDragging
             ? 'none'
-            : 'top 220ms cubic-bezier(0.22,1,0.36,1), height 220ms cubic-bezier(0.22,1,0.36,1)',
+            : 'top 220ms cubic-bezier(0.22,1,0.36,1), height 220ms cubic-bezier(0.22,1,0.36,1), width 360ms cubic-bezier(0.22,1,0.36,1), left 360ms cubic-bezier(0.22,1,0.36,1)',
         }}
       >
         {/* OTA accent bar — left border stripe. Wider + brighter red for confirmed no-shows. */}
@@ -598,13 +609,134 @@ function BookingBlockInner({
           </div>
         )}
 
-        {/* Right-edge extend handle — visible on the last segment of a journey (even if the
-            ORIGINAL is locked) and on plain non-journey blocks. Locked mid-journey segments
-            (not last) stay non-resizable so only one active tail can be extended at a time. */}
+        {/* Journey continuation indicator — segmentos intermedios de un journey
+            (no es el último) muestran un ↗ en la esquina superior-derecha que
+            anuncia "este bloque tiene continuación en otro lugar/fecha".
+            Patrón Opera Cloud / Mews / Cloudbeds (chain indicator). El hover
+            despliega un tooltip explicativo, el click resalta toda la cadena
+            del journey (onActivateJourney → setActiveJourneyId). Refs: NN/g H1
+            (Visibility of system status), Norman 1988 (Affordances), Treisman
+            1980 (pre-attentive features). Solo se renderiza para bloques de
+            journey que NO son el último — los terminales no necesitan señalar
+            continuación. Se omite en modo compact (dayWidth ≤ 20px) para no
+            saturar visualmente cuando los bloques son angostos. */}
+        {isJourneyBlock && stay.isLastSegment === false && !isDragging && !isCompact && (
+          <TooltipProvider delayDuration={150}>
+            {/* onOpenChange: cuando el tooltip del indicador se abre, dismissamos
+                el tooltip del bloque (useTooltip.hide()) para que no se sobrepongan.
+                Sin esto el bloque sigue mostrando su tooltip de 320px detrás del
+                tooltip de 260px del indicador — caso reportado por usuario. */}
+            <Tooltip
+              onOpenChange={(open) => {
+                if (open) hide()
+              }}
+            >
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (stay.journeyId && onActivateJourney) onActivateJourney(stay.journeyId)
+                  }}
+                  className={cn(
+                    'absolute top-1 right-1 z-20 flex items-center justify-center',
+                    'w-[18px] h-[18px] rounded-full',
+                    'bg-white/70 backdrop-blur-sm',
+                    'shadow-[0_1px_2px_rgba(0,0,0,0.10),inset_0_0_0_1px_rgba(255,255,255,0.6)]',
+                    'transition-all duration-150 ease-out',
+                    'hover:bg-white hover:scale-110 hover:shadow-[0_2px_4px_rgba(0,0,0,0.15)]',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1',
+                    'motion-reduce:transition-none motion-reduce:hover:scale-100',
+                  )}
+                  aria-label={`Esta estadía continúa en otra habitación. Pulsa para ver el journey completo.`}
+                  title=""
+                >
+                  <ArrowUpRight
+                    className="h-3 w-3"
+                    strokeWidth={2.5}
+                    style={{ color: colors.text }}
+                  />
+                </button>
+              </TooltipTrigger>
+              {/* Override del default `inline-flex items-center gap-1.5` del
+                  TooltipContent base usando `!flex !flex-col !items-stretch !gap-0`
+                  + width fija. Patrón Mews/Cloudbeds: tooltip estrecho (220px),
+                  stack vertical, divisor sutil entre body y CTA. Sin íconos en la
+                  CTA (decisión NN/g — "Ver journey completo" se entiende solo). */}
+              <TooltipContent
+                side="top"
+                sideOffset={8}
+                collisionPadding={12}
+                className={cn(
+                  '!flex !flex-col !items-stretch !gap-0',
+                  'w-[220px] p-0 overflow-hidden',
+                  'bg-white text-slate-800 border border-slate-200',
+                  'rounded-lg shadow-[0_8px_24px_-4px_rgba(15,23,42,0.16),0_4px_8px_-4px_rgba(15,23,42,0.10)]',
+                )}
+              >
+                <div className="px-3.5 pt-3 pb-2.5">
+                  <div className="flex items-center gap-1 text-[9px] font-bold text-slate-400 uppercase tracking-[0.08em] mb-1.5">
+                    <ArrowUpRight className="h-2.5 w-2.5" strokeWidth={3} />
+                    Bloque movido
+                  </div>
+                  <p className="text-[13px] text-slate-800 leading-[1.35]">
+                    <span className="font-semibold">{stay.guestName}</span>
+                    {stay.nextSegmentRoomNumber
+                      ? <> se cambió a la <span className="font-semibold">hab. {stay.nextSegmentRoomNumber}</span></>
+                      : <> tiene otro segmento más adelante</>}
+                    {stay.nextSegmentCheckIn && (
+                      <> el <span className="font-semibold">{format(stay.nextSegmentCheckIn, "d 'de' MMM", { locale: es })}</span></>)}.
+                  </p>
+                  <p className="text-[11px] text-slate-500 leading-[1.4] mt-1.5">
+                    Extiende o edita la estadía desde ese bloque.
+                  </p>
+                </div>
+                {stay.journeyId && onActivateJourney && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onActivateJourney(stay.journeyId!)
+                    }}
+                    className={cn(
+                      'w-full px-3.5 py-2.5',
+                      'text-[12px] font-semibold text-emerald-700 text-center',
+                      'bg-slate-50 hover:bg-emerald-50',
+                      'border-t border-slate-200',
+                      'transition-colors',
+                      'focus-visible:outline-none focus-visible:bg-emerald-50',
+                    )}
+                  >
+                    Ver journey completo
+                  </button>
+                )}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
+
+        {/* Right-edge extend handle. Política:
+            - Bloques sin journey (sin segmentReason): siempre mostrar.
+            - Bloques de journey: SÓLO en el último segmento. Mostrarlo sobre
+              segmentos intermedios (ORIGINAL + EXT_SAME_ROOM cuando ya hubo
+              EXT_NEW_ROOM) hace que extendSameRoom valide contra la cola del
+              journey y lance "newCheckOut must be after current segment checkOut"
+              porque getActiveSegment retorna siempre el último. Caso Amelia 205
+              + extensión movida a A2: el usuario arrastra 205 sin saber que la
+              extensión real ocurre en A2. */}
         {!isPast && !isConfirmedNoShow && !isLocked && !isDragging && onExtendStart
-          && (!isSegmentLocked || stay.isLastSegment === true) && (
+          && (isJourneyBlock
+                ? stay.isLastSegment === true
+                : !isSegmentLocked) && (
           <div
-            className="absolute right-0 top-0 bottom-0 w-3 z-10"
+            // Hit-area simétrica centrada en el borde derecho del bloque:
+            //   w-6 (24px) + -right-2 (extiende 8px FUERA del bloque) → 16px
+            //   dentro + 8px fuera. Fitts 1954: target más fácil de adquirir si
+            //   el cursor lo cruza al acercarse desde cualquier lado. Mantenemos
+            //   16px hacia adentro (no menos) porque ahí la mayoría apunta tras
+            //   identificar el bloque visualmente. Sólo 8px hacia afuera para
+            //   minimizar colisión con el inicio del bloque adyacente.
+            className="absolute -right-2 top-0 bottom-0 w-6 z-10"
             style={{ cursor: 'ew-resize' }}
             title="Arrastrar para extender estadía"
             onMouseDown={(e) => {

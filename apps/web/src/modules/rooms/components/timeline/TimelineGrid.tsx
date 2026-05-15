@@ -2,6 +2,7 @@ import { useMemo, useState, useCallback } from 'react'
 import { isBefore, startOfDay, isToday } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { TIMELINE } from '../../utils/timeline.constants'
+import { useTodayTick } from '../../hooks/useTodayTick'
 import type { FlatRow, VirtualColumn } from '../../types/timeline.types'
 
 interface TimelineGridProps {
@@ -58,6 +59,11 @@ export function TimelineGrid({
     })
     return { rowYOffsets: offsets, totalHeight: y + 16 }
   }, [flatRows])
+
+  // Subscribe to midnight rollover so `todayCol` and `isPast` checks below
+  // refresh automatically — sin esto, una sesión abierta cruzando medianoche
+  // mantiene el sombreado del día anterior hasta hacer reload.
+  useTodayTick()
 
   // Find today column for the vertical line
   const todayCol = virtualColumns.find((vc) => isToday(vc.date))
@@ -134,7 +140,12 @@ export function TimelineGrid({
                         <div
                           className={cn(
                             'absolute inset-y-0 right-0 w-1/2',
-                            isDragging ? '' : blocked ? 'cursor-not-allowed' : 'cursor-pointer',
+                            // Cuando la celda está bajo un bloque de huésped o
+                            // bloqueada por otra razón no cambiamos el cursor —
+                            // permanece el default. El click ya está deshabilitado
+                            // vía `onClick={!blocked ? … : undefined}`, así que
+                            // "prohibido" sólo añade ruido visual (NN/g H8 minimalist).
+                            isDragging || blocked ? '' : 'cursor-pointer',
                           )}
                           onMouseEnter={!blocked ? () => setHoveredCell({
                             roomId: row.id,
