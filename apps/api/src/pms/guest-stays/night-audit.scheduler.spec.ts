@@ -24,6 +24,8 @@ import { Test, TestingModule } from '@nestjs/testing'
 import { NightAuditScheduler } from './night-audit.scheduler'
 import { PrismaService } from '../../prisma/prisma.service'
 import { GuestStaysService } from './guest-stays.service'
+// CI-RESCUE 2026-05-15: dep que el scheduler tomó pero el spec no proveía
+import { ChannexGateway } from '../../integrations/channex/channex.gateway'
 
 // ─── Hora fija para todos los tests ───────────────────────────────────────────
 // 2026-04-19T10:00:00Z = 10 AM UTC = 10 AM en timezone UTC (> cutoff default 2h)
@@ -84,6 +86,7 @@ describe('NightAuditScheduler', () => {
         NightAuditScheduler,
         { provide: PrismaService,     useValue: prismaMock },
         { provide: GuestStaysService, useValue: guestStaysServiceMock },
+        { provide: ChannexGateway, useValue: { pushInventory: jest.fn().mockResolvedValue(undefined), notifyRelease: jest.fn().mockResolvedValue(undefined) } },
       ],
     }).compile()
 

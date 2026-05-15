@@ -14,6 +14,8 @@ import { AssignmentService } from './assignment.service'
 import { PrismaService } from '../prisma/prisma.service'
 import { AvailabilityQueryService } from '../scheduling/availability-query.service'
 import { NotificationsService } from '../notifications/notifications.service'
+// CI-RESCUE 2026-05-15: dep que el service tomó pero el spec no proveía
+import { PushService } from '../notifications/push.service'
 
 describe('AssignmentService', () => {
   let service: AssignmentService
@@ -45,6 +47,7 @@ describe('AssignmentService', () => {
         { provide: PrismaService, useValue: prismaMock },
         { provide: AvailabilityQueryService, useValue: availabilityMock },
         { provide: NotificationsService, useValue: notificationsMock },
+        { provide: PushService, useValue: { sendToStaff: jest.fn().mockResolvedValue(undefined), sendBatch: jest.fn().mockResolvedValue(undefined) } },
       ],
     }).compile()
     service = moduleRef.get(AssignmentService)

@@ -37,6 +37,10 @@ import { StayJourneyService } from '../stay-journeys/stay-journeys.service'
 import { ChannexGateway } from '../../integrations/channex/channex.gateway'
 import { NotificationCenterService } from '../../notification-center/notification-center.service'
 import { AssignmentService } from '../../assignment/assignment.service'
+// CI-RESCUE 2026-05-15: 3 deps que el service tomó pero el spec no proveía
+import { PushService } from '../../notifications/push.service'
+import { NotificationsService } from '../../notifications/notifications.service'
+import { AvailabilityService } from '../availability/availability.service'
 
 // ─── Constantes de prueba ──────────────────────────────────────────────────────
 
@@ -134,8 +138,11 @@ describe('GuestStaysService — no-show', () => {
   const prismaMock = {
     guestStay: {
       findUnique:  jest.fn(),
+      findFirst:   jest.fn().mockResolvedValue(null),
+      findMany:    jest.fn().mockResolvedValue([]),
+      create:      jest.fn(),
       update:      jest.fn(),
-      count:       jest.fn(),
+      count:       jest.fn().mockResolvedValue(0),
     },
     room: {
       findUnique: jest.fn(),
@@ -145,7 +152,7 @@ describe('GuestStaysService — no-show', () => {
     cleaningTask:     { updateMany: jest.fn() },
     stayJourney:      { update: jest.fn() },
     stayJourneyEvent: { create: jest.fn() },
-    propertySettings: { findMany: jest.fn(), update: jest.fn() },
+    propertySettings: { findMany: jest.fn(), findUnique: jest.fn().mockResolvedValue(null), update: jest.fn() },
     $transaction: jest.fn((fn) => fn(prismaMock)),
   }
 
@@ -154,8 +161,16 @@ describe('GuestStaysService — no-show', () => {
   const emailMock   = { send: jest.fn() }
   const journeyMock = { recordEvent: jest.fn() }
   const channexMock = { pushInventory: jest.fn(), notifyRelease: jest.fn() }
-  const notifCenterMock = { send: jest.fn() }
-  const assignmentMock = { autoAssign: jest.fn() }
+  // CI-RESCUE: mocks que retornan Promise para que el código de producción
+  // pueda hacer .catch() sobre el resultado sin TypeError.
+  const notifCenterMock = { send: jest.fn().mockResolvedValue(undefined) }
+  const assignmentMock = { autoAssign: jest.fn().mockResolvedValue(undefined) }
+  const pushMock = {
+    sendToStaff: jest.fn().mockResolvedValue(undefined),
+    sendBatch: jest.fn().mockResolvedValue(undefined),
+  }
+  const notifMock = { emit: jest.fn().mockResolvedValue(undefined) }
+  const availabilityMock = { checkAvailability: jest.fn().mockResolvedValue([]) }
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -169,6 +184,9 @@ describe('GuestStaysService — no-show', () => {
         { provide: ChannexGateway,            useValue: channexMock },
         { provide: NotificationCenterService, useValue: notifCenterMock },
         { provide: AssignmentService,         useValue: assignmentMock },
+        { provide: PushService,               useValue: pushMock },
+        { provide: NotificationsService,      useValue: notifMock },
+        { provide: AvailabilityService,       useValue: availabilityMock },
       ],
     }).compile()
 
