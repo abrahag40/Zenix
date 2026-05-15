@@ -402,9 +402,17 @@ enum RecurrenceScope {
 
 model Organization {
   id          String   @id @default(uuid())
+  // v1.0.5 ORG-HIERARCHY-SEED — brand opcional. Null = hotel independiente.
+  // Puede agregarse después sin migration: el cliente "se vuelve marca"
+  // simplemente con UPDATE organizations SET brand_id = X.
+  brandId     String?  @map("brand_id")
   name        String
   slug        String   @unique
   plan        OrgPlan  @default(STARTER)
+  // ── Campos legacy (preservados pre-v1.0.5, deprecated post-v1.1) ─────
+  // countryCode/timezone/currency: la autoridad fiscal/operativa ahora
+  // vive en LegalEntity (currency, regime) y Property (timezone). Estos
+  // campos persisten por backwards-compat hasta v1.1 backfill complete.
   countryCode String   @default("MX") @map("country_code")
   timezone    String   @default("America/Cancun")
   currency    String   @default("MXN")
@@ -412,35 +420,38 @@ model Organization {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
+  brand         Brand?        @relation(fields: [brandId], references: [id])
+  legalEntities LegalEntity[]
+
   // Reverse relations (denormalized organizationId in all business tables)
-  properties         Property[]
-  users              User[]
-  rooms              Room[]
-  units              Unit[]
-  housekeepingStaff  Staff[]
-  checkouts          Checkout[]
-  cleaningTasks      CleaningTask[]
-  taskLogs           TaskLog[]
-  cleaningNotes      CleaningNote[]
-  maintenanceIssues  MaintenanceIssue[]
-  unitDiscrepancies  UnitDiscrepancy[]
-  pushTokens         PushToken[]
-  pmsConfigs         PmsConfig[]
-  propertySettings   PropertySettings[]
-  roomTypes          RoomType[]
-  guestStays         GuestStay[]
-  roomTypeChecklists RoomTypeChecklist[]
-  roomReadinessTasks RoomReadinessTask[]
-  stayJourneys       StayJourney[]
-  roomBlocks         RoomBlock[]
-  appNotifications   AppNotification[]
+  properties          Property[]
+  users               User[]
+  rooms               Room[]
+  units               Unit[]
+  housekeepingStaff   Staff[]
+  checkouts           Checkout[]
+  cleaningTasks       CleaningTask[]
+  taskLogs            TaskLog[]
+  cleaningNotes       CleaningNote[]
+  maintenanceIssues   MaintenanceIssue[]
+  unitDiscrepancies   UnitDiscrepancy[]
+  pushTokens          PushToken[]
+  pmsConfigs          PmsConfig[]
+  propertySettings    PropertySettings[]
+  roomTypes           RoomType[]
+  guestStays          GuestStay[]
+  roomTypeChecklists  RoomTypeChecklist[]
+  roomReadinessTasks  RoomReadinessTask[]
+  stayJourneys        StayJourney[]
+  roomBlocks          RoomBlock[]
+  appNotifications    AppNotification[]
   // ── Sprint 8H ─────────────────────────────────────────────────────────────
-  staffShifts        StaffShift[]
+  staffShifts         StaffShift[]
   // ── Sprint 9 ──────────────────────────────────────────────────────────────
-  channelCommissions ChannelCommission[]
+  channelCommissions  ChannelCommission[]
   // ── Sprint Mx-1 — Mantenimiento ──────────────────────────────────────────
-  maintenanceTickets   MaintenanceTicket[]
-  recurrenceTemplates  MaintenanceRecurrenceTemplate[]
+  maintenanceTickets  MaintenanceTicket[]
+  recurrenceTemplates MaintenanceRecurrenceTemplate[]
 
   @@map("organizations")
 }
@@ -457,9 +468,12 @@ model User {
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
-  organization  Organization       @relation(fields: [organizationId], references: [id])
-  propertyRoles UserPropertyRole[]
-  staffProfiles Staff[]
+  organization     Organization          @relation(fields: [organizationId], references: [id])
+  propertyRoles    UserPropertyRole[]
+  // v1.0.5 — nuevos scope levels para multi-property cross-* access
+  brandRoles       BrandUserRole[]
+  legalEntityRoles LegalEntityUserRole[]
+  staffProfiles    Staff[]
 
   @@index([organizationId])
   @@map("users")
@@ -481,13 +495,145 @@ model UserPropertyRole {
   @@map("user_property_roles")
 }
 
+// ======================= 4-LEVEL HIERARCHY (v1.0.5 ORG-HIERARCHY-SEED) =======================
+// Brand → Organization → LegalEntity → Property
+//
+// Modelo aprobado 2026-05-15. Ver docs/vision/11-multi-tenant-architecture.md
+// para análisis arquitectónico completo y casos de uso (Selina-like
+// multi-country, Hotel Monica Tulum independiente, "growing into a brand").
+//
+// Decisiones no-negociables §63-§72 CLAUDE.md:
+//  · Brand opcional (independent hotels = NULL)
+//  · LegalEntity required para invoicing (RFC MX / NIT CO / RUC PE / etc.)
+//  · Property con timezone propio (operativo) — la moneda fiscal vive en LegalEntity
+//  · organizationId denormalizado en Property + trigger consistency (más adelante)
+//  · User access 3-level: BrandUserRole / LegalEntityUserRole / UserPropertyRole
+//  · FiscalRegime sembrada con 10 países LATAM
+//  · PAC credentials per LegalEntity (no per Property)
+//  · legalAddress JSONB (formato varía per país)
+//  · App-layer enforcement (no Postgres RLS hasta v1.2+)
+//
+// Migration v1.0.5 backwards-compatible: backfill automático creará 1
+// LegalEntity por Organization existente, todas las Properties existentes
+// vinculadas. Sin breaking changes para código existente — los nuevos
+// endpoints brand/legal-entity son additive.
+
+model Brand {
+  id            String   @id @default(uuid())
+  name          String
+  slug          String   @unique
+  logoUrl       String?  @map("logo_url")
+  brandColors   Json?    @map("brand_colors") // { primary, secondary, accent }
+  brandBookUrl  String?  @map("brand_book_url") // PDF público
+  websiteUrl    String?  @map("website_url")
+  // Loyalty cross-property — config sembrada en v1.0.5, UI en v1.5+
+  loyaltyConfig Json?    @map("loyalty_config")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  organizations Organization[]
+  userRoles     BrandUserRole[]
+
+  @@map("brands")
+}
+
+// Régimen fiscal por país. Tabla semilla con 10 países LATAM identificados
+// (MX/CO/CR/PE/PA/GT/SV/HN/BR/AR). `active` controla si el adapter está
+// implementado y certificado. Activación per-país sigue el roadmap v1.0.x→v1.3.x.
+model FiscalRegime {
+  id              String   @id // 'MX_CFDI4', 'CO_DIAN', 'CR_TRIBU', 'PE_SUNAT'...
+  countryCode     String   @map("country_code") // ISO 3166-1 alpha-2
+  displayName     String   @map("display_name")
+  taxAuthority    String   @map("tax_authority") // 'SAT', 'DIAN', 'Hacienda', 'SUNAT'...
+  active          Boolean  @default(false) // gate hasta adapter certificado
+  // JSON schemas para validación y mapping per país:
+  docTypeEnums    Json     @map("doc_type_enums") // { invoice: 'I', creditNote: 'E', paymentComplement: 'P' }
+  taxCodes        Json     @map("tax_codes") // mapping IVA / ISH / Saneamiento / Withholding
+  pacAdapterClass String?  @map("pac_adapter_class") // 'MX_FacturamaAdapter', 'CO_OlimpiaAdapter'
+  pacConfigSchema Json?    @map("pac_config_schema") // JSON schema valida pacCredentials shape
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  legalEntities LegalEntity[]
+
+  @@index([countryCode])
+  @@map("fiscal_regimes")
+}
+
+model LegalEntity {
+  id                    String    @id @default(uuid())
+  organizationId        String    @map("organization_id")
+  fiscalRegimeId        String?   @map("fiscal_regime_id") // nullable hasta cargar PAC
+  countryCode           String    @map("country_code") // ISO 3166-1 — debe coincidir con fiscalRegime.countryCode
+  name                  String // razón social completa
+  taxId                 String    @map("tax_id") // RFC / NIT / RUC / Cédula Jurídica
+  legalAddress          Json      @map("legal_address") // jsonb — formato per país
+  baseCurrency          String    @map("base_currency") // ISO 4217: MXN, COP, CRC, USD, BRL...
+  pacCredentials        Json?     @map("pac_credentials") // encrypted at-rest in v1.1+ (placeholder hoy)
+  // Mes de inicio del fiscal year (1-12, default enero):
+  accountingPeriodStart Int       @default(1) @map("accounting_period_start")
+  active                Boolean   @default(true)
+  deletedAt             DateTime? @map("deleted_at")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  organization Organization          @relation(fields: [organizationId], references: [id])
+  fiscalRegime FiscalRegime?         @relation(fields: [fiscalRegimeId], references: [id])
+  properties   Property[]
+  userRoles    LegalEntityUserRole[]
+
+  @@unique([organizationId, taxId])
+  @@index([organizationId])
+  @@index([countryCode])
+  @@map("legal_entities")
+}
+
+model BrandUserRole {
+  id        String     @id @default(uuid())
+  userId    String     @map("user_id")
+  brandId   String     @map("brand_id")
+  role      SystemRole
+  createdAt DateTime   @default(now()) @map("created_at")
+
+  user  User  @relation(fields: [userId], references: [id])
+  brand Brand @relation(fields: [brandId], references: [id])
+
+  @@unique([userId, brandId, role])
+  @@index([userId])
+  @@index([brandId])
+  @@map("brand_user_roles")
+}
+
+model LegalEntityUserRole {
+  id            String     @id @default(uuid())
+  userId        String     @map("user_id")
+  legalEntityId String     @map("legal_entity_id")
+  role          SystemRole
+  createdAt     DateTime   @default(now()) @map("created_at")
+
+  user        User        @relation(fields: [userId], references: [id])
+  legalEntity LegalEntity @relation(fields: [legalEntityId], references: [id])
+
+  @@unique([userId, legalEntityId, role])
+  @@index([userId])
+  @@index([legalEntityId])
+  @@map("legal_entity_user_roles")
+}
+
 // ======================= CORE MODELS =======================
 
 model Property {
   id             String       @id @default(uuid())
-  organizationId String?      @map("organization_id")
+  // v1.0.5 — organizationId ahora NOT NULL (audit MT-4 cierre).
+  // Backfill verifica que todas las Properties tengan org antes del switch.
+  organizationId String       @map("organization_id")
+  // v1.0.5 — legalEntityId NULLABLE durante transición. Backfill auto-asigna
+  // una LegalEntity por Organization. v1.1+ migración separada lo hace NOT NULL.
+  legalEntityId  String?      @map("legal_entity_id")
   name           String
   type           PropertyType @default(HOTEL)
+  // Campo legacy — la authority fiscal está ahora en LegalEntity.taxId.
+  // Preservado por backwards-compat; deprecated v1.1.
   taxId          String?      @map("tax_id")
   // Optional geographic grouping for the property switcher.
   // `region` is the coarse grouping key (chains split by "Caribe",
@@ -504,7 +650,10 @@ model Property {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt @map("updated_at")
 
-  organization       Organization?            @relation(fields: [organizationId], references: [id])
+  // v1.0.5 — relación a Organization ahora NOT NULL.
+  organization       Organization             @relation(fields: [organizationId], references: [id])
+  // v1.0.5 — nuevo FK opcional. Required v1.1+ tras backfill verificado.
+  legalEntity        LegalEntity?             @relation(fields: [legalEntityId], references: [id])
   rooms              Room[]
   roomTypes          RoomType[]
   staff              Staff[]
@@ -528,6 +677,7 @@ model Property {
   maintenanceTickets MaintenanceTicket[]
 
   @@index([organizationId])
+  @@index([legalEntityId])
   @@map("properties")
 }
 
@@ -959,29 +1109,29 @@ model PropertySettings {
   // Frecuencia de limpieza para camas ocupadas sin checkout planificado.
   // Default por PropertyType (en seed/factory): HOTEL→DAILY, HOSTAL→NEVER,
   // VACATION_RENTAL→NEVER. Configurable per-property desde Settings.
-  stayoverFrequency     StayoverFrequency @default(NEVER) @map("stayover_frequency")
+  stayoverFrequency            StayoverFrequency @default(NEVER) @map("stayover_frequency")
   // Hora local a la que el StayoverScheduler genera tareas (default 8 = 8 AM,
   // 1h después del MorningRoster para no competir).
-  stayoverHour          Int               @default(8) @map("stayover_hour")
+  stayoverHour                 Int               @default(8) @map("stayover_hour")
   // Idempotencia per-day del scheduler — mismo patrón que morningRosterDate.
-  stayoverProcessedDate DateTime?         @map("stayover_processed_date") @db.Date
+  stayoverProcessedDate        DateTime?         @map("stayover_processed_date") @db.Date
   // ── Sprint 9 — Reports / Revenue ──────────────────────────────────────────
   // Meta semanal de revenue para el frame "FORECAST SEMANA" del Revenue
   // Carousel mobile. Editable por admin desde Settings. Null = sin meta;
   // el frame se computa como porcentaje contra null hasta configurarse.
-  weeklyRevenueTarget   Decimal?          @map("weekly_revenue_target") @db.Decimal(12, 2)
+  weeklyRevenueTarget          Decimal?          @map("weekly_revenue_target") @db.Decimal(12, 2)
   // Currency por defecto para revenue reports (no para folios — esos vienen
   // de la reserva). Default MXN. ISO 4217.
-  reportCurrency        String            @default("MXN") @map("report_currency")
+  reportCurrency               String            @default("MXN") @map("report_currency")
   // ── Sprint Mx-1 — Mantenimiento ──────────────────────────────────────────
   // Si true, el MaintenanceService.autoAssignMaintenance asigna automáticamente
   // tickets nuevos al técnico con menor carga. Si false, los tickets sin assignee
   // explícito quedan en cola para voluntary pickup (default — más común en
   // boutique LATAM, respeta autonomía Self-Determination Theory §43 D9).
-  maintenanceAutoAssignEnabled Boolean   @default(false) @map("maintenance_auto_assign_enabled")
-  deletedAt             DateTime?         @map("deleted_at")
-  createdAt             DateTime          @default(now())
-  updatedAt             DateTime          @updatedAt
+  maintenanceAutoAssignEnabled Boolean           @default(false) @map("maintenance_auto_assign_enabled")
+  deletedAt                    DateTime?         @map("deleted_at")
+  createdAt                    DateTime          @default(now())
+  updatedAt                    DateTime          @updatedAt
 
   organization Organization? @relation(fields: [organizationId], references: [id])
   property     Property      @relation(fields: [propertyId], references: [id])
@@ -2500,8 +2650,8 @@ model MaintenanceTicket {
 //   - Auto-generación de tickets con priority configurable
 // ──────────────────────────────────────────────────────────────────────────
 model MaintenanceRecurrenceTemplate {
-  id             String  @id @default(uuid())
-  organizationId String  @map("organization_id")
+  id             String @id @default(uuid())
+  organizationId String @map("organization_id")
 
   name        String // "Limpieza de filtros A/C"
   description String? @db.Text
