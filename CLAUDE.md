@@ -17,6 +17,9 @@
 | [docs/vision/04-08](../../docs/vision/) | Módulos: POS, Procure, Stay+Access, People, Books |
 | [docs/vision/09-partner-network.md](../../docs/vision/09-partner-network.md) | Modelo SAP/SuccessFactors |
 | [docs/vision/10-data-strategy-abi.md](../../docs/vision/10-data-strategy-abi.md) | Política de datos + ABI |
+| **[docs/vision/11-multi-tenant-architecture.md](../../docs/vision/11-multi-tenant-architecture.md)** | **Modelo 4-level Brand→Org→LegalEntity→Property + migration v1.0.5** |
+| **[docs/vision/12-infrastructure-devops.md](../../docs/vision/12-infrastructure-devops.md)** | **4 fases de infra (Vercel+Render+Neon → AWS → enterprise) + DevOps practices** |
+| **[docs/vision/13-consultant-setup-wizard.md](../../docs/vision/13-consultant-setup-wizard.md)** | **Zenix Activate — 8 etapas + templates inventory + health checks** |
 | [docs/zenix-sales-master.md](../../docs/zenix-sales-master.md) | Pitch comercial completo |
 | [docs/prices-packages.md](../../docs/prices-packages.md) | Packaging y pricing |
 | [docs/engineering-playbook.md](../../docs/engineering-playbook.md) | Patrones de implementación |
@@ -476,6 +479,54 @@ housekeeping3/
 - **`documentNumber` enmascarado** — `***1234` en audit logs + UI (GDPR/LGPD).
 - **`keyType` enum default PHYSICAL** — captura trazabilidad de qué acceso se entregó.
 
+### Arquitectura multi-tenant 4-level (v1.0.5+)
+
+> **Decisión fundacional 2026-05-15.** Ver `docs/vision/11-multi-tenant-architecture.md` para análisis completo. Estas son las reglas no-negociables que aplican a TODO código nuevo a partir de v1.0.5.
+
+63. **Modelo 4-level Brand→Organization→LegalEntity→Property** — el schema multi-tenant es jerárquico, no flat. Toda Property pertenece a 1 LegalEntity (fiscal); toda LegalEntity pertenece a 1 Organization (customer SaaS); toda Organization pertenece a 0..1 Brand (comercial, opcional). Justificación: casos reales como Selina (24 países) necesitan separar entidad fiscal de entidad comercial. Modelos flat (Org→Property) no pueden soportarlo sin atajos peligrosos.
+
+64. **LegalEntity es required para invoicing** — toda emisión CFDI/DIAN/SUNAT/Tribu-CR pasa por LegalEntity. Tax ID, currency, PAC credentials viven en LegalEntity (no Property). Razón: el PAC se contrata por razón social, no por propiedad.
+
+65. **Property.legalEntityId** será NOT NULL eventualmente (v1.1+). Durante migration v1.0.5 es nullable con backfill automático. Toda Property nueva debe asignarse a una LegalEntity desde el día 1.
+
+66. **organizationId denormalizado en Property** — además del FK a LegalEntity, Property mantiene `organizationId` denormalizado para queries comunes ("todas las properties de esta org"). Trigger Postgres garantiza consistencia. Citus pattern.
+
+67. **User scope 3-level: BrandUserRole / LegalEntityUserRole / UserPropertyRole** — autorización jerárquica. Un user puede tener cualquier combinación. AccessControlService verifica vía query UNION los 3 niveles. Pattern Salesforce Profile + Permission Sets.
+
+68. **JWT lleva `scope: 'BRAND' | 'LEGAL_ENTITY' | 'PROPERTY'`** — el scope efectivo de la sesión. Endpoints cross-* validan el scope adecuado. Backwards compat: si scope no presente, asume PROPERTY.
+
+69. **FiscalRegime es semilla, no hardcode** — los 10 países LATAM (MX/CO/CR/PE/PA/GT/BR/SV/HN/AR) están en tabla `FiscalRegime` sembrada. Cada uno tiene su `pacAdapterClass` (Strategy pattern). Agregar país nuevo = 1 row + 1 adapter class, sin migration.
+
+70. **PAC credentials per LegalEntity, NO per Property** — el PAC tiene 1 contrato por razón social. Multi-property bajo misma LegalEntity comparte PAC.
+
+71. **legalAddress como `jsonb`** — cada país tiene formato distinto (MX: calle/colonia/CP; BR: rua/bairro/CEP). Modelar 30 columnas opcionales = anti-pattern. JSONB + adapter validation. Citus pattern.
+
+72. **TenantContextService es app-layer (no Postgres RLS)** — enforcement en NestJS middleware/interceptor. RLS reservado como defense-in-depth en v1.2+. Razón: app-layer es más debuggeable, ya tiene 8/8 tests pasando.
+
+### Infraestructura — 4 fases sin lock-in
+
+> Ver `docs/vision/12-infrastructure-devops.md` para detalle completo.
+
+73. **Fase 1 (HOY): Vercel + Render + Neon + R2** — costo $70-200/mes. Path de migración trivial a AWS sin reescritura. Razón: velocity para piloto; AWS día 1 requiere DevOps dedicado ($5k+/mes salario).
+
+74. **Fase 2 trigger:** ≥10 properties O ≥3 cadenas con ≥3 properties cada una. Migración a AWS Fargate + RDS + Upstash Redis.
+
+75. **Fase 3 trigger:** ≥100 properties O 1er customer enterprise (cadena multi-país). Compliance SOC 2 Type 2 + PCI-DSS si volumen tarjeta >6M/año.
+
+76. **Disciplinas DevOps desde día 1 (no costean dinero):** environments separados con preview deploys, migrations versionadas con rollback documentado, backups verificados mensualmente, secrets en env vars (nunca en repo), 3-tier observability (metrics + logs + traces), incident runbook documentado para 8 tipos de incidente.
+
+### Setup wizard — Zenix Activate
+
+> Ver `docs/vision/13-consultant-setup-wizard.md` para detalle de las 8 etapas.
+
+77. **Zenix Activate** — wizard de onboarding ejecutado por consultor ZaharDev o partner certificado (v1.2+). 8 etapas: Customer Account → Brand → LegalEntity → Properties → Inventory → Staff → Integrations → Activación. Target 30 min - 2 semanas según complejidad (vs SAP 6-12 semanas).
+
+78. **Templates de inventario obligatorios** — 4 templates pre-cargados (HOSTAL, BOUTIQUE, CABAÑAS, BUSINESS) con RoomTypes razonables. Customer empieza desde template y customiza. Pattern Salesforce "Industry Solutions".
+
+79. **Health checks pre-activación** — antes de marcar `Organization.activatedAt`, wizard ejecuta batería de tests (Channex push, Stripe charge $1, PAC emission, etc.). Failed checks bloquean activación; warnings permiten continuar con confirmación explícita.
+
+80. **Activation Report PDF** — generado automáticamente al activar. Documenta toda la configuración, sirve como handover formal al customer. Pattern SAP Activate "Realize Phase Report".
+
 ---
 
 ## Patterns & Conventions
@@ -737,6 +788,7 @@ Tres capas de defensa:
 
 ## Bitácora de cambios mayores a este documento
 
+- **2026-05-15** — Decisiones arquitectónicas fundacionales registradas como §63-§80. Modelo multi-tenant 4-level Brand→Organization→LegalEntity→Property aprobado. Plan de infraestructura 4 fases definido (Vercel+Render+Neon en piloto, AWS en growth, enterprise en cadenas, continental en escala LATAM). Zenix Activate wizard de 8 etapas diseñado. 3 nuevos docs en `docs/vision/`: 11-multi-tenant-architecture.md, 12-infrastructure-devops.md, 13-consultant-setup-wizard.md.
 - **2026-05-13** — Refactor mayor. Visión estratégica completa movida a `docs/vision/` (11 archivos). CLAUDE.md reducido de ~3970 a ~700 líneas. Mantiene solo decisiones técnicas ejecutables, principios rector, decisiones no-negociables §1-§62, patterns, commands, y bitácora del sprint en curso. Agregados módulos futuros People (v1.7) y Books (v1.8) en docs/vision/.
 - **2026-05-09** — PR #8 mergeado: Sprint 9-HK ext + KP-01 (Kanban UX overhaul + bug fixes housekeeping).
 - **2026-05-04** — Sprint 8I (Mobile Hub Recamarista) + 9-HK refactor completados.
