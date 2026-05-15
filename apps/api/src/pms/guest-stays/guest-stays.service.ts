@@ -31,6 +31,7 @@ import { NotificationCenterService } from '../../notification-center/notificatio
 import { PushService } from '../../notifications/push.service'
 import { NotificationsService } from '../../notifications/notifications.service'
 import { AssignmentService } from '../../assignment/assignment.service'
+import { AvailabilityService } from '../availability/availability.service'
 
 /** Maps GuestStay.source values to the single-char SRC segment of bookingRef. */
 const SOURCE_CHAR: Record<string, string> = {
@@ -142,6 +143,7 @@ export class GuestStaysService {
     private readonly assignment: AssignmentService,
     private readonly push: PushService,
     private readonly notifications: NotificationsService,
+    private readonly availability: AvailabilityService,
   ) {}
 
   /** Generates a globally unique human-readable booking reference.
@@ -328,18 +330,17 @@ export class GuestStaysService {
   /**
    * Checks whether a room is available for the given date range.
    *
-   * Algorithm: half-open interval [checkIn, checkOut)
-   *   Two ranges overlap iff: existingCheckIn < newCheckOut AND existingCheckOut > newCheckIn
-   *   Same-day turnover (existing.checkOut == new.checkIn) is intentionally NOT a conflict.
+   * Delegates to AvailabilityService (CLAUDE.md §35 — single source of truth)
+   * which covers GuestStay + StaySegment + RoomBlock + Channex.io. The internal
+   * conflict shape is mapped onto the legacy public DTO (RoomAvailabilityResult
+   * with sources GUEST_STAY / ROOM_STATUS) so the existing GET
+   * /v1/guest-stays/availability contract and frontend consumers (CheckInDialog)
+   * keep working unchanged.
    *
-   * Sources checked (in priority order):
-   *   1. Room operational status — MAINTENANCE / OUT_OF_SERVICE block all bookings (SOFT severity)
-   *   2. GuestStay date-range overlap — active reservation on the same room (HARD severity)
-   *
-   * TODO(sprint8-migrate): migrar a AvailabilityService.check() para cubrir
-   * Channex channel manager (ver CLAUDE.md §29). Hoy este método NO detecta
-   * overbooking cross-channel (una reserva llegando por Booking.com mientras
-   * el recepcionista crea la estadía manualmente).
+   * Mapping:
+   *   LOCAL_STAY / LOCAL_SEGMENT → GUEST_STAY (HARD, with guestName)
+   *   LOCAL_BLOCK                → ROOM_STATUS (HARD — block is operational)
+   *   CHANNEX                    → ROOM_STATUS (HARD — room not bookable externally)
    *
    * @param excludeStayId - optional stayId to exclude (used by moveRoom to ignore the stay being moved)
    */
@@ -350,7 +351,6 @@ export class GuestStaysService {
     excludeStayId?: string,
   ): Promise<RoomAvailabilityResult> {
     const orgId = this.tenant.getOrganizationId()
-    const conflicts: AvailabilityConflict[] = []
 
     const room = await this.prisma.room.findUnique({
       where: { id: roomId, organizationId: orgId },
@@ -358,7 +358,12 @@ export class GuestStaysService {
     })
     if (!room) throw new NotFoundException('Habitación no encontrada')
 
-    // 1. Operational status check
+    const conflicts: AvailabilityConflict[] = []
+
+    // Operational room status — kept as SOFT warning for backward compat. A
+    // supervisor may override and accept a check-in into a MAINTENANCE room.
+    // Hard blocks for date ranges are handled by the RoomBlock check below
+    // (via AvailabilityService).
     if (room.status === 'MAINTENANCE' || room.status === 'OUT_OF_SERVICE') {
       const nights = Math.round((checkOut.getTime() - checkIn.getTime()) / 86400000)
       conflicts.push({
@@ -370,41 +375,39 @@ export class GuestStaysService {
       })
     }
 
-    // 2. Date-range overlap against active GuestStay records
-    //    Conditions: not deleted, not yet physically checked out, not the excluded stay
-    const conflictingStay = await this.prisma.guestStay.findFirst({
-      where: {
-        roomId,
-        organizationId: orgId,
-        deletedAt:      null,
-        actualCheckout: null,
-        noShowAt:       null, // stays marcados no-show liberan el inventario
-        ...(excludeStayId ? { id: { not: excludeStayId } } : {}),
-        // Half-open interval overlap: A.start < B.end AND A.end > B.start
-        checkinAt:        { lt: checkOut },
-        scheduledCheckout: { gt: checkIn },
-      },
-      select: {
-        guestName:        true,
-        checkinAt:        true,
-        scheduledCheckout: true,
-      },
+    const result = await this.availability.check({
+      roomId,
+      from: checkIn,
+      to: checkOut,
+      excludeStayIds: excludeStayId ? [excludeStayId] : undefined,
     })
 
-    if (conflictingStay) {
-      // Compute exact overlap window for precise day count
-      const overlapStart = new Date(Math.max(checkIn.getTime(), conflictingStay.checkinAt.getTime()))
-      const overlapEnd   = new Date(Math.min(checkOut.getTime(), conflictingStay.scheduledCheckout.getTime()))
-      const overlapDays  = Math.max(0, Math.round((overlapEnd.getTime() - overlapStart.getTime()) / 86400000))
+    for (const c of result.conflicts) {
+      const conflictStart = c.from.toISOString()
+      const conflictEnd   = c.to.toISOString()
+      const overlapStart  = Math.max(checkIn.getTime(), c.from.getTime())
+      const overlapEnd    = Math.min(checkOut.getTime(), c.to.getTime())
+      const overlapDays   = Math.max(0, Math.round((overlapEnd - overlapStart) / 86400000))
 
-      conflicts.push({
-        source:        'GUEST_STAY',
-        severity:      'HARD',
-        guestName:     conflictingStay.guestName,
-        conflictStart: conflictingStay.checkinAt.toISOString(),
-        conflictEnd:   conflictingStay.scheduledCheckout.toISOString(),
-        overlapDays,
-      })
+      if (c.source === 'LOCAL_STAY' || c.source === 'LOCAL_SEGMENT') {
+        conflicts.push({
+          source: 'GUEST_STAY',
+          severity: 'HARD',
+          guestName: c.label,
+          conflictStart,
+          conflictEnd,
+          overlapDays,
+        })
+      } else {
+        // LOCAL_BLOCK + CHANNEX both render as ROOM_STATUS in the legacy DTO.
+        conflicts.push({
+          source: 'ROOM_STATUS',
+          severity: 'HARD',
+          conflictStart,
+          conflictEnd,
+          overlapDays,
+        })
+      }
     }
 
     return { available: conflicts.length === 0, conflicts }
@@ -1349,23 +1352,21 @@ export class GuestStaysService {
     })
     if (!newRoom) throw new NotFoundException('Habitación destino no encontrada')
 
-    // Check for overlapping stays in the destination room (date-range conflict,
-    // not room.status which reflects current operational state, not future bookings)
-    const overlap = await this.prisma.guestStay.findFirst({
-      where: {
-        roomId: dto.newRoomId,
-        organizationId: orgId,
-        deletedAt: null,
-        actualCheckout: null,           // exclude already checked-out stays
-        noShowAt: null,                 // exclude no-shows — they release inventory (§17)
-        id: { not: stayId },            // exclude the stay being moved
-        checkinAt:   { lt: stay.scheduledCheckout },
-        scheduledCheckout: { gt: stay.checkinAt },
-      },
+    // Full availability check on the destination room — covers GuestStay,
+    // StaySegment, RoomBlock and Channex (CLAUDE.md §35). Replaces the previous
+    // GuestStay-only query that ignored maintenance blocks and journey segments
+    // belonging to other guests already assigned to the destination room.
+    const avail = await this.availability.check({
+      roomId: dto.newRoomId,
+      from: stay.checkinAt,
+      to: stay.scheduledCheckout,
+      excludeStayIds: [stayId],
     })
-    if (overlap) {
+    if (!avail.available) {
+      const c = avail.conflicts[0]
       throw new ConflictException(
-        `La habitación destino ya tiene una reserva para ese período (${overlap.guestName})`,
+        `La habitación destino no está disponible para ese período — ${c.label}` +
+          (c.source === 'CHANNEX' ? ' (canal externo)' : ''),
       )
     }
 

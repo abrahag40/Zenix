@@ -186,7 +186,11 @@ export class StayJourneyService {
       throw new BadRequestException('newCheckOut must be after the current scheduledCheckout')
     }
 
-    await this.assertRoomAvailable(roomId, origCheckOut, extCheckOut)
+    // La GuestStay padre todavía no tiene journey (este endpoint lo crea). Hay
+    // que excluirla explícitamente del check porque sus fechas raw (checkinAt
+    // con hora 15:00, scheduledCheckout 12:00) extienden levemente más allá del
+    // startOfDay normalizado y se contarían como conflicto consigo misma.
+    await this.assertRoomAvailable(roomId, origCheckOut, extCheckOut, undefined, undefined, [guestStayId])
 
     const extSegment = await this.prisma.$transaction(async (tx) => {
       const journey = await tx.stayJourney.create({
@@ -852,42 +856,34 @@ export class StayJourneyService {
     return active
   }
 
-  // TODO(sprint8-migrate): reemplazar por this.availability.check(...).
-  // Motivo: CLAUDE.md §29 exige que TODA validación de inventario pase por
-  // AvailabilityService (cubre local DB + Channex channel manager). Esta función
-  // solo consulta StaySegment local, dejando invisible el cross-channel overbooking.
-  // Ya fue migrado en splitReservation(); extendSameRoom / extendNewRoom /
-  // executeMidStayRoomMove / moveExtensionRoom deben migrarse en Sprint 8.
+  // Thin wrapper around AvailabilityService.check — single source of truth for
+  // inventory validation (CLAUDE.md §35). Covers GuestStay + StaySegment +
+  // RoomBlock + Channex. Same-journey segments are excluded via excludeJourneyId;
+  // cuando la estadía aún no tiene journey (initJourneyAndExtend bootstrap),
+  // el caller debe pasar excludeStayIds para que la propia GuestStay padre no
+  // colisione consigo misma (regresión post-migración v1, bug Kevin Park).
   private async assertRoomAvailable(
     roomId: string,
     from: Date,
     to: Date,
     excludeSegmentId?: string,
     excludeJourneyId?: string,
+    excludeStayIds?: string[],
   ) {
-    // Segments belonging to the SAME journey represent the same guest being
-    // rearranged across rooms/dates — they must not block each other as inventory
-    // conflicts. This also neutralises fractional-hour overlaps caused by the
-    // inconsistency between real hotel times (15:00 check-in, 12:00 check-out on
-    // legacy ORIGINAL segments) and `startOfDay` normalization applied to new
-    // extension segments. See CLAUDE.md §29 (sprint8-migrate) — AvailabilityService
-    // will centralise this check for all inventory queries.
-    const conflict = await this.prisma.staySegment.findFirst({
-      where: {
-        roomId,
-        status: { in: ['ACTIVE', 'PENDING'] },
-        ...(excludeSegmentId && { id: { not: excludeSegmentId } }),
-        ...(excludeJourneyId && { journeyId: { not: excludeJourneyId } }),
-        checkIn: { lt: to },
-        checkOut: { gt: from },
-        // Exclude segments belonging to no-show stays — noShowAt releases inventory
-        // immediately (CLAUDE.md §17). Their segments remain ACTIVE in DB but should
-        // not block new reservations for the same period.
-        journey: { guestStay: { noShowAt: null } },
-      },
+    const result = await this.availability.check({
+      roomId,
+      from,
+      to,
+      excludeSegmentIds: excludeSegmentId ? [excludeSegmentId] : undefined,
+      excludeJourneyId,
+      excludeStayIds,
     })
-    if (conflict) {
-      throw new ConflictException(`Room ${roomId} is not available for the requested period`)
+    if (!result.available) {
+      const c = result.conflicts[0]
+      throw new ConflictException(
+        `Room ${roomId} is not available for the requested period — ${c.label}` +
+          (c.source === 'CHANNEX' ? ' (canal externo)' : ''),
+      )
     }
   }
 
