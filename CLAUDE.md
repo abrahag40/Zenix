@@ -699,6 +699,34 @@ npx prisma studio
 | **HK-CFG (Setup Recamaristas)** | SettingsPage tab "Recamaristas" | 5-7 | Sí |
 | **POLISH-α** | Bugs medios cleanup | 2-3 | Sí |
 | **QA-α** | Test coverage mobile Hub | 4-5 | Sí |
+| **CI-RESCUE** | Rescatar pipeline CI: eslint configs + 110 tests rojos `@zenix/api` + migrar multer 1.x→2.x | 3-5 | No (lint/test marcados non-blocking 2026-05-15) |
+
+### Sprint CI-RESCUE — detalle técnico
+
+> **Status:** PENDIENTE. Marcado non-blocking en `.github/workflows/ci.yml` el 2026-05-15.
+> **Razón de existir:** durante el fix de lockfile (PR #19) se descubrió que CI llevaba múltiples capas de bugs ocultos. Para no detener entrega, se hizo `continue-on-error: true` en lint+test. **Esta deuda debe pagarse antes de release v1.0.0.**
+
+**Lo que tiene que arreglar:**
+
+1. **Eslint configs faltantes** — `apps/api`, `apps/mobile`, `apps/web`, `packages/shared` no tienen `.eslintrc*` ni `eslint.config.{js,mjs}`. `npm run lint` falla en api+mobile con "ESLint couldn't find a configuration file". Decisiones pendientes:
+   - Presets: `@typescript-eslint/recommended`, `eslint-plugin-react`, `react-native`, `prettier`
+   - ¿Strict mode o moderate? (impacto enorme en cuántos archivos requieren cleanup)
+   - ¿Auto-fix permitido en CI o solo report?
+2. **110 de 297 tests de `@zenix/api` fallan localmente** — patrón observado: imports de `uploads/*` + `multer 1.x` (deprecated, vulnerabilidades). Hipótesis de root cause:
+   - Posible migración pendiente `multer 1.x → 2.x` (breaking change documentado)
+   - O refactor reciente que rompió importaciones del módulo uploads
+   - Reproducir con: `cd apps/api && npm test` (exit code 1, 9 suites failed)
+3. **Workspace name legacy** — antes del rename `@housekeeping/api → @zenix/api`, el workflow CI referenciaba el nombre viejo. Ya fixed en PR #19, pero validar que no haya otros lugares (scripts, docs, etc.).
+4. **Reactivar lint/test como blocking** — una vez 1+2+3 resueltos, quitar `continue-on-error: true` de `.github/workflows/ci.yml` líneas correspondientes. CI vuelve a ser red/green binario.
+
+**Pasos sugeridos del sprint:**
+1. (4-6h) Crear eslint configs por workspace + correr `npm run lint -- --fix` para auto-resolver lo trivial
+2. (1-2h) Revisar manualmente issues no auto-fixables (probable: 50-100 ocurrencias razonables)
+3. (4-8h) Investigar root cause de los 110 tests fallidos — probable un solo PR causal
+4. (2-4h) Migrar multer 1→2 si aplica (revisar [changelog multer 2.0](https://github.com/expressjs/multer/blob/master/CHANGELOG.md))
+5. (1h) Quitar `continue-on-error` del workflow, validar CI verde en PR de cierre
+
+**Estimado:** 3-5 días enfocados. Se puede paralelizar con otros sprints v1.0.0 si no se toca el código de uploads/auth.
 
 ### v1.0.x Roadmap (NUEVO — expandido)
 - **v1.0.1 PAY-CORE** — Stripe + Conekta + folio modal + master billing + folio splitting + refund/void + currency display + COMP approval (3-4 sem)
