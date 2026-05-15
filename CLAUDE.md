@@ -322,7 +322,7 @@ housekeeping3/
 
 ---
 
-## Non-Negotiable Decisions §1-§90
+## Non-Negotiable Decisions §1-§94
 
 > Decisiones tomadas deliberadamente. NO revertir sin discusión documentada.
 
@@ -551,6 +551,22 @@ housekeeping3/
 89. **`IFiscalAdapter` por país (Strategy pattern)** — cada `FiscalRegime` (§69) tiene su `pacAdapterClass`: `MxCfdi40Adapter` (Facturama / SW Sapien), `CoDianAdapter`, `PeSunatAdapter`, `CrHaciendaAdapter`. **MX es BASE v1.0.2 CFDI-CORE**; CO/PE/CR son **DLC tier Pro** activables vía Zenix Activate wizard (§77-§80). Permite escalar a nuevos países agregando 1 row en `FiscalRegime` + 1 adapter class sin migration.
 
 90. **Créditos emitidos sobre stays OTA por default solo aplicables a reservas direct** — `GuestCredit.applicableChannels: String[] @default(["DIRECT"])`. Mitigación del riesgo de "OTA pierde comisión por venta original cuando crédito se aplica a stay direct futura". Override per-property con audit log. Documentado en UI al emitir crédito sobre stay OTA.
+
+### Tax catalog nativo + multi-país LATAM — v1.0.2 CFDI-CORE / Zenix Activate
+
+> Decisiones fundacionales 2026-05-15 (PM late) tras investigación profunda 32 estados MX + 9 países LATAM + fricción competitiva. Ver [docs/vision/14-payment-currency-tax-architecture.md §J](../../docs/vision/14-payment-currency-tax-architecture.md) para matriz completa.
+
+91. **Catálogo nativo Zenix de impuestos (`TaxCatalogEntry`) — single source of truth, owned por rol `TAX_CURATOR` interno.** Cliente NUNCA edita el catálogo base; solo crea `TaxCatalogOverride` con `reason` + `approvedById` obligatorios. Patrón SAP Tax Determination / Vertex Tax Content team / Salesforce Permission Sets. NO usar Avalara/Vertex/Sovos en v1.0.x — costo y velocidad de actualización (LATAM hotelería) favorecen catálogo curado por contador interno parcial (~$1.5-2k/mes vs $1-4k Avalara vs ≥$30k/año Sovos). Es **diferenciador comercial documentado** frente a Mews (Tax Environments hard-coded no modificables tras crear enterprise), Cloudbeds (sin presets, ~30 clicks setup MX), Opera (requiere consultor Oracle $15-30k), RoomRaccoon (onboarding 1-4 semanas).
+
+92. **`TaxCatalogOverride` con precedencia PROPERTY > LEGAL_ENTITY > catálogo base.** Override permite `disabled=true` para exoneraciones (ZOLITUR Roatán, RNT Colombia, IVA-exempt diplomático) o `customRate/customFixedAmount`. Validez con `validFrom/validTo`. Resolución en `resolveTaxesForProperty()`: catalog entries más específicos primero (municipality > region > federal), luego merge con overrides en orden de precedencia. Toda aplicación crea entry en `TaxApplicationLog` append-only (§14, §28).
+
+93. **Brasil EXCLUIDO de v1.0.x.** ISS municipal (2-5 % por ayuntamiento, 80+ ciudades top) + reforma tributária 2026-2033 (CBS/IBS gradual replacement de PIS/Cofins/ICMS/ISS) hacen Brasil incompatible con el catálogo curado interno de Zenix. Entrar a Brasil **post v1.2** con **Sovos como `FiscalAdapter`** dentro del pattern §89 (no reinventar). Sovos tiene equipo dedicado y cobertura de la reforma tributária. Documentar al cliente que reciba reservas Brasil OTA antes de v1.2 con flag warning.
+
+94. **`TaxCatalogEntry.status='AMBIGUOUS'`** para entradas con fuente primaria no verificable. Caso vigente: **DSA Tulum** (per-room confirmado por sitio oficial H. Ayuntamiento Playa del Carmen para Riviera Maya / per-person tiered según Reporte Quintana Roo 2026; Decreto 191 texto literal no accesible). Wizard Zenix Activate solicita al cliente seleccionar modalidad al activar property; equipo de Activate verifica con Tesorería Municipal antes de marcar `status='ACTIVE'`. Default conservador = `UMA_MULTIPLIER` per-room (modalidad soportada por la fuente oficial municipal Riviera Maya). Nuevo `TaxCalculation.UMA_PER_PERSON_TIERED` agregado para soportar el caso tiered si se verifica.
+
+**México — datos 32 estados ISH 2026 confirmados** ([El Contribuyente](https://www.elcontribuyente.mx/impuesto-sobre-hospedaje/) × [JA Del Río](https://www.jadelrio.com/mx/es/blogs/tasas-actuales-del-impuesto-sobre-hospedaje-2026)): Yucatán bajó 5→4.5 %; QR 5 %/6 % plataformas; CDMX 3.5 %/5 % plataformas; Guerrero/Querétaro/Jalisco tarifa diferenciada plataformas. Catálogo seed productivo lo carga el Tax Curator antes de release v1.0.2.
+
+**LATAM 9 países — granularidad mínima:** MX y Brasil requieren per-estado/municipio; CO/CR/PE/PA/GT/SV/AR funcionan con catálogo nacional; HN requiere override regional para ZOLITUR (Roatán/Utila/Guanaja).
 
 ---
 
@@ -850,6 +866,7 @@ Tres capas de defensa:
 
 ## Bitácora de cambios mayores a este documento
 
+- **2026-05-15** (PM late) — Decisiones §91-§94 agregadas tras investigación profunda 32 estados MX + 9 países LATAM + fricción competitiva. Catálogo nativo `TaxCatalogEntry` curado internamente por rol `TAX_CURATOR` Zenix (NO Avalara/Vertex/Sovos en v1.0.x). Override en dos capas con precedencia PROPERTY > LEGAL_ENTITY > base. Brasil EXCLUIDO v1.0.x (entrar post v1.2 con Sovos como `FiscalAdapter`). DSA Tulum marcado `status='AMBIGUOUS'` — wizard solicita modalidad al cliente, Activate verifica con Tesorería Municipal. Nueva sección J en `14-payment-currency-tax-architecture.md` con matriz completa MX 32 estados (Yucatán bajó 5→4.5 %, tarifas diferenciadas plataformas digitales). Setup wizard objetivo: 6-8 clicks vs ~30 Cloudbeds.
 - **2026-05-15** (PM) — Decisiones §81-§90 (PAY-CORE / CFDI-CORE) registradas tras investigación competitiva de 5 PMS (Mews, Cloudbeds, Opera Cloud, Roomraccoon, Little Hotelier). 9 sub-módulos de cobros/divisas/impuestos LATAM consolidados en `docs/vision/14-payment-currency-tax-architecture.md`. Hallazgos clave: (1) Ningún PMS premium tiene GuestCredit core con CFDI E + FormaPago=15 — Zenix lo entrega como diferenciador; (2) Mews no distingue OTA-collect vs Hotel-collect (gap competitivo); (3) Banxico SF43718 (FIX) confirmado como fuente primaria FX MX, 40k consultas/día gratuito; (4) Quintana Roo 2026: IVA 16% + ISH 6% + DSA per-room/per-person basado en % UMA (117.31 MXN); (5) Tax strategy INCLUSIVE default resuelve fricción Hostelworld del 73% de quejas por extra fees inesperados.
 - **2026-05-15** (AM) — Decisiones arquitectónicas fundacionales registradas como §63-§80. Modelo multi-tenant 4-level Brand→Organization→LegalEntity→Property aprobado. Plan de infraestructura 4 fases definido (Vercel+Render+Neon en piloto, AWS en growth, enterprise en cadenas, continental en escala LATAM). Zenix Activate wizard de 8 etapas diseñado. 3 nuevos docs en `docs/vision/`: 11-multi-tenant-architecture.md, 12-infrastructure-devops.md, 13-consultant-setup-wizard.md.
 - **2026-05-13** — Refactor mayor. Visión estratégica completa movida a `docs/vision/` (11 archivos). CLAUDE.md reducido de ~3970 a ~700 líneas. Mantiene solo decisiones técnicas ejecutables, principios rector, decisiones no-negociables §1-§62, patterns, commands, y bitácora del sprint en curso. Agregados módulos futuros People (v1.7) y Books (v1.8) en docs/vision/.

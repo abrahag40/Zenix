@@ -3,7 +3,7 @@
 > **Audiencia:** Producto + ingeniería + comercial. **Versión objetivo:** v1.0.1 PAY-CORE + v1.0.2 CFDI-CORE.
 > **Estado:** propuesta arquitectónica aprobada para implementación. **Fecha:** 2026-05-15.
 >
-> Este documento consolida la arquitectura de **9 sub-módulos** de gestión de cobros, divisas, impuestos y reembolsos para Zenix. Reemplaza decisiones dispersas en CLAUDE.md y refina el scope de v1.0.1 y v1.0.2 del [roadmap](03-roadmap-v1-v2.md).
+> Este documento consolida la arquitectura de **10 sub-módulos** (A-J) de gestión de cobros, divisas, impuestos y reembolsos para Zenix. Reemplaza decisiones dispersas en CLAUDE.md y refina el scope de v1.0.1 y v1.0.2 del [roadmap](03-roadmap-v1-v2.md).
 
 ---
 
@@ -430,17 +430,18 @@ Ningún PMS premium tiene GuestCredit de primera clase. Mews y Opera lo resuelve
 
 **ISH Quintana Roo (Impuesto Sobre Hospedaje):**
 - 2024-2025: 5 % hospedaje tradicional, 6 % plataformas digitales.
-- **A partir 2026-01-01: 6 % general** (incluye hoteles tradicionales). Reforma 2025.
+- **A partir 2026-01-01: 5 % tradicional / 6 % plataformas digitales** (Airbnb, Booking). Investigación confirmada con [El Contribuyente](https://www.elcontribuyente.mx/impuesto-sobre-hospedaje/) y [JA Del Río 2026](https://www.jadelrio.com/mx/es/blogs/tasas-actuales-del-impuesto-sobre-hospedaje-2026).
 - Declaración mensual día 10. Base gravable = valor del alojamiento (excluye F&B, lavandería, spa).
 
 **Derecho de Saneamiento Ambiental (DSA) Quintana Roo:**
 - Cuota fija per-room-night denominada como **% de la UMA**.
 - UMA 2026 = 117.31 MXN diarios (vigente 1 feb 2026 – 31 ene 2027).
-- **Cancún:** 70 % UMA ≈ 82.12 MXN/habitación/noche.
-- **Tulum, Playa del Carmen, Cozumel:** 30 % UMA ≈ 35.19 MXN. En Playa del Carmen y Tulum puede ser per-person (30 % primera, 20 % segunda).
+- **Cancún:** 70 % UMA ≈ 82.12 MXN/habitación/noche — **modalidad per-room confirmada** ([H. Ayuntamiento Playa del Carmen — oficial](https://playadelcarmen.gob.mx/saneamiento-ambiental)).
+- **Playa del Carmen:** 30 % UMA ≈ 35.19 MXN/habitación/noche — **modalidad per-room confirmada** (misma fuente oficial).
+- **Tulum:** 30 % UMA ≈ 35.19 MXN — **MODALIDAD AMBIGUA**. Las fuentes secundarias se contradicen: [Reporte Quintana Roo](https://www.reportequintanaroo.com/que-es-el-derecho-de-saneamiento-ambiental-y-cuanto-debes-pagar/) describe per-person tiered (30/20/15/10 % UMA por 1°/2°/3°/4° huésped) mientras [el sitio oficial Playa del Carmen](https://playadelcarmen.gob.mx/saneamiento-ambiental) (que cubre Riviera Maya) describe per-room. El **Decreto 191 (Cap. XXVIII Ley Hacienda Municipal Tulum, 22-dic-2021)** es la fuente primaria — texto literal no accesible públicamente vía web durante la investigación.
 - Aplica a Airbnb/rentas vacacionales desde 2026.
 
-> ⚠️ Las tarifas 2026 vienen de fuentes secundarias (Reporte Quintana Roo, Vezpa, jadelrio.com). **Antes de implementar en producción, validar contra Periódico Oficial del Estado de Quintana Roo.** El schema permite override per-property — no hardcodear.
+> ⚠️ **Acción operativa Tulum DSA:** entrar al `TaxCatalogEntry` con `status='AMBIGUOUS'` y dos modos disponibles (`UMA_MULTIPLIER` per-room y `UMA_PER_PERSON_TIERED`). El equipo de Zenix Activate verifica modalidad real con Tesorería Municipal de Tulum (o con el contador del cliente) ANTES de activar la property. Hardcoded default = `UMA_MULTIPLIER` per-room (la fuente oficial municipal lo soporta para Riviera Maya).
 
 ### Schema
 
@@ -595,9 +596,372 @@ DLC tier Pro v1.1.x o como módulo standalone "Zenix Revenue Optimizer". Empaque
 
 ---
 
+## J · Catálogo nativo Zenix + LATAM coverage matrix
+
+> **Adición 2026-05-15 (PM):** tras investigación de 32 estados MX + 9 países LATAM + análisis de fricción competitiva, se decide construir catálogo nativo curado internamente, NO delegar a Avalara/Vertex/Sovos en v1.0.x.
+
+### Por qué catálogo nativo (no Avalara/Vertex/Sovos)
+
+| Criterio | Catálogo Zenix nativo | Avalara | Sovos | Vertex |
+|---|---|---|---|---|
+| Costo para piloto-20 properties | ~$1.5-2k/mes (curator interno 10h/sem) | ~$1-4k/mes | ≥$30k/año fixed | Contrato enterprise |
+| Velocidad actualización (ej. Yucatán 5→4.5 %) | 48 h | Semanas-meses | Meses (Brasil-first) | Meses (US/EU-first) |
+| Cobertura LATAM hotelería | Diseñado para esto | Débil (e-commerce US/EU focus) | Fuerte Brasil + MX CFDI | Débil hospitality |
+| Diferenciador comercial | **Sí** — Mews/Cloudbeds no lo tienen | No | No | No |
+| Control epistémico del dato | Cerca del cliente | Vendor offshore | Vendor offshore | Vendor offshore |
+| Patrón industria comparable | SAP Tax Determination + Vertex Tax Content team | — | — | — |
+
+**Excepción Brasil:** cuando Zenix entre a Brasil (post v1.2), contratar **Sovos como `FiscalAdapter`** (§89). NO reinventar. Razones: 80+ municipios con ISS variable + reforma tributária 2026-2033 (CBS/IBS gradual replacement de PIS/Cofins/ICMS/ISS) requieren equipo dedicado. Sovos lo tiene.
+
+### México — matriz 32 estados ISH 2026
+
+Datos verificados con [El Contribuyente](https://www.elcontribuyente.mx/impuesto-sobre-hospedaje/) cruzado contra [JA Del Río 2026](https://www.jadelrio.com/mx/es/blogs/tasas-actuales-del-impuesto-sobre-hospedaje-2026) y [Airbnb Help MX](https://www.airbnb.com/help/article/2288).
+
+| Estado | ISH tradicional | ISH plataformas | Notas |
+|---|---|---|---|
+| Aguascalientes | 3 % | — | |
+| Baja California | 5 % (7 % moteles) | 5 % | |
+| Baja California Sur | 4 % | 4 % | |
+| Campeche | 2 % | 2 % | |
+| Chiapas | 2 % (5 % moteles) | 2 % | |
+| Chihuahua | 4 % | — | |
+| **Ciudad de México** | **3.5 %** | **5 %** | Tarifa diferenciada |
+| Coahuila | 3 % | — | |
+| Colima | 3 % (5 % moteles) | 3 % | |
+| Durango | 3 % (5 % moteles) | — | |
+| Estado de México | 4 % | 2 % | Plataformas MENOR que tradicional (atípico) |
+| Guanajuato | 4 % | — | |
+| **Guerrero** | **4 %** | **5 %** | |
+| Hidalgo | 2.5 % | (incluido 2026) | Reforma |
+| **Jalisco** | **4 %** | **5 %** | |
+| Michoacán | 3 % | 3 % | |
+| Morelos | 3.75 % | — | |
+| Nayarit | 5 % | 5 % | |
+| Nuevo León | 3 % | 3 % | |
+| Oaxaca | 3 % | 3-5 % | |
+| Puebla | 3 % | 3 % | |
+| **Querétaro** | **3.5 %** | **5 %** | |
+| **Quintana Roo** | **5 %** | **6 %** | + DSA UMA-based |
+| San Luis Potosí | 4 % | — | Tarifa distinta PF/PM |
+| Sinaloa | 3 % | 3 % | |
+| Sonora | 3 % | 3 % | |
+| Tabasco | 3 % | — | |
+| Tamaulipas | 3 % | — | |
+| Tlaxcala | 2 % | — | |
+| Veracruz | 2 % | — | |
+| **Yucatán** | **4.5 %** ↓ | **4.5 %** | Bajó de 5 % en 2026 |
+| Zacatecas | 3 % | — | |
+
+**Plus federal:** IVA 16 % (8 % franja fronteriza norte y sur). El ISH no observa franja fronteriza en ninguna fuente revisada.
+
+**Cambios 2026 confirmados:**
+- Yucatán 5 % → 4.5 %.
+- Hidalgo extiende sujetos a plataformas digitales.
+- Quintana Roo introduce registro estatal obligatorio.
+- Quintana Roo, Yucatán y Jalisco incorporaron impuesto ambiental al hospedaje turístico (Jalisco con denominación menor, sin línea separada en SEFOTUR).
+
+### Otros impuestos ecológicos / municipales
+
+| Estado | Impuesto | Modalidad | Verificación |
+|---|---|---|---|
+| QR Cancún | DSA 70 % UMA = ~$82 MXN/noche | Per-room | **Confirmada** |
+| QR Playa del Carmen | DSA 30 % UMA = ~$35 MXN/noche | Per-room | **Confirmada** |
+| QR Tulum | DSA 30 % UMA = ~$35 MXN/noche | **AMBIGUA** per-room vs per-person tiered | Pendiente Decreto 191 + Tesorería Municipal |
+| QR Cozumel | DSA 30 % UMA | Probablemente per-room (sigue patrón Playa) | No verificado directo |
+| Yucatán | Impuesto ambiental hospedaje | Incluido en ISH 4.5 % | Reportado, sin línea separada en SEFOTUR |
+
+### LATAM 9 países — ¿variación sub-nacional?
+
+| País | Variación sub-nacional | Granularidad mínima Zenix | Veredicto v1.0.x |
+|---|---|---|---|
+| **México** | **Sí, fuerte** | Estado + municipio (QR, YUC) | BASE — incluido v1.0.2 |
+| **Brasil** | **Sí, brutal** (ISS municipal + reforma 2026-2033) | Municipio (80+ ciudades) | **EXCLUIDO v1.0** — entrar v1.2 con Sovos |
+| Colombia | No estructural | Nacional + flag SAI exento | DLC adapter `CoDianAdapter` |
+| Costa Rica | No | Nacional | DLC adapter `CrHaciendaAdapter` |
+| Perú | No | Nacional + flag MYPE turismo (10.5 % vs 18 %) | DLC adapter `PeSunatAdapter` |
+| Panamá | No | Nacional (ITBMS 10 %) | DLC adapter |
+| Guatemala | No | Nacional (IVA 12 % + INGUAT 10 %) | DLC adapter |
+| El Salvador | No | Nacional (IVA 13 % + CORSATUR 5 %) | DLC adapter |
+| Honduras | Excepción ZOLITUR Roatán/Bay Islands | Nacional + override regional | DLC adapter |
+| Argentina | Marginal (TCT municipal escasa) | Nacional + overrides opcionales | DLC adapter post v1.2 |
+
+### Schema arquitectónico — `TaxCatalogEntry` + `TaxCatalogOverride`
+
+Reemplaza el modelo `TaxRate` simple de la sección G con un sistema de dos capas:
+
+```prisma
+// ════════════════════════════════════════════════════════════════════
+// CAPA 1: Catálogo central — single source of truth, owned by Zenix
+// ════════════════════════════════════════════════════════════════════
+
+model TaxCatalogEntry {
+  id                String   @id @default(cuid())
+
+  // Jurisdicción
+  country           String   @db.VarChar(2)   // ISO 3166-1: MX, CO, CR...
+  region            String?  @db.VarChar(10)  // ISO 3166-2: MX-ROO, MX-YUC, BR-RJ
+  municipality      String?  // free-text key: "tulum", "playa-del-carmen"
+
+  // Caracterización
+  taxType           TaxType
+  calculation       TaxCalculation
+  rateValue         Decimal? @db.Decimal(12, 6)  // 0.05 = 5%, 0.30 = 30% UMA
+  fixedAmount       Decimal? @db.Decimal(12, 4)
+  fixedCurrency     String?  @db.VarChar(3)
+  tieredRates       Json?    // [{occupants:1, rate:0.30}, {occupants:2, rate:0.20}, ...] — Tulum-like
+
+  // Composición (tax-on-tax)
+  baseIncludesTaxes String[] // ["ISH"] = IVA se calcula sobre base + ISH
+
+  // Diferenciación de sujetos
+  appliesToPlatformDigital Boolean @default(false)
+  appliesToMotel    Boolean @default(false)
+  appliesToCorporate Boolean @default(true)
+
+  // Vigencia y trazabilidad
+  validFrom         DateTime
+  validTo           DateTime?
+  sourceUrl         String
+  legalReference    String   // "Ley Hacienda QRoo Art 12 Bis", "Decreto 191 Tulum"
+  lastVerifiedAt    DateTime
+  verifiedBy        String   // userId del TAX_CURATOR
+  verificationNotes String?
+
+  // Estado del catálogo
+  status            CatalogStatus  // ACTIVE | DEPRECATED | DRAFT | AMBIGUOUS
+  successorId       String?        // FK self — reformas: linked-list temporal
+
+  // Metadata específica país
+  metadata          Json?    // PAC hints, normas particulares
+
+  overrides         TaxCatalogOverride[]
+  applications      TaxApplicationLog[]
+
+  @@index([country, region, municipality, validFrom])
+  @@index([status, validFrom])
+}
+
+enum TaxType {
+  VAT                // IVA federal MX, ITBMS PA, IGV PE, IVA CR/CO/AR/SV/HN
+  LODGING_TAX        // ISH MX, INC CO, IVT CR, IHT HN, IVA-hospedaje variants
+  ENVIRONMENTAL      // DSA QR, impuesto ambiental YUC/JAL
+  TOURISM_PARAFISCAL // INGUAT GT, CORSATUR SV, TCT AR
+  MUNICIPAL_ISS      // Brasil ISS per-municipio
+  STATE_VAT_BR       // ICMS Brasil
+  SERVICE_FEE
+  OTHER
+}
+
+enum TaxCalculation {
+  PERCENT_OF_BASE
+  FIXED_PER_ROOM_NIGHT
+  FIXED_PER_PERSON_NIGHT
+  UMA_MULTIPLIER          // Per-room basado en UMA MX
+  UMA_PER_PERSON_TIERED   // Tulum-style: tiered occupancy rates
+  PER_BOOKING
+}
+
+enum CatalogStatus {
+  ACTIVE
+  DEPRECATED   // reemplazado por successorId
+  DRAFT        // borrador del curator, no aplica aún
+  AMBIGUOUS    // requiere intervención manual del operador (caso Tulum DSA)
+                // wizard pide al cliente seleccionar modalidad
+}
+
+// ════════════════════════════════════════════════════════════════════
+// CAPA 2: Override — el cliente NUNCA toca catálogo central
+// ════════════════════════════════════════════════════════════════════
+
+model TaxCatalogOverride {
+  id              String   @id @default(cuid())
+  catalogEntryId  String
+  scope           OverrideScope     // LEGAL_ENTITY | PROPERTY
+  scopeId         String
+  organizationId  String            // multi-tenant guard (§63-§66)
+
+  disabled        Boolean  @default(false)  // exoneración total (ZOLITUR HN, RNT CO)
+  customRate      Decimal? @db.Decimal(12, 6)
+  customFixedAmount Decimal? @db.Decimal(12, 4)
+
+  reason          String   @db.Text  // obligatorio
+  approvedById    String
+  approvedAt      DateTime @default(now())
+  validFrom       DateTime
+  validTo         DateTime?
+
+  catalogEntry    TaxCatalogEntry @relation(fields: [catalogEntryId], references: [id])
+
+  @@index([scope, scopeId, validFrom])
+}
+
+enum OverrideScope {
+  LEGAL_ENTITY
+  PROPERTY
+}
+
+// ════════════════════════════════════════════════════════════════════
+// CAPA 3: Application log — append-only fiscal-grade audit (§14, §28)
+// ════════════════════════════════════════════════════════════════════
+
+model TaxApplicationLog {
+  id              String   @id @default(cuid())
+  guestStayId     String
+  folioLineId     String?
+  catalogEntryId  String
+  catalogSnapshotId String  // hash o ID del snapshot exacto que se aplicó
+
+  baseAmount      Decimal  @db.Decimal(12, 4)
+  taxAmount       Decimal  @db.Decimal(12, 4)
+  currency        String   @db.VarChar(3)
+  calculationSnapshot Json // { rate, base, uma, formula } — auditable
+  occupants       Int?     // para tiered
+
+  appliedAt       DateTime @default(now())
+  voidsApplicationId String?  // append-only: void crea entry negativo
+
+  @@index([guestStayId])
+  @@index([appliedAt])
+}
+```
+
+### Resolución de impuestos para una property en un date
+
+```typescript
+async function resolveTaxesForProperty(propertyId: string, date: Date): Promise<TaxRate[]> {
+  const property = await prisma.property.findUnique({
+    where: { id: propertyId },
+    include: { legalEntity: true }
+  })
+
+  // 1. Catalog entries que aplican por jurisdicción
+  const baseEntries = await prisma.taxCatalogEntry.findMany({
+    where: {
+      country: property.country,
+      OR: [
+        { region: property.region, municipality: property.municipality },
+        { region: property.region, municipality: null },
+        { region: null, municipality: null },  // federales
+      ],
+      validFrom: { lte: date },
+      AND: [
+        { OR: [{ validTo: null }, { validTo: { gte: date } }] },
+        { status: { in: ['ACTIVE', 'AMBIGUOUS'] } }  // AMBIGUOUS aplica con modalidad seleccionada en wizard
+      ],
+    },
+    orderBy: [{ region: 'desc' }, { municipality: 'desc' }]  // más específico primero
+  })
+
+  // 2. Overrides en precedencia: PROPERTY > LEGAL_ENTITY > catálogo base
+  const propertyOverrides = await prisma.taxCatalogOverride.findMany({
+    where: { scope: 'PROPERTY', scopeId: propertyId, validFrom: { lte: date }, ... }
+  })
+  const legalEntityOverrides = await prisma.taxCatalogOverride.findMany({
+    where: { scope: 'LEGAL_ENTITY', scopeId: property.legalEntityId, ... }
+  })
+
+  return mergeOverrides(baseEntries, legalEntityOverrides, propertyOverrides)
+}
+```
+
+### Roles y ownership
+
+| Rol | Permite |
+|---|---|
+| `TAX_CURATOR` (Zenix interno) | CRUD `TaxCatalogEntry` + verificación periódica de `sourceUrl` |
+| `SUPERVISOR` (cliente) | Crear `TaxCatalogOverride` con `reason` + `approvedById` obligatorios |
+| `RECEPTIONIST` | Solo lectura — ve los impuestos aplicados, no los configura |
+| `SUPER_ADMIN` Zenix | Resolver `AMBIGUOUS` entries cuando el cliente solicita |
+
+El cliente **nunca edita el catálogo base**. Esto es análogo a:
+- SAP Tax Determination (catálogo central, customer override per company code)
+- Salesforce permission sets (catálogo de perfiles centralizado, custom permission sets para overrides)
+- Vertex tax content team (un equipo interno actualiza catálogos para sus clientes)
+
+### Mantenimiento — cron de verificación + alerta a curator
+
+```typescript
+@Cron('0 4 1 * *')  // primer día del mes, 4 AM UTC
+async checkCatalogUpdates() {
+  for (const entry of activeEntries) {
+    const fetched = await fetch(entry.sourceUrl)
+    const checksum = sha256(fetched.body)
+    if (entry.sourceChecksum !== checksum) {
+      await this.notifyCurators({
+        entry,
+        change: 'source-checksum-mismatch',
+        sourceUrl: entry.sourceUrl,
+      })
+      entry.status = 'NEEDS_REVIEW'
+    }
+  }
+}
+
+// Adicional: UMA cambia 1-feb cada año
+@Cron('0 2 1 2 *')  // 2 AM UTC, 1-feb anual
+async refreshUmaBasedEntries() {
+  const newUma = await fetchUmaFromINEGI()
+  await prisma.umaValue.create({
+    data: { country: 'MX', value: newUma, validFrom: new Date('2026-02-01') }
+  })
+  // Las entradas con calculation = UMA_MULTIPLIER o UMA_PER_PERSON_TIERED
+  // se recalculan automáticamente vía JOIN a UmaValue.
+}
+```
+
+### Setup wizard Zenix Activate — flow taxes
+
+Reemplaza la sección de "Configuración fiscal" del wizard (§77-§80) por este flow optimizado para reducir fricción documentada en Cloudbeds (~30 clicks para hostal MX).
+
+```
+PASO 1: País (dropdown 10 países LATAM)
+  ↓
+PASO 2: Estado/Departamento (auto-filtrado por país)
+  ↓
+PASO 3: Municipio (solo MX/BR — autocomplete con municipios catalogados)
+  ↓
+PASO 4: Zenix muestra TAX BUNDLE detectado:
+  ✓ IVA federal 16% (modificable: 8% si frontera)
+  ✓ ISH Quintana Roo 5%
+  ⚠️ DSA Tulum (selector: per-room | per-person tiered) — AMBIGUO, requiere selección
+  → Botón: "Aplicar" | "Personalizar"
+  ↓
+PASO 5: Preview del desglose con tarifa de ejemplo $1000 MXN
+  → Render live:
+     Base                          1 000.00 MXN
+     ISH Quintana Roo (5 %)           50.00 MXN
+     DSA Tulum (30 % UMA per-room)    35.19 MXN
+     IVA federal (16 % sobre 1086.19) 173.79 MXN
+     ──────────────────────────────────────
+     Total visible al guest        1 258.98 MXN
+  → Toggle: "Desglose colapsado / detallado al guest"
+  ↓
+PASO 6: Excepciones (override per LegalEntity opcional)
+  → "¿Tu LegalEntity está exenta?" (RNT CO, ZOLITUR HN, IVA-exempt diplomático)
+  ↓
+PASO 7: Cambios futuros visibles
+  → "UMA actualiza 1-feb cada año (auto-recalcular)" ✓
+  → "Yucatán bajó ISH 5%→4.5% en 2026" — ya reflejado
+  → "Reforma tributária Brasil 2026-2033" — no aplica a tu property
+```
+
+**Total clicks objetivo:** 6-8 (vs ~30 Cloudbeds, ~∞ Opera). Reducción 75-80 % en carga cognitiva (Sweller 1988).
+
+### Diferenciador comercial frente a competencia documentada
+
+| PMS | Patrón | Pain documentado |
+|---|---|---|
+| Mews | Tax Environments hard-coded por país, **no modificables tras crear enterprise** | "Mews expects integration partners to send the correct tax codes" (Connector API docs) + [feature request abierto: "Add Tax code in reports"](https://feedback.mews.com/forums/918232-property-operations-pms/suggestions/48887165-add-tax-code-in-reports) |
+| Cloudbeds | Sin presets per-país. ~10 clicks por impuesto. ~30 clicks setup MX completo | Reviews Capterra mencionan complejidad de reports y opacity de payouts |
+| Opera Cloud | Máxima flexibilidad, zero asistencia | Requiere consultor Oracle certificado ($15-30k USD) para setup |
+| RoomRaccoon | Onboarding asistido 1-4 semanas (lo carga el onboarding team) | Lento; el cliente espera 4 semanas para abrir |
+| **Zenix** | **Catálogo nativo curado + selector país→estado→bundle + preview live** | — (diferenciador) |
+
+---
+
 ## Decisiones no-negociables propuestas para CLAUDE.md
 
-Se propone agregar §81–§90:
+Se propone agregar §81–§94:
 
 | § | Decisión |
 |---|---|
@@ -611,6 +975,10 @@ Se propone agregar §81–§90:
 | **§88** | `PaymentMethod` enum se mantiene como naturaleza del pago (`CASH | CARD_TERMINAL | BANK_TRANSFER | OTA_VIRTUAL_CARD | COMP`), no se factoriza por divisa. La divisa va en `paidCurrency`. |
 | **§89** | `IFiscalAdapter` por país (Strategy pattern). Cada `FiscalRegime` tiene su `pacAdapterClass`. MX BASE; CO/PE/CR son DLC activables vía Zenix Activate. |
 | **§90** | Créditos emitidos sobre stays OTA por default solo aplicables a reservas direct (`applicableChannels=['DIRECT']`). Configurable per-property con audit log. Mitigación del riesgo OTA commission. |
+| **§91** | **Catálogo nativo Zenix de impuestos** (`TaxCatalogEntry`) — single source of truth, owned por rol `TAX_CURATOR` interno. Cliente NUNCA edita catálogo base; solo crea `TaxCatalogOverride` con `reason` + `approvedById` obligatorios. Patrón SAP Tax Determination / Vertex Tax Content team. Diferenciador documentado frente a Mews (Tax Environments hard-coded no modificables), Cloudbeds (sin presets ~30 clicks setup MX), Opera (requiere consultor $15-30k). |
+| **§92** | **`TaxCatalogOverride` con precedencia PROPERTY > LEGAL_ENTITY > catálogo base**. Override permite `disabled=true` para exoneraciones (ZOLITUR Roatán, RNT Colombia, IVA-exempt diplomático) o `customRate/customFixedAmount`. Validez con `validFrom/validTo`. Audit obligatorio. |
+| **§93** | **Brasil EXCLUIDO de v1.0.x** — ISS municipal (5 % por ayuntamiento, 80+ ciudades top) + reforma tributária 2026-2033 (CBS/IBS gradual replacement PIS/Cofins/ICMS/ISS). Entrar a Brasil **post v1.2** con **Sovos como `FiscalAdapter`** dentro del pattern §89 (no reinventar). Sovos tiene equipo dedicado a Brasil + México CFDI + reforma tributária. |
+| **§94** | **`TaxCatalogEntry.status='AMBIGUOUS'`** para entradas con fuente primaria no verificable. Caso vigente: DSA Tulum (per-room vs per-person tiered). Wizard Zenix Activate solicita al cliente seleccionar modalidad al activar property; equipo de Activate verifica con Tesorería Municipal. Default conservador = `UMA_MULTIPLIER` per-room (modalidad soportada por fuente oficial Riviera Maya). |
 
 ---
 
@@ -733,4 +1101,5 @@ Se propone agregar §81–§90:
 
 ## Bitácora de revisiones
 
-- **2026-05-15** — Versión inicial. Consolidación de investigación competitiva (2 agentes paralelos) + decisiones arquitectónicas §81-§90 propuestas.
+- **2026-05-15 (PM late)** — Sección **J · Catálogo nativo Zenix + LATAM coverage matrix** agregada tras investigación profunda de 32 estados MX + 9 países LATAM + fricción competitiva (Mews, Cloudbeds, Opera, RoomRaccoon). 4 decisiones nuevas §91-§94: catálogo nativo curado internamente por rol `TAX_CURATOR` Zenix, modelo de override en dos capas con precedencia PROPERTY > LEGAL_ENTITY > base, Brasil EXCLUIDO v1.0.x con Sovos como adapter post v1.2, `status='AMBIGUOUS'` para entradas no verificables (caso Tulum DSA documentado). Matriz completa MX 32 estados ISH 2026 (Yucatán bajó 5→4.5 %, plataformas digitales con tarifa diferenciada en QR/CDMX/GRO/QRO/JAL). Setup wizard objetivo: 6-8 clicks vs ~30 Cloudbeds (Sweller 1988 cognitive load).
+- **2026-05-15 (PM)** — Versión inicial. Consolidación de investigación competitiva (2 agentes paralelos) + decisiones arquitectónicas §81-§90 propuestas.
