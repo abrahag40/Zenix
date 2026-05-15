@@ -18,6 +18,7 @@ import { MaintenanceModule } from './maintenance/maintenance.module'
 import { NotificationsModule } from './notifications/notifications.module'
 import { ChannexModule } from './integrations/channex/channex.module'
 import { AvailabilityModule } from './pms/availability/availability.module'
+import { AccessControlModule } from './common/access-control/access-control.module'
 import { SettingsModule } from './settings/settings.module'
 import { DiscrepanciesModule } from './discrepancies/discrepancies.module'
 import { ReportsModule } from './reports/reports.module'
@@ -72,6 +73,7 @@ import { PropertyScopeGuard } from './common/guards/property-scope.guard'
     NotificationsModule,
     ChannexModule,
     AvailabilityModule,
+    AccessControlModule,
     SettingsModule,
     DiscrepanciesModule,
     ReportsModule,
