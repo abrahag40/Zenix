@@ -34,8 +34,8 @@
 
 - **Versión en curso:** v1.0.0 (piloto comercial — Hotel Monica Tulum)
 - **Últimos commits relevantes:** PR #8 (Sprint 9-HK ext + KP-01), Sprint Mx-1 backend (commit 1436f6c), Sprint Mx-1B (web + mobile completos en worktrees)
-- **Próximo bloque:** SEC-α (hardening seguridad multi-tenant) → HK-CFG (SettingsPage Recamaristas) → POLISH-α → QA-α → release v1.0.0
-- **Auditoría completa:** [Modo auditoría 2026-05-13](#audit-20260513) — 1 bug crítico (MT-5), 2 altos, 11 medios, 5 acknowledged debt
+- **Próximo bloque:** ~~SEC-α~~ ✅ → ~~POLISH-α~~ ✅ → Mx-1B finalización → HK-CFG (SettingsPage Recamaristas) → QA-α → CI-RESCUE → release v1.0.0
+- **Auditoría completa:** [Modo auditoría 2026-05-13](#audit-20260513) — 1 bug crítico (MT-5 ✅), 2 altos (MT-3 ✅, NS-3 ✅), 11 medios (✅ los 11 resueltos en commits previos; MT-9 con componente ops pendiente fuera del repo), 5 acknowledged debt. **SEC-α + POLISH-α ambos cerrados** tras verificación 2026-05-15.
 
 ---
 
@@ -692,30 +692,30 @@ npx prisma studio
 
 > Auditoría comparativa Zenix vs bugs documentados en PMS competidores (Mews, Cloudbeds, Opera, Clock PMS+, Quore, MaintainX, Optii, Breezeway, hotelkit, Roomraccoon). 103 patrones cruzados. 88 patrones (85%) ya mitigados correctamente.
 
-### 🔴 Crítico (fix antes de v1.0.0 release — Sprint SEC-α)
+### 🔴 Crítico (RESUELTO en commit `aa6f122` Sprint SEC-α)
 
-- **MT-5** — Query `?propertyId=` bypasea JWT scope. 5 controllers afectados: `notification-center.controller.ts:22-27`, `guest-stays.controller.ts:52-58, 131-141`, `room-readiness.controller.ts:25`, `stay-journeys.controller.ts:20`, `room-types.controller.ts:13`. **Fix:** guard `if (query.propertyId !== actor.propertyId) throw ForbiddenException()`.
+- **MT-5** ✅ DONE — `PropertyScopeGuard` (`apps/api/src/common/guards/property-scope.guard.ts`) registrado como `APP_GUARD` global en `app.module.ts:113`. Intercepta TODOS los endpoints que reciben `?propertyId=` y valida contra `TenantContextService.getPropertyId()` (que viene del JWT). 6 tests en `property-scope.guard.spec.ts` cubren happy path + mismatch + public skip + non-string array. Defense ya activa system-wide, no por-controller — más robusto que el plan original del audit.
 
-### 🟠 Alto (fix Sprint SEC-α)
+### 🟠 Alto (RESUELTO en commit `aa6f122` Sprint SEC-α)
 
-- **MT-3** — `switchProperty` no valida `UserPropertyRole` pivot. `auth.service.ts:83-87`. **Fix:** `await this.prisma.userPropertyRole.findFirst({ where: { userId: actor.sub, propertyId: targetPropertyId } })`.
-- **NS-3** — Verificar que `noShowRevertedAt: null` está en `night-audit.scheduler.ts:146` `where` clause (documentado §15b).
+- **MT-3** ✅ DONE — `switchProperty` valida `UserPropertyRole` pivot en `auth.service.ts:95-127` (comentario "SEC-α MT-3"). Caso (a) Staff con userId vinculado exige `userPropertyRole.findFirst`. Caso (b) Staff legacy sin userId solo permite no-op switch. Caso (c) switch idempotente al mismo property siempre permitido.
+- **NS-3** ✅ DONE — `noShowRevertedAt: null` presente en `night-audit.scheduler.ts:146` (junto al `noShowAt: null`). Stays revertidos no se re-marcan.
 
-### 🟡 Medio (cleanup en SEC-α o v1.0.x POLISH-α)
+### 🟡 Medio (TODOS RESUELTOS en commits previos — verificado 2026-05-15)
 
-| Bug | Archivo | Fix |
-|-----|---------|-----|
-| NS-6 | `guest-stays.service.ts:1512` | Guard `localHour >= potentialNoShowWarningHour` en markAsNoShow |
-| MT-7 | `useSSE.ts:111`, `PropertySwitcher.tsx` | Re-mount SSE tras switchProperty |
-| MT-8 | `.env.example:3` | JWT TTL de 7d → 24h |
-| PAY-8 | `guest-stays.service.ts:1920, 2055, 2108` | `shiftDate` con timezone + checkoutHour |
-| CAL-10 | `stay-journeys.service.ts:339-365` | Guard `effectiveDate >= segment.checkIn` |
-| CAL-4 | `useMoveRoom` hook | Verificar toast en 409 ConflictException |
-| BLK-6 | `blocks.service.ts` | `notifyReservation/Release` post-commit (fire-and-forget) |
-| MAINT-4 | `TicketDetailDrawer.tsx:277-288` | Draft persistence comments |
-| NOTIF-7+13 | `GlobalMaintenanceDrawer.tsx` | 404 fallback con toast |
-| NOTIF-11 | `NotificationPanel.tsx:177` | `disabled={mut.isPending}` |
-| MT-9 | `useSSE.ts:59,70` | Reverse proxy redact `?token=` |
+| Bug | Status | Archivo donde vive el fix |
+|-----|--------|----------------------------|
+| NS-6 | ✅ DONE | `guest-stays.service.ts:1528-1544` (guard + supervisor override + comentario "Sprint SEC-α — bug NS-6") |
+| MT-7 | ✅ DONE | `useSSE.ts` re-runs effect con esRef tras switchProperty (línea 46) |
+| MT-8 | ✅ DONE | `.env.example:4` `JWT_EXPIRES_IN="24h"` |
+| PAY-8 | ✅ DONE | `guest-stays.service.ts:77-90` función `shiftDateForTimezone` con tz IANA; usado en checkout (línea 1952) |
+| CAL-10 | ✅ DONE | `stay-journeys.service.ts:360-363` guard `isBefore(effectiveDate, startOfDay(activeSegment.checkIn))` |
+| CAL-4 | ✅ DONE | `useGuestStays.ts:240-242` `useMoveRoom` con `onError → toast.error` |
+| BLK-6 | ✅ DONE | `blocks.service.ts:795-797` patrón fire-and-forget post-commit + comentario "BLK-6" |
+| MAINT-4 | ✅ DONE | `CommentsThread.tsx:40-59` draft persistence via `DRAFT_STORAGE_KEY` localStorage (movido del TicketDetailDrawer original) |
+| NOTIF-7+13 | ✅ DONE | `TicketDetailDrawer.tsx:101-114` `toast.error` con `lastErrorToastedTicket` ref + comentario "NOTIF-7+13 fix" |
+| NOTIF-11 | ✅ DONE | `NotificationPanel.tsx:177` `disabled={isActionPending}` + comentario "NOTIF-11" |
+| MT-9 | ⚠️ Code TODO + Ops pendiente | `useRoomSSE.ts:54-67` y `useSSE.ts` documentan el riesgo y la mitigación. Acción de código (cookie httpOnly + sse-token short-lived) está en TODO para v1.0.x SSE-auth refactor. Acción ops (proxy redact `?token=`) requiere config nginx/Cloudfront productivo — NO en repo. Documentar en `docs/ops/sse-token-redaction.md` cuando se setup el proxy. |
 
 ### 🟢 Deuda técnica acknowledged (v1.0.x DEBT-α)
 
@@ -735,12 +735,12 @@ npx prisma studio
 
 | Sprint | Alcance | Días | Bloquea v1.0.0 |
 |--------|---------|------|----------------|
-| **SEC-α** | Hardening seguridad (MT-5, MT-3, NS-3, NS-6, MT-7, MT-8) | 5-7 | **Sí — crítico** |
+| ~~SEC-α~~ | ✅ CERRADO commit `aa6f122` + doc update PR #20 — MT-5/MT-3/NS-3 | — | Cerrado |
+| ~~POLISH-α~~ | ✅ CERRADO — los 11 bugs medios del audit ya estaban resueltos en commits previos (verificado 2026-05-15). Único pendiente: MT-9 ops (config proxy productivo, no código) | — | Cerrado |
 | **Mx-1B finalización** | Gaps menores web + mobile mantenimiento | 3-4 | Sí |
-| **HK-CFG (Setup Recamaristas)** | SettingsPage tab "Recamaristas" | 5-7 | Sí |
-| **POLISH-α** | Bugs medios cleanup | 2-3 | Sí |
-| **QA-α** | Test coverage mobile Hub | 4-5 | Sí |
-| **CI-RESCUE** | Rescatar pipeline CI: eslint configs + 110 tests rojos `@zenix/api` + migrar multer 1.x→2.x | 3-5 | No (lint/test marcados non-blocking 2026-05-15) |
+| **HK-CFG (Setup Recamaristas)** | SettingsPage tab "Recamaristas" + wizard onboarding | 5-7 | Sí |
+| **QA-α** | Test coverage mobile Hub Recamarista | 4-5 | Sí |
+| **CI-RESCUE** | Pipeline CI: eslint configs + 110 tests rojos `@zenix/api` + migrar multer 1.x→2.x | 3-5 | No (lint/test non-blocking desde 2026-05-15) |
 
 ### Sprint CI-RESCUE — detalle técnico
 
@@ -866,6 +866,8 @@ Tres capas de defensa:
 
 ## Bitácora de cambios mayores a este documento
 
+- **2026-05-15** (final +1) — POLISH-α también CERRADO tras verificación de los 11 bugs medios del audit 2026-05-13. Hallazgo paralelo al de SEC-α: el audit estaba desactualizado, todos los bugs (NS-6, MT-7, MT-8, PAY-8, CAL-10, CAL-4, BLK-6, MAINT-4, NOTIF-7+13, NOTIF-11) ya tenían su fix en main con comentarios trazables (`Sprint SEC-α`, `NOTIF-7+13 fix`, `BLK-6`, `NS-6`, etc.). Único pendiente: MT-9 — componente código (cookie httpOnly + sse-token) está en TODO para refactor v1.0.x SSE-auth; componente ops (proxy nginx redact `?token=`) requiere config productivo fuera del repo. CLAUDE.md actualizado con archivo:línea de cada fix para que el audit refleje la realidad. **Resultado neto: SEC-α y POLISH-α cerrados; quedan Mx-1B finalización, HK-CFG, QA-α, CI-RESCUE antes de release v1.0.0.**
+- **2026-05-15** (final) — SEC-α cerrado tras verificación. Items críticos+altos del audit 2026-05-13 (MT-5, MT-3, NS-3) **ya estaban resueltos** en main por commit `aa6f122` "feat(security): Sprint SEC-α — hardening multi-tenant pre-v1.0.0". MT-5 fixed con `PropertyScopeGuard` registrado como `APP_GUARD` global (más robusto que plan por-controller del audit original — protege TODO endpoint con `?propertyId=`, no solo los 5 listados). MT-3 fixed en `auth.service.ts:95-127` con guard de `UserPropertyRole` pivot. NS-3 fixed en `night-audit.scheduler.ts:146`. CLAUDE.md actualizado: items movidos de "🔴 pendiente" a "✅ DONE"; sprint SEC-α marcado cerrado; bugs medios (NS-6, MT-7, MT-8, etc.) reasignados a POLISH-α. Plan próximo: Mx-1B finalización → HK-CFG → POLISH-α → QA-α → CI-RESCUE → release v1.0.0.
 - **2026-05-15** (PM late) — Decisiones §91-§94 agregadas tras investigación profunda 32 estados MX + 9 países LATAM + fricción competitiva. Catálogo nativo `TaxCatalogEntry` curado internamente por rol `TAX_CURATOR` Zenix (NO Avalara/Vertex/Sovos en v1.0.x). Override en dos capas con precedencia PROPERTY > LEGAL_ENTITY > base. Brasil EXCLUIDO v1.0.x (entrar post v1.2 con Sovos como `FiscalAdapter`). DSA Tulum marcado `status='AMBIGUOUS'` — wizard solicita modalidad al cliente, Activate verifica con Tesorería Municipal. Nueva sección J en `14-payment-currency-tax-architecture.md` con matriz completa MX 32 estados (Yucatán bajó 5→4.5 %, tarifas diferenciadas plataformas digitales). Setup wizard objetivo: 6-8 clicks vs ~30 Cloudbeds.
 - **2026-05-15** (PM) — Decisiones §81-§90 (PAY-CORE / CFDI-CORE) registradas tras investigación competitiva de 5 PMS (Mews, Cloudbeds, Opera Cloud, Roomraccoon, Little Hotelier). 9 sub-módulos de cobros/divisas/impuestos LATAM consolidados en `docs/vision/14-payment-currency-tax-architecture.md`. Hallazgos clave: (1) Ningún PMS premium tiene GuestCredit core con CFDI E + FormaPago=15 — Zenix lo entrega como diferenciador; (2) Mews no distingue OTA-collect vs Hotel-collect (gap competitivo); (3) Banxico SF43718 (FIX) confirmado como fuente primaria FX MX, 40k consultas/día gratuito; (4) Quintana Roo 2026: IVA 16% + ISH 6% + DSA per-room/per-person basado en % UMA (117.31 MXN); (5) Tax strategy INCLUSIVE default resuelve fricción Hostelworld del 73% de quejas por extra fees inesperados.
 - **2026-05-15** (AM) — Decisiones arquitectónicas fundacionales registradas como §63-§80. Modelo multi-tenant 4-level Brand→Organization→LegalEntity→Property aprobado. Plan de infraestructura 4 fases definido (Vercel+Render+Neon en piloto, AWS en growth, enterprise en cadenas, continental en escala LATAM). Zenix Activate wizard de 8 etapas diseñado. 3 nuevos docs en `docs/vision/`: 11-multi-tenant-architecture.md, 12-infrastructure-devops.md, 13-consultant-setup-wizard.md.
