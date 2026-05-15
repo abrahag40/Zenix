@@ -45,6 +45,8 @@ interface BookingsLayerProps {
   journeyStays?: GuestStayBlock[]
   activeJourneyId: string | null
   onSetActiveJourneyId: (id: string | null) => void
+  /** 2026-05-15 — selected stay (sheet open) sin journey. Dim others + highlight el seleccionado. */
+  selectedStayId?: string | null
 }
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
@@ -156,6 +158,7 @@ export function BookingsLayer({
   journeyStays = [],
   activeJourneyId,
   onSetActiveJourneyId,
+  selectedStayId = null,
 }: BookingsLayerProps) {
   const calendarEnd = days[days.length - 1]
   const containerRef = useRef<HTMLDivElement>(null)
@@ -404,8 +407,18 @@ export function BookingsLayer({
             isLocked={lockedStays?.has(stay.id)}
             onToggleLock={onToggleLock}
             scrollLeft={scrollLeft}
-            dimmed={activeJourneyId !== null && !activeStayIds.has(stay.id)}
-            isInActiveJourney={activeJourneyId !== null && activeStayIds.has(stay.id)}
+            dimmed={
+              // Caso 1: journey activado y este stay NO es parte del journey
+              (activeJourneyId !== null && !activeStayIds.has(stay.id)) ||
+              // Caso 2: sheet abierto sobre stay standalone (sin journey)
+              // y este stay NO es el seleccionado — dim para foco visual
+              // (foto 3 del feedback aplicada a TODOS los clicks, no solo journey)
+              (activeJourneyId === null && selectedStayId !== null && stay.id !== selectedStayId)
+            }
+            isInActiveJourney={
+              (activeJourneyId !== null && activeStayIds.has(stay.id)) ||
+              (activeJourneyId === null && selectedStayId !== null && stay.id === selectedStayId)
+            }
             isNsStripe={nsStripeIds.has(stay.id)}
             hasNsAbove={hasNsAboveCheck(stay, nsCollisionRanges)}
           />
@@ -438,8 +451,18 @@ export function BookingsLayer({
             isLocked={lockedStays?.has(stay.id)}
             onToggleLock={onToggleLock}
             scrollLeft={scrollLeft}
-            dimmed={activeJourneyId !== null && !activeStayIds.has(stay.id)}
-            isInActiveJourney={activeJourneyId !== null && activeStayIds.has(stay.id)}
+            dimmed={
+              // Caso 1: journey activado y este stay NO es parte del journey
+              (activeJourneyId !== null && !activeStayIds.has(stay.id)) ||
+              // Caso 2: sheet abierto sobre stay standalone (sin journey)
+              // y este stay NO es el seleccionado — dim para foco visual
+              // (foto 3 del feedback aplicada a TODOS los clicks, no solo journey)
+              (activeJourneyId === null && selectedStayId !== null && stay.id !== selectedStayId)
+            }
+            isInActiveJourney={
+              (activeJourneyId !== null && activeStayIds.has(stay.id)) ||
+              (activeJourneyId === null && selectedStayId !== null && stay.id === selectedStayId)
+            }
             isNsStripe={nsStripeIds.has(stay.id)}
             hasNsAbove={hasNsAboveCheck(stay, nsCollisionRanges)}
           />
