@@ -987,9 +987,179 @@ Cada reserva tiene un historial cronológico de todos sus eventos: creación, mo
 
 ---
 
-## Módulo 5 — Configuración Multi-Propiedad
+## Módulo 5 — Configuración Multi-Propiedad + Multi-País
 
 Una cuenta de Zenix gestiona múltiples propiedades. Cada propiedad tiene configuración independiente: zona horaria propia, hora de corte de no-shows, política de cargo, y activación del outreach automático. El gerente corporativo ve todas sus propiedades. El recepcionista de cada hotel ve solo la suya.
+
+### Modelo jerárquico 4-level — arquitectura enterprise-grade
+
+> Para cadenas que operan en varios países (Selina-style) la realidad fiscal exige más que "todas mis propiedades en una cuenta". Zenix separa **comercial** (marca) de **fiscal** (entidad legal) de **operativo** (propiedad), exactamente como SAP S/4HANA y Salesforce hacen para grupos multinacionales.
+
+```
+Brand  (Selina, Marriott AC, Monica Boutique Collection)  — opcional
+  │
+  └─ Organization  (el customer de Zenix — cuenta de facturación)
+        │
+        ├─ LegalEntity  "Selina Mexico SA"  (RFC MX, CFDI, MXN, PAC Facturama)
+        │   ├─ Property  "Selina Tulum"
+        │   ├─ Property  "Selina CDMX Centro"
+        │   └─ Property  "Selina Sayulita"
+        │
+        ├─ LegalEntity  "Selina Costa Rica SRL"  (NIT CR, Tribu-CR, CRC)
+        │   ├─ Property  "Selina San José"
+        │   └─ Property  "Selina Manuel Antonio"
+        │
+        └─ LegalEntity  "Selina Colombia SAS"  (NIT CO, DIAN, COP)
+            └─ Property  "Selina Cartagena"
+```
+
+**Esto desbloquea operaciones que en flat-models son imposibles:**
+
+1. **Facturación correcta por país** — cada Property emite CFDI/DIAN/Tribu-CR con la razón social y régimen fiscal de su LegalEntity. Sin error humano, sin "ay se me olvidó qué RFC va".
+2. **Reporting cross-property con monedas distintas** — el CEO ve ocupación global; el GM de México ve solo sus 3 properties MX en MXN; el contador colombiano solo las CO en COP.
+3. **Crecer sin migrar** — Hotel Monica Tulum (1 property, 1 LegalEntity, sin brand) que decide abrir Hotel Monica Cancún → un click. Decide expandir a Costa Rica → crear LegalEntity nueva, sin tocar lo existente. Eventualmente formaliza marca → agregar Brand row, sin downtime.
+
+### Por qué esto importa comercialmente
+
+Ningún PMS LATAM compite aquí. **Mews y Opera Cloud sí lo tienen, pero a $900-$8,000/mes mínimo.** Cloudbeds tiene "Groups" pero sin separación fiscal explícita — las cadenas multi-país terminan haciendo workarounds. **Zenix lo trae al alcance del boutique LATAM.**
+
+### Sistema de permisos 3-level
+
+| Scope | Quién típicamente | Acceso |
+|-------|-------------------|--------|
+| **Brand-level** | CEO/CTO de la marca | Todas las properties de todos los países |
+| **LegalEntity-level** | Country GM / Country Finance | Todas las properties de un país |
+| **Property-level** | Front desk / Supervisor de housekeeping | 1 sola property |
+
+Un User puede tener cualquier combinación. Cuando llegue Marriott a verte la cara con su sistema de Profiles + Permission Sets, Zenix responde con un modelo más simple y exactamente igual de potente.
+
+### Cobertura fiscal LATAM — modelo "Alejandro Magno"
+
+Zenix está diseñado para conquistar Centroamérica y Sudamérica. Régimes fiscales modelados desde el primer día:
+
+| País | Régimen | Status |
+|------|---------|--------|
+| 🇲🇽 México | CFDI 4.0 (SAT) | v1.0.x — production |
+| 🇨🇴 Colombia | Facturación Electrónica (DIAN) | v1.0.x — production |
+| 🇨🇷 Costa Rica | Factura Electrónica (Hacienda Tribu-CR) | v1.1.x |
+| 🇵🇪 Perú | Comprobante Electrónico (SUNAT-OSE) | v1.1.x |
+| 🇵🇦 Panamá | Factura Electrónica (DGI) | v1.1.x |
+| 🇬🇹 Guatemala | FEL (SAT-GT) | v1.2.x |
+| 🇸🇻 El Salvador | DTE (MH) | v1.2.x |
+| 🇭🇳 Honduras | CAI (SAR) | v1.2.x |
+| 🇧🇷 Brasil | NF-e (Receita Federal) | v1.3.x |
+| 🇦🇷 Argentina | Facturación AFIP | v1.3.x |
+
+**Arquitectura Fiscal Adapter Pattern** — agregar un país nuevo es 1-2 semanas de trabajo: crear `FiscalRegime` row + implementar `IFiscalAdapter` interface. **Sin migrations destructivas. Sin tocar países ya certificados.**
+
+Ver [docs/vision/11-multi-tenant-architecture.md](vision/11-multi-tenant-architecture.md) para arquitectura técnica completa.
+
+---
+
+## Implementación Zenix — el wizard "Activate"
+
+> Inspirado en SAP Activate methodology + Salesforce Setup Assistant + Workday Adaptive Implementation. **Objetivo:** experiencia 10x más rápida que los grandes, manteniendo rigor enterprise.
+
+### El problema con la implementación de los grandes
+
+| Plataforma | Setup típico | Costo onboarding |
+|------------|--------------|-------------------|
+| SAP S/4HANA Cloud | 6-12 semanas | $50k-$500k |
+| Salesforce | 2-8 semanas | $20k-$200k |
+| Workday | 4-8 semanas | $30k-$150k |
+| Oracle Hospitality OPERA | 8-16 semanas | $100k+ |
+| Mews | 2-4 semanas | $0-$5k |
+| Cloudbeds | 3-7 días | $0 |
+
+Para hotelero boutique LATAM, esos tiempos y precios son inviables. Pero **Cloudbeds 3-7 días self-service tiene desventaja:** el cliente queda solo, sin handover formal, sin health checks, sin partner certificado.
+
+### La solución Zenix Activate — 8 etapas con health checks
+
+**Target Zenix Activate:**
+
+| Tipo de customer | Setup tiempo | Costo onboarding |
+|------------------|--------------|-------------------|
+| STARTER single property | 30 min - 2 horas | Incluido en plan |
+| PRO 2-10 properties | 1-2 días | Incluido en plan |
+| ENTERPRISE 10+ properties | 1-2 semanas | Incluido o fee separado $5k-$15k |
+| CADENA multi-país (Selina-like) | 2-4 semanas | $15k-$50k según complejidad |
+
+### Las 8 etapas
+
+1. **Customer Account** — Organization + plan + entitlements activados
+2. **Brand** (opcional, saltable) — logo + colors + brandbook
+3. **LegalEntity** — 1+ entidades fiscales con PAC test sandbox
+4. **Properties** — propiedades físicas con timezone + settings operativos
+5. **Inventory** — habitaciones con templates pre-cargados (HOSTAL/BOUTIQUE/CABAÑAS/BUSINESS) + bulk CSV import
+6. **Staff + Users** — staff operacional + users cross-property + invitaciones automáticas
+7. **Integrations** — Channex, Stripe, Conekta, WhatsApp Business, PAC verificado
+8. **Activación + Handover** — health checks pre-producción + PDF Activation Report + demo 30 min
+
+### Templates de inventario pre-cargados
+
+Razón por la que Zenix Activate es 10x más rápido que la competencia: **defaults inteligentes.**
+
+**HOSTAL:** Dorm 8-bed, Dorm 6-bed female, Dorm 4-bed, Private Standard, Private Double, Private Suite
+**BOUTIQUE HOTEL:** Standard Queen, Standard Twin, Deluxe King, Junior Suite, Master Suite, Penthouse
+**CABAÑAS RESORT:** Standard, Premium (jacuzzi), Familiar (kitchenette), Casa Independiente, Penthouse Beachfront
+**BUSINESS HOTEL:** Single, Double, Twin, Executive Floor, Executive Suite
+
+Cada template tiene RoomTypes razonables con capacity + baseRate sugeridos. Consultor selecciona template → edita 3-5 cosas → guarda. Para clientes con 50+ habitaciones existentes, **import CSV bulk** con preview + validation.
+
+### Health checks pre-activación
+
+Antes de marcar el customer como PRODUCTION, Zenix Activate ejecuta una batería de tests:
+
+- ✅ Test booking creado (synthetic)
+- ✅ Test factura CFDI emitida y aceptada por SAT/DIAN/Tribu-CR
+- ✅ Test cargo Stripe $1 + refund
+- ✅ Test cargo Conekta $1 + refund (solo MX)
+- ✅ Test push de inventario a Channex sandbox
+- ✅ Test mensaje WhatsApp a número del cliente
+- ✅ Test SSE conectividad real-time
+
+Si **algún check crítico falla**, el wizard bloquea la activación. Si hay warnings, pregunta "Continuar o reparar?". Sin sorpresas el día 1.
+
+### Activation Report PDF
+
+Al activar, se genera automáticamente un PDF profesional con:
+- Customer info + Brand + LegalEntities + Properties
+- Inventory summary (counts por RoomType)
+- Staff + Users summary
+- Integrations status
+- Entitlements activados
+- Test booking + test CFDI samples
+- "Próximos pasos" para el supervisor del cliente
+- Soporte contact info + SLA
+
+Enviado por email al customer + a ZaharDev + a partner certificado (si aplica). Sirve como handover formal — igual que el "Realize Phase Report" de SAP Activate, pero generado en 30 segundos.
+
+Ver [docs/vision/13-consultant-setup-wizard.md](vision/13-consultant-setup-wizard.md) para detalle completo del wizard.
+
+---
+
+## Infraestructura — enterprise-grade desde día 1
+
+Zenix corre en infraestructura profesional comparable a SaaS líderes. Plan de crecimiento por fases:
+
+| Fase | Properties | Stack | Uptime SLO |
+|------|-----------:|-------|:----------:|
+| **Piloto** (HOY) | 1-10 | Vercel + Render + Neon Postgres + Cloudflare R2 | 99.5% |
+| **Crecimiento** | 10-100 | AWS Fargate + RDS Multi-AZ + Upstash Redis | 99.9% |
+| **Enterprise** | 100-500 | AWS Aurora Global + multi-region + SOC 2 Type 2 + PCI-DSS L1 | 99.95% |
+| **Continental** | 500+ | Edge functions + dedicated security team | 99.95% |
+
+**Disciplinas DevOps desde día 1:**
+- Environments separados (dev / preview / staging / production)
+- Migrations versionadas con rollback documentado
+- Backups verificados (Neon PITR + S3 weekly + monthly restore test)
+- Secrets en env vars (nunca en repo)
+- 3-tier observability (metrics + logs + traces)
+- Incident runbook documentado para 8 tipos de incidente
+- Postmortems blameless para todo downtime ≥5 min
+- Status page público para enterprise
+
+Ver [docs/vision/12-infrastructure-devops.md](vision/12-infrastructure-devops.md) para detalle completo + cost projection a 5 años.
 
 ---
 
@@ -1521,3 +1691,4 @@ OpEx incluye: AWS S3 + RDS Postgres ($40-60), Channex API ($30-50/property), Str
 *Última actualización pricing: 2026-05-11 — Sprint Mx-1 backend + W1 web + análisis comparativo competencia (10 PMS + 5 módulos especializados).*
 *Última actualización competencia: 2026-05-14 — Agregado estudio comparativo extendido LATAM (Zavia ERP + Syncro PMS) con fuentes verificables y honestidad sobre gaps actuales de Zenix vs IA tarifaria + mensajería OTA centralizada.*
 *Última actualización roadmap: 2026-05-14 — Refactor mayor de versionado a "bloques temáticos" (v1.0.x Foundation, v1.1.x Operation Excellence, v1.2.x Scale & Distribution, v1.3.x Ancillary, v1.4.x Data & AI, v2.0 rewrite). Reordenadas referencias a versiones específicas (IA tarifaria, mensajería OTA, marketplace) según nuevo plan. Ver `docs/vision/03-roadmap-v1-v2.md` para detalle completo + 12 reportes esenciales documentados a nivel CSV-column.*
+*Última actualización arquitectura: 2026-05-15 — Agregada sección Módulo 5 (Configuración Multi-Propiedad + Multi-País) con modelo 4-level Brand→Organization→LegalEntity→Property. Agregada sección "Implementación Zenix — wizard Activate" inspirado en SAP Activate. Agregada sección "Infraestructura enterprise-grade" con 4 fases sin lock-in. 10 países LATAM modelados desde día 1 (MX/CO/CR/PE/PA/GT/SV/HN/BR/AR). Ver docs/vision/11-multi-tenant-architecture.md, 12-infrastructure-devops.md, 13-consultant-setup-wizard.md.*

@@ -39,6 +39,13 @@ export interface PropertyDto {
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
+/** Scope efectivo de la sesión actual — v1.0.5 TENANT-CTX-3LEVEL.
+ *  - PROPERTY: scope clásico (front desk, supervisor housekeeping single-property)
+ *  - LEGAL_ENTITY: country GM con acceso a todas las properties de su entidad fiscal
+ *  - BRAND: CEO/COO acceso a todas las properties de todos los países del brand
+ *  Backward-compat: ausente = PROPERTY (default histórico). */
+export type TenantScope = 'PROPERTY' | 'LEGAL_ENTITY' | 'BRAND'
+
 export interface JwtPayload {
   sub: string
   email: string
@@ -52,6 +59,15 @@ export interface JwtPayload {
   level?: StaffLevel
   propertyId: string
   organizationId: string
+  // ── v1.0.5 TENANT-CTX-3LEVEL — campos opcionales para multi-property scope ──
+  /** Set cuando el user tiene LegalEntityUserRole y opera con scope cross-property.
+   *  Endpoints cross-property validan que la query target esté bajo este legalEntityId. */
+  legalEntityId?: string
+  /** Set cuando el user tiene BrandUserRole y opera con scope cross-country.
+   *  Endpoints cross-brand validan que la query target esté bajo este brandId. */
+  brandId?: string
+  /** Scope efectivo de la sesión. Ausente = 'PROPERTY' por backwards-compat. */
+  scope?: TenantScope
 }
 
 export interface AuthResponse {
