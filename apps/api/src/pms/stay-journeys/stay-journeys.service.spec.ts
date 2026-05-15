@@ -80,6 +80,16 @@ describe('StayJourneyService', () => {
 
   const eventsMock = { emit: jest.fn() }
 
+  // CI-RESCUE 2026-05-15 — availability mock movido a scope para permitir
+  // que tests específicos (extendSameRoom/extendNewRoom solapamiento) lo
+  // sobrescriban con `available: false` y validen el guard de conflict.
+  const availabilityMock = {
+    check: jest.fn().mockResolvedValue({ available: true, conflicts: [] }),
+    checkAvailability: jest.fn().mockResolvedValue([]),
+    notifyRelease: jest.fn().mockResolvedValue(undefined),
+    notifyReservation: jest.fn().mockResolvedValue(undefined),
+  }
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -87,16 +97,25 @@ describe('StayJourneyService', () => {
         { provide: PrismaService, useValue: prismaMock },
         { provide: EventEmitter2, useValue: eventsMock },
         { provide: NotificationsService, useValue: { emit: jest.fn().mockResolvedValue(undefined) } },
-        { provide: AvailabilityService, useValue: {
-          check: jest.fn().mockResolvedValue({ available: true, conflicts: [] }),
-          checkAvailability: jest.fn().mockResolvedValue([]),
-        } },
+        { provide: AvailabilityService, useValue: availabilityMock },
         { provide: AssignmentService, useValue: { autoAssign: jest.fn().mockResolvedValue(undefined) } },
       ],
     }).compile()
 
     service = module.get<StayJourneyService>(StayJourneyService)
     jest.clearAllMocks()
+    // Reset availability default — tests que validan solapamiento sobrescriben con `false`.
+    availabilityMock.check.mockResolvedValue({ available: true, conflicts: [] })
+
+    // CI-RESCUE — fake timers anclados a 2026-04-01 (antes de toda la data
+    // del spec). Sin esto, los tests con `effectiveDate: '2026-04-12'`
+    // serían en el pasado real (mayo 2026+) y el guard
+    // `isBefore(effectiveDate, today)` los rechazaría incorrectamente.
+    jest.useFakeTimers().setSystemTime(new Date('2026-04-01T00:00:00.000Z'))
+  })
+
+  afterEach(() => {
+    jest.useRealTimers()
   })
 
   // ─── extendSameRoom ─────────────────────────────────────────────────────────
@@ -150,12 +169,16 @@ describe('StayJourneyService', () => {
     })
 
     it('lanza ConflictException si hay solapamiento de habitación', async () => {
-      // Arrange
+      // CI-RESCUE 2026-05-15 — rewritten. Service migró de hacer
+      // `staySegment.findFirst` directo a usar `AvailabilityService.check()`.
+      // Override del mock para reportar conflict (este es el contrato actual).
       const segment = makeSegment()
       prismaMock.stayJourney.findUnique.mockResolvedValue(makeJourney([segment]))
-      prismaMock.staySegment.findFirst.mockResolvedValue({ id: 'other-seg' }) // solapamiento
+      availabilityMock.check.mockResolvedValueOnce({
+        available: false,
+        conflicts: [{ stayId: 'other-stay', roomId: 'room-1' }],
+      })
 
-      // Act & Assert
       await expect(
         service.extendSameRoom({
           journeyId: 'journey-1',
@@ -206,12 +229,15 @@ describe('StayJourneyService', () => {
     })
 
     it('lanza ConflictException si la nueva habitación no está disponible', async () => {
-      // Arrange
+      // CI-RESCUE 2026-05-15 — mismo patrón que extendSameRoom: el guard de
+      // disponibilidad ahora usa AvailabilityService.check (no staySegment).
       const segment = makeSegment()
       prismaMock.stayJourney.findUnique.mockResolvedValue(makeJourney([segment]))
-      prismaMock.staySegment.findFirst.mockResolvedValue({ id: 'blocking-seg' }) // solapamiento
+      availabilityMock.check.mockResolvedValueOnce({
+        available: false,
+        conflicts: [{ stayId: 'blocking-stay', roomId: 'room-2' }],
+      })
 
-      // Act & Assert
       await expect(
         service.extendNewRoom({
           journeyId: 'journey-1',
