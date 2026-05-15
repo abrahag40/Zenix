@@ -282,7 +282,40 @@ async function main() {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const _unused = [reception2, supervisorC, receptionC] // referenced for type safety
 
+  // ── User + UserPropertyRole pivot — SEC-α MT-3 ─────────────────────────────
+  // El supervisor de Tulum (s@z.co) es también el cliente piloto del owner.
+  // En demo queremos que pueda hacer switchProperty Tulum ↔ Cancún para probar
+  // el flujo multi-property. Esto requiere:
+  //   1) Un User shared entre ambas propiedades (un solo password humano).
+  //   2) Dos rows UserPropertyRole — una por propiedad.
+  //   3) Staff.userId apuntando al User compartido.
+  // Sin estas rows, switchProperty rechaza con ForbiddenException (OWASP
+  // API5:2023 — Broken Function Level Authorization).
+  const demoUser = await prisma.user.upsert({
+    where: { email: 's@z.co' },
+    update: { firstName: 'Ana', lastName: 'García (multi-prop)' },
+    create: {
+      organizationId: org.id,
+      email: 's@z.co',
+      firstName: 'Ana',
+      lastName: 'García (multi-prop)',
+      passwordHash: await hash(DEMO_PASSWORD),
+    },
+  })
+  await prisma.staff.update({ where: { id: supervisor.id }, data: { userId: demoUser.id } })
+  for (const propId of [tulum.id, cancun.id]) {
+    await prisma.userPropertyRole.upsert({
+      // SystemRole.MANAGER es el equivalente más cercano a StaffRole.SUPERVISOR
+      // en el modelo de permisos cross-property. SystemRole no tiene SUPERVISOR
+      // (es role específico de un departamento per CLAUDE.md §D7).
+      where: { userId_propertyId_role: { userId: demoUser.id, propertyId: propId, role: 'MANAGER' } },
+      update: {},
+      create: { userId: demoUser.id, propertyId: propId, role: 'MANAGER' },
+    })
+  }
+
   console.log(`✅ Staff: 13 cuentas demo Tulum(8) Cancún(5) — password '${DEMO_PASSWORD}'`)
+  console.log(`✅ MT-3 demo: s@z.co linked to User con UserPropertyRole en Tulum + Cancún`)
 
   // 5c. STAFF SHIFTS + COVERAGE (Sprint 8H) ──────────────────────────────────
   // Plantilla realista: turnos diferenciados por propiedad + cobertura por piso.
