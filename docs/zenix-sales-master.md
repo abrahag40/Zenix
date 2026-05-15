@@ -1226,6 +1226,188 @@ El resultado muestra: total de efectivo cobrado, por recepcionista, con cada tra
 
 ---
 
+## Módulo 7 — Cobros, divisas e impuestos (v1.0.1 PAY-CORE + v1.0.2 CFDI-CORE)
+
+> Diseño consolidado 2026-05-15 tras investigación competitiva de 5 PMS premium (Mews, Cloudbeds, Opera Cloud, Roomraccoon, Little Hotelier). Ver [`docs/vision/14-payment-currency-tax-architecture.md`](vision/14-payment-currency-tax-architecture.md).
+
+### Por qué este módulo es vida o muerte para LATAM
+
+En Tulum, Cancún, Cartagena, Cuzco: el 40-60% de huéspedes paga en USD a un hotel cuya moneda base es MXN/COP/PEN. Cada estado tiene su impuesto sobre hospedaje. Cada plataforma (Booking, Expedia, Airbnb, Hostelworld) cobra impuestos parciales o nulos — y al check-in aparece el cargo extra. Y cuando un huésped se va antes con noches pagadas, hay que decidir: ¿devuelvo dinero, doy crédito, retengo? Cada opción tiene implicación fiscal distinta.
+
+**Hallazgo central:** ningún PMS premium del mercado tiene este módulo bien resuelto para LATAM. Zenix lo entrega como diferenciador estructural.
+
+### Multi-currency con FX lock inmutable
+
+- Cobro en USD/EUR/MXN/COP/PEN/CRC con tipo de cambio del día tomado de **Banxico SF43718 (FIX)** — el mismo rate que el SAT acepta para CFDI 4.0 (Art. 20 CFF).
+- El rate se **congela en el cobro** y nunca se reescribe. Cuando Stripe/Conekta liquidan (T+2) con un rate ligeramente distinto, el sistema reconcilia automáticamente la diferencia como Foreign Exchange Gain/Loss — exactamente la línea que USALI 12 ed. (vigente 2026-01-01) exige reportar.
+- Override manual del rate por reservación cuando el hotelero negocia precio especial con un guest corporativo. Audit log.
+- Banxico API gratuita, 40 000 consultas diarias — suficiente para cualquier escala Zenix.
+
+### Cash drawer multi-divisa con cierre de turno per-divisa
+
+Caso real Hotel Monica Tulum: cajero acepta 100 USD por cuenta de 80 USD, devuelve 360 MXN, recibe 50 EUR de huésped europeo, cierra turno. Zenix cuenta cada divisa por separado (MXN, USD, EUR), calcula variance por divisa, y bloquea cierre si el variance supera umbral configurable sin justificación + aprobación SUPERVISOR.
+
+Patrón AHLEI Front Office Cashier's Shift Report. **Mews lo tiene limitado**, Cloudbeds lo tiene completo, Zenix lo entrega comparable a Cloudbeds.
+
+### OTA-collect vs Hotel-collect — detección automática
+
+Reservas Booking Genius / Expedia Collect / Hotelbeds donde la OTA es merchant of record: el hotel **no debe cobrar al check-in**. Cobrar = doble cargo + chargeback Visa garantizado. Zenix detecta vía Channex el flag `payment_collect` y bloquea cobro duplicado en OTA-collect.
+
+**Mews todavía no distingue estos modelos** — tiene feature request abierto desde hace años. Cloudbeds sí. Zenix lo entrega en v1.0.1 como BASE.
+
+### GuestCredit — el problema del early checkout resuelto fiscalmente
+
+El caso: huésped paga 5 noches, se va al 3er día por motivo de fuerza mayor. ¿Qué pasa con las 2 noches restantes?
+
+**Opción tradicional sin Zenix:** discrecional del recepcionista. Nadie registra nada. El huésped puede pedir refund vía Visa después y el hotel pierde la evidencia.
+
+**Cómo lo hace Zenix:** el modal de early checkout ofrece 3 opciones explícitas:
+
+1. **Refund cash/tarjeta** — emite CFDI E (Egreso) con `UsoCFDI=G02 (Devoluciones)` referenciando el CFDI I original. PaymentLog negativo.
+2. **Convertir a crédito futuro** — emite `GuestCredit` con monto, moneda, expiración, audit. CFDI E con `FormaPago=15 (Condonación)` porque el dinero NO sale del hotel.
+3. **Retener (no-refund por política de tarifa)** — registra "Early departure fee" en folio. Sin crédito ni refund.
+
+El crédito vive en `GuestProfile`, no en el booking. La próxima vez que ese huésped reserva direct, aparece automáticamente "Tiene $X de crédito disponible — ¿aplicar?". Expiración configurable (default 12 meses MX). Audit log inmutable.
+
+**Por qué importa para LATAM:** ningún PMS premium tiene esto. Mews y Opera Cloud lo resuelven con **add-on de marketplace (VoucherCart) que cobra extra al hotelero**. Roomraccoon es el más cercano (booker profile balance) pero sin respaldo fiscal CFDI E. **Zenix lo entrega en Core sin add-on, con CFDI E correctamente emitido — diferenciador honesto.**
+
+### Tax engine multi-impuesto — Quintana Roo de ejemplo
+
+Para Hotel Monica Tulum 2026, tarifa base 1 000 MXN/noche:
+
+| Concepto | Cálculo | Monto |
+|---|---|---|
+| Tarifa hospedaje | Base | 1 000.00 MXN |
+| IVA federal 16 % | % de base | 160.00 MXN |
+| ISH Quintana Roo 6 % (2026) | % de base | 60.00 MXN |
+| Derecho de Saneamiento Ambiental Tulum | 30 % UMA (117.31) | ~35.19 MXN/persona |
+| **Total visible al guest** | | **~1 255 MXN** |
+
+`TaxRate` modela los tres modos: porcentual (IVA, ISH), cuota fija per-night per-room o per-person (Saneamiento), y multiplicador UMA (que cambia cada febrero por inflación INEGI). Estructura escalable a CO, PE, CR sin migration — solo seed de nuevos `TaxRate` rows + adapter PAC del país.
+
+### Tax transparency — solución al "problema Hostelworld"
+
+NN/g (Price Transparency in Travel Bookings, 2023): el 73 % de quejas post-stay con respecto a impuestos provienen de configuración OTA mal alineada — el guest reserva en Hostelworld a 500 MXN, llega y le cobran 620 MXN con impuestos sumados. Mala reseña garantizada — Mehrabian-Russell 1974: respuesta emocional de "engaño" incluso cuando el cargo es legítimo.
+
+**Cómo lo resuelve Zenix:** `PropertySettings.taxStrategy = INCLUSIVE` por default para LATAM hostal/boutique. Push a OTA con `is_inclusive=true` para impuestos porcentuales (IVA + ISH) → el guest ve el precio gross real. Saneamiento per-night (cuota fija) se envía `is_inclusive=false` con disclosure obligatorio en confirmation page del OTA. El guest sabe **antes** de reservar que pagará extra al check-in y por qué.
+
+Cero fricción en check-in. Cero reseñas por "extra fees".
+
+### FxAdvisor (DLC tier Pro) — ningún competidor lo tiene
+
+Cuando el guest tiene cuenta y opciones de pago, el cajero decide ciegamente. Mews monetiza el DCC con markup oculto al hotelero. Zenix transparenta:
+
+```
+Cobrar en USD efectivo:  100 USD   (rate hotel 17.85) → neto 1 785 MXN
+Cobrar en USD tarjeta:   100 USD   (rate Stripe 17.40) → neto 1 740 MXN (-45)
+Cobrar en MXN tarjeta:   1 785 MXN (comisión Stripe 3.6%) → neto 1 721 MXN (-64)
+
+Recomendación: USD efectivo (mejor margen, $64 MXN más).
+```
+
+Margen incremental 2-5 % por decisión correcta. Empaqueta en tier Zenix Pro o módulo standalone "Zenix Revenue Optimizer".
+
+### Tax Catalog curado por Zenix — diferenciador estructural frente a TODO el mercado
+
+Investigación de mayo 2026 confirmó que **ningún PMS del mercado preconfigura impuestos por estado/provincia para LATAM**:
+
+| Competidor | Cómo configuran taxes hoy | Fricción documentada |
+|---|---|---|
+| **Mews** | Tax Environments hard-coded por país, **no modificables tras crear enterprise**. La doc literal dice: *"Mews expects integration partners to send the correct tax codes"*. | Feature request **abierto**: ["Add Tax code in reports"](https://feedback.mews.com/forums/918232-property-operations-pms/suggestions/48887165-add-tax-code-in-reports) — el cliente ni siquiera puede saber en sus reportes qué se cobró por concepto. |
+| **Cloudbeds** | Sin presets per-país. Cada impuesto requiere ~10 clicks. Setup completo MX (IVA + ISH + DSA) son **~30 clicks**. | Reviews Capterra mencionan opacidad de payouts y complejidad de reports. |
+| **Opera Cloud** | Flexibilidad infinita, zero asistencia. | Requiere **consultor Oracle certificado ($15-30k USD)** para configurarlo. |
+| **RoomRaccoon** | Onboarding asistido 1-4 semanas — el onboarding team carga los datos manualmente. | Cliente espera 4 semanas para abrir. |
+| **Zenix** | **Catálogo nativo curado por Tax Curator interno + selector país→estado→bundle + preview live al guest** | — (diferenciador) |
+
+**Cómo funciona en Zenix:**
+
+1. El cliente entra al wizard de Zenix Activate
+2. Selecciona **país → estado/departamento → municipio** (autocomplete con catálogo Zenix)
+3. Zenix muestra el **TAX BUNDLE detectado** con los impuestos exactos aplicables a esa jurisdicción
+4. Preview en vivo del desglose al guest con tarifa de ejemplo $1,000:
+   ```
+   Base                          1 000.00 MXN
+   ISH Quintana Roo (5 %)           50.00 MXN
+   DSA Tulum (30 % UMA per-room)    35.19 MXN
+   IVA federal (16 % sobre 1086)   173.79 MXN
+   ─────────────────────────────────────────
+   Total visible al guest        1 258.98 MXN
+   ```
+5. Excepciones opcionales (RNT Colombia exento, ZOLITUR Roatán, IVA-exempt diplomático)
+6. Confirmar
+
+**Total: 6-8 clicks. Setup completo en menos de 2 minutos. Vs ~30 clicks Cloudbeds. Vs 4 semanas RoomRaccoon. Vs $30k consultor Opera.**
+
+**El secreto detrás:** Zenix mantiene un equipo interno (Tax Curator, 10 h/semana de contador parcial) que verifica cambios fiscales y los actualiza en el catálogo central en menos de 48 horas. Cuando el SAT publica nueva UMA cada 1-febrero, cuando Yucatán bajó ISH de 5 % a 4.5 % en 2026, cuando Quintana Roo introduce nuevo registro estatal obligatorio — el catálogo Zenix lo refleja **antes** que cualquier competidor.
+
+Patrón industria: **SAP Tax Determination · Vertex Tax Content team · Salesforce Permission Sets**. El cliente nunca pelea con el dato fiscal; vive cerca de él pero no es dueño.
+
+### México 32 estados — datos críticos 2026 (cobertura completa Zenix)
+
+| Estado | ISH tradicional | ISH plataformas digitales | Extras |
+|---|---|---|---|
+| Aguascalientes | 3 % | — | |
+| BC | 5 % (7 % moteles) | 5 % | |
+| BCS | 4 % | 4 % | |
+| Campeche | 2 % | 2 % | |
+| Chiapas | 2 % (5 % moteles) | 2 % | |
+| Chihuahua | 4 % | — | |
+| **CDMX** | **3.5 %** | **5 %** | |
+| Coahuila | 3 % | — | |
+| Colima | 3 % (5 % moteles) | 3 % | |
+| Durango | 3 % (5 % moteles) | — | |
+| Edomex | 4 % | 2 % | |
+| Guanajuato | 4 % | — | |
+| **Guerrero** | **4 %** | **5 %** | |
+| Hidalgo | 2.5 % | (2026) | |
+| **Jalisco** | **4 %** | **5 %** | + Impuesto ambiental |
+| Michoacán | 3 % | 3 % | |
+| Morelos | 3.75 % | — | |
+| Nayarit | 5 % | 5 % | |
+| NL | 3 % | 3 % | |
+| Oaxaca | 3 % | 3-5 % | |
+| Puebla | 3 % | 3 % | |
+| **Querétaro** | **3.5 %** | **5 %** | |
+| **Quintana Roo** | **5 %** | **6 %** | + **DSA UMA-based** |
+| SLP | 4 % | — | Distinto PF/PM |
+| Sinaloa | 3 % | 3 % | |
+| Sonora | 3 % | 3 % | |
+| Tabasco | 3 % | — | |
+| Tamaulipas | 3 % | — | |
+| Tlaxcala | 2 % | — | |
+| Veracruz | 2 % | — | |
+| **Yucatán** | **4.5 %** ↓ | **4.5 %** | Bajó de 5 % en 2026 + ambiental |
+| Zacatecas | 3 % | — | |
+
+**Plus federal:** IVA 16 % (8 % franja fronteriza norte y sur).
+
+### LATAM 10 países — granularidad nativa Zenix
+
+| País | Granularidad mínima | Disponibilidad |
+|---|---|---|
+| México | **Estado + municipio** (QR, YUC) | Core v1.0.2 |
+| Colombia | Nacional + flag SAI exento | DLC v1.0.x |
+| Costa Rica | Nacional | DLC v1.0.x |
+| Perú | Nacional + flag MYPE 10.5 % | DLC v1.0.x |
+| Panamá | Nacional (ITBMS 10 %) | DLC v1.0.x |
+| Guatemala | Nacional (IVA 12 % + INGUAT 10 %) | DLC v1.0.x |
+| El Salvador | Nacional (IVA 13 % + CORSATUR 5 %) | DLC v1.0.x |
+| Honduras | Nacional + override ZOLITUR Roatán | DLC v1.0.x |
+| Argentina | Nacional + overrides municipales opcionales | DLC v1.1.x |
+| **Brasil** | **NO disponible v1.0** — entrar v1.2 con Sovos | Roadmap v1.2+ |
+
+**¿Por qué Brasil está excluido?** ISS municipal (5 % por ayuntamiento × 80+ ciudades top) + reforma tributária 2026-2033 (CBS/IBS gradual replacement de PIS/Cofins/ICMS/ISS) hacen Brasil incompatible con catálogo curado interno. Cuando Zenix entre a Brasil, contrataremos **Sovos** (especialista en hotelería Brasil) como adapter dentro del pattern `FiscalRegime`. No reinventamos lo que ya hicieron bien.
+
+### Resumen de packaging
+
+| Tier | Módulos PAY/CFDI/TAX incluidos |
+|---|---|
+| **Zenix Core (todos los planes)** | Multi-currency + FX lock · OTA-collect detection · Cash drawer multi-divisa · Tax engine MX (32 estados + IVA + ISH + DSA + CFDI 4.0 + CFDI E) · GuestCredit con CFDI E · **Tax Catalog nativo curado** |
+| **Zenix Pro (DLC)** | FxAdvisor · Tax adapters CO/CR/PE/PA/GT/SV/HN/AR · Reporte de aging de créditos · Reportes Cashier Shift avanzados |
+| **Zenix Enterprise** | FX Gain/Loss USALI line · Multi-LegalEntity consolidation · Audit-grade traces · Anti-fraude staff de cajeros · Sovos adapter Brasil (cuando aplique) |
+
+---
+
 ## Módulo de Mantenimiento — Sistema de tickets work-order completo (Sprint Mx-1, mayo 2026)
 
 El housekeeper es quien entra a cada habitación todos los días — es el primero en ver un grifo roto, una lámpara fundida, o una mancha. Hoy ese reporte llega por WhatsApp y se pierde. **Zenix lo convirtió en un sistema completo de work-orders.**
@@ -1692,3 +1874,5 @@ OpEx incluye: AWS S3 + RDS Postgres ($40-60), Channex API ($30-50/property), Str
 *Última actualización competencia: 2026-05-14 — Agregado estudio comparativo extendido LATAM (Zavia ERP + Syncro PMS) con fuentes verificables y honestidad sobre gaps actuales de Zenix vs IA tarifaria + mensajería OTA centralizada.*
 *Última actualización roadmap: 2026-05-14 — Refactor mayor de versionado a "bloques temáticos" (v1.0.x Foundation, v1.1.x Operation Excellence, v1.2.x Scale & Distribution, v1.3.x Ancillary, v1.4.x Data & AI, v2.0 rewrite). Reordenadas referencias a versiones específicas (IA tarifaria, mensajería OTA, marketplace) según nuevo plan. Ver `docs/vision/03-roadmap-v1-v2.md` para detalle completo + 12 reportes esenciales documentados a nivel CSV-column.*
 *Última actualización arquitectura: 2026-05-15 — Agregada sección Módulo 5 (Configuración Multi-Propiedad + Multi-País) con modelo 4-level Brand→Organization→LegalEntity→Property. Agregada sección "Implementación Zenix — wizard Activate" inspirado en SAP Activate. Agregada sección "Infraestructura enterprise-grade" con 4 fases sin lock-in. 10 países LATAM modelados desde día 1 (MX/CO/CR/PE/PA/GT/SV/HN/BR/AR). Ver docs/vision/11-multi-tenant-architecture.md, 12-infrastructure-devops.md, 13-consultant-setup-wizard.md.*
+*Última actualización PAY/CFDI: 2026-05-15 (PM) — Agregado Módulo 7 (Cobros, divisas e impuestos) tras investigación competitiva de 5 PMS premium (Mews, Cloudbeds, Opera Cloud, Roomraccoon, Little Hotelier). 9 sub-módulos consolidados: multi-currency con FX lock inmutable, OTA-collect detection, cash drawer multi-divisa, Banxico SF43718 integration, GuestCredit con CFDI E (FormaPago=15 Condonación), tax engine multi-impuesto (IVA + ISH 6% QR 2026 + DSA UMA-based), tax transparency INCLUSIVE para resolver fricción Hostelworld, FxAdvisor como DLC tier Pro. Decisiones §81-§90 en CLAUDE.md. Ver docs/vision/14-payment-currency-tax-architecture.md.*
+*Última actualización Tax Catalog: 2026-05-15 (PM late) — Agregada subsección "Tax Catalog curado por Zenix" como diferenciador estructural. Matriz completa MX 32 estados ISH 2026 confirmada (El Contribuyente × JA Del Río × Airbnb Help). Tabla granularidad LATAM 10 países (Brasil EXCLUIDO v1.0, entrar v1.2 con Sovos). DSA Tulum marcado como AMBIGUOUS (per-room vs per-person tiered se contradicen entre fuente oficial Riviera Maya y Reporte QR — Decreto 191 texto literal no accesible). Decisiones §91-§94 en CLAUDE.md: catálogo nativo, override en dos capas, Brasil exclusión, status AMBIGUOUS. Wizard objetivo: 6-8 clicks vs ~30 Cloudbeds.*

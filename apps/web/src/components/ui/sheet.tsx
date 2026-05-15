@@ -59,11 +59,16 @@ const SheetContent = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content> & {
     side?: "top" | "right" | "bottom" | "left"
     showCloseButton?: boolean
+    // Inspector pattern (Apple HIG, Mews/Cloudbeds calendar): pass a custom
+    // overlay class — e.g. `bg-transparent` — to suppress the default backdrop
+    // for non-blocking side panels where the user must keep the underlying
+    // canvas (calendar, list) fully visible.
+    overlayClassName?: string
   }
->(function SheetContent({ className, children, side = "right", showCloseButton = true, ...props }, ref) {
+>(function SheetContent({ className, children, side = "right", showCloseButton = true, overlayClassName, ...props }, ref) {
   return (
     <SheetPortal>
-      <SheetOverlay />
+      <SheetOverlay className={overlayClassName} />
       <SheetPrimitive.Content
         ref={ref}
         data-slot="sheet-content"

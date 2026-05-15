@@ -1,7 +1,7 @@
 import { memo, useMemo, useRef } from 'react'
 import { startOfDay, addDays, format } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { Lock, Unlock, LogOut, UserX, ArrowUpRight } from 'lucide-react'
+import { Lock, Unlock, LogOut, UserX, ArrowUpRight, Info } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { STAY_STATUS_COLORS, OTA_ACCENT_COLORS, TIMELINE } from '../../utils/timeline.constants'
@@ -434,9 +434,12 @@ function BookingBlockInner({
             ? 0.15
             : isDragging
             ? 0.3
+            : isInActiveJourney
+            ? 1
             : isSegmentLocked || stayStatus === 'DEPARTED' || isConfirmedNoShow
             ? 0.72
             : 1,
+          filter: isInActiveJourney ? 'brightness(1.06) saturate(1.08)' : undefined,
           cursor: isLocked
             ? 'default'
             : isPast || isConfirmedNoShow || isJourneyBlock || isSegmentLocked
@@ -669,16 +672,21 @@ function BookingBlockInner({
                 collisionPadding={12}
                 className={cn(
                   '!flex !flex-col !items-stretch !gap-0',
-                  'w-[220px] p-0 overflow-hidden',
+                  'w-[240px] p-0 overflow-hidden',
                   'bg-white text-slate-800 border border-slate-200',
                   'rounded-lg shadow-[0_8px_24px_-4px_rgba(15,23,42,0.16),0_4px_8px_-4px_rgba(15,23,42,0.10)]',
                 )}
               >
-                <div className="px-3.5 pt-3 pb-2.5">
-                  <div className="flex items-center gap-1 text-[9px] font-bold text-slate-400 uppercase tracking-[0.08em] mb-1.5">
-                    <ArrowUpRight className="h-2.5 w-2.5" strokeWidth={3} />
+                {/* Header informacional — tinte azul (Mehrabian-Russell 1974:
+                    azul = información neutra, no alarma). Icono Info refuerza
+                    el patrón Apple HIG / Material 3 de "callout" informativo. */}
+                <div className="flex items-center gap-1.5 px-3.5 py-2 bg-sky-50 border-b border-sky-100">
+                  <Info className="h-3.5 w-3.5 text-sky-600" strokeWidth={2.25} />
+                  <span className="text-[10px] font-semibold text-sky-700 uppercase tracking-[0.08em]">
                     Bloque movido
-                  </div>
+                  </span>
+                </div>
+                <div className="px-3.5 pt-2.5 pb-3">
                   <p className="text-[13px] text-slate-800 leading-[1.35]">
                     <span className="font-semibold">{stay.guestName}</span>
                     {stay.nextSegmentRoomNumber
@@ -699,15 +707,21 @@ function BookingBlockInner({
                       onActivateJourney(stay.journeyId!)
                     }}
                     className={cn(
-                      'w-full px-3.5 py-2.5',
-                      'text-[12px] font-semibold text-emerald-700 text-center',
-                      'bg-slate-50 hover:bg-emerald-50',
+                      'group/cta w-full px-3.5 py-2.5',
+                      'inline-flex items-center justify-center gap-1.5',
+                      'text-[12px] font-semibold text-emerald-700',
+                      'bg-slate-50 hover:bg-emerald-600 hover:text-white',
                       'border-t border-slate-200',
-                      'transition-colors',
-                      'focus-visible:outline-none focus-visible:bg-emerald-50',
+                      'transition-all duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]',
+                      'focus-visible:outline-none focus-visible:bg-emerald-600 focus-visible:text-white',
+                      'motion-reduce:transition-none',
                     )}
                   >
-                    Ver journey completo
+                    <span>Ver journey completo</span>
+                    <ArrowUpRight
+                      className="h-3.5 w-3.5 transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover/cta:translate-x-0.5 group-hover/cta:-translate-y-0.5 motion-reduce:transition-none"
+                      strokeWidth={2.5}
+                    />
                   </button>
                 )}
               </TooltipContent>

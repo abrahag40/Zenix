@@ -164,7 +164,12 @@ export function BookingDetailSheet({
         side="right"
         showCloseButton={false}
         aria-describedby={undefined}
-        className="w-[420px] sm:w-[420px] sm:max-w-[420px] p-0 flex flex-col overflow-hidden gap-0"
+        // Inspector pattern — calendar permanece 100% visible mientras se ve el
+        // detalle. Apple HIG (Inspector), Mews/Cloudbeds (Reservation drawer)
+        // y NN/g coinciden: backdrops oscuros sólo para modales bloqueantes
+        // (confirmaciones destructivas), no para paneles de navegación lateral.
+        overlayClassName="bg-transparent"
+        className="w-[420px] sm:w-[420px] sm:max-w-[420px] p-0 flex flex-col overflow-hidden gap-0 shadow-[-12px_0_32px_-8px_rgba(15,23,42,0.18)]"
       >
         {/* HEADER */}
         <div
