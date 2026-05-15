@@ -36,6 +36,13 @@ jobs:
           node-version: "20"
           cache: "npm"
 
+      # Pin npm 11 — el lockfile (lockfileVersion 3) lo genera el dev environment
+      # con npm 11; Node 20 ships con npm 10 cuyo `ci` es estricto con campos que
+      # npm 11 añade. Sin este pin, npm 10 reporta entries faltantes que en
+      # realidad están presentes en formato nuevo.
+      - name: Pin npm to 11.x
+        run: npm install -g npm@11
+
       - name: Install dependencies
         run: npm ci
 
