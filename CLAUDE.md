@@ -740,34 +740,49 @@ npx prisma studio
 | ~~Mx-1B finalización~~ | ✅ CERRADO PR #13 (commit `6c09fab`) — MAINT-4 draft persist + NOTIF-7+13 toast + UX help text. 4 gaps menores deferidos con justificación (InputSheet, aria-labels, header flash, assign dialog) | — | Cerrado |
 | ~~HK-CFG (Setup Recamaristas)~~ | ✅ CERRADO Sprint 8H — `HousekeepingScheduleSection` 1138 líneas con 3 sub-tabs (Horarios + Cobertura + Reglas). Tab "Recamaristas" en `SettingsPage.tsx:28` | — | Cerrado |
 | **QA-α** | Test coverage mobile Hub Recamarista (jest-expo configurado, 0 specs aún en `apps/mobile`) | 4-5 | Sí |
-| **CI-RESCUE** | Pipeline CI: eslint configs + 110 tests rojos `@zenix/api` + migrar multer 1.x→2.x | 3-5 | No (lint/test non-blocking desde 2026-05-15) |
+| **CI-RESCUE** | Pipeline CI: agregar `room` (+ otros models) a `prismaMock` de ~7 specs API + crear eslint configs por workspace | **1-1.5** (revisado: scope mucho menor — multer NO era el problema, eran mocks desactualizados) | No (lint/test non-blocking desde 2026-05-15) |
 
 ### Sprint CI-RESCUE — detalle técnico
 
 > **Status:** PENDIENTE. Marcado non-blocking en `.github/workflows/ci.yml` el 2026-05-15.
 > **Razón de existir:** durante el fix de lockfile (PR #19) se descubrió que CI llevaba múltiples capas de bugs ocultos. Para no detener entrega, se hizo `continue-on-error: true` en lint+test. **Esta deuda debe pagarse antes de release v1.0.0.**
 
-**Lo que tiene que arreglar:**
+**Lo que tiene que arreglar (diagnóstico actualizado 2026-05-15 post PR #22+#23):**
 
 1. **Eslint configs faltantes** — `apps/api`, `apps/mobile`, `apps/web`, `packages/shared` no tienen `.eslintrc*` ni `eslint.config.{js,mjs}`. `npm run lint` falla en api+mobile con "ESLint couldn't find a configuration file". Decisiones pendientes:
    - Presets: `@typescript-eslint/recommended`, `eslint-plugin-react`, `react-native`, `prettier`
    - ¿Strict mode o moderate? (impacto enorme en cuántos archivos requieren cleanup)
    - ¿Auto-fix permitido en CI o solo report?
-2. **110 de 297 tests de `@zenix/api` fallan localmente** — patrón observado: imports de `uploads/*` + `multer 1.x` (deprecated, vulnerabilidades). Hipótesis de root cause:
-   - Posible migración pendiente `multer 1.x → 2.x` (breaking change documentado)
-   - O refactor reciente que rompió importaciones del módulo uploads
-   - Reproducir con: `cd apps/api && npm test` (exit code 1, 9 suites failed)
-3. **Workspace name legacy** — antes del rename `@housekeeping/api → @zenix/api`, el workflow CI referenciaba el nombre viejo. Ya fixed en PR #19, pero validar que no haya otros lugares (scripts, docs, etc.).
-4. **Reactivar lint/test como blocking** — una vez 1+2+3 resueltos, quitar `continue-on-error: true` de `.github/workflows/ci.yml` líneas correspondientes. CI vuelve a ser red/green binario.
 
-**Pasos sugeridos del sprint:**
-1. (4-6h) Crear eslint configs por workspace + correr `npm run lint -- --fix` para auto-resolver lo trivial
-2. (1-2h) Revisar manualmente issues no auto-fixables (probable: 50-100 ocurrencias razonables)
-3. (4-8h) Investigar root cause de los 110 tests fallidos — probable un solo PR causal
-4. (2-4h) Migrar multer 1→2 si aplica (revisar [changelog multer 2.0](https://github.com/expressjs/multer/blob/master/CHANGELOG.md))
-5. (1h) Quitar `continue-on-error` del workflow, validar CI verde en PR de cierre
+2. **110 de 305 tests de `@zenix/api` fallan — ROOT CAUSE REAL identificado** (no era multer): los `prismaMock` de los specs no incluyen `room`, pero el código de producción reciente agregó llamadas `tx.room.update(...)` en al menos:
+   - `tasks/tasks.service.ts:204` — sync room status durante task lifecycle
+   - Probable que otros services (stay-journeys, no-show, late-checkout, assignment, dashboard-overview, access-control) tengan llamadas similares no mockeadas.
+   - Error consistente en CI Y local: `TypeError: Cannot read properties of undefined (reading 'update')`
+   - Suites afectadas (~8-10):
+     - `tasks.service.spec.ts` (prismaMock tiene cleaningTask + unit + staff + taskLog, falta `room`)
+     - `guest-stays.no-show.spec.ts` (solo guestStay, falta `room` + probablemente más)
+     - `guest-stays.late-checkout.spec.ts` (guestStay + cleaningTask + taskLog, falta `room`)
+     - `night-audit.scheduler.spec.ts`
+     - `stay-journeys.service.spec.ts`
+     - `assignment.service.spec.ts`
+     - `dashboard-overview.service.spec.ts`
+     - `access-control.service.spec.ts` (este sí toca BD real — necesita DB de test)
+     - `multi-tenant-hierarchy.spec.ts`
+     - `tenant-isolation.spec.ts` (e2e, necesita DB)
+   - **Fix mecánico:** agregar `room: { update: jest.fn(), findUnique: jest.fn() }` a cada `prismaMock` afectado, configurar `mockResolvedValue({})` en los `beforeEach`. Trabajo bien acotado y reproducible.
+   - Multer 1.x↔2.x NO era la causa (PR #22 corrigió la resolución a 1.4.5-lts.2, solo +8 tests verdes — bajaron de 110 a 110 fail; rebote de números, no fix real).
 
-**Estimado:** 3-5 días enfocados. Se puede paralelizar con otros sprints v1.0.0 si no se toca el código de uploads/auth.
+3. **Workspace name legacy** — antes del rename `@housekeeping/api → @zenix/api`, el workflow CI referenciaba el nombre viejo. Ya fixed en PR #19.
+
+4. **Reactivar lint/test como blocking** — una vez 1+2 resueltos, quitar `continue-on-error: true` de `.github/workflows/ci.yml`. CI vuelve a ser red/green binario.
+
+**Pasos sugeridos del sprint (revisado — scope mucho menor que estimación original):**
+1. **(2-4h) Update mocks de specs API** — agregar `room` (y otros models que falten al inspeccionar) a los `prismaMock` de los 7-10 specs afectados. Validar `npm test` baja de 110 fails a 0-10.
+2. **(2-4h) Crear ESLint configs por workspace** — flat config con presets razonables. Run `--fix` para auto-resolver.
+3. **(1-2h)** Revisar issues no auto-fixables.
+4. **(1h)** Quitar `continue-on-error` del workflow, validar CI verde en PR de cierre.
+
+**Estimado revisado:** 1-1.5 días enfocados (antes 3-5 días). Cambio: el problema de tests no era infra, era mocks. Bounded fix.
 
 ### v1.0.x Roadmap (refinado 2026-05-15 — ver [docs/vision/14-payment-currency-tax-architecture.md](../../docs/vision/14-payment-currency-tax-architecture.md))
 - **v1.0.1 PAY-CORE** (~9.5 semanas) — Stripe + Conekta + folio modal + master billing + folio splitting + refund/void + COMP approval. **Adiciones §81-§88:** multi-currency con `PaymentFxLock` inmutable, OTA-collect detection vía Channex, cash drawer multi-divisa con `CashierShift`, Banxico SF43718 integration, `GuestCredit` con audit completo + `applicableChannels` default DIRECT
@@ -866,6 +881,7 @@ Tres capas de defensa:
 
 ## Bitácora de cambios mayores a este documento
 
+- **2026-05-15** (night) — **Diagnóstico real CI-RESCUE.** Post-merge de PR #22 (lockfile fix con multer 1.4.5-lts.2 correcto) y PR #23 (QA-α batch 1 con 26 tests mobile), se re-corrieron los tests del API. Multer fix solo arregló +8 tests (de 187 pass → 195 pass; los 110 fails siguen siendo 110). El root cause real es **mocks desactualizados**: el código de `tasks/tasks.service.ts:204` agregó `tx.room.update(...)` (sync de room.status durante task lifecycle) en algún commit reciente sin actualizar `prismaMock` en los specs. Error idéntico en CI y local: `TypeError: Cannot read properties of undefined (reading 'update')`. Suites afectadas: tasks, guest-stays.no-show, guest-stays.late-checkout, night-audit.scheduler, stay-journeys, assignment, dashboard-overview, access-control (e2e con BD), multi-tenant-hierarchy, tenant-isolation. **Scope CI-RESCUE revisado de 3-5 días a 1-1.5 días** — el fix es mecánico: agregar `room: { update: jest.fn(), findUnique: jest.fn() }` a cada `prismaMock`. Lockfile broken + multer y ESLint configs son items menores adicionales. CLAUDE.md actualizado con diagnóstico real + plan de pasos.
 - **2026-05-15** (final +2) — **Mx-1B finalización y HK-CFG también cerrados tras verificación.** Cuarto y quinto cierre silencioso del día. Mx-1B finalización: PR #13 (commit `6c09fab`) mergeó MAINT-4 draft persist + NOTIF-7+13 toast + UX help text "días estimados"; 4 gaps menores deferidos con justificación. HK-CFG: `HousekeepingScheduleSection` (1138 LOC, 3 sub-tabs Horarios+Cobertura+Reglas) ya implementado en Sprint 8H (commit más viejo) y tab "Recamaristas" registrado en `SettingsPage.tsx:28`. **Resultado final del día: 4 sprints v1.0.0 cerrados** (SEC-α + POLISH-α + Mx-1B finalización + HK-CFG). Únicos pendientes reales antes de release: **QA-α** (test coverage mobile, ~4-5 días) y **CI-RESCUE** (eslint configs + 110 tests rojos API + multer 1→2, ~3-5 días). Estimado total a v1.0.0: ~8-10 días enfocados.
 - **2026-05-15** (final +1) — POLISH-α también CERRADO tras verificación de los 11 bugs medios del audit 2026-05-13. Hallazgo paralelo al de SEC-α: el audit estaba desactualizado, todos los bugs (NS-6, MT-7, MT-8, PAY-8, CAL-10, CAL-4, BLK-6, MAINT-4, NOTIF-7+13, NOTIF-11) ya tenían su fix en main con comentarios trazables (`Sprint SEC-α`, `NOTIF-7+13 fix`, `BLK-6`, `NS-6`, etc.). Único pendiente: MT-9 — componente código (cookie httpOnly + sse-token) está en TODO para refactor v1.0.x SSE-auth; componente ops (proxy nginx redact `?token=`) requiere config productivo fuera del repo. CLAUDE.md actualizado con archivo:línea de cada fix para que el audit refleje la realidad. **Resultado neto: SEC-α y POLISH-α cerrados; quedan Mx-1B finalización, HK-CFG, QA-α, CI-RESCUE antes de release v1.0.0.**
 - **2026-05-15** (final) — SEC-α cerrado tras verificación. Items críticos+altos del audit 2026-05-13 (MT-5, MT-3, NS-3) **ya estaban resueltos** en main por commit `aa6f122` "feat(security): Sprint SEC-α — hardening multi-tenant pre-v1.0.0". MT-5 fixed con `PropertyScopeGuard` registrado como `APP_GUARD` global (más robusto que plan por-controller del audit original — protege TODO endpoint con `?propertyId=`, no solo los 5 listados). MT-3 fixed en `auth.service.ts:95-127` con guard de `UserPropertyRole` pivot. NS-3 fixed en `night-audit.scheduler.ts:146`. CLAUDE.md actualizado: items movidos de "🔴 pendiente" a "✅ DONE"; sprint SEC-α marcado cerrado; bugs medios (NS-6, MT-7, MT-8, etc.) reasignados a POLISH-α. Plan próximo: Mx-1B finalización → HK-CFG → POLISH-α → QA-α → CI-RESCUE → release v1.0.0.
