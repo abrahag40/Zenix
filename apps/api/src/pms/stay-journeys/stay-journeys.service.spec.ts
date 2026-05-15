@@ -9,6 +9,10 @@ import { Test, TestingModule } from '@nestjs/testing'
 import { EventEmitter2 } from '@nestjs/event-emitter'
 import { StayJourneyService } from './stay-journeys.service'
 import { PrismaService } from '../../prisma/prisma.service'
+// CI-RESCUE 2026-05-15: deps que el service tomó pero el spec no proveía
+import { NotificationsService } from '../../notifications/notifications.service'
+import { AvailabilityService } from '../availability/availability.service'
+import { AssignmentService } from '../../assignment/assignment.service'
 
 // ─── Builders ────────────────────────────────────────────────────────────────
 
@@ -67,6 +71,10 @@ describe('StayJourneyService', () => {
     stayJourneyEvent: {
       create: jest.fn(),
     },
+    // CI-RESCUE: deps adicionales que el service usa (createRoomChangeTasks, etc.)
+    unit: { findMany: jest.fn().mockResolvedValue([]) },
+    cleaningTask: { createMany: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
+    guestStay: { findUnique: jest.fn(), update: jest.fn() },
     $transaction: jest.fn((fn) => fn(prismaMock)),
   }
 
@@ -78,6 +86,12 @@ describe('StayJourneyService', () => {
         StayJourneyService,
         { provide: PrismaService, useValue: prismaMock },
         { provide: EventEmitter2, useValue: eventsMock },
+        { provide: NotificationsService, useValue: { emit: jest.fn().mockResolvedValue(undefined) } },
+        { provide: AvailabilityService, useValue: {
+          check: jest.fn().mockResolvedValue({ available: true, conflicts: [] }),
+          checkAvailability: jest.fn().mockResolvedValue([]),
+        } },
+        { provide: AssignmentService, useValue: { autoAssign: jest.fn().mockResolvedValue(undefined) } },
       ],
     }).compile()
 

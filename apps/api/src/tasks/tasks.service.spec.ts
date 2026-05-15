@@ -72,6 +72,11 @@ describe('TasksService', () => {
   let service: TasksService
 
   // Mocks — objetos que reemplazan las dependencias reales
+  // CI-RESCUE 2026-05-15: agregado `room` + `guestStay`. El servicio sincroniza
+  // room.status (CHECKING_OUT → CLEANING → INSPECTION → AVAILABLE) en
+  // verifyTask/startTask/completeTask, y crea guestStay placeholder en algunos
+  // casos. Antes faltaban en mock → 110 fails con
+  // "Cannot read properties of undefined (reading 'update')".
   const prismaMock = {
     cleaningTask: {
       findUnique: jest.fn(),
@@ -83,6 +88,8 @@ describe('TasksService', () => {
     unit: { update: jest.fn() },
     staff: { findUnique: jest.fn() },
     taskLog: { create: jest.fn() },
+    room: { findUnique: jest.fn(), update: jest.fn() },
+    guestStay: { create: jest.fn() },
     // $transaction ejecuta la función callback inmediatamente (sin transacción real)
     $transaction: jest.fn((fn) => fn(prismaMock)),
   }

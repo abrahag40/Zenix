@@ -57,25 +57,22 @@ jobs:
         env:
           DATABASE_URL: postgresql://housekeeping:testpassword@localhost:5432/housekeeping_test
 
-      # Lint y Test marcados como non-blocking temporalmente.
-      # TODO(CI-RESCUE, post-v1.0.0): ver CLAUDE.md §CI-RESCUE
-      #   · Lint: no existen archivos .eslintrc en ningún workspace;
-      #     `npm run lint` en api+mobile falla con "ESLint couldn't find a
-      #     configuration file". Necesita seed de eslint.config.{js,mjs}
-      #     per-workspace (decisiones de estilo: typescript-eslint, react,
-      #     react-native presets, etc.) — fuera del scope de un fix de CI.
-      #   · Test: 110 de 297 tests de @zenix/api fallan localmente también.
-      #     Patrón observado: imports de uploads/* + multer (1.x deprecated).
-      #     Posible root cause: migración pendiente de multer 1→2 o
-      #     refactor reciente que rompió importaciones del módulo uploads.
-      #     Investigación dedicada en sprint CI-RESCUE.
-      # Hasta entonces, los pasos siguen ejecutándose para visibilidad pero
-      # no bloquean el merge — el equipo ve los warnings en cada PR run.
-      - name: Lint (non-blocking — ver CI-RESCUE)
+      # CI-RESCUE completado 2026-05-15 (parcial):
+      #   · Lint: ✅ reactivado como blocking. ESLint configs minimalistas
+      #     creados por workspace (.eslintrc.json en api/mobile/web) con
+      #     reglas permisivas — bootstrap pasa exit 0. Endurecimiento
+      #     progresivo de reglas se hará en sprint POLISH posterior.
+      #   · Test: ⚠️ sigue non-blocking. 102 de 110 tests rojos resueltos
+      #     (fix de mocks: agregado `room`, providers Push/Notifications/
+      #     Availability faltantes, mocks como Promise.resolve). 8 tests
+      #     restantes son ASSERTIONS OBSOLETAS (no infra) — requieren del
+      #     feature-owner ajustar expectations al comportamiento actual del
+      #     servicio. Suites afectadas: no-show (3), stay-journeys (4),
+      #     dashboard-overview (1).
+      - name: Lint
         run: npx turbo lint
-        continue-on-error: true
 
-      - name: Test (non-blocking — ver CI-RESCUE)
+      - name: Test (non-blocking — 8 stale assertions pendientes)
         run: npx turbo test
         continue-on-error: true
         env:

@@ -24,6 +24,10 @@ import { StayJourneyService } from '../stay-journeys/stay-journeys.service'
 import { ChannexGateway } from '../../integrations/channex/channex.gateway'
 import { NotificationCenterService } from '../../notification-center/notification-center.service'
 import { AssignmentService } from '../../assignment/assignment.service'
+// CI-RESCUE 2026-05-15: 3 deps que el service tomó pero el spec no proveía
+import { PushService } from '../../notifications/push.service'
+import { NotificationsService } from '../../notifications/notifications.service'
+import { AvailabilityService } from '../availability/availability.service'
 
 const ORG_ID = 'org-1'
 const STAY_ID = 'stay-1'
@@ -65,6 +69,9 @@ describe('GuestStaysService.lateCheckout (EC-3)', () => {
   const channexMock = { pushInventory: jest.fn(), notifyRelease: jest.fn() }
   const notifCenterMock = { send: jest.fn() }
   const assignmentMock = { autoAssign: jest.fn() }
+  const pushMock = { sendToStaff: jest.fn(), sendBatch: jest.fn() }
+  const notifMock = { emit: jest.fn() }
+  const availabilityMock = { checkAvailability: jest.fn() }
 
   beforeEach(async () => {
     const moduleRef: TestingModule = await Test.createTestingModule({
@@ -78,6 +85,9 @@ describe('GuestStaysService.lateCheckout (EC-3)', () => {
         { provide: ChannexGateway, useValue: channexMock },
         { provide: NotificationCenterService, useValue: notifCenterMock },
         { provide: AssignmentService, useValue: assignmentMock },
+        { provide: PushService, useValue: pushMock },
+        { provide: NotificationsService, useValue: notifMock },
+        { provide: AvailabilityService, useValue: availabilityMock },
       ],
     }).compile()
     service = moduleRef.get(GuestStaysService)
