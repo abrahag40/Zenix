@@ -1,7 +1,7 @@
 # Zenix — Visión Estratégica Maestra
 
 > Carpeta master de la visión Zenix + ZaharDev. Toda decisión estratégica de producto, negocio, partners, y datos vive aquí.
-> Última actualización: 2026-05-13
+> Última actualización: 2026-05-15
 
 ## Índice
 
@@ -17,6 +17,10 @@
 | [08-module-books.md](08-module-books.md) | Zenix Books — contabilidad multi-país (v1.8) | Producto, legal fiscal, finance |
 | [09-partner-network.md](09-partner-network.md) | Modelo SAP/SuccessFactors: tiers, portal, certificación | Partners, alianzas, comercial |
 | [10-data-strategy-abi.md](10-data-strategy-abi.md) | Política de datos, consent, anonimización, productos ABI | Legal, BI, ZaharDev consulting |
+| [11-multi-tenant-architecture.md](11-multi-tenant-architecture.md) | Modelo 4-level Brand→Org→LegalEntity→Property + migration v1.0.5 | Ingeniería, ZaharDev consulting |
+| [12-infrastructure-devops.md](12-infrastructure-devops.md) | 4 fases de infra (Vercel+Render+Neon → AWS → enterprise) + DevOps | Ingeniería, ops |
+| [13-consultant-setup-wizard.md](13-consultant-setup-wizard.md) | Zenix Activate — 8 etapas + templates inventory + health checks | Producto, partners, comercial |
+| [14-payment-currency-tax-architecture.md](14-payment-currency-tax-architecture.md) | 9 sub-módulos de cobros, divisas, impuestos LATAM + GuestCredit + CFDI E | Ingeniería, producto, fiscal |
 
 ## Reglas de uso de esta carpeta
 

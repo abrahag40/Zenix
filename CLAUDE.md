@@ -1,7 +1,7 @@
 # CLAUDE.md — Zenix PMS
 
 > Instrucciones técnicas para el agente IA + decisiones no-negociables del código.
-> **Última actualización:** 2026-05-13 (refactor mayor — visión estratégica movida a `docs/vision/`).
+> **Última actualización:** 2026-05-15 (decisiones §81-§90: PAY-CORE/CFDI-CORE arquitectura LATAM).
 
 ---
 
@@ -20,6 +20,7 @@
 | **[docs/vision/11-multi-tenant-architecture.md](../../docs/vision/11-multi-tenant-architecture.md)** | **Modelo 4-level Brand→Org→LegalEntity→Property + migration v1.0.5** |
 | **[docs/vision/12-infrastructure-devops.md](../../docs/vision/12-infrastructure-devops.md)** | **4 fases de infra (Vercel+Render+Neon → AWS → enterprise) + DevOps practices** |
 | **[docs/vision/13-consultant-setup-wizard.md](../../docs/vision/13-consultant-setup-wizard.md)** | **Zenix Activate — 8 etapas + templates inventory + health checks** |
+| **[docs/vision/14-payment-currency-tax-architecture.md](../../docs/vision/14-payment-currency-tax-architecture.md)** | **9 sub-módulos PAY-CORE/CFDI-CORE: multi-currency, OTA-collect, cash drawer, tax engine LATAM, GuestCredit con CFDI E, FxAdvisor** |
 | [docs/zenix-sales-master.md](../../docs/zenix-sales-master.md) | Pitch comercial completo |
 | [docs/prices-packages.md](../../docs/prices-packages.md) | Packaging y pricing |
 | [docs/engineering-playbook.md](../../docs/engineering-playbook.md) | Patrones de implementación |
@@ -321,7 +322,7 @@ housekeeping3/
 
 ---
 
-## Non-Negotiable Decisions §1-§62
+## Non-Negotiable Decisions §1-§90
 
 > Decisiones tomadas deliberadamente. NO revertir sin discusión documentada.
 
@@ -527,6 +528,30 @@ housekeeping3/
 
 80. **Activation Report PDF** — generado automáticamente al activar. Documenta toda la configuración, sirve como handover formal al customer. Pattern SAP Activate "Realize Phase Report".
 
+### Payment, Currency & Tax — v1.0.1 PAY-CORE / v1.0.2 CFDI-CORE
+
+> Decisiones fundacionales 2026-05-15. Ver [docs/vision/14-payment-currency-tax-architecture.md](../../docs/vision/14-payment-currency-tax-architecture.md) para análisis completo (9 sub-módulos, esquemas Prisma, bibliografía LATAM).
+
+81. **`PaymentFxLock` atómico e inmutable** — todo `PaymentLog` con `paidCurrency ≠ propertyDefaultCurrency` genera un `PaymentFxLock` en la misma transacción. El rate se congela al cobro y nunca se reescribe. Cuando llega el payout report de Stripe/Conekta se reconcilia `realizedGainLoss` en línea separada (USALI 12 ed. Foreign Exchange Gain/Loss). Patrón inmutable análogo a §28 PaymentLog append-only.
+
+82. **`PropertySettings.taxStrategy` default `INCLUSIVE`** — rate público incluye IVA + ISH (porcentuales). Push a OTAs vía Channex con `is_inclusive=true`. DSA per-night (cuota fija) **siempre `EXCLUSIVE`** con disclosure obligatorio en confirmation page del OTA (la OTA no puede pre-calcular sin noches/personas). Resuelve el "problema Hostelworld" — fricción del 73% de quejas post-stay por extra fees inesperados (NN/g Price Transparency 2023).
+
+83. **Banxico SF43718 (FIX) es fuente primaria de FX para properties MX** — cron diario 12:00 CST post-publicación DOF. Token gratuito, 40 000 consultas/día. Fallback a Open Exchange Rates si Banxico no responde en 30s con alerta SSE al admin. CFDI 4.0 usa el FIX del día de la operación (Art. 20 CFF). REP usa FIX del día del pago (no de la factura) — diferencia natural se asienta en `realizedGainLoss`.
+
+84. **`TaxRate` modela rate porcentual, cuota fija, y multiplicador UMA** — `calculation: PERCENT_OF_BASE | FIXED_PER_ROOM_NIGHT | FIXED_PER_PERSON_NIGHT | UMA_MULTIPLIER | PER_BOOKING`. **`UmaValue` versionada per-country con `validFrom/validTo`, nunca hardcoded** (UMA cambia cada febrero por inflación INEGI). Ejemplo MX: ISH QR 2026 = `PERCENT_OF_BASE 0.06`; DSA Tulum 2026 = `UMA_MULTIPLIER 0.30 perPerson=true`.
+
+85. **Cash drawer multi-divisa reconcilia per-divisa, no agregado** — `CashierShift.{openingFloat, expectedClose, actualClose, variance}` son `Json { MXN, USD, EUR }`. Todo `PaymentLog method=CASH` requiere `shiftId` activo (sin shift abierto → ConflictException). Devuelta en moneda distinta = dos `CashMovement` con mismo `transactionGroupId`. Variance > umbral configurable requiere `varianceReason` + `reconciledById` SUPERVISOR (patrón AHLEI Front Office Cashier's Shift Report).
+
+86. **`GuestCredit` es entidad de primera clase BASE no DLC** — emitida por `LegalEntity`, aplicable solo intra-`LegalEntity` (un crédito de LegalEntity A nunca aplicable a folio de LegalEntity B — sería ingreso doble fiscal). En MX, si folio origen tuvo CFDI I emitido, **es obligatorio emitir CFDI E con `FormaPago=15 (Condonación)` + `UsoCFDI=G02`** antes de marcar `status=ISSUED`. Servicio: `GuestCreditService.issueCredit()` análogo §35 AvailabilityService. Audit append-only en `GuestCreditLog`. Default `transferable=false`, expiración configurable per-property (default 12 meses MX). Ningún PMS premium tiene esto en core — diferenciador real frente a Mews/Opera (que dependen de VoucherCart add-on).
+
+87. **OTA-collect detection vía Channex `payment_collect` flag** — persistido en `GuestStay.paymentModel: HOTEL_COLLECT | OTA_COLLECT | HYBRID_DEPOSIT`. En `OTA_COLLECT` el `confirmCheckin` no requiere balance pagado (folio se marca "paid via OTA virtual card / pending reconciliation"). En `HYBRID_DEPOSIT` balance = `totalCharges − depositReceived`. Mews tiene feature request abierto desde hace años — Cloudbeds sí lo tiene. Zenix lo entrega en core.
+
+88. **`PaymentMethod` enum se mantiene como naturaleza del pago** — `CASH | CARD_TERMINAL | BANK_TRANSFER | OTA_VIRTUAL_CARD | COMP`. **NO se factoriza por divisa** (no crear `CASH_USD`, `CASH_MXN`...). La divisa viaja siempre en `paidCurrency: String (ISO 4217)` + `paidAmount` + `baseAmount`. Modelo Cloudbeds, más limpio para agregar divisas sin migrations.
+
+89. **`IFiscalAdapter` por país (Strategy pattern)** — cada `FiscalRegime` (§69) tiene su `pacAdapterClass`: `MxCfdi40Adapter` (Facturama / SW Sapien), `CoDianAdapter`, `PeSunatAdapter`, `CrHaciendaAdapter`. **MX es BASE v1.0.2 CFDI-CORE**; CO/PE/CR son **DLC tier Pro** activables vía Zenix Activate wizard (§77-§80). Permite escalar a nuevos países agregando 1 row en `FiscalRegime` + 1 adapter class sin migration.
+
+90. **Créditos emitidos sobre stays OTA por default solo aplicables a reservas direct** — `GuestCredit.applicableChannels: String[] @default(["DIRECT"])`. Mitigación del riesgo de "OTA pierde comisión por venta original cuando crédito se aplica a stay direct futura". Override per-property con audit log. Documentado en UI al emitir crédito sobre stay OTA.
+
 ---
 
 ## Patterns & Conventions
@@ -728,11 +753,11 @@ npx prisma studio
 
 **Estimado:** 3-5 días enfocados. Se puede paralelizar con otros sprints v1.0.0 si no se toca el código de uploads/auth.
 
-### v1.0.x Roadmap (NUEVO — expandido)
-- **v1.0.1 PAY-CORE** — Stripe + Conekta + folio modal + master billing + folio splitting + refund/void + currency display + COMP approval (3-4 sem)
-- **v1.0.2 CFDI-CORE** — PAC integration (Facturama/SW Sapien) + CFDI 4.0 desde folio + REP + cancelación CFDI + tax engine multi-impuesto (IVA + ISH + Saneamiento) + DIAN CO + SUNAT PE + tax-exempt (4-5 sem)
-- **v1.0.3 REPORTS-CORE** — 12 reportes esenciales con UI + filtros + export Excel/CSV + scheduling nocturno (6-8 sem)
-- **v1.0.4 IMG + NS-UI + DEBT-α** — S3 + toggle no-shows + cleanup deuda técnica (1-2 sem)
+### v1.0.x Roadmap (refinado 2026-05-15 — ver [docs/vision/14-payment-currency-tax-architecture.md](../../docs/vision/14-payment-currency-tax-architecture.md))
+- **v1.0.1 PAY-CORE** (~9.5 semanas) — Stripe + Conekta + folio modal + master billing + folio splitting + refund/void + COMP approval. **Adiciones §81-§88:** multi-currency con `PaymentFxLock` inmutable, OTA-collect detection vía Channex, cash drawer multi-divisa con `CashierShift`, Banxico SF43718 integration, `GuestCredit` con audit completo + `applicableChannels` default DIRECT
+- **v1.0.2 CFDI-CORE** (~3 sem adicionales) — `MxCfdi40Adapter` (Facturama/SW Sapien) + CFDI I/E/REP + cancelación CFDI + cumplimiento `FormaPago=15 (Condonación)` para GuestCredit no-monetario. **Tax engine §84:** `TaxRate` multi-cálculo (PERCENT_OF_BASE | FIXED_PER_ROOM_NIGHT | UMA_MULTIPLIER) + `UmaValue` versionada + `IFiscalAdapter` Strategy. **Tax transparency §82:** `PropertySettings.taxStrategy=INCLUSIVE` default + push Channex con `is_inclusive` selectivo (resuelve fricción Hostelworld)
+- **v1.0.3 REPORTS-CORE** (~6-8 sem) — 12 reportes esenciales + GuestCredit liabilities (pasivo contable USALI) + Cashier Shift Report per-divisa
+- **v1.0.4 IMG + NS-UI + DEBT-α** (~1-2 sem) — S3 + toggle no-shows + cleanup deuda técnica
 
 ### v1.1.x+ (post-Foundation)
 - **v1.1.0** — Mensajería Booking + Online check-in + Digital signature
@@ -825,7 +850,8 @@ Tres capas de defensa:
 
 ## Bitácora de cambios mayores a este documento
 
-- **2026-05-15** — Decisiones arquitectónicas fundacionales registradas como §63-§80. Modelo multi-tenant 4-level Brand→Organization→LegalEntity→Property aprobado. Plan de infraestructura 4 fases definido (Vercel+Render+Neon en piloto, AWS en growth, enterprise en cadenas, continental en escala LATAM). Zenix Activate wizard de 8 etapas diseñado. 3 nuevos docs en `docs/vision/`: 11-multi-tenant-architecture.md, 12-infrastructure-devops.md, 13-consultant-setup-wizard.md.
+- **2026-05-15** (PM) — Decisiones §81-§90 (PAY-CORE / CFDI-CORE) registradas tras investigación competitiva de 5 PMS (Mews, Cloudbeds, Opera Cloud, Roomraccoon, Little Hotelier). 9 sub-módulos de cobros/divisas/impuestos LATAM consolidados en `docs/vision/14-payment-currency-tax-architecture.md`. Hallazgos clave: (1) Ningún PMS premium tiene GuestCredit core con CFDI E + FormaPago=15 — Zenix lo entrega como diferenciador; (2) Mews no distingue OTA-collect vs Hotel-collect (gap competitivo); (3) Banxico SF43718 (FIX) confirmado como fuente primaria FX MX, 40k consultas/día gratuito; (4) Quintana Roo 2026: IVA 16% + ISH 6% + DSA per-room/per-person basado en % UMA (117.31 MXN); (5) Tax strategy INCLUSIVE default resuelve fricción Hostelworld del 73% de quejas por extra fees inesperados.
+- **2026-05-15** (AM) — Decisiones arquitectónicas fundacionales registradas como §63-§80. Modelo multi-tenant 4-level Brand→Organization→LegalEntity→Property aprobado. Plan de infraestructura 4 fases definido (Vercel+Render+Neon en piloto, AWS en growth, enterprise en cadenas, continental en escala LATAM). Zenix Activate wizard de 8 etapas diseñado. 3 nuevos docs en `docs/vision/`: 11-multi-tenant-architecture.md, 12-infrastructure-devops.md, 13-consultant-setup-wizard.md.
 - **2026-05-13** — Refactor mayor. Visión estratégica completa movida a `docs/vision/` (11 archivos). CLAUDE.md reducido de ~3970 a ~700 líneas. Mantiene solo decisiones técnicas ejecutables, principios rector, decisiones no-negociables §1-§62, patterns, commands, y bitácora del sprint en curso. Agregados módulos futuros People (v1.7) y Books (v1.8) en docs/vision/.
 - **2026-05-09** — PR #8 mergeado: Sprint 9-HK ext + KP-01 (Kanban UX overhaul + bug fixes housekeeping).
 - **2026-05-04** — Sprint 8I (Mobile Hub Recamarista) + 9-HK refactor completados.

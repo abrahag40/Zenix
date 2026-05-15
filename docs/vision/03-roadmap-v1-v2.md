@@ -42,9 +42,11 @@ Producto operativo y estable para 1-3 hoteles piloto LATAM. Cierre fiscal mensua
 
 ### v1.0.1 · PAY-CORE — Procesamiento de pagos profesional
 
+> **Scope refinado 2026-05-15** tras investigación competitiva (Mews, Cloudbeds, Opera Cloud, Roomraccoon, Little Hotelier). Decisiones §81-§90 CLAUDE.md. Detalle arquitectónico completo en [14-payment-currency-tax-architecture.md](14-payment-currency-tax-architecture.md).
+
 **Antes:** cobro manual con anotación tipo libreta. Recepcionista cobra efectivo, anota "USD 120 cash", el huésped se va, nadie reconcilía hasta fin de turno → discrepancias, pérdida de evidencia para chargebacks.
 
-**Lo que entra en v1.0.1:**
+**Lo que entra en v1.0.1 (Core BASE — sin estos módulos Zenix no es viable comercialmente en LATAM):**
 
 | Feature | Definición | Por qué importa |
 |---------|------------|-----------------|
@@ -53,28 +55,36 @@ Producto operativo y estable para 1-3 hoteles piloto LATAM. Cierre fiscal mensua
 | **Folio splitting** | Dividir el folio entre 2+ huéspedes (pareja: él paga habitación, ella paga consumos) o entre huésped y empresa (ella paga habitación, empresa paga eventos). | Demanda real en boutique business. Sin esto el recepcionista lleva 2 libretas. |
 | **Master billing corporativo** | Empresa "Acme Corp" hospedó a 5 viajeros en marzo. Sistema genera UNA factura mensual consolidada con desglose por viajero. | Captura segmento corporate del piloto (~15-20% del revenue boutique). |
 | **Refund / Void workflow** | Reembolso parcial o total con razón, audit trail, devuelve a método original. Void crea PaymentLog negativo (no borra el original). | Hoy en Zenix void existe pero refund a Stripe/Conekta no está cableado. |
-| **Currency conversion display** | Huésped reservó en EUR; recepción cobra en MXN al tipo de cambio del día (BANXICO). | Hoteles Riviera Maya tienen 60-70% huéspedes internacionales. |
-| **Aprobación gerencial para COMPs** | Cortesía (cargo $0) requiere `approvedById` + razón. Backend-enforced, no solo UI. | Anti-fraude — recepcionista no comp solo. CLAUDE.md §29. |
+| **Multi-currency + `PaymentFxLock` inmutable §81** | `paidCurrency` en `PaymentLog`. Rate congelado al cobro. Reconciliación `realizedGainLoss` vs payout reports Stripe/Conekta (USALI 12ed Foreign Exchange line). | Tulum/Cancún 40-60% guests USD. Cumple Art. 20 CFF para CFDI 4.0. |
+| **Banxico SF43718 integration §83** | Cron diario 12:00 CST → fetch FIX (token gratuito, 40k consultas/día). Fallback Open Exchange Rates. | Mismo rate que el SAT acepta. CFDI 4.0 lo exige. |
+| **OTA-collect detection §87** | Channex `payment_collect` flag → `GuestStay.paymentModel: HOTEL_COLLECT \| OTA_COLLECT \| HYBRID_DEPOSIT`. `confirmCheckin` no exige balance pagado en OTA-collect. | Mews tiene gap aquí (feature request abierto desde hace años). Cloudbeds sí lo tiene. Evita doble cobro + chargeback Visa. |
+| **Cash drawer multi-divisa §85** | `CashierShift` con `openingFloat/expectedClose/actualClose/variance` `Json {MXN, USD, EUR}`. Toda transacción cash requiere shiftId activo. Variance > umbral exige razón + approval SUPERVISOR. | Caso real Hotel Monica Tulum: cobrar 100 USD, devolver 360 MXN, aceptar 50 EUR — todos en el mismo turno. Patrón AHLEI / USALI Section 12. |
+| **`GuestCredit` § 86 / §90** | Entidad de primera clase. Origins: EARLY_CHECKOUT, CANCELLATION_GOODWILL, SERVICE_RECOVERY, OVERPAYMENT, RATE_ADJUSTMENT, MANUAL. Audit append-only. Default `applicableChannels=['DIRECT']`. Aplicable solo intra-LegalEntity. | Ningún PMS premium tiene esto core — diferenciador frente a Mews/Opera (que dependen de VoucherCart add-on que cobra extra al hotelero). |
+| **Aprobación gerencial para COMPs** | Cortesía (cargo $0) requiere `approvedById` + razón. Backend-enforced, no solo UI. | Anti-fraude — recepcionista no comp solo. CLAUDE.md §Sprint 8E. |
 
-**Estimado v1.0.1: 3-4 semanas.**
+**Estimado v1.0.1: ~9.5 semanas (vs. estimación previa 3-4 sem — refleja scope completo de cobros LATAM-grade).**
 
 ### v1.0.2 · CFDI-CORE — Facturación electrónica México
 
 > No es el "módulo Books" completo (eso es v1.3.x). Es **el cobro fiscal mínimo** para que el hotel emita CFDI sin contratar a un contador para procesarlos a mano.
+>
+> **Scope refinado 2026-05-15:** integrado con decisiones §82, §84, §86, §89 (ver [14-payment-currency-tax-architecture.md](14-payment-currency-tax-architecture.md)).
 
-**Lo que entra:**
+**Lo que entra (Core BASE para MX; adapters CO/PE/CR son DLC tier Pro):**
 
 | Feature | Definición | Por qué importa |
 |---------|------------|-----------------|
-| **PAC integration** | Conectar a Facturama o SW Sapien (PACs autorizados SAT) — genera XML CFDI 4.0 firmado y timbrado. | Sin PAC, no hay factura legalmente válida en México. CFDI 4.0 obligatorio desde 2023 ([SAT](https://www.sat.gob.mx/)). |
+| **`MxCfdi40Adapter` PAC integration §89** | Strategy pattern. Conecta a Facturama o SW Sapien (PACs autorizados SAT) — genera XML CFDI 4.0 firmado y timbrado. Cada `FiscalRegime` tiene su `pacAdapterClass`. | Sin PAC, no hay factura legalmente válida en México. CFDI 4.0 obligatorio desde 2023. |
 | **CFDI 4.0 desde el folio** | Botón "Solicitar factura" en folio → captura RFC + CURP + uso CFDI (G03, P01, etc) → envía a PAC → recibe XML + PDF con QR. | 1-2 minutos vs. 15-20 minutos hoy con sistema externo. |
-| **Complemento de Pago (REP)** | Cuando el huésped paga en parcialidades o post-checkout, generar REP que liga el pago al CFDI original. | Requisito SAT desde 2021 — sin esto, declaración mensual falla. |
+| **Complemento de Pago (REP)** | Cuando el huésped paga en parcialidades o post-checkout, generar REP que liga el pago al CFDI original. **Usa `PaymentFxLock` para TipoCambio del día del pago, no de la factura** (§83). | Requisito SAT desde 2021 — sin esto, declaración mensual falla. |
 | **Cancelación CFDI 4.0** | Cuando hay un error, cancelar la factura desde la UI. Requiere aceptación SAT (motivos 01/02/03/04). | Hoy en hotelería, el contador del cliente lo hace manualmente cada mes. |
-| **Tax engine multi-impuesto** | Hoy en Zenix asumimos IVA único 16%. Realidad MX: IVA 16% + ISH (Impuesto Sobre Hospedaje, 3% en QRoo) + Saneamiento Ambiental Tulum ($4 USD/noche fijo). | Sin esto, el hotelero declara mal o sub-declara → multa SAT. |
-| **DIAN Colombia / SUNAT Perú** | Documentos fiscales equivalentes para los próximos 2 mercados objetivo. | Habilita expansión LATAM en v1.0.x sin esperar v1.3.x Books. |
+| **CFDI E (Egreso) para GuestCredit §86** | Cuando se emite `GuestCredit` por conversión no-monetaria: CFDI E con `FormaPago=15 (Condonación)` + `UsoCFDI=G02 (Devoluciones)` referenciando el CFDI I original. Cuando se devuelve cash/tarjeta: CFDI E con FormaPago real. | Sin esto, conversión a crédito no tiene respaldo fiscal — observación SAT garantizada. |
+| **Tax engine multi-impuesto §84** | `TaxRate` con `calculation: PERCENT_OF_BASE \| FIXED_PER_ROOM_NIGHT \| FIXED_PER_PERSON_NIGHT \| UMA_MULTIPLIER \| PER_BOOKING`. `UmaValue` versionada per-country (cambia cada febrero por inflación INEGI). `TaxLine` append-only análogo a PaymentLog. | Realidad QR 2026: IVA 16% + ISH 6% + Saneamiento UMA-based ~35 MXN/persona Tulum. Sin esto, hotelero sub-declara → multa SAT. |
+| **Tax strategy INCLUSIVE default §82** | `PropertySettings.taxStrategy=INCLUSIVE` para LATAM hostal/boutique. Push Channex con `is_inclusive=true` para porcentuales (IVA/ISH). DSA per-night siempre `is_inclusive=false` + disclosure obligatorio en confirmation page del OTA. | Resuelve "problema Hostelworld" — 73% de quejas post-stay por extra fees inesperados (NN/g 2023). |
+| **DIAN Colombia / SUNAT Perú / Hacienda CR (DLC)** | Adapters `CoDianAdapter`, `PeSunatAdapter`, `CrHaciendaAdapter`. Activables vía Zenix Activate wizard (§77-§80). | Habilita expansión LATAM como DLC, no como BASE — monetiza el costo de mantener cada PAC. |
 | **Tax-exempt guest handling** | Diplomáticos, OEA, ONU — facturación distinta sin IVA. | Edge case relevante para hoteles en CDMX y zonas turísticas con cumbres. |
 
-**Estimado v1.0.2: 4-5 semanas (PAC integration es la parte pesada).**
+**Estimado v1.0.2: ~3 semanas adicionales (vs. estimación previa 4-5 — scope MX refinado).** Adapters CO/PE/CR no se contabilizan aquí (DLC).
 
 ### v1.0.3 · REPORTS-CORE — Los 12 reportes operativos esenciales
 
@@ -679,5 +689,6 @@ v1.0.x Foundation ──┬──→ v1.1.x Operation Excellence ──┬──
 
 ## 10. Bitácora de revisiones
 
+- **2026-05-15** — **Refinamiento PAY-CORE / CFDI-CORE.** Tras investigación competitiva de 5 PMS premium (Mews, Cloudbeds, Opera Cloud, Roomraccoon, Little Hotelier), se consolidaron 9 sub-módulos arquitectónicos en nuevo doc [`14-payment-currency-tax-architecture.md`](14-payment-currency-tax-architecture.md). Decisiones §81-§90 agregadas a CLAUDE.md. Scope v1.0.1 PAY-CORE expandido de 3-4 a ~9.5 semanas (refleja realidad LATAM-grade: multi-currency + FX lock, OTA-collect detection, cash drawer multi-divisa, Banxico integration, GuestCredit con CFDI E). Scope v1.0.2 CFDI-CORE refinado a ~3 semanas para MX core; CO/PE/CR adapters reclasificados como DLC tier Pro activables vía Zenix Activate.
 - **2026-05-14** — **Refactor mayor de versionado.** De "versiones individuales secuenciales (v1.0→v2.0)" a "bloques temáticos (v1.0.x → v1.4.x + v2.0 reservado para rewrite)". Justificación: análisis comparativo con Mews/Stripe/Salesforce/Cloudbeds confirmó que ninguna bumpea major por feature expansion. Re-integrados 25+ features descubiertos en estudio comparativo (mensajería OTA centralizada, IA tarifaria, online check-in, group reservations, day-use, master billing corporativo, guest CRM, concierge log, lost&found, late checkout fees, booking engine propio, rate parity, marketplace integrations, etc.). v1.0.x expandido con PAY-CORE + CFDI-CORE + REPORTS-CORE como funcionalidades NO opcionales del foundation. Features descartadas: wake-up calls, spa appointments básico (queda en Ancillary), GDS/CRS connectivity, laundry tracking.
 - **2026-05-13** — Documento creado. Roadmap consolidado v1.0 → v2.0 con 12 versiones. Agregados People (v1.7) y Books (v1.8) tras conversación de visión Zenix↔ZaharDev. POS movido antes que Procure (high customer demand wedge).
