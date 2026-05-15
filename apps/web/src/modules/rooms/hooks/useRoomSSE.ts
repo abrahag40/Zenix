@@ -42,7 +42,7 @@ const ROOM_EVENT_TYPES: SseEventType[] = [
 export function useRoomSSE(propertyId: string) {
   const queryClient = useQueryClient()
   const esRef = useRef<EventSource | null>(null)
-  const retryRef = useRef<ReturnType<typeof setTimeout>>()
+  const retryRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const retryCount = useRef(0)
 
   useEffect(() => {
