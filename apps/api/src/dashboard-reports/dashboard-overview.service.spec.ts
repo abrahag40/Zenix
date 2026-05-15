@@ -117,6 +117,10 @@ describe('DashboardOverviewService', () => {
     expect(unpaidQuery).toBeUndefined()
   })
 
+  // CI-RESCUE 2026-05-15 — rewritten from scratch.
+  // Stale anterior: mock de prisma.room.findMany retornaba `[{id, number}]`
+  // sin `units` array. Service evolucionó para iterar `room.units` en la
+  // sección "Room-level status derive" (línea 332). Sin units → TypeError.
   it('redacts requestedByName/approvedByName from blocked rooms for HK', async () => {
     prisma.roomBlock.findMany.mockResolvedValueOnce([
       {
@@ -130,16 +134,22 @@ describe('DashboardOverviewService', () => {
         approvedById: 'staff-2',
       },
     ])
-    prisma.room.findMany.mockResolvedValue([{ id: 'r1', number: '105' }])
+    // Service hace 2 llamadas a room.findMany — la del block (sin units) y
+    // luego una global para room status (con units). mockResolvedValue cubre
+    // ambas. Forma esperada: { id, number, units: UnitStatus[] }.
+    prisma.room.findMany.mockResolvedValue([
+      { id: 'r1', number: '105', units: [] },
+    ])
     prisma.staff.findMany
       .mockResolvedValueOnce([{ id: 'staff-1', name: 'Carlos R.' }])
       .mockResolvedValueOnce([{ id: 'staff-2', name: 'Ana G.' }])
 
     const result = await svc.getOverview('prop-1', 'HOUSEKEEPER' as any)
 
+    // Contrato de redacción (núcleo del test): HK no ve nombres operativos.
     expect(result.blockedRooms[0].requestedByName).toBeNull()
     expect(result.blockedRooms[0].approvedByName).toBeNull()
-    // Operational fields still present
+    // Datos operacionales (qué hab. + por qué) sí visibles para HK.
     expect(result.blockedRooms[0].roomNumber).toBe('105')
     expect(result.blockedRooms[0].reason).toBe('leak')
   })
