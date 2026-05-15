@@ -127,6 +127,9 @@ export function useNotifications(propertyId: string | null) {
     markAllRead:  () => markAllReadMut.mutate(),
     approve:      (id: string, reason?: string) => approveMut.mutate({ id, reason }),
     reject:       (id: string, reason?: string) => rejectMut.mutate({ id, reason }),
+    // NOTIF-11: surface mutation pending state so action buttons can be
+    // disabled while a request is in flight (prevents double-click duplicates).
+    isApproveOrRejectPending: approveMut.isPending || rejectMut.isPending,
   }
 }
 

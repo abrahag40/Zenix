@@ -51,6 +51,19 @@ export function useRoomSSE(propertyId: string) {
     function connect() {
       const token = localStorage.getItem('hk_token') ?? ''
       const base = import.meta.env.VITE_API_URL ?? ''
+      // MT-9 (audit 2026-05-13): el JWT viaja como query param porque la API
+      //   `EventSource` nativa del navegador NO admite headers personalizados.
+      //   Riesgo: nginx/reverse-proxies suelen loggear la URL completa, lo que
+      //   filtra el token a access.log. Mitigación mientras se hace el refactor:
+      //     · El proxy de producción (nginx/Cloudfront) DEBE redactar el query
+      //       param `token=` antes de escribir el access log. Ver
+      //       `docs/ops/sse-token-redaction.md` (pendiente).
+      //     · TTL del JWT ya se baja a 24h en SEC-α (MT-8) para acotar la
+      //       ventana de exposición si el log se filtra.
+      //   TODO(v1.0.x SSE-auth refactor): migrar a cookie httpOnly + SameSite=Strict
+      //   o a un short-lived sse-token vía POST /v1/auth/sse-token que se
+      //   intercambie en milisegundos (patrón Vercel/Supabase realtime). Esto
+      //   elimina por completo el query param del log.
       const url = `${base}/api/events?token=${encodeURIComponent(token)}`
       const es = new EventSource(url)
       esRef.current = es

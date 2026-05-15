@@ -75,6 +75,17 @@ function toLocalHour(date: Date, timezone: string): number {
 }
 
 /**
+ * PAY-8: Computes the shiftDate (midnight UTC of the property-local day) for a
+ * PaymentLog. Using server UTC date silently crosses the cashier shift boundary
+ * across timezones (e.g. 10pm property local = 4am UTC the next day → wrong
+ * shift). Pattern mirrors night-audit.scheduler.ts.
+ */
+function shiftDateForTimezone(now: Date, timezone: string): Date {
+  // toLocalDate returns YYYY-MM-DD in the property's IANA timezone.
+  return new Date(`${toLocalDate(now, timezone)}T00:00:00.000Z`)
+}
+
+/**
  * Sprint 9 — Aggregate the cleaning status of multiple units (beds) belonging
  * to the same room into a single status per room.
  *
@@ -1938,7 +1949,7 @@ export class GuestStaysService {
     }
 
     const now = new Date()
-    const shiftDate = new Date(now.toISOString().split('T')[0] + 'T00:00:00.000Z')
+    const shiftDate = shiftDateForTimezone(now, tz)
 
     await this.prisma.$transaction(async (tx) => {
       // 1. Crear registros de pago (append-only)
@@ -2053,7 +2064,10 @@ export class GuestStaysService {
 
     const stay = await this.prisma.guestStay.findUnique({
       where: { id: stayId, organizationId: orgId },
-      select: { id: true, propertyId: true, currency: true, amountPaid: true, totalAmount: true, noShowAt: true },
+      select: {
+        id: true, propertyId: true, currency: true, amountPaid: true, totalAmount: true, noShowAt: true,
+        room: { select: { property: { select: { settings: { select: { timezone: true } } } } } },
+      },
     })
     if (!stay) throw new NotFoundException('Estadía no encontrada')
     if (stay.noShowAt) throw new BadRequestException('No se puede registrar pago en un no-show')
@@ -2072,7 +2086,8 @@ export class GuestStaysService {
     }
 
     const now = new Date()
-    const shiftDate = new Date(now.toISOString().split('T')[0] + 'T00:00:00.000Z')
+    const tz = stay.room?.property?.settings?.timezone ?? 'UTC'
+    const shiftDate = shiftDateForTimezone(now, tz)
     const newAmountPaid = Number(stay.amountPaid) + dto.amount
     const totalAmount   = Number(stay.totalAmount)
 
@@ -2115,7 +2130,14 @@ export class GuestStaysService {
 
     const original = await this.prisma.paymentLog.findUnique({
       where: { id: paymentLogId },
-      include: { stay: { select: { organizationId: true, amountPaid: true, totalAmount: true, currency: true, propertyId: true } } },
+      include: {
+        stay: {
+          select: {
+            organizationId: true, amountPaid: true, totalAmount: true, currency: true, propertyId: true,
+            room: { select: { property: { select: { settings: { select: { timezone: true } } } } } },
+          },
+        },
+      },
     })
     if (!original) throw new NotFoundException('Registro de pago no encontrado')
     if (original.stay.organizationId !== orgId) throw new ForbiddenException()
@@ -2125,7 +2147,8 @@ export class GuestStaysService {
     if (voidEntry) throw new ConflictException('Ya existe una anulación para este pago')
 
     const now         = new Date()
-    const shiftDate   = new Date(now.toISOString().split('T')[0] + 'T00:00:00.000Z')
+    const tz          = original.stay.room?.property?.settings?.timezone ?? 'UTC'
+    const shiftDate   = shiftDateForTimezone(now, tz)
     const voidAmount  = -Number(original.amount)
     const newPaid     = Math.max(0, Number(original.stay.amountPaid) + voidAmount)
     const totalAmount = Number(original.stay.totalAmount)
