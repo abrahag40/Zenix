@@ -186,6 +186,11 @@ export function useCheckout(propertyId: string) {
         type: 'active',
       })
       qc.invalidateQueries({ queryKey: ['rooms', propertyId], exact: false })
+      // El calendario PMS deriva el color del bloque del estado del journey
+      // (DEPARTED vs IN_HOUSE). Sin invalidar stay-journeys-timeline, el bloque
+      // sigue pintado en su color previo aunque la GuestStay ya tiene
+      // actualCheckout — bug recurrente reportado por el usuario.
+      qc.invalidateQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false, refetchType: 'active' })
       toast.success('Checkout registrado — habitación liberada')
     },
     onError: (err: Error) => {
@@ -203,6 +208,9 @@ export function useEarlyCheckout(propertyId: string) {
     onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ['guest-stays', propertyId], exact: false, refetchType: 'active' })
       qc.invalidateQueries({ queryKey: ['rooms', propertyId], exact: false })
+      // Misma razón que useCheckout: el calendario muestra journey blocks; sin
+      // invalidar stay-journeys-timeline el bloque queda con el color previo.
+      qc.invalidateQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false, refetchType: 'active' })
       const msg =
         result.tasksScheduledFor === 'tomorrow'
           ? 'Salida anticipada registrada — limpieza programada para mañana'

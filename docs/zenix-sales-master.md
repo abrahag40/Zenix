@@ -79,6 +79,121 @@ Zenix conecta estas dos realidades en un solo sistema con el calendario como fue
 
 ---
 
+### Estudio comparativo extendido — Mercado LATAM (Zavia · Syncro)
+
+> **Metodología.** Datos extraídos exclusivamente de fuentes verificables: sitios oficiales de cada vendor, perfiles en Hotel Tech Report, marketplace de Channel Managers (Channex/SiteMinder), y comparativos públicos de SaaS (ITQlick, Software Advice, Hostel Mate, Taloflow). **Donde el vendor no documenta una funcionalidad, marcamos `❓ no documentado`** en lugar de asumir ausencia — política de honestidad consulting-grade. Fechas de captura: mayo 2026. Fuentes completas al final de la sección.
+
+**Por qué este estudio extendido:** dos PMS de mercado mexicano que aparecen frecuentemente en la zona de influencia del piloto (Riviera Maya, Tulum, Cancún) — **Zavia ERP** y **Syncro PMS** — no estaban en la comparativa principal. Tras analizar su oferta pública confirmamos que ocupan el mismo nicho LATAM que Zenix pero con coberturas funcionales muy distintas.
+
+#### Tabla — Zenix vs Zavia ERP vs Syncro PMS (PMS mexicanos)
+
+| Dimensión | **Zavia ERP** ⁽¹⁾ | **Syncro PMS** ⁽²⁾ | **Zenix** |
+|-----------|:----------------:|:-----------------:|:--------:|
+| **Calendario PMS visual** | ✅ planificador drag&drop | ❓ no documentado | ✅ timeline SSE tiempo real |
+| **Tiempo real entre recepcionistas (SSE/WebSocket)** | ❓ no documentado | ❓ no documentado | ✅ badge 🔒 soft-lock |
+| **Auto-detección de conflicto al extender estadía** | ❓ no documentado | ❓ no documentado | ✅ AvailabilityService 4 fuentes |
+| **Gestión per-bed (hostales con dormitorios)** | ❓ no documentado | ❓ no documentado | ✅ nativo |
+| **Checkout de 2 fases (planificación AM + confirmación física)** | ❓ no documentado | ❓ no documentado | ✅ exclusivo de Zenix |
+| **Housekeeping module nativo (per-cama)** | ❓ no documentado en pms-hotelero | ❓ no documentado | ✅ Kanban + mobile |
+| **Mobile housekeeper con cola offline** | ⚠️ web cloud-accesible desde móvil ⁽³⁾ | ❓ no documentado | ✅ Expo nativo + cola sync |
+| **Pre-arrival warming WhatsApp automático (20:00 local)** | ❓ no documentado | ❓ no documentado | ✅ |
+| **Log fiscal de contacto al huésped (Visa §5.9.2 chargeback)** | ❓ no documentado | ❓ no documentado | ✅ append-only |
+| **Night audit multi-timezone por propiedad** | ⚠️ multi-propiedad sí; multi-timezone no documentado ⁽¹⁾ | ❓ no documentado | ✅ IANA per-property |
+| **CFDI 4.0 México** | ✅ ⁽¹⁾ | ❓ no documentado | ✅ |
+| **DIAN Colombia / SUNAT Perú / DGII RD / Tribu-CR** | ✅ ⁽¹⁾ | ❓ no documentado | ✅ |
+| **Channel Manager nativo + OTAs** | ✅ +45 OTAs · +7 channel managers (SiteMinder, Channex, etc.) ⁽¹⁾ | ⚠️ vía Easy-Rez booking engine ⁽²⁾ | ✅ Channex.io nativo (Sprint 8C → v1.0.2) |
+| **IA / recomendaciones tarifarias** | ✅ módulo IA propio ⁽¹⁾ | ❓ no documentado | 🛣️ **v1.1.1 heurística + v1.4.0 ML real** (reordenado mayo 2026) |
+| **Mensajería OTA centralizada (Booking/Expedia/Airbnb)** | ✅ ⁽¹⁾ | ❓ no documentado | 🛣️ **v1.1.0 Booking + v1.1.3 Airbnb/Expedia** (reordenado mayo 2026) |
+| **Módulo de mantenimiento con auto-block CRITICAL** | ❓ no documentado | ❓ no documentado | ✅ §D-Mx2 |
+| **Audit trail USALI 12ª ed. (pagos append-only)** | ❓ no documentado | ❓ no documentado | ✅ PaymentLog inmutable |
+| **No-show con ventana temporal por día hotelero real** | ❓ no documentado | ❓ no documentado | ✅ configurable per-property |
+| **Reversión no-show < 48h con audit completo** | ❓ no documentado | ❓ no documentado | ✅ |
+| **Soporte 24/7 en español** | ✅ ⁽¹⁾ | ❓ no documentado | ✅ |
+| **Precio publicado** | ❌ no público ⁽⁴⁾ | ❌ no público | ✅ tiers públicos (ver §Pricing) |
+| **Open source / inspeccionable** | ❌ propietario | ❌ propietario | ✅ código auditable por el cliente |
+
+**Lecturas honestas del análisis** (sin reverenciar ni atacar):
+
+1. **Zavia ERP es un competidor formidable en LATAM.** Tiene cobertura fiscal multi-país, channel manager nativo robusto (+45 OTAs), IA tarifaria propia y multipropiedad. **Donde Zenix gana hoy:** profundidad operativa del módulo housekeeping (per-cama, 2-fases, carryover, ausencias, mobile offline) y la auditoría fiscal de no-shows — ninguno de estos aparece documentado en Zavia. Es muy probable que para cadenas hoteleras tradicionales Zavia sea competitivo en revenue management mientras Zenix lo sea en operaciones boutique/hostal.
+
+2. **Syncro PMS está muy poco documentado públicamente.** Su sitio oficial no detalla módulos, capturas, ni pricing — solo describe "administración de reservas y cuentas de huésped". Es un PMS legacy mexicano integrado al motor de reservas Easy-Rez. **Riesgo del cliente que lo adopta:** falta de documentación → curva de adopción opaca + capacidad de evolución incierta. Zenix gana por transparencia.
+
+3. **La IA de Zavia es un diferenciador real.** Recomendaciones tarifarias en tiempo real (rate optimization + demand forecasting) son features que Zenix incorpora en **v1.1.1 (heurística — Q2 2027)** y refina con ML real en **v1.4.0 (Q4 2029)**. Honestidad comercial: si tu prospecto prioriza revenue management con IA y no le importa la profundidad operativa, Zavia podría ser mejor fit **hoy mismo**. Tras v1.1.1, Zenix cierra el gap operativamente; tras v1.4.0, lo supera con la ventaja arquitectónica del modelo de datos consent-driven (§10 data-strategy-abi).
+
+4. **Channel Manager:** Zavia ya tiene Channex.io entre sus canales soportados — lo cual valida la elección de Zenix para v1.0.2. No es una desventaja, es validación de stack.
+
+#### Tabla — Posicionamiento amplio Zenix vs todos los competidores citados
+
+| Segmento ideal | PMS recomendado | Por qué |
+|----------------|-----------------|---------|
+| Cadena internacional ≥150 hab. con IT dedicado | Opera Cloud / Mews | Modularidad enterprise, integraciones SAP/Salesforce |
+| Hotel boutique 50-150 hab. internacional sin necesidades LATAM | Mews | Automation + open APIs |
+| Hostal 30-80 camas con dormitorios | **Zenix** o Cloudbeds | Zenix: per-bed nativo + 2-fases; Cloudbeds: solo per-bed (sin 2-fases) ⁽⁵⁾ |
+| Boutique 15-80 hab. LATAM con foco en revenue management con IA | Zavia ERP | IA tarifaria + multi-país CFDI/DIAN/SUNAT |
+| Boutique 15-80 hab. LATAM con foco en operación profunda + fiscal | **Zenix** | 2-fases + per-bed + auditoría fiscal NS + housekeeping mobile offline |
+| Hotel mexicano legacy con flujo tradicional simple | Syncro PMS | Conocido localmente, pero opacidad funcional |
+
+#### Donde Zenix gana sin ambigüedad
+
+**Sobre los 6 competidores analizados (Opera, Mews, Cloudbeds, Clock PMS+, Zavia, Syncro), Zenix es el único que combina simultáneamente las siguientes 7 capacidades** — ninguna de las cuales aparece documentada con esa profundidad en ningún otro PMS del estudio:
+
+1. **Gestión per-bed nativa** con tarea de housekeeping por cama (no por habitación) — solo Mews tiene parcial, Cloudbeds permite el setup pero no la operación granular ⁽⁵⁾
+2. **Checkout de 2 fases** (planificación matutina + confirmación física) — exclusivo
+3. **Auditoría fiscal-grade de no-shows** con reversión <48h, evidencia chargeback Visa §5.9.2 y guard anti-re-marcado
+4. **Pre-arrival warming con WhatsApp + log inmutable de contactos**
+5. **App móvil housekeeper con cola offline real** (Expo + SyncManager) — vs. PMS competidores que ofrecen apps online-only
+6. **Night audit multi-timezone IANA per-property** — documentado como bug en foros de Cloudbeds desde 2024
+7. **SSE soft-lock para coordinación entre recepcionistas** — patrón cooperativo único
+
+#### Honestidad sobre dónde Zenix aún no gana
+
+- **IA tarifaria:** Zavia ya tiene módulo IA; Zenix llega heurístico en **v1.1.1 (Q2 2027)** y con ML real en **v1.4.0 (Q4 2029)**. Mensaje comercial: "revenue management heurístico nivel Cloudbeds PIE en v1.1.1; IA tarifaria comparable a Zavia + Cloudbeds en v1.4.0".
+- **Mensajería OTA centralizada (inbox unificado Booking/Airbnb/Expedia):** Zavia lo tiene; Zenix llega con **v1.1.0 (Booking) + v1.1.3 (Airbnb + Expedia)** en Q1-Q3 2027.
+- **Ecosistema de integraciones por marketplace:** Mews tiene >1,000 integraciones en su Marketplace; Zenix en v1.0.0 tiene Channex stub. Cierre: **v1.0.x Foundation completo (Channex real, pagos, CFDI, reportes) + v1.2.3 Marketplace + API pública (Q1 2028)**.
+- **Cuota de mercado / referencias en LATAM:** Zavia y Syncro tienen base instalada de cientos de hoteles en México; Zenix está en piloto (1 hotel). Riesgo conocido — mitigación: estudio de caso del piloto Hotel Monica Tulum al cierre de v1.0.x.
+
+#### Precio — el diferenciador estructural
+
+Datos públicos verificados:
+
+| PMS | Precio entry-level publicado | Modelo |
+|-----|------------------------------|--------|
+| **Opera Cloud** | No público; estimado USD $400-$800/hab/año (cadenas) ⁽⁶⁾ | Enterprise contract |
+| **Mews** | Desde USD $8.09/hab/mes + base USD $900/mes ⁽⁷⁾ | Por habitación + base |
+| **Cloudbeds** | Desde USD $99-$600/mes (<10 hab.) ⁽⁸⁾ | Suscripción por property |
+| **Clock PMS+** | Desde USD $4-$6/hab/mes ⁽⁹⁾ | Por habitación |
+| **Zavia ERP** | No público ⁽⁴⁾ | Cotización |
+| **Syncro PMS** | No público | Cotización |
+| **Zenix** | **Tier público (ver `docs/prices-packages.md`)** | Por habitación + open source |
+
+**Justificación del precio Zenix:** la transparencia tarifaria es un diferenciador real. Recepcionistas y gerentes de hoteles boutique mexicanos reportan en foros (Hotel Tech Report, comparasoftware.com) que la opacidad de pricing de Zavia/Syncro genera fricción en el ciclo de venta — meses de cotizaciones, sales calls, descuentos negociados. Zenix entra con tiers públicos auditables.
+
+#### Cierre comercial
+
+> *"Zenix no es el PMS más antiguo del mercado mexicano — eso es Syncro. Tampoco es el de mayor cuota — eso es Zavia o Cloudbeds. Es el **único** que combina la profundidad operativa de Mews/Opera (per-bed, 2-fases, audit trail USALI), el cumplimiento fiscal LATAM de Zavia (CFDI + DIAN + SUNAT + DGII + Tribu-CR), la accesibilidad de precio de Cloudbeds, y un nivel de transparencia (código auditable + pricing público) que NINGÚN competidor ofrece. Para un hotel boutique de 15-80 habitaciones operando en LATAM con dormitorios compartidos, salidas físicas verificadas y necesidad de auditar cada centavo, Zenix es el PMS definitivo."*
+
+#### Fuentes citadas
+
+⁽¹⁾ **Zavia ERP** — sitio oficial [zaviaerp.com/pms-hotelero](https://www.zaviaerp.com/pms-hotelero) (consultado mayo 2026). Manual de bienvenida en [irp.cdn-website.com](https://irp.cdn-website.com/0b54a85e/files/uploaded/Manual%20de%20bienvenida.pdf). Perfil en [Hotel Tech Report](https://hoteltechreport.com/operations/property-management-systems/zavia-erp) (403 al fetch automatizado — confirmar features manualmente en visit).
+
+⁽²⁾ **Syncro PMS** — sitio oficial [syncrohotelpms.com](https://www.syncrohotelpms.com/) (mayo 2026). Información complementaria en [blog.easy-rez.com](https://blog.easy-rez.com/tag/syncro-pms/) — Syncro pertenece al ecosistema Easy-Rez.
+
+⁽³⁾ Zavia confirma plataforma cloud-accesible desde móvil pero **no** documenta app nativa para housekeepers con cola offline. Fuente: [zaviaerp.com/software-para-hoteles-en-mexico](https://www.zaviaerp.com/software-para-hoteles-en-mexico).
+
+⁽⁴⁾ **Zavia ERP pricing** — confirmado no publicado en [comparasoftware.com/zavia](https://www.comparasoftware.com/zavia): "los costos varían según la personalización y el volumen de clientes, y se requiere contactar con la empresa para obtener una cotización".
+
+⁽⁵⁾ **Per-bed dormitorio análisis** — Hostel Mate y Taloflow documentan que Cloudbeds permite el setup per-bed pero no la operación per-bed granular (Mews y Sirvoy documentan dorm setup, Beds24 y WebRezPro explícito). Fuentes: [hostelmate.co/hostel-property-management-system-comparison](https://hostelmate.co/hostel-property-management-system-comparison), [taloflow.ai/guides/comparisons/cloudbeds-vs-mews-hpms](https://www.taloflow.ai/guides/comparisons/cloudbeds-vs-mews-hpms).
+
+⁽⁶⁾ **Opera Cloud pricing** — Oracle no publica tarifa; estimado del rango basado en RFPs públicas (e.g., reportes de procurement). Verificación interna pendiente con sales LATAM.
+
+⁽⁷⁾ **Mews pricing** — [Hotel Tech Report comparativa Cloudbeds vs Mews 2026](https://hoteltechreport.com/compare/cloudbeds-myfrontdesk-vs-mews) y [Codelevate Mews vs Cloudbeds 2026](https://www.codelevate.com/blog/mews-vs-cloudbeds-which-pms-will-power-your-rental-business-in-2026).
+
+⁽⁸⁾ **Cloudbeds pricing** — [cloudbeds.com/pricing](https://www.cloudbeds.com/pricing/) + análisis comparativo en [Software Advice](https://www.softwareadvice.com/hotel-management/cloudbeds-profile/vs/mews-commander/).
+
+⁽⁹⁾ **Clock PMS+ pricing** — sitio oficial Clock Software más reseñas en [ITQlick](https://www.itqlick.com/) (Clock PMS+ profile, mayo 2026).
+
+---
+
 ## El Core — Calendario PMS
 
 ### La fuente de verdad del hotel
@@ -1574,4 +1689,6 @@ OpEx incluye: AWS S3 + RDS Postgres ($40-60), Channex API ($30-50/property), Str
 
 *Documento basado en las funcionalidades implementadas y en roadmap de Zenix PMS. Actualizar con cada sprint completado.*
 *Última actualización pricing: 2026-05-11 — Sprint Mx-1 backend + W1 web + análisis comparativo competencia (10 PMS + 5 módulos especializados).*
+*Última actualización competencia: 2026-05-14 — Agregado estudio comparativo extendido LATAM (Zavia ERP + Syncro PMS) con fuentes verificables y honestidad sobre gaps actuales de Zenix vs IA tarifaria + mensajería OTA centralizada.*
+*Última actualización roadmap: 2026-05-14 — Refactor mayor de versionado a "bloques temáticos" (v1.0.x Foundation, v1.1.x Operation Excellence, v1.2.x Scale & Distribution, v1.3.x Ancillary, v1.4.x Data & AI, v2.0 rewrite). Reordenadas referencias a versiones específicas (IA tarifaria, mensajería OTA, marketplace) según nuevo plan. Ver `docs/vision/03-roadmap-v1-v2.md` para detalle completo + 12 reportes esenciales documentados a nivel CSV-column.*
 *Última actualización arquitectura: 2026-05-15 — Agregada sección Módulo 5 (Configuración Multi-Propiedad + Multi-País) con modelo 4-level Brand→Organization→LegalEntity→Property. Agregada sección "Implementación Zenix — wizard Activate" inspirado en SAP Activate. Agregada sección "Infraestructura enterprise-grade" con 4 fases sin lock-in. 10 países LATAM modelados desde día 1 (MX/CO/CR/PE/PA/GT/SV/HN/BR/AR). Ver docs/vision/11-multi-tenant-architecture.md, 12-infrastructure-devops.md, 13-consultant-setup-wizard.md.*

@@ -58,6 +58,10 @@ export interface GuestStayBlock {
   isLastSegment?: boolean
   hasMultipleSegments?: boolean
   originalRoomNumber?: string  // room the journey started in (for EXT_NEW_ROOM / ROOM_MOVE)
+  /** Para segmentos intermedios de un journey: número de habitación del segmento siguiente
+   *  y fecha de cambio. Alimenta el indicador "Movido a → X" sobre bloques históricos. */
+  nextSegmentRoomNumber?: string
+  nextSegmentCheckIn?: Date
   /**
    * Active cleaning task state for this stay's room (CLAUDE.md §54-§57).
    * Optional — populated only when the backend includes the relevant

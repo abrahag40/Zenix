@@ -51,6 +51,13 @@ function adaptJourneys(journeys: ApiJourney[]): GuestStayBlock[] {
 
     // The ORIGINAL segment's room number — used to annotate EXT_NEW_ROOM / ROOM_MOVE blocks.
     const originalRoomNumber = sorted[0]?.room.number
+    // El ÚLTIMO segmento del journey — alimenta el indicador "movido a → X"
+    // sobre cualquier segmento intermedio. Mostramos el destino final (no el
+    // inmediato siguiente) porque es lo operativamente útil: el recepcionista
+    // que ve un bloque histórico quiere saber dónde está el huésped HOY.
+    const lastSegment = sorted[sorted.length - 1]
+    const lastSegmentRoomNumber = lastSegment?.room.number
+    const lastSegmentCheckIn = lastSegment ? new Date(lastSegment.checkIn) : undefined
 
     for (let i = 0; i < sorted.length; i++) {
       const seg = sorted[i]
@@ -95,6 +102,18 @@ function adaptJourneys(journeys: ApiJourney[]): GuestStayBlock[] {
         hasMultipleSegments: hasMultiple,
         roomNumber: seg.room.number,
         originalRoomNumber: isNonOriginal ? originalRoomNumber : undefined,
+        // Para segmentos intermedios: exponer la habitación + fecha del ÚLTIMO
+        // segmento del journey (donde el huésped está / estará al cerrar). Solo
+        // si el destino final difiere de este segmento — si todos los segmentos
+        // están en la misma habitación, no hay "destino" que mostrar.
+        nextSegmentRoomNumber:
+          seg.id !== lastSegment?.id && lastSegment && lastSegment.room.id !== seg.room.id
+            ? lastSegmentRoomNumber
+            : undefined,
+        nextSegmentCheckIn:
+          seg.id !== lastSegment?.id && lastSegment && lastSegment.room.id !== seg.room.id
+            ? lastSegmentCheckIn
+            : undefined,
         // DEPARTED detection — set solo cuando journey ya cerró
         actualCheckout: actualCheckoutDate,
       })

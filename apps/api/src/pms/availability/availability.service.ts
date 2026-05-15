@@ -78,6 +78,11 @@ export class AvailabilityService {
     const conflicts: AvailabilityConflict[] = []
 
     // ── Local: direct GuestStay rows (excluding no-shows and checked-out) ────
+    // Cuando se pasa excludeJourneyId, también excluimos la GuestStay padre del
+    // journey: el caller está reorganizando esa estadía completa (extensión,
+    // ROOM_MOVE, split) y la reserva original NO debe colisionar consigo misma.
+    // Sin este filtro, extender Kevin Park en su propia habitación → 409 contra
+    // su propio nombre, regresión observada tras la migración a este servicio.
     const excludeStayIds = dto.excludeStayIds ?? []
     const staysOnRoom = await this.prisma.guestStay.findMany({
       where: {
@@ -86,6 +91,12 @@ export class AvailabilityService {
         deletedAt: null,
         actualCheckout: null,
         noShowAt: null,
+        // NOT { stayJourney: { id } } (en vez de stayJourney.id: { not }) para
+        // que stays SIN journey (legacy/seed) NO sean excluidas — Prisma trata
+        // la ausencia de relación como "no matchea el filtro positivo".
+        ...(dto.excludeJourneyId
+          ? { NOT: { stayJourney: { id: dto.excludeJourneyId } } }
+          : {}),
         checkinAt: { lt: dto.to },
         scheduledCheckout: { gt: dto.from },
       },
@@ -102,6 +113,11 @@ export class AvailabilityService {
     }
 
     // ── Local: StaySegment (the journey model) ──────────────────────────────
+    // Exclude segments whose parent stay has been marked no-show or has already
+    // departed — CLAUDE.md §17 (no-shows release inventory) and §11 (actualCheckout
+    // releases too). markAsNoShow sets GuestStay.noShowAt and StayJourney.status =
+    // NO_SHOW but does NOT cascade status changes onto StaySegment rows, so the
+    // segments remain ACTIVE in DB and would otherwise still create phantom conflicts.
     const excludeSegmentIds = dto.excludeSegmentIds ?? []
     const segmentsOnRoom = await this.prisma.staySegment.findMany({
       where: {
@@ -113,6 +129,7 @@ export class AvailabilityService {
           : {}),
         checkIn: { lt: dto.to },
         checkOut: { gt: dto.from },
+        journey: { guestStay: { noShowAt: null, actualCheckout: null } },
       },
       include: { journey: { select: { guestName: true } } },
     })

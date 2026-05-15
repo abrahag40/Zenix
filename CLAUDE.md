@@ -686,23 +686,32 @@ npx prisma studio
 
 ---
 
-## Pending — Sprints inmediatos para v1.0.0
+## Pending — Sprints inmediatos para v1.0.x Foundation
 
-Ver [docs/vision/03-roadmap-v1-v2.md](../../docs/vision/03-roadmap-v1-v2.md) sección v1.0.0 para detalle completo.
+> **Versionado:** refactor mayor 2026-05-14 — pasamos de "v1.0 → v2.0 lineal" a "bloques temáticos v1.x.y". v1.0.x Foundation se expandió con PAY-CORE + CFDI-CORE + REPORTS-CORE. Ver [docs/vision/03-roadmap-v1-v2.md](../../docs/vision/03-roadmap-v1-v2.md).
+
+### v1.0.0 — Hardening + Onboarding
 
 | Sprint | Alcance | Días | Bloquea v1.0.0 |
 |--------|---------|------|----------------|
 | **SEC-α** | Hardening seguridad (MT-5, MT-3, NS-3, NS-6, MT-7, MT-8) | 5-7 | **Sí — crítico** |
 | **Mx-1B finalización** | Gaps menores web + mobile mantenimiento | 3-4 | Sí |
-| **Setup Recamaristas** (antes 8J / HK-CFG) | SettingsPage tab "Recamaristas" | 5-7 | Sí |
-| **Sprint Pulido v1** | Bugs medios cleanup | 2-3 | Sí |
-| **Sprint Tests v1** | Test coverage mobile Hub | 4-5 | Sí |
+| **HK-CFG (Setup Recamaristas)** | SettingsPage tab "Recamaristas" | 5-7 | Sí |
+| **POLISH-α** | Bugs medios cleanup | 2-3 | Sí |
+| **QA-α** | Test coverage mobile Hub | 4-5 | Sí |
 
-Post-v1.0.0:
-- **v1.0.1 PAY** — Stripe/Conekta
-- **v1.0.2 CHX** — Channex.io real
-- **v1.0.3 IMG + NS-UI + DEBT-α** — S3 + toggle no-shows + cleanup
-- **v1.1 RBAC-UI + CROSS-PROP + DATA-CONSENT + PARTNER-SEED**
+### v1.0.x Roadmap (NUEVO — expandido)
+- **v1.0.1 PAY-CORE** — Stripe + Conekta + folio modal + master billing + folio splitting + refund/void + currency display + COMP approval (3-4 sem)
+- **v1.0.2 CFDI-CORE** — PAC integration (Facturama/SW Sapien) + CFDI 4.0 desde folio + REP + cancelación CFDI + tax engine multi-impuesto (IVA + ISH + Saneamiento) + DIAN CO + SUNAT PE + tax-exempt (4-5 sem)
+- **v1.0.3 REPORTS-CORE** — 12 reportes esenciales con UI + filtros + export Excel/CSV + scheduling nocturno (6-8 sem)
+- **v1.0.4 IMG + NS-UI + DEBT-α** — S3 + toggle no-shows + cleanup deuda técnica (1-2 sem)
+
+### v1.1.x+ (post-Foundation)
+- **v1.1.0** — Mensajería Booking + Online check-in + Digital signature
+- **v1.1.1** — IA tarifaria heurística + Pickup/Pace avanzados
+- **v1.1.2** — Group reservations + Master billing refinado
+- **v1.1.3** — Mensajería Airbnb + Expedia + Upsell engine
+- **v1.1.4** — Guest CRM + Concierge + Lost&Found + Day-use + Late fees
 
 ---
 

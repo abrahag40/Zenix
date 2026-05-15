@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { isToday, differenceInCalendarDays, startOfDay } from 'date-fns'
 import { TIMELINE } from '../../utils/timeline.constants'
+import { useTodayTick } from '../../hooks/useTodayTick'
 import type { FlatRow } from '../../types/timeline.types'
 
 interface TodayColumnHighlightProps {
@@ -11,6 +12,10 @@ interface TodayColumnHighlightProps {
 }
 
 export function TodayColumnHighlight({ days, dayWidth, flatRows, poolStart }: TodayColumnHighlightProps) {
+  // Re-render at midnight so the highlighted column follows the actual current
+  // day. Without this, sessions open across midnight stay stuck on the previous
+  // day until reload.
+  const today = useTodayTick()
   const totalHeight = useMemo(() => {
     let h = 0
     flatRows.forEach((row) => {
@@ -22,8 +27,8 @@ export function TodayColumnHighlight({ days, dayWidth, flatRows, poolStart }: To
   // When poolStart is provided, compute absolute position from pool start
   const todayLeft = useMemo(() => {
     if (poolStart) {
-      const today = startOfDay(new Date())
-      const idx = differenceInCalendarDays(today, startOfDay(poolStart))
+      const todayDate = new Date(today)
+      const idx = differenceInCalendarDays(todayDate, startOfDay(poolStart))
       if (idx < 0) return null
       return idx * dayWidth
     }
@@ -31,7 +36,7 @@ export function TodayColumnHighlight({ days, dayWidth, flatRows, poolStart }: To
     const idx = days.findIndex((d) => isToday(d))
     if (idx < 0) return null
     return idx * dayWidth
-  }, [days, dayWidth, poolStart])
+  }, [days, dayWidth, poolStart, today])
 
   if (todayLeft === null) return null
 
