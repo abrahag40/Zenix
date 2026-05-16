@@ -1,11 +1,12 @@
-import { useMemo } from 'react'
-import { TIMELINE } from '../../utils/timeline.constants'
+import { useMemo, forwardRef } from 'react'
 import type { VirtualColumn } from '../../types/timeline.types'
 import type { DailyBar } from '../../hooks/useRates'
 
 interface BarStripProps {
   virtualColumns: VirtualColumn[]
-  scrollLeft: number
+  /** Ref para el inner div con transform — manejado por TimelineScheduler
+   *  vía DOM mutation directa (sin React state) para fluidez SwiftUI-style. */
+  innerRef?: React.Ref<HTMLDivElement>
   columnWidth: number  // ancho del fixed left label
   dayWidth: number
   data: DailyBar[] | undefined
@@ -26,7 +27,7 @@ interface BarStripProps {
  */
 export function BarStrip({
   virtualColumns,
-  scrollLeft,
+  innerRef,
   columnWidth,
   dayWidth,
   data,
@@ -58,11 +59,15 @@ export function BarStrip({
         </span>
       </div>
 
-      {/* Per-day rate values — synced with grid scroll via translateX */}
+      {/* Per-day rate values — synced with grid scroll via direct DOM mutation.
+          El parent (TimelineScheduler) aplica translate3d sobre innerRef
+          en cada scroll event sin pasar por React state — bypass del
+          reconciliation para 60fps fluido (Apple Calendar pattern). */}
       <div className="flex-1 overflow-hidden relative">
         <div
+          ref={innerRef}
           className="absolute top-0 left-0 h-full"
-          style={{ transform: `translateX(-${scrollLeft}px)` }}
+          style={{ willChange: 'transform' }}
         >
           {virtualColumns.map((vc) => {
             const dateKey = vc.date.toISOString().slice(0, 10)

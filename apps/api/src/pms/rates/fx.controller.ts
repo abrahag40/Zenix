@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Put, Query } from '@nestjs/common'
+import { Body, Controller, Get, Post, Query } from '@nestjs/common'
 import { IsNumber, IsOptional, IsString } from 'class-validator'
 import { FxService } from './fx.service'
 import { TenantContextService } from '../../common/tenant-context.service'
@@ -37,11 +37,11 @@ export class FxController {
   }
 
   /**
-   * PUT /v1/fx/override?propertyId=X
+   * POST /v1/fx/override?propertyId=X
    * Body: { baseCurrency, quoteCurrency, rate, spreadFromOfficial?, validFrom?, validTo? }
-   * Sólo SUPERVISOR/admin. Edita el override del hotel.
+   * Sólo SUPERVISOR/admin. Crea nueva entrada PropertyFxRate (append-only).
    */
-  @Put('override')
+  @Post('override')
   upsertOverride(
     @Query('propertyId') propertyId: string,
     @Body() dto: UpsertFxDto,

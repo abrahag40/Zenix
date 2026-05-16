@@ -152,15 +152,20 @@ function NotificationCard({ notif, onRead, onApprove, onReject, onNavigate, isAc
           {notif.body}
         </p>
 
-        {/* Single category chip — drop redundant type chip */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className={cn(
-            'text-[10px] font-semibold px-1.5 py-0.5 rounded',
-            meta.color, meta.bg,
-          )}>
-            {meta.label}
-          </span>
-        </div>
+        {/* Single category chip — drop redundant type chip.
+            Si ya hay decisión registrada (approval), ocultar la chip de
+            categoría "Aprobación requerida" para no duplicar con el badge
+            de decisión abajo (queja usuario 2026-05-16: chip innecesario). */}
+        {!(notif.approval && notif.category === 'MAINTENANCE_TICKET_NEEDS_APPROVAL') && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={cn(
+              'text-[10px] font-semibold px-1.5 py-0.5 rounded',
+              meta.color, meta.bg,
+            )}>
+              {meta.label}
+            </span>
+          </div>
+        )}
 
         {/* Footer meta: author + time SAME baseline (was 2 separate blocks) */}
         <div className="flex items-baseline gap-1.5 text-[10px] text-slate-400">

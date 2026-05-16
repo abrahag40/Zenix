@@ -71,6 +71,15 @@ export function TimelineScheduler() {
   const { data: apiGroups = [], isLoading: groupsLoading } = useRoomGroups(PROPERTY_ID)
 
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  // Refs para sincronización scroll horizontal via direct DOM mutation.
+  // Apple Calendar / SwiftUI pattern: bypass de React reconciliation en
+  // cada scroll event (60+ fires/s) para mantener 60fps fluidos. React
+  // state se actualiza solo via rAF debounced para virtualizer/cálculos.
+  const dateHeaderInnerRef = useRef<HTMLDivElement>(null)
+  const barStripInnerRef = useRef<HTMLDivElement>(null)
+  const footerInnerRef = useRef<HTMLDivElement>(null)
+  const scrollLeftRef = useRef(0)
+  const scrollStateRafRef = useRef<number | null>(null)
   const [scrollTop, setScrollTop] = useState(0)
   const [scrollLeft, setScrollLeft] = useState(0)
 
@@ -159,13 +168,37 @@ export function TimelineScheduler() {
     [groups],
   )
 
-  // Handle scroll sync
+  // Handle scroll sync — SwiftUI-style fluidity pattern.
+  // 1. Capturar scrollLeft en ref (no state) → 0 cost.
+  // 2. Aplicar translate3d a 3 inner divs via DOM directo → bypass React,
+  //    GPU-composited (will-change: transform), sin reconciliation cost.
+  // 3. Actualizar React state (scrollLeft) solo via rAF debounced — el
+  //    state lo usan virtualizer + cálculos derivados, no necesita 60fps.
+  //
+  // Antes: setScrollLeft cada scroll event (60-120/s) → re-render
+  // TimelineScheduler + descendants → frame drops + desincronización
+  // visible entre header/grid/footer (queja usuario "se ve raro mientras
+  // sucede el scroll").
+  // Después: 60fps consistentes, sync perfecto entre todos los layers.
   const handleScroll = useCallback(() => {
     const el = scrollContainerRef.current
-    if (el) {
-      setScrollTop(el.scrollTop)
-      setScrollLeft(el.scrollLeft)
-    }
+    if (!el) return
+    const x = el.scrollLeft
+    const y = el.scrollTop
+    scrollLeftRef.current = x
+    // Direct DOM mutation — GPU-composited transform, 0 React cost
+    const tx = `translate3d(${-x}px, 0, 0)`
+    if (dateHeaderInnerRef.current) dateHeaderInnerRef.current.style.transform = tx
+    if (barStripInnerRef.current)   barStripInnerRef.current.style.transform = tx
+    if (footerInnerRef.current)     footerInnerRef.current.style.transform = tx
+    // Update state vertical (scrollTop) immediately — afecta render de rows
+    setScrollTop(y)
+    // Update horizontal state via rAF debounce — solo cuando idle
+    if (scrollStateRafRef.current !== null) cancelAnimationFrame(scrollStateRafRef.current)
+    scrollStateRafRef.current = requestAnimationFrame(() => {
+      setScrollLeft(scrollLeftRef.current)
+      scrollStateRafRef.current = null
+    })
   }, [])
 
   // ─── Navigation (wired to virtualizer, not store) ──────────
@@ -763,6 +796,7 @@ export function TimelineScheduler() {
         onGoToToday={handleGoToToday}
         hideNoShows={hideNoShows}
         onToggleHideNoShows={() => setHideNoShows((v) => !v)}
+        onOpenRateQuote={() => setRateQuoteOpen(true)}
       />
 
       <div className="flex flex-col flex-1 overflow-hidden relative">
@@ -778,10 +812,13 @@ export function TimelineScheduler() {
             </span>
           </div>
 
-          {/* DateHeader — overflow:hidden + translateX(-scrollLeft) */}
+          {/* DateHeader — sync vía DOM mutation directa (innerRef).
+              No usa scrollLeft state — el ref se actualiza en cada scroll
+              event sin pasar por React. Inicialmente en 0 (sin transform). */}
           <div className="flex-1 overflow-hidden">
             <div
-              style={{ transform: `translateX(-${scrollLeft}px)`, width: totalWidth }}
+              ref={dateHeaderInnerRef}
+              style={{ width: totalWidth, willChange: 'transform' }}
             >
               <DateHeader
                 virtualColumns={virtualColumns}
@@ -792,16 +829,21 @@ export function TimelineScheduler() {
           </div>
         </div>
 
-        {/* Nivel 1 — BAR strip ambient (sprint Rates 2026-05-16).
-            Sticky bajo DateHeader, click abre Rate Quote Sheet (Nivel 3). */}
-        <BarStrip
-          virtualColumns={virtualColumns}
-          scrollLeft={scrollLeft}
-          columnWidth={TIMELINE.COLUMN_WIDTH}
-          dayWidth={dayWidth}
-          data={dailyBar}
-          onClickStrip={() => setRateQuoteOpen(true)}
-        />
+        {/* Nivel 1 — BAR strip ambient. Solo se muestra cuando NO hay
+            grouping (caso STR / Airbnb 1 listing / villas flat) — para
+            propiedades con groups, el BAR vive por-grupo en el TimelineGrid
+            row del grupo. Esto evita el bug "$70 fijo" cuando hay tipos con
+            precios distintos (queja usuario 2026-05-16). */}
+        {flatRows.filter(r => r.type === 'group').length <= 1 && (
+          <BarStrip
+            virtualColumns={virtualColumns}
+            innerRef={barStripInnerRef}
+            columnWidth={TIMELINE.COLUMN_WIDTH}
+            dayWidth={dayWidth}
+            data={dailyBar}
+            onClickStrip={() => setRateQuoteOpen(true)}
+          />
+        )}
 
         {/* ── Body: scroll horizontal + vertical en un solo contenedor ── */}
         <div
@@ -1008,14 +1050,14 @@ export function TimelineScheduler() {
         )}
       </div>
 
-      {/* Occupancy footer — sticky at bottom */}
+      {/* Occupancy footer — sticky at bottom, sync vía innerRef */}
       <OccupancyFooter
         virtualColumns={virtualColumns}
         stays={stays}
         totalRooms={totalRooms}
         dayWidth={dayWidth}
         columnWidth={TIMELINE.COLUMN_WIDTH}
-        scrollLeft={scrollLeft}
+        innerRef={footerInnerRef}
         readinessTasks={readinessTasks}
         cancelledTodayCount={cancelledTodayCount}
         onOpenCancelledToday={() => setCancelledTodayOpen(true)}

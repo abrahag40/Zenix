@@ -109,6 +109,39 @@ export function TimelineGrid({
             )}
             style={{ top: y, width: totalWidth, height: h }}
           >
+            {/* Group row — BAR per-group por día (Sprint Rates 2026-05-16).
+                Reutiliza el espacio del header del grupo (Cabaña, Junior Suite,
+                etc.) para mostrar la tarifa base del grupo. Si solo hay 1 grupo
+                en la propiedad, se omite (redundante con BAR strip top).
+                STR/Villas con grouping minimal aún pueden usar este render. */}
+            {row.type === 'group' && !isCompact && row.group?.baseRate != null &&
+              virtualColumns.map((vc) => {
+                const rate = row.group!.baseRate
+                const display = rate >= 1000
+                  ? `$${(rate / 1000).toFixed(rate >= 10000 ? 0 : 1)}k`
+                  : `$${rate.toLocaleString()}`
+                return (
+                  <div
+                    key={`group-bar-${vc.key}`}
+                    className="absolute top-0 flex items-end justify-center pb-1.5"
+                    style={{ left: vc.start, width: vc.size, height: h, pointerEvents: 'none' }}
+                  >
+                    <span
+                      className="font-mono tabular-nums"
+                      style={{
+                        fontSize: dayWidth >= 40 ? 10 : 9,
+                        fontWeight: 600,
+                        color: 'rgba(71,85,105,0.55)',
+                        letterSpacing: '-0.01em',
+                      }}
+                      title={`${row.group!.currency} ${rate.toLocaleString()}`}
+                    >
+                      {display}
+                    </span>
+                  </div>
+                )
+              })}
+
             {/* Split-day cells for room rows — only render visible columns */}
             {row.type === 'room' &&
               !isCompact &&

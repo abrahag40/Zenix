@@ -16,7 +16,9 @@ interface OccupancyFooterProps {
   totalRooms: number
   dayWidth: number
   columnWidth: number
-  scrollLeft: number
+  /** Ref para el inner div con transform — DOM mutation directa desde
+   *  TimelineScheduler para fluidez SwiftUI (sin React re-render por scroll). */
+  innerRef?: React.Ref<HTMLDivElement>
   readinessTasks?: ReadinessTask[]
   /** Cancel-Archive Sprint: counter "Canceladas hoy" + handler para abrir slide drawer. */
   cancelledTodayCount?: number
@@ -43,7 +45,7 @@ function calcDayOccupancy(
 }
 
 export function OccupancyFooter({
-  virtualColumns, stays, totalRooms, dayWidth, columnWidth, scrollLeft, readinessTasks,
+  virtualColumns, stays, totalRooms, dayWidth, columnWidth, innerRef, readinessTasks,
   cancelledTodayCount, onOpenCancelledToday,
 }: OccupancyFooterProps) {
   const today = useMemo(() => startOfDay(new Date()), [])
@@ -99,11 +101,14 @@ export function OccupancyFooter({
         </div>
       )}
 
-      {/* Metrics per day — synced with grid scroll via translateX */}
+      {/* Metrics per day — synced with grid scroll via direct DOM mutation
+          (innerRef desde TimelineScheduler). Bypass de React reconciliation
+          en cada scroll event para fluidez SwiftUI-style. */}
       <div className="flex-1 overflow-hidden relative">
         <div
+          ref={innerRef}
           className="absolute top-0 left-0 h-full"
-          style={{ transform: `translateX(-${scrollLeft}px)` }}
+          style={{ willChange: 'transform' }}
         >
           {virtualColumns.map((vc) => {
             const { count, percent } = calcDayOccupancy(vc.date, stays, totalRooms)
