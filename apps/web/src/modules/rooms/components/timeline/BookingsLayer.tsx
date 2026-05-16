@@ -45,6 +45,7 @@ interface BookingsLayerProps {
   journeyStays?: GuestStayBlock[]
   activeJourneyId: string | null
   onSetActiveJourneyId: (id: string | null) => void
+  selectedStayId?: string | null
 }
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
@@ -156,6 +157,7 @@ export function BookingsLayer({
   journeyStays = [],
   activeJourneyId,
   onSetActiveJourneyId,
+  selectedStayId = null,
 }: BookingsLayerProps) {
   const calendarEnd = days[days.length - 1]
   const containerRef = useRef<HTMLDivElement>(null)
@@ -390,6 +392,7 @@ export function BookingsLayer({
             groupHeaderOffsetY={mapping.groupHeaderOffsetY}
             staggerIndex={i}
             isDragging={dragState?.stayId === stay.id}
+            anyDragInProgress={dragState !== null}
             onDragStart={onDragStart}
             onExtendStart={onExtendStart}
             onActivateJourney={onActivateJourney}
@@ -404,7 +407,10 @@ export function BookingsLayer({
             isLocked={lockedStays?.has(stay.id)}
             onToggleLock={onToggleLock}
             scrollLeft={scrollLeft}
-            dimmed={activeJourneyId !== null && !activeStayIds.has(stay.id)}
+            dimmed={
+              (activeJourneyId !== null && !activeStayIds.has(stay.id)) ||
+              (activeJourneyId === null && selectedStayId !== null && stay.id !== selectedStayId)
+            }
             isInActiveJourney={activeJourneyId !== null && activeStayIds.has(stay.id)}
             isNsStripe={nsStripeIds.has(stay.id)}
             hasNsAbove={hasNsAboveCheck(stay, nsCollisionRanges)}
@@ -424,6 +430,7 @@ export function BookingsLayer({
             groupHeaderOffsetY={mapping.groupHeaderOffsetY}
             staggerIndex={visibleStays.length + i}
             isDragging={dragState?.stayId === stay.id}
+            anyDragInProgress={dragState !== null}
             onDragStart={onDragStart}
             onExtendStart={onExtendStart}
             onActivateJourney={onActivateJourney}
@@ -438,7 +445,10 @@ export function BookingsLayer({
             isLocked={lockedStays?.has(stay.id)}
             onToggleLock={onToggleLock}
             scrollLeft={scrollLeft}
-            dimmed={activeJourneyId !== null && !activeStayIds.has(stay.id)}
+            dimmed={
+              (activeJourneyId !== null && !activeStayIds.has(stay.id)) ||
+              (activeJourneyId === null && selectedStayId !== null && stay.id !== selectedStayId)
+            }
             isInActiveJourney={activeJourneyId !== null && activeStayIds.has(stay.id)}
             isNsStripe={nsStripeIds.has(stay.id)}
             hasNsAbove={hasNsAboveCheck(stay, nsCollisionRanges)}

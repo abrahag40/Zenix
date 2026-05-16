@@ -30,6 +30,10 @@ interface BookingBlockProps {
   onRevertNoShow?: (stayId: string) => void
   onOpenDetail?: (stayId: string) => void
   isDragging?: boolean
+  /** 2026-05-15 — true cuando CUALQUIER bloque del calendario está siendo arrastrado.
+   *  Durante drag, suprimimos los tooltips de otros bloques para evitar
+   *  ruido visual (el cursor pasa sobre múltiples bloques al mover). */
+  anyDragInProgress?: boolean
   isLocked?: boolean
   onToggleLock?: (stayId: string) => void
   scrollLeft?: number
@@ -111,6 +115,7 @@ function BookingBlockInner({
   onRevertNoShow,
   onOpenDetail,
   isDragging = false,
+  anyDragInProgress = false,
   isLocked = false,
   onToggleLock,
   scrollLeft = 0,
@@ -122,7 +127,12 @@ function BookingBlockInner({
   hasNsAbove = false,
 }: BookingBlockProps) {
   const forceAbove = stay.hasMultipleSegments === true && stay.isLastSegment !== true
-  const { triggerRef, registerTooltipRef, visible, position, hide } = useTooltip({ forceAbove })
+  // Tooltip se desactiva cuando hay un drag global en curso para evitar
+  // que el cursor pasando sobre otros bloques al mover dispare popovers.
+  const { triggerRef, registerTooltipRef, visible, position, hide } = useTooltip({
+    forceAbove,
+    enabled: !anyDragInProgress,
+  })
   const mouseDownPos = useRef<{ x: number; y: number } | null>(null)
   const didDrag = useRef(false)
 

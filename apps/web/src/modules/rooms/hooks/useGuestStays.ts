@@ -205,12 +205,27 @@ export function useEarlyCheckout(propertyId: string) {
   return useMutation({
     mutationFn: ({ stayId, notes }: { stayId: string; notes?: string }) =>
       guestStaysApi.earlyCheckout(stayId, notes),
-    onSuccess: (result) => {
-      qc.invalidateQueries({ queryKey: ['guest-stays', propertyId], exact: false, refetchType: 'active' })
+    // 2026-05-15 — Fix bug recurrente "checkout no actualiza el bloque
+    // automáticamente, debo hacer refresh". Causa: invalidateQueries con
+    // refetchType:'active' NO garantiza un re-fetch sincrónico, especialmente
+    // cuando el dialog modal estaba abierto (puede dejar queries en estado
+    // suspendido). Reemplazamos por `await refetchQueries` (mismo patrón que
+    // useCheckout regular) — fuerza re-fetch antes de cerrar el dialog, así
+    // el UI re-renderiza con data fresca antes que el usuario pueda mirar.
+    onSuccess: async (result) => {
+      await qc.refetchQueries({
+        queryKey: ['guest-stays', propertyId],
+        exact: false,
+        type: 'active',
+      })
+      // stay-journeys-timeline también se refetchquea explícitamente — el
+      // calendario PMS deriva el color del bloque del estado del journey.
+      await qc.refetchQueries({
+        queryKey: ['stay-journeys-timeline', propertyId],
+        exact: false,
+        type: 'active',
+      })
       qc.invalidateQueries({ queryKey: ['rooms', propertyId], exact: false })
-      // Misma razón que useCheckout: el calendario muestra journey blocks; sin
-      // invalidar stay-journeys-timeline el bloque queda con el color previo.
-      qc.invalidateQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false, refetchType: 'active' })
       const msg =
         result.tasksScheduledFor === 'tomorrow'
           ? 'Salida anticipada registrada — limpieza programada para mañana'
