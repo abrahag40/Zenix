@@ -6,7 +6,7 @@ import { useTimelineStore } from '../../stores/timeline.store'
 import { TIMELINE } from '../../utils/timeline.constants'
 import { getStayStatus } from '../../utils/timeline.utils'
 import { useDragDrop } from '../../hooks/useDragDrop'
-import { useGuestStays, useCreateGuestStay, useCheckout, useMoveRoom, useSplitMidStay, useSplitReservation, useMarkNoShow, useRevertNoShow, useRoomReadinessTasks, useExtendStay, useExtendSameRoom, useExtendNewRoom, useMoveExtensionRoom, useConfirmCheckin } from '../../hooks/useGuestStays'
+import { useGuestStays, useCreateGuestStay, useCheckout, useMoveRoom, useSplitMidStay, useSplitReservation, useMarkNoShow, useRevertNoShow, useRoomReadinessTasks, useExtendStay, useExtendSameRoom, useExtendNewRoom, useMoveExtensionRoom, useConfirmCheckin, useCancelStay, useCancelledTodayCount } from '../../hooks/useGuestStays'
 import { guestStaysApi } from '../../api/guest-stays.api'
 import { useStayJourneys } from '../../hooks/useStayJourneys'
 import { useBlocks, useCreateBlock, useReleaseBlock, useCancelBlock } from '../../hooks/useBlocks'
@@ -34,6 +34,11 @@ import { CheckOutDialog } from '../dialogs/CheckOutDialog'
 import { ExtendConfirmDialog } from '../dialogs/ExtendConfirmDialog'
 import { MoveRoomDialog } from '../dialogs/MoveRoomDialog'
 import { MoveExtensionConfirmDialog } from '../dialogs/MoveExtensionConfirmDialog'
+import { CancelReservationDialog } from '../dialogs/CancelReservationDialog'
+import { CancelledTodayDrawer } from '../dialogs/CancelledTodayDrawer'
+import { BarStrip } from './BarStrip'
+import { RateQuoteSheet } from '../dialogs/RateQuoteSheet'
+import { useDailyBar } from '../../hooks/useRates'
 import { MoveReservationConfirmDialog } from '../dialogs/MoveReservationConfirmDialog'
 import { NoShowConfirmModal } from './NoShowConfirmModal'
 import { ConfirmCheckinDialog } from '../dialogs/ConfirmCheckinDialog'
@@ -66,6 +71,15 @@ export function TimelineScheduler() {
   const { data: apiGroups = [], isLoading: groupsLoading } = useRoomGroups(PROPERTY_ID)
 
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  // Refs para sincronización scroll horizontal via direct DOM mutation.
+  // Apple Calendar / SwiftUI pattern: bypass de React reconciliation en
+  // cada scroll event (60+ fires/s) para mantener 60fps fluidos. React
+  // state se actualiza solo via rAF debounced para virtualizer/cálculos.
+  const dateHeaderInnerRef = useRef<HTMLDivElement>(null)
+  const barStripInnerRef = useRef<HTMLDivElement>(null)
+  const footerInnerRef = useRef<HTMLDivElement>(null)
+  const scrollLeftRef = useRef(0)
+  const scrollStateRafRef = useRef<number | null>(null)
   const [scrollTop, setScrollTop] = useState(0)
   const [scrollLeft, setScrollLeft] = useState(0)
 
@@ -154,13 +168,37 @@ export function TimelineScheduler() {
     [groups],
   )
 
-  // Handle scroll sync
+  // Handle scroll sync — SwiftUI-style fluidity pattern.
+  // 1. Capturar scrollLeft en ref (no state) → 0 cost.
+  // 2. Aplicar translate3d a 3 inner divs via DOM directo → bypass React,
+  //    GPU-composited (will-change: transform), sin reconciliation cost.
+  // 3. Actualizar React state (scrollLeft) solo via rAF debounced — el
+  //    state lo usan virtualizer + cálculos derivados, no necesita 60fps.
+  //
+  // Antes: setScrollLeft cada scroll event (60-120/s) → re-render
+  // TimelineScheduler + descendants → frame drops + desincronización
+  // visible entre header/grid/footer (queja usuario "se ve raro mientras
+  // sucede el scroll").
+  // Después: 60fps consistentes, sync perfecto entre todos los layers.
   const handleScroll = useCallback(() => {
     const el = scrollContainerRef.current
-    if (el) {
-      setScrollTop(el.scrollTop)
-      setScrollLeft(el.scrollLeft)
-    }
+    if (!el) return
+    const x = el.scrollLeft
+    const y = el.scrollTop
+    scrollLeftRef.current = x
+    // Direct DOM mutation — GPU-composited transform, 0 React cost
+    const tx = `translate3d(${-x}px, 0, 0)`
+    if (dateHeaderInnerRef.current) dateHeaderInnerRef.current.style.transform = tx
+    if (barStripInnerRef.current)   barStripInnerRef.current.style.transform = tx
+    if (footerInnerRef.current)     footerInnerRef.current.style.transform = tx
+    // Update state vertical (scrollTop) immediately — afecta render de rows
+    setScrollTop(y)
+    // Update horizontal state via rAF debounce — solo cuando idle
+    if (scrollStateRafRef.current !== null) cancelAnimationFrame(scrollStateRafRef.current)
+    scrollStateRafRef.current = requestAnimationFrame(() => {
+      setScrollLeft(scrollLeftRef.current)
+      scrollStateRafRef.current = null
+    })
   }, [])
 
   // ─── Navigation (wired to virtualizer, not store) ──────────
@@ -214,6 +252,7 @@ export function TimelineScheduler() {
   const moveExtensionRoomMut = useMoveExtensionRoom(PROPERTY_ID)
   const markNoShowMut   = useMarkNoShow(PROPERTY_ID)
   const revertNoShowMut = useRevertNoShow(PROPERTY_ID)
+  const cancelStayMut   = useCancelStay(PROPERTY_ID)
   const { potentialNoShowWarningHour, noShowCutoffHour } = usePropertySettings()
 
   const { journeyBlocks: rawJourneyBlocks } = useStayJourneys(PROPERTY_ID, dataWindow.from, dataWindow.to)
@@ -380,6 +419,14 @@ export function TimelineScheduler() {
   }>({ open: false, stayId: null })
 
   const [noShowDialog, setNoShowDialog] = useState<{ stayId: string } | null>(null)
+  const [cancelDialog, setCancelDialog] = useState<{ stayId: string } | null>(null)
+  const [cancelledTodayOpen, setCancelledTodayOpen] = useState(false)
+  const [rateQuoteOpen, setRateQuoteOpen] = useState(false)
+  const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC'
+  const { data: cancelledTodayCount = 0 } = useCancelledTodayCount(PROPERTY_ID, browserTz)
+
+  // Sprint Rates 2026-05-16: BAR strip + Rate Quote Sheet
+  const { data: dailyBar } = useDailyBar(PROPERTY_ID, dataWindow.from, dataWindow.to)
 
   const [checkinDialog, setCheckinDialog] = useState<{ stayId: string } | null>(null)
   const confirmCheckinMut = useConfirmCheckin(PROPERTY_ID)
@@ -450,24 +497,38 @@ export function TimelineScheduler() {
   // GuestStay blocks whose journey is tracked via StayJourney segments are
   // replaced visually by the ORIGINAL + extension/move segments. Hide them
   // from the rendered layer so the original room row is not double-occupied.
+  // Excluye stays cancelled (Sprint CANCEL-ARCHIVE): paridad industria
+  // (Cloudbeds, Mews, Opera, RoomRaccoon, Little Hotelier liberan el slot
+  // visual del calendar; aparecen solo en el drawer/archive).
   const staysWithoutJourneys = useMemo(
-    () => stays.filter((s) => !s.journeyId),
+    () => stays.filter((s) => !s.journeyId && !s.cancelledAt),
     [stays],
   )
 
-  // NS collision detection — computed from COMPLETE unfiltered data so the result
+  // NS collision detection — computed from COMPLETE unfiltered data so el result
   // is independent of the hideNoShows toggle. nsStripeIds marks which NS blocks
   // to render as thin stripes; nsCollisionRanges tells active blocks to shift down.
+  //
+  // Comparación DAY-LEVEL en UTC: Laura checkout 15T12:00Z y pAAA checkin 15T05:00Z
+  // serían overlap por timestamp pero NO operativamente (same-day turnover legítimo).
+  // Mismo bug pattern arreglado en AvailabilityService (commit 7d13724).
   const { nsStripeIds, nsCollisionRanges } = useMemo(() => {
+    const utcDay = (d: Date) =>
+      Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
     const allBlocks = [...staysWithoutJourneys, ...journeyBlocks]
     const noShows   = allBlocks.filter((b) => !!b.noShowAt)
     const activos   = allBlocks.filter((b) => !b.noShowAt)
     const stripeIds = new Set<string>()
     const ranges: Array<{ roomId: string; checkIn: Date; checkOut: Date }> = []
     for (const ns of noShows) {
-      const collides = activos.some(
-        (a) => ns.roomId === a.roomId && ns.checkIn < a.checkOut && ns.checkOut > a.checkIn,
-      )
+      const nsInDay  = utcDay(ns.checkIn)
+      const nsOutDay = utcDay(ns.checkOut)
+      const collides = activos.some((a) => {
+        if (ns.roomId !== a.roomId) return false
+        const aInDay  = utcDay(a.checkIn)
+        const aOutDay = utcDay(a.checkOut)
+        return nsInDay < aOutDay && nsOutDay > aInDay
+      })
       if (collides) {
         stripeIds.add(ns.id)
         ranges.push({ roomId: ns.roomId, checkIn: ns.checkIn, checkOut: ns.checkOut })
@@ -735,6 +796,7 @@ export function TimelineScheduler() {
         onGoToToday={handleGoToToday}
         hideNoShows={hideNoShows}
         onToggleHideNoShows={() => setHideNoShows((v) => !v)}
+        onOpenRateQuote={() => setRateQuoteOpen(true)}
       />
 
       <div className="flex flex-col flex-1 overflow-hidden relative">
@@ -750,10 +812,13 @@ export function TimelineScheduler() {
             </span>
           </div>
 
-          {/* DateHeader — overflow:hidden + translateX(-scrollLeft) */}
+          {/* DateHeader — sync vía DOM mutation directa (innerRef).
+              No usa scrollLeft state — el ref se actualiza en cada scroll
+              event sin pasar por React. Inicialmente en 0 (sin transform). */}
           <div className="flex-1 overflow-hidden">
             <div
-              style={{ transform: `translateX(-${scrollLeft}px)`, width: totalWidth }}
+              ref={dateHeaderInnerRef}
+              style={{ width: totalWidth, willChange: 'transform' }}
             >
               <DateHeader
                 virtualColumns={virtualColumns}
@@ -763,6 +828,22 @@ export function TimelineScheduler() {
             </div>
           </div>
         </div>
+
+        {/* Nivel 1 — BAR strip ambient. Solo se muestra cuando NO hay
+            grouping (caso STR / Airbnb 1 listing / villas flat) — para
+            propiedades con groups, el BAR vive por-grupo en el TimelineGrid
+            row del grupo. Esto evita el bug "$70 fijo" cuando hay tipos con
+            precios distintos (queja usuario 2026-05-16). */}
+        {flatRows.filter(r => r.type === 'group').length <= 1 && (
+          <BarStrip
+            virtualColumns={virtualColumns}
+            innerRef={barStripInnerRef}
+            columnWidth={TIMELINE.COLUMN_WIDTH}
+            dayWidth={dayWidth}
+            data={dailyBar}
+            onClickStrip={() => setRateQuoteOpen(true)}
+          />
+        )}
 
         {/* ── Body: scroll horizontal + vertical en un solo contenedor ── */}
         <div
@@ -969,15 +1050,30 @@ export function TimelineScheduler() {
         )}
       </div>
 
-      {/* Occupancy footer — sticky at bottom */}
+      {/* Occupancy footer — sticky at bottom, sync vía innerRef */}
       <OccupancyFooter
         virtualColumns={virtualColumns}
         stays={stays}
         totalRooms={totalRooms}
         dayWidth={dayWidth}
         columnWidth={TIMELINE.COLUMN_WIDTH}
-        scrollLeft={scrollLeft}
+        innerRef={footerInnerRef}
         readinessTasks={readinessTasks}
+        cancelledTodayCount={cancelledTodayCount}
+        onOpenCancelledToday={() => setCancelledTodayOpen(true)}
+      />
+
+      <CancelledTodayDrawer
+        open={cancelledTodayOpen}
+        propertyId={PROPERTY_ID}
+        onClose={() => setCancelledTodayOpen(false)}
+      />
+
+      {/* Nivel 3 — Rate Quote Sheet (side panel desde la derecha) */}
+      <RateQuoteSheet
+        open={rateQuoteOpen}
+        propertyId={PROPERTY_ID}
+        onClose={() => setRateQuoteOpen(false)}
       />
 
       {/* Drag ghost — position updated via DOM ref (no React re-render per frame).
@@ -1059,6 +1155,11 @@ export function TimelineScheduler() {
         onStartCheckin={(stayId) => {
           closeSheet()
           setCheckinDialog({ stayId })
+        }}
+        onCancelReservation={(stayId) => {
+          closeSheet()
+          setActiveJourneyId(null)
+          setCancelDialog({ stayId })
         }}
         onOpenMaintenanceTicket={(id) => openMaintenanceDrawer(id)}
         propertyId={PROPERTY_ID}
@@ -1276,6 +1377,27 @@ export function TimelineScheduler() {
           }}
         />
       )}
+
+      {/* Cancel-Archive dialog (Sprint 2026-05-16) */}
+      {cancelDialog && (() => {
+        const stay = stays.find(s => s.id === cancelDialog.stayId)
+          ?? journeyBlocks.find(s => s.id === cancelDialog.stayId)
+        if (!stay) return null
+        const roomRow = flatRows.find(r => r.id === stay.roomId && r.type === 'room')
+        return (
+          <CancelReservationDialog
+            stay={{ ...stay, roomNumber: stay.roomNumber ?? roomRow?.room?.number }}
+            isPending={cancelStayMut.isPending}
+            onClose={() => setCancelDialog(null)}
+            onConfirm={(data) => {
+              cancelStayMut.mutate(
+                { stayId: stay.guestStayId ?? stay.id, data },
+                { onSettled: () => setCancelDialog(null) },
+              )
+            }}
+          />
+        )
+      })()}
 
       {/* W3.6 — Drawer local removido. Ahora vive en App.tsx como
           GlobalMaintenanceDrawer leyendo del store useMaintenanceDrawer.

@@ -49,6 +49,10 @@ function adaptStay(raw: Record<string, unknown>): GuestStayBlock {
     noShowFeeCurrency:    raw.noShowFeeCurrency as string | undefined,
     noShowChargeStatus:   raw.noShowChargeStatus as GuestStayBlock['noShowChargeStatus'],
     stripePaymentMethodId: raw.stripePaymentMethodId as string | undefined,
+    cancelledAt:          raw.cancelledAt ? new Date(raw.cancelledAt as string) : undefined,
+    cancelInitiator:      raw.cancelInitiator as GuestStayBlock['cancelInitiator'],
+    cancelReason:         raw.cancelReason as string | undefined,
+    cancelReasonCode:     raw.cancelReasonCode as string | undefined,
   }
 }
 
@@ -278,6 +282,67 @@ export function useMarkNoShow(propertyId: string) {
     onError: (err: Error) => {
       toast.error(err.message ?? 'No se pudo marcar no-show')
     },
+  })
+}
+
+// ── Cancel-Archive (Sprint 2026-05-16) ─────────────────────────────────────
+export interface CancelStayInput {
+  initiator: 'GUEST' | 'HOTEL' | 'OTA' | 'ADMIN_ERROR' | 'SYSTEM'
+  reason?: string
+  reasonCode?: string
+  cancelledFromChannel?: 'PMS_DIRECT' | 'CHANNEX_WEBHOOK' | 'AUTO_SYSTEM'
+  metadata?: Record<string, unknown>
+}
+
+export function useCancelStay(propertyId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ stayId, data }: { stayId: string; data: CancelStayInput }) =>
+      guestStaysApi.cancel(stayId, data),
+    onSuccess: async () => {
+      await qc.refetchQueries({ queryKey: ['guest-stays', propertyId], exact: false })
+      await qc.refetchQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false })
+      await qc.refetchQueries({ queryKey: ['cancelled-today-count', propertyId], exact: false })
+      await qc.refetchQueries({ queryKey: ['cancelled-stays', propertyId], exact: false })
+      toast.success('Reserva cancelada')
+    },
+    onError: (err: Error) => {
+      toast.error(err.message ?? 'No se pudo cancelar la reserva')
+    },
+  })
+}
+
+export function useRestoreStay(propertyId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (stayId: string) => guestStaysApi.restore(stayId),
+    onSuccess: async () => {
+      await qc.refetchQueries({ queryKey: ['guest-stays', propertyId], exact: false })
+      await qc.refetchQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false })
+      await qc.refetchQueries({ queryKey: ['cancelled-stays', propertyId], exact: false })
+      toast.success('Reserva restaurada')
+    },
+    onError: (err: Error) => {
+      toast.error(err.message ?? 'No se pudo restaurar la reserva')
+    },
+  })
+}
+
+export function useCancelledStays(propertyId: string, opts?: { initiator?: string; since?: string; limit?: number }) {
+  return useQuery({
+    queryKey: ['cancelled-stays', propertyId, opts?.initiator ?? 'all', opts?.since ?? 'all'],
+    queryFn: () => guestStaysApi.listCancelled({ propertyId, ...opts }),
+    enabled: !!propertyId,
+    staleTime: 60_000,
+  })
+}
+
+export function useCancelledTodayCount(propertyId: string, timezone: string) {
+  return useQuery({
+    queryKey: ['cancelled-today-count', propertyId, timezone],
+    queryFn: () => guestStaysApi.countCancelledToday(propertyId, timezone),
+    enabled: !!propertyId && !!timezone,
+    staleTime: 30_000,
   })
 }
 

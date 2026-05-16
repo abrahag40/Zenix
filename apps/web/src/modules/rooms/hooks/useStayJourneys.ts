@@ -24,6 +24,8 @@ interface ApiJourney {
   status?: string
   /** Set cuando journey.status === 'CHECKED_OUT' — el moment del checkout real */
   journeyCheckOut?: string
+  /** bookingRef vive en GuestStay (parent) — incluido via `include: { guestStay: { select: { bookingRef } } }` */
+  guestStay?: { bookingRef?: string | null }
   segments: ApiSegment[]
 }
 
@@ -80,6 +82,7 @@ function adaptJourneys(journeys: ApiJourney[]): GuestStayBlock[] {
       blocks.push({
         id: seg.id,
         guestStayId: journey.guestStayId,
+        bookingRef: journey.guestStay?.bookingRef ?? undefined,
         roomId: seg.room.id,
         guestName: journey.guestName,
         checkIn,

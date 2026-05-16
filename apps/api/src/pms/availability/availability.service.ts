@@ -123,6 +123,7 @@ export class AvailabilityService {
         deletedAt: null,
         actualCheckout: null,
         noShowAt: null,
+        cancelledAt: null,  // Sprint CANCEL-ARCHIVE: cancelled stays liberan inventario
         // NOT { stayJourney: { id } } (en vez de stayJourney.id: { not }) para
         // que stays SIN journey (legacy/seed) NO sean excluidas — Prisma trata
         // la ausencia de relación como "no matchea el filtro positivo".
@@ -164,7 +165,7 @@ export class AvailabilityService {
         // Day-level overlap, mismo razonamiento que GuestStay arriba.
         checkIn: { lt: newCheckOutDay },
         checkOut: { gte: dayAfterNewCheckIn },
-        journey: { guestStay: { noShowAt: null, actualCheckout: null } },
+        journey: { guestStay: { noShowAt: null, actualCheckout: null, cancelledAt: null } },
       },
       include: { journey: { select: { guestName: true } } },
     })

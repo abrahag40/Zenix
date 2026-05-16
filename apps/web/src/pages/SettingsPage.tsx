@@ -17,16 +17,18 @@ import { api } from '../api/client'
 import { useAuthStore } from '../store/auth'
 import { SettingsScopeBanner } from '../components/SettingsScopeBanner'
 import { HousekeepingScheduleSection } from '../components/settings/HousekeepingScheduleSection'
+import { FxSection } from '../components/settings/FxSection'
 import type { UnitDto, PropertySettingsDto, RoomDto, StaffDto } from '@zenix/shared'
 import { Capability, StaffRole, RoomCategory } from '@zenix/shared'
 
-type Section = 'rooms' | 'staff' | 'scheduling' | 'property' | 'support'
+type Section = 'rooms' | 'staff' | 'scheduling' | 'property' | 'fx' | 'support'
 
 const TABS: { key: Section; label: string; icon: string }[] = [
   { key: 'rooms',      label: 'Habitaciones', icon: '🛏️' },
   { key: 'staff',      label: 'Personal',     icon: '👥' },
   { key: 'scheduling', label: 'Recamaristas', icon: '🧹' },
   { key: 'property',   label: 'Propiedad',    icon: '⚙️' },
+  { key: 'fx',         label: 'Tipo de cambio', icon: '💱' },
   { key: 'support',    label: 'Soporte',      icon: '🛟' },
 ]
 
@@ -74,6 +76,7 @@ export function SettingsPage() {
       {section === 'staff'      && <StaffSection isSupervisor={isSupervisor} />}
       {section === 'scheduling' && <HousekeepingScheduleSection />}
       {section === 'property'   && <PropertySection isSupervisor={isSupervisor} />}
+      {section === 'fx'         && <FxSection isSupervisor={isSupervisor} />}
       {section === 'support'    && <SupportSection isSupervisor={isSupervisor} />}
     </div>
   )

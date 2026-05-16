@@ -73,16 +73,18 @@ Esto es exactamente lo que el usuario describió. Lo adoptamos.
 
 `GuestStay` con `cancelledAt != null` permanece en DB indefinidamente. Acción de "borrar" en UI **siempre** ejecuta soft-delete. No existe endpoint hard-delete público. Análogo a §11 (no-show inmutable).
 
-Razón: Visa Core Rules §5.9.2 (evidencia de chargeback hasta 540 días post-transacción), CFDI 4.0 Art. 30 CFF (5 años retención fiscal MX), GDPR Art. 17.3.b/e (excepción "establishment, exercise or defense of legal claims").
+Razón: **Visa Reason Code 13.7 "Cancelled Merchandise/Services"** — ventana 120 días filing del cardholder + 30 días respuesta del acquirer ([Visa Dispute Management Guidelines junio 2024](https://usa.visa.com/content/dam/VCOM/global/support-legal/documents/merchants-dispute-management-guidelines.pdf)). CFDI 4.0 Art. 30 CFF (5 años retención fiscal MX). GDPR Art. 17.3.b/e (excepción "establishment, exercise or defense of legal claims").
 
-### D-CAN2: Distinción `CancelKind: LEGITIMATE | ADMIN_ERROR | OTA_CANCELLATION`
+### D-CAN2: Distinción `CancelKind: LEGITIMATE | ADMIN_ERROR | OTA_CANCELLATION` + sub-kind refundability
 
-Enum:
-- **LEGITIMATE** — el huésped o el hotel canceló legítimamente. Aplican penalty rules del rate plan. Si hubo CFDI I → emite CFDI E.
+Enum principal:
+- **LEGITIMATE** — el huésped o el hotel canceló legítimamente. Aplican penalty rules del rate plan. Si hubo CFDI I → emite CFDI E. Sub-kind obligatorio `refundability: GUEST_INITIATED_REFUNDABLE | GUEST_INITIATED_NON_REFUNDABLE | HOTEL_INITIATED`.
 - **ADMIN_ERROR** — el recepcionista creó la reserva equivocada (wrong room, wrong dates, duplicate). NO aplica penalty. NO emite CFDI E (no hubo operación real). Requiere `approvedById` SUPERVISOR (forcing function análoga a COMP §28).
 - **OTA_CANCELLATION** — cancelación entrante via Channex (sprint CHANNEX-INBOUND D-CHX7). Penalty según política del OTA, no del rate plan local.
 
-UI: dropdown explícito en `CancelReservationDialog`. Default = LEGITIMATE para reducir fricción del caso común. ADMIN_ERROR requiere segundo clic + reason text.
+UI: dropdown explícito en `CancelReservationDialog`. Default = LEGITIMATE para reducir fricción del caso común. ADMIN_ERROR requiere segundo clic + reason text. Sub-kind de refundability se calcula default desde rate plan + fecha; el usuario puede override con audit log.
+
+Razón del sub-kind: documentado por [Mews community](https://help.mews.com/en/articles/4583147) — el tipo de cancel determina si Refund logic v1.0.1 PAY-CORE dispara auto-refund o solo deja open folio. Sin esta distinción el flujo cancel ↔ refund queda ambiguo.
 
 ### D-CAN3: Ventana de cancelación según estado
 
@@ -114,6 +116,7 @@ En la misma transacción (post v1.0.2 CFDI-CORE):
    - Calcular `refundAmount` según penalty del rate plan.
    - Llamar `MxCfdi40Adapter.emitEgreso({ folioOriginal, formaPago: '15', usoCfdi: 'G02', monto: refundAmount })`.
    - Persistir resultado en `CfdiEmission` con relación al stay.
+   - **Tracking del estado fiscal asíncrono** (`PENDING_RECEPTOR_ACK | ACCEPTED | REJECTED`) — Regla SAT 2.7.1.35 obliga aceptación del receptor via Buzón Tributario en **3 días hábiles** ([ContadorMx 2026](https://contadormx.com/cancelacion-cfdi-complemento-de-pago-sat-2026/), [SAT Anexo 20 v4.0 FAQ](http://omawww.sat.gob.mx/tramitesyservicios/Paginas/documentos/PregFrecCFDIVer4_0.pdf)). UI muestra estado; AppNotif al contador si REJECTED.
 2. Si `cancelKind === ADMIN_ERROR` y hubo CFDI I:
    - Llamar `MxCfdi40Adapter.cancelCfdi(folioOriginal, motivo: '02-comprobante con errores sin relacion')`.
    - No emite CFDI E (no fue operación real).
@@ -183,16 +186,33 @@ enum CancelKind {
   OTA_CANCELLATION   // Cancelación inbound desde OTA via Channex
 }
 
+enum CancelRefundability {
+  GUEST_INITIATED_REFUNDABLE
+  GUEST_INITIATED_NON_REFUNDABLE
+  HOTEL_INITIATED
+}
+
+enum CfdiCancelStatus {
+  NOT_APPLICABLE      // No hubo CFDI I previo
+  PENDING_RECEPTOR_ACK
+  ACCEPTED
+  REJECTED
+}
+
 model GuestStay {
   // ── Cancel-archive (Sprint CANCEL-ARCHIVE) ───────────────────────
-  cancelledAt        DateTime?   @map("cancelled_at")
-  cancelledById      String?     @map("cancelled_by_id")
-  cancelKind         CancelKind? @map("cancel_kind")
-  cancelReason       String?     @map("cancel_reason")
-  cancelApprovedById String?     @map("cancel_approved_by_id")  // SUPERVISOR para ADMIN_ERROR
-  cancelChannexAck   Boolean     @default(false) @map("cancel_channex_ack")
-  requiresFiscalAction Boolean   @default(false) @map("requires_fiscal_action")
-  anonymizedAt       DateTime?   @map("anonymized_at")
+  cancelledAt          DateTime?            @map("cancelled_at")
+  cancelledById        String?              @map("cancelled_by_id")
+  cancelKind           CancelKind?          @map("cancel_kind")
+  cancelRefundability  CancelRefundability? @map("cancel_refundability")
+  cancelReason         String?              @map("cancel_reason")
+  cancelReasonCode     String?              @map("cancel_reason_code")     // per-property enum, ver D-CAN config
+  cancelApprovedById   String?              @map("cancel_approved_by_id")  // SUPERVISOR para ADMIN_ERROR
+  cancelChannexAck     Boolean              @default(false) @map("cancel_channex_ack")
+  requiresFiscalAction Boolean              @default(false) @map("requires_fiscal_action")
+  cfdiCancelStatus     CfdiCancelStatus     @default(NOT_APPLICABLE) @map("cfdi_cancel_status")
+  cfdiCancelAckAt      DateTime?            @map("cfdi_cancel_ack_at")
+  anonymizedAt         DateTime?            @map("anonymized_at")
   // ──────────────────────────────────────────────────────────────────
   // ... resto sin cambios
 }

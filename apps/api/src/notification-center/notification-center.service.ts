@@ -140,6 +140,17 @@ export class NotificationCenterService {
       })
       staffIds.push(...staff.map((s) => s.id))
     }
+
+    // Self-suppress: el actor que disparó la acción NUNCA recibe la notif
+    // de su propia acción (analogía: FB no te notifica de tu propio post).
+    // Aplica a TODOS los recipients role-based / property-all. User-targeted
+    // queda intacto (caso direct-message-style donde el actor SÍ quiere ack).
+    if (dto.triggeredById && dto.recipientType !== 'USER') {
+      const filteredIds = staffIds.filter((id) => id !== dto.triggeredById)
+      staffIds.length = 0
+      staffIds.push(...filteredIds)
+    }
+
     if (staffIds.length === 0) return
 
     // Parse actionUrl → deep-link payload para el listener mobile.
@@ -192,6 +203,16 @@ export class NotificationCenterService {
             OR: [
               { expiresAt: null },
               { expiresAt: { gt: now } },
+            ],
+          },
+          // Self-suppress: una notif disparada por este mismo staff NO aparece
+          // en su panel. Casos legítimos donde el actor SÍ debe verla deben
+          // usar recipientType=USER (esos sí pasan el filtro abajo).
+          {
+            OR: [
+              { triggeredById: null },
+              { triggeredById: { not: staffId } },
+              { recipientType: 'USER' as NotificationRecipient, recipientId: staffId },
             ],
           },
         ],
@@ -302,8 +323,44 @@ export class NotificationCenterService {
       data: { notificationId, action, actionById: staffId, reason: reason ?? null },
     })
 
+    // Auto-mark as read para TODOS los recipients elegibles — la decisión
+    // "consume" la notif (ya no es accionable). Limpia el counter del bell
+    // y oculta de "Sin leer". Sigue visible en "Todas" con el badge de
+    // decisión (Aprobado/Rechazado).
+    // Feedback usuario: "siguen mostrandose las aprobaciones que ya tuvieron
+    // una acción de decisión... es ruido visual, se tienen que limpiar".
+    const eligibleStaffIds: string[] = []
+    if (notification.recipientType === 'USER' && notification.recipientId) {
+      eligibleStaffIds.push(notification.recipientId)
+    } else if (notification.recipientType === 'ROLE' && notification.recipientRole && notification.propertyId) {
+      const recipients = await this.prisma.staff.findMany({
+        where: {
+          organizationId: orgId,
+          propertyId: notification.propertyId,
+          role: notification.recipientRole,
+          active: true,
+        },
+        select: { id: true },
+      })
+      eligibleStaffIds.push(...recipients.map((s) => s.id))
+    } else if (notification.recipientType === 'PROPERTY_ALL' && notification.propertyId) {
+      const recipients = await this.prisma.staff.findMany({
+        where: { organizationId: orgId, propertyId: notification.propertyId, active: true },
+        select: { id: true },
+      })
+      eligibleStaffIds.push(...recipients.map((s) => s.id))
+    }
+
+    if (eligibleStaffIds.length > 0) {
+      await this.prisma.appNotificationRead.createMany({
+        data: eligibleStaffIds.map((sid) => ({ notificationId, readById: sid })),
+        skipDuplicates: true,
+      })
+    }
+
     this.logger.log(
-      `[NotifCenter] approval notif=${notificationId} action=${action} by=${staffId}`,
+      `[NotifCenter] approval notif=${notificationId} action=${action} by=${staffId} ` +
+      `auto-read=${eligibleStaffIds.length}`,
     )
 
     return approval
@@ -351,7 +408,21 @@ export class NotificationCenterService {
               { expiresAt: { gt: now } },
             ],
           },
+          // Self-suppress sistémico — mismo filtro que listForUser para
+          // evitar mismatch entre el counter del bell y el contenido del panel.
+          // Sin esto: bell muestra "1" pero panel dice "Sin notificaciones".
+          {
+            OR: [
+              { triggeredById: null },
+              { triggeredById: { not: staffId } },
+              { recipientType: 'USER' as NotificationRecipient, recipientId: staffId },
+            ],
+          },
         ],
+        // Excluir notifs APPROVAL_REQUIRED con decisión ya tomada — limpia
+        // counter de notifs viejas que no se beneficiaron del auto-mark-as-read
+        // introducido en este sprint. Backward-compat para data existente.
+        approvals: { none: {} },
         reads: { none: { readById: staffId } },
       },
     })

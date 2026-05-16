@@ -2522,6 +2522,325 @@ export class GuestStaysService {
    * Registra un intento de contacto al huésped (WhatsApp, email, teléfono).
    * Append-only — el registro queda como evidencia ante disputas o chargebacks.
    */
+  // ── Cancel-Archive (Sprint CANCEL-ARCHIVE 2026-05-16) ─────────────────────
+  // Soft-delete una reserva. Patrón análogo a §11 (no-show inmutable):
+  // jamás hard-delete. La fila permanece en DB con `cancelledAt != null`.
+  // AvailabilityService excluye cancelled stays — ver availability.service.ts.
+  // ──────────────────────────────────────────────────────────────────────────
+  async cancelStay(
+    stayId: string,
+    actorId: string,
+    dto: {
+      initiator: 'GUEST' | 'HOTEL' | 'OTA' | 'ADMIN_ERROR' | 'SYSTEM'
+      reason?: string
+      reasonCode?: string
+      cancelledFromChannel?: 'PMS_DIRECT' | 'CHANNEX_WEBHOOK' | 'AUTO_SYSTEM'
+      metadata?: Record<string, unknown>
+    },
+  ) {
+    const orgId = this.tenant.getOrganizationId()
+    const stay = await this.prisma.guestStay.findUnique({
+      where: { id: stayId, organizationId: orgId },
+      include: {
+        room: { include: { property: { include: { settings: true } } } },
+        stayJourney: { select: { id: true } },
+      },
+    })
+    if (!stay) throw new NotFoundException('Estadía no encontrada')
+
+    // Guards de estado — D-CAN3 del plan
+    if (stay.cancelledAt)    throw new ConflictException('La estadía ya está cancelada')
+    if (stay.noShowAt)       throw new ConflictException('La estadía está marcada como no-show. Usar revert no-show si fue error.')
+    if (stay.actualCheckout) throw new ConflictException('La estadía ya hizo checkout — no se puede cancelar')
+    if (stay.actualCheckin)  throw new ConflictException('El huésped ya hizo check-in — usar checkout anticipado en su lugar')
+
+    const now = new Date()
+    // Seed flag para v1.0.2 CFDI-CORE: si hubo CFDI I previo y la cancel es
+    // legítima (no ADMIN_ERROR), v1.0.2 emitirá CFDI E + FormaPago=15 (§86).
+    const requiresFiscalReview =
+      dto.initiator !== 'ADMIN_ERROR' && stay.amountPaid.greaterThan(0)
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.guestStay.update({
+        where: { id: stayId },
+        data: {
+          cancelledAt:          now,
+          cancelledById:        actorId,
+          cancelInitiator:      dto.initiator,
+          cancelReason:         dto.reason ?? null,
+          cancelReasonCode:     dto.reasonCode ?? null,
+          cancelMetadata:       (dto.metadata as Prisma.InputJsonValue) ?? Prisma.DbNull,
+          cancelledFromChannel: dto.cancelledFromChannel ?? 'PMS_DIRECT',
+          requiresFiscalReview,
+        },
+      })
+
+      // Cascade a segmentos + journey si existen
+      if (stay.stayJourney?.id) {
+        await tx.staySegment.updateMany({
+          where: { journeyId: stay.stayJourney.id, status: { in: ['ACTIVE', 'PENDING'] } },
+          data:  { status: 'CANCELLED' },
+        })
+        await tx.stayJourney.update({
+          where: { id: stay.stayJourney.id },
+          data:  { status: 'CANCELLED' },
+        })
+        await tx.stayJourneyEvent.create({
+          data: {
+            journeyId: stay.stayJourney.id,
+            eventType: 'CANCELLED',
+            actorId,
+            payload: { cancelInitiator: dto.initiator, reason: dto.reason ?? null },
+          },
+        })
+      }
+
+      // Liberar room status si la habitación estaba reservada para esta stay
+      // (caso típico: misma fecha, marcada OCCUPIED por checkin auto-flip)
+      if (stay.room.status === 'OCCUPIED') {
+        const othersActive = await tx.guestStay.count({
+          where: {
+            roomId:         stay.roomId,
+            organizationId: orgId,
+            deletedAt:      null,
+            actualCheckout: null,
+            noShowAt:       null,
+            cancelledAt:    null,
+            id:             { not: stayId },
+          },
+        })
+        if (othersActive === 0) {
+          await tx.room.update({ where: { id: stay.roomId }, data: { status: 'AVAILABLE' } })
+        }
+      }
+
+      // Audit log append-only — §28 pattern (PaymentLog)
+      await tx.guestStayLog.create({
+        data: {
+          stayId,
+          event:     'CANCELLED',
+          actorId,
+          actorType: 'USER',
+          metadata: {
+            initiator:            dto.initiator,
+            reason:               dto.reason ?? null,
+            reasonCode:           dto.reasonCode ?? null,
+            cancelledFromChannel: dto.cancelledFromChannel ?? 'PMS_DIRECT',
+            requiresFiscalReview,
+            ...(dto.metadata ?? {}),
+          },
+        },
+      })
+    })
+
+    // Fire-and-forget Channex outbound — best-effort (§31).
+    // El sprint CHANNEX-INBOUND cubre la sync real bidireccional.
+    void this.availability.notifyRelease({
+      roomId: stay.roomId,
+      from:   stay.checkinAt,
+      to:     stay.scheduledCheckout,
+      reason: 'CANCELLATION',
+      traceId: `cancel-${stayId}-${Date.now()}`,
+    })
+
+    this.events.emit('stay.cancelled', {
+      stayId,
+      orgId,
+      propertyId: stay.propertyId,
+      roomId:     stay.roomId,
+      guestName:  stay.guestName,
+      initiator:  dto.initiator,
+    })
+
+    // Notif al SUPERVISOR — paridad industria (Cloudbeds/Opera notifican,
+    // Mews tiene feature request 2yr abierta). Self-suppress aplicado en
+    // NotificationCenterService.sendPush (actor nunca recibe la suya).
+    // ADMIN_ERROR es prioridad HIGH — patrón anómalo, supervisor debe revisar.
+    const priorityByKind: Record<string, 'LOW' | 'MEDIUM' | 'HIGH'> = {
+      ADMIN_ERROR: 'HIGH',
+      HOTEL:       'HIGH',
+      OTA:         'MEDIUM',
+      GUEST:       'LOW',
+      SYSTEM:      'LOW',
+    }
+    void this.notifCenter.send({
+      propertyId:    stay.propertyId,
+      type:          'INFORMATIONAL',
+      category:      'STAY_CANCELLED',
+      priority:      priorityByKind[dto.initiator] ?? 'LOW',
+      title:         `Reserva cancelada — ${stay.guestName}`,
+      body:          `Hab. ${stay.room.number} · ${dto.initiator === 'GUEST' ? 'Huésped' : dto.initiator === 'HOTEL' ? 'Hotel' : dto.initiator === 'OTA' ? 'OTA' : 'Error admin.'}${dto.reason ? ` · "${dto.reason.slice(0, 80)}"` : ''}`,
+      metadata:      { stayId, roomId: stay.roomId, initiator: dto.initiator },
+      actionUrl:     `/reservations/${stayId}`,
+      recipientType: 'ROLE',
+      recipientRole: 'SUPERVISOR',
+      triggeredById: actorId,
+    }).catch((err: Error) =>
+      this.logger.warn(`[Cancel] notification failed: ${err?.message}`),
+    )
+
+    return { ok: true as const, cancelledAt: now }
+  }
+
+  // Restaurar una reserva cancelada. Disponible solo si:
+  // - cancelInitiator es 'HOTEL' o 'ADMIN_ERROR' (D-CAN7).
+  // - Pasaron < 7 días desde `cancelledAt`.
+  // - La habitación sigue disponible para las fechas originales.
+  async restoreStay(stayId: string, actorId: string) {
+    const orgId = this.tenant.getOrganizationId()
+    const stay = await this.prisma.guestStay.findUnique({
+      where: { id: stayId, organizationId: orgId },
+      include: { stayJourney: { select: { id: true } } },
+    })
+    if (!stay) throw new NotFoundException('Estadía no encontrada')
+    if (!stay.cancelledAt) throw new ConflictException('La estadía no está cancelada')
+
+    if (stay.cancelInitiator !== 'HOTEL' && stay.cancelInitiator !== 'ADMIN_ERROR') {
+      throw new ConflictException(
+        'Solo cancelaciones iniciadas por el hotel o por error administrativo pueden restaurarse. ' +
+        'Si el huésped quiere volver, crea una nueva reserva.',
+      )
+    }
+
+    const RESTORE_WINDOW_DAYS = 7
+    const elapsedDays = (Date.now() - stay.cancelledAt.getTime()) / 86_400_000
+    if (elapsedDays > RESTORE_WINDOW_DAYS) {
+      throw new ConflictException(
+        `La ventana de restauración es de ${RESTORE_WINDOW_DAYS} días. ` +
+        `Esta cancelación tiene ${Math.floor(elapsedDays)} días — crear una reserva nueva.`,
+      )
+    }
+
+    // Verificar disponibilidad excluyendo este mismo stay (que está cancelled
+    // pero aún tiene los datos de fechas originales).
+    const avail = await this.availability.check({
+      roomId: stay.roomId,
+      from:   stay.checkinAt,
+      to:     stay.scheduledCheckout,
+      excludeStayIds: [stayId],
+    })
+    if (!avail.available) {
+      const c = avail.conflicts[0]
+      throw new ConflictException(
+        `No se puede restaurar — habitación ocupada por ${c.label} en esas fechas. ` +
+        `Modifica la reserva original primero o crea una nueva en otra habitación.`,
+      )
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.guestStay.update({
+        where: { id: stayId },
+        data: {
+          cancelledAt:          null,
+          cancelledById:        null,
+          cancelInitiator:      null,
+          cancelReason:         null,
+          cancelReasonCode:     null,
+          cancelMetadata:       Prisma.DbNull,
+          cancelledFromChannel: null,
+          requiresFiscalReview: false,
+        },
+      })
+
+      if (stay.stayJourney?.id) {
+        await tx.staySegment.updateMany({
+          where: { journeyId: stay.stayJourney.id, status: 'CANCELLED' },
+          data:  { status: 'ACTIVE' },
+        })
+        await tx.stayJourney.update({
+          where: { id: stay.stayJourney.id },
+          data:  { status: 'ACTIVE' },
+        })
+        await tx.stayJourneyEvent.create({
+          data: {
+            journeyId: stay.stayJourney.id,
+            eventType: 'RESTORED',
+            actorId,
+            payload: { originallyInitiator: stay.cancelInitiator },
+          },
+        })
+      }
+
+      await tx.guestStayLog.create({
+        data: {
+          stayId,
+          event:     'RESTORED',
+          actorId,
+          actorType: 'USER',
+          metadata: {
+            originalCancelInitiator: stay.cancelInitiator,
+            originalCancelReason:    stay.cancelReason,
+            cancelledAtOriginal:     stay.cancelledAt!.toISOString(),
+          },
+        },
+      })
+    })
+
+    void this.availability.notifyReservation({
+      roomId: stay.roomId,
+      from:   stay.checkinAt,
+      to:     stay.scheduledCheckout,
+      reason: 'CANCELLATION',
+      traceId: `restore-${stayId}-${Date.now()}`,
+    })
+
+    this.events.emit('stay.restored', {
+      stayId,
+      orgId,
+      propertyId: stay.propertyId,
+      roomId:     stay.roomId,
+      guestName:  stay.guestName,
+    })
+
+    return { ok: true as const, restoredAt: new Date() }
+  }
+
+  // Lista de cancelaciones para archive UI. Pagination simple + filtros.
+  async listCancelled(opts: {
+    propertyId: string
+    limit?: number
+    offset?: number
+    initiator?: string
+    sinceISO?: string
+  }) {
+    const orgId = this.tenant.getOrganizationId()
+    const where: Prisma.GuestStayWhereInput = {
+      organizationId: orgId,
+      propertyId:     opts.propertyId,
+      cancelledAt:    { not: null },
+      ...(opts.initiator ? { cancelInitiator: opts.initiator } : {}),
+      ...(opts.sinceISO ? { cancelledAt: { gte: new Date(opts.sinceISO) } } : {}),
+    }
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.guestStay.findMany({
+        where,
+        orderBy: { cancelledAt: 'desc' },
+        take:    Math.min(opts.limit ?? 50, 200),
+        skip:    opts.offset ?? 0,
+        include: {
+          room: { select: { number: true } },
+        },
+      }),
+      this.prisma.guestStay.count({ where }),
+    ])
+    return { rows, total }
+  }
+
+  // Counter para el slide footer del calendario — "Canceladas hoy: N"
+  async countCancelledToday(propertyId: string, timezone: string) {
+    const orgId = this.tenant.getOrganizationId()
+    const todayLocal = toLocalDate(new Date(), timezone)
+    const dayStart = new Date(`${todayLocal}T00:00:00.000Z`)
+    const dayEnd   = new Date(`${todayLocal}T23:59:59.999Z`)
+    return this.prisma.guestStay.count({
+      where: {
+        organizationId: orgId,
+        propertyId,
+        cancelledAt: { gte: dayStart, lte: dayEnd },
+      },
+    })
+  }
+
   async logContact(
     stayId: string,
     actorId: string | null,

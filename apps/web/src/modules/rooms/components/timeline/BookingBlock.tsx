@@ -256,7 +256,7 @@ function BookingBlockInner({
         title={`No-show: ${stay.guestName}`}
         data-stay-id={stay.id}
         onClick={() => { if (onOpenDetail) { onOpenDetail(nsStayId) } else { onClick() } }}
-        className="absolute select-none overflow-hidden"
+        className="absolute select-none overflow-hidden transition-opacity"
         style={{
           left:   rect.x + 1,
           top:    rect.y + groupHeaderOffsetY + 1,
@@ -264,8 +264,11 @@ function BookingBlockInner({
           height: 14,
           background: `repeating-linear-gradient(-45deg, rgba(239,68,68,0.28) 0px, rgba(239,68,68,0.28) 2px, rgba(253,232,232,0.60) 2px, rgba(253,232,232,0.60) 10px)`,
           borderRadius: 4,
-          zIndex: 2,
-          pointerEvents: 'auto',
+          zIndex: dimmed ? 1 : 2,
+          // Bug 3 fix: NS stripe respeta dimmed para que al seleccionar otra
+          // stay (Carlos Ruiz) los NS también se atenúen junto con el resto.
+          opacity: dimmed ? 0.15 : 0.92,
+          pointerEvents: dimmed ? 'none' : 'auto',
           cursor: 'pointer',
         }}
       >
@@ -835,5 +838,10 @@ export const BookingBlock = memo(BookingBlockInner, (prev, next) =>
   prev.potentialNoShowWarningHour === next.potentialNoShowWarningHour &&
   prev.noShowCutoffHour === next.noShowCutoffHour &&
   prev.isNsStripe === next.isNsStripe &&
-  prev.hasNsAbove === next.hasNsAbove,
+  prev.hasNsAbove === next.hasNsAbove &&
+  // anyDragInProgress: flag global del drag — sin esto, memo skipea
+  // el re-render al iniciar drag y useTooltip(enabled) queda obsoleto,
+  // dejando que los tooltips de otros bloques se disparen al hover.
+  // Bug regresión observado tras suma de la prop.
+  prev.anyDragInProgress === next.anyDragInProgress,
 )

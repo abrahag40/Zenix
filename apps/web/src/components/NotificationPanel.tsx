@@ -152,15 +152,20 @@ function NotificationCard({ notif, onRead, onApprove, onReject, onNavigate, isAc
           {notif.body}
         </p>
 
-        {/* Single category chip — drop redundant type chip */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className={cn(
-            'text-[10px] font-semibold px-1.5 py-0.5 rounded',
-            meta.color, meta.bg,
-          )}>
-            {meta.label}
-          </span>
-        </div>
+        {/* Single category chip — drop redundant type chip.
+            Si ya hay decisión registrada (approval), ocultar la chip de
+            categoría "Aprobación requerida" para no duplicar con el badge
+            de decisión abajo (queja usuario 2026-05-16: chip innecesario). */}
+        {!(notif.approval && notif.category === 'MAINTENANCE_TICKET_NEEDS_APPROVAL') && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={cn(
+              'text-[10px] font-semibold px-1.5 py-0.5 rounded',
+              meta.color, meta.bg,
+            )}>
+              {meta.label}
+            </span>
+          </div>
+        )}
 
         {/* Footer meta: author + time SAME baseline (was 2 separate blocks) */}
         <div className="flex items-baseline gap-1.5 text-[10px] text-slate-400">
@@ -303,10 +308,24 @@ export function NotificationPanel({
   // y dentro de cada tab las notificaciones se agrupan por urgencia operativa.
   const [tab, setTab] = useState<'all' | 'unread'>('all')
 
-  const filtered = useMemo(
-    () => (tab === 'unread' ? notifications.filter((n) => !n.isRead) : notifications),
-    [tab, notifications],
-  )
+  // Locally-dismissed IDs — sesión actual del panel. Click X oculta la
+  // notif inmediatamente del view (en ambos tabs Todas y Sin leer); el
+  // markRead mutation persiste el dismiss en DB. Si el panel se cierra y
+  // re-abre, las que tienen isRead=true desaparecerán naturalmente de
+  // "Sin leer" pero en "Todas" volverán a aparecer (correcto — el archivo
+  // de notifs queda visible). Para purga DB definitiva ver scheduler de
+  // limpieza en API (notification-purge.scheduler.ts).
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set())
+
+  const filtered = useMemo(() => {
+    const base = tab === 'unread' ? notifications.filter((n) => !n.isRead) : notifications
+    return base.filter((n) => !dismissedIds.has(n.id))
+  }, [tab, notifications, dismissedIds])
+
+  function handleDismiss(id: string) {
+    setDismissedIds((prev) => new Set(prev).add(id))
+    onRead(id)
+  }
 
   if (!open) return null
 
@@ -425,7 +444,7 @@ export function NotificationPanel({
                   {urgent.map((n) => (
                     <NotificationCard
                       key={n.id} notif={n}
-                      onRead={onRead} onApprove={onApprove} onReject={onReject} onNavigate={onNavigate}
+                      onRead={handleDismiss} onApprove={onApprove} onReject={onReject} onNavigate={onNavigate}
                       isActionPending={isActionPending}
                     />
                   ))}
@@ -444,7 +463,7 @@ export function NotificationPanel({
                   {actions.map((n) => (
                     <NotificationCard
                       key={n.id} notif={n}
-                      onRead={onRead} onApprove={onApprove} onReject={onReject} onNavigate={onNavigate}
+                      onRead={handleDismiss} onApprove={onApprove} onReject={onReject} onNavigate={onNavigate}
                       isActionPending={isActionPending}
                     />
                   ))}
@@ -464,7 +483,7 @@ export function NotificationPanel({
                   {rest.map((n) => (
                     <NotificationCard
                       key={n.id} notif={n}
-                      onRead={onRead} onApprove={onApprove} onReject={onReject} onNavigate={onNavigate}
+                      onRead={handleDismiss} onApprove={onApprove} onReject={onReject} onNavigate={onNavigate}
                       isActionPending={isActionPending}
                     />
                   ))}

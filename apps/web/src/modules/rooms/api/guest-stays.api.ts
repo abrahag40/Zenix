@@ -91,4 +91,31 @@ export const guestStaysApi = {
       `${BASE}/${stayId}/confirm-checkin`,
       data,
     ),
+
+  // ── Cancel-Archive (Sprint 2026-05-16) ───────────────────────────────────
+  cancel: (stayId: string, data: {
+    initiator: 'GUEST' | 'HOTEL' | 'OTA' | 'ADMIN_ERROR' | 'SYSTEM'
+    reason?: string
+    reasonCode?: string
+    cancelledFromChannel?: 'PMS_DIRECT' | 'CHANNEX_WEBHOOK' | 'AUTO_SYSTEM'
+    metadata?: Record<string, unknown>
+  }) =>
+    api.post<{ ok: true; cancelledAt: string }>(`${BASE}/${stayId}/cancel`, data),
+
+  restore: (stayId: string) =>
+    api.post<{ ok: true; restoredAt: string }>(`${BASE}/${stayId}/restore`, {}),
+
+  listCancelled: (params: { propertyId: string; limit?: number; offset?: number; initiator?: string; since?: string }) => {
+    const qs = new URLSearchParams({ propertyId: params.propertyId })
+    if (params.limit !== undefined)    qs.set('limit', String(params.limit))
+    if (params.offset !== undefined)   qs.set('offset', String(params.offset))
+    if (params.initiator !== undefined) qs.set('initiator', params.initiator)
+    if (params.since !== undefined)    qs.set('since', params.since)
+    return api.get<{ rows: Array<Record<string, unknown>>; total: number }>(
+      `${BASE}/cancelled?${qs.toString()}`,
+    )
+  },
+
+  countCancelledToday: (propertyId: string, timezone: string) =>
+    api.get<number>(`${BASE}/cancelled-today-count?propertyId=${propertyId}&timezone=${encodeURIComponent(timezone)}`),
 }

@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, EyeOff } from 'lucide-react'
+import { ChevronLeft, ChevronRight, EyeOff, DollarSign } from 'lucide-react'
 import { format, addDays } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { Button } from '@/components/ui/button'
@@ -17,6 +17,8 @@ interface TimelineSubBarProps {
   onGoToToday?: () => void
   hideNoShows?: boolean
   onToggleHideNoShows?: () => void
+  /** Sprint Rates 2026-05-16 — botón "Tarifas" abre Rate Quote Sheet (Nivel 3). */
+  onOpenRateQuote?: () => void
 }
 
 export function TimelineSubBar({
@@ -24,6 +26,7 @@ export function TimelineSubBar({
   onGoToToday,
   hideNoShows = false,
   onToggleHideNoShows,
+  onOpenRateQuote,
 }: TimelineSubBarProps) {
   const { viewStart, viewMode, daysVisible, navigate, goToToday, setViewMode } =
     useTimelineStore()
@@ -100,10 +103,25 @@ export function TimelineSubBar({
         {rangeLabel}
       </span>
 
+      {/* Rate Quote — Nivel 3 entry point (Sprint Rates 2026-05-16) */}
+      {onOpenRateQuote && (
+        <>
+          <Separator orientation="vertical" className="h-5 mx-1 ml-auto" />
+          <button
+            onClick={onOpenRateQuote}
+            title="Consultar tarifas (rate quote)"
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-colors text-emerald-700 hover:bg-emerald-50"
+          >
+            <DollarSign className="h-3.5 w-3.5" />
+            Tarifas
+          </button>
+        </>
+      )}
+
       {/* No-show filter — §34: default visible, toggle to hide */}
       {onToggleHideNoShows && (
         <>
-          <Separator orientation="vertical" className="h-5 mx-1 ml-auto" />
+          <Separator orientation="vertical" className={cn('h-5 mx-1', !onOpenRateQuote && 'ml-auto')} />
           <button
             onClick={onToggleHideNoShows}
             title={hideNoShows ? 'Mostrar no-shows' : 'Ocultar no-shows'}

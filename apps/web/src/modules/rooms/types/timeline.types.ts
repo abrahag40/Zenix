@@ -39,6 +39,11 @@ export interface GuestStayBlock {
   noShowFeeAmount?: number
   noShowFeeCurrency?: string
   noShowChargeStatus?: 'NOT_APPLICABLE' | 'PENDING' | 'CHARGED' | 'FAILED' | 'WAIVED'
+  // Cancel-Archive (Sprint 2026-05-16)
+  cancelledAt?: Date
+  cancelInitiator?: 'GUEST' | 'HOTEL' | 'OTA' | 'ADMIN_ERROR' | 'SYSTEM'
+  cancelReason?: string
+  cancelReasonCode?: string
   stripePaymentMethodId?: string
   otaName?: string
   otaReservationId?: string

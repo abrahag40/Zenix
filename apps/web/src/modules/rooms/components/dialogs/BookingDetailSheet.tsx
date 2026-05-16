@@ -55,11 +55,60 @@ interface BookingDetailSheetProps {
   onNoShow: (stayId: string, opts: { reason?: string; waiveCharge?: boolean }) => void
   onRevertNoShow: (stayId: string) => void
   onStartCheckin?: (stayId: string) => void
+  onCancelReservation?: (stayId: string) => void
   /** W3.3 — Abre el TicketDetailDrawer in-place sobre el calendario.
    *  Si no se provee, hace fallback a navigate(/maintenance?ticketId=X). */
   onOpenMaintenanceTicket?: (ticketId: string) => void
   /** propertyId needed for soft-lock advisory (Sprint 7C). */
   propertyId?: string
+}
+
+/**
+ * ID copiable inline — texto plano (sin chip), tipografía SF Mono nativa.
+ * Apple HIG: secondary metadata sutil, copyable con un click.
+ * Posicionado bajo el botón "Ver completa" en el header del sheet.
+ * Solo se renderiza cuando hay bookingRef formal (MX-D-001-YYMM-NNNN);
+ * legacy/seed sin ref NO se muestra.
+ */
+function InlineCopyId({
+  value,
+  statusText,
+}: { value: string; statusText: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(value)
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1200)
+        } catch {
+          // no-op si el navegador bloquea clipboard
+        }
+      }}
+      className="group inline-flex items-center gap-1.5 px-2 py-1 -mr-1 rounded-md hover:bg-white/50 transition-colors"
+      style={{ color: statusText }}
+      title={copied ? 'Copiado' : `Copiar ${value}`}
+    >
+      <span
+        className="select-all font-mono tabular-nums tracking-tight"
+        style={{
+          fontSize: '12px',
+          fontWeight: 600,
+          letterSpacing: '-0.01em',
+          fontFeatureSettings: '"ss01", "tnum"',
+        }}
+      >
+        {value}
+      </span>
+      {copied ? (
+        <Check className="h-3.5 w-3.5 text-emerald-600" />
+      ) : (
+        <Copy className="h-3.5 w-3.5 opacity-40 group-hover:opacity-90 transition-opacity" />
+      )}
+    </button>
+  )
 }
 
 function CopyableId({ value, short = false }: { value: string; short?: boolean }) {
@@ -99,6 +148,7 @@ export function BookingDetailSheet({
   onNoShow,
   onRevertNoShow,
   onStartCheckin,
+  onCancelReservation,
   onOpenMaintenanceTicket,
   propertyId,
 }: BookingDetailSheetProps) {
@@ -156,6 +206,8 @@ export function BookingDetailSheet({
   // Allow early checkout if IN_HOUSE and either it's not arrival day, OR the guest
   // already confirmed check-in (actualCheckin set) — covers arrival-day check-ins.
   const canEarlyCheckout   = !isNoShow && status === 'IN_HOUSE' && (!isArrivalDay || !!stay.actualCheckin)
+  // Cancel-Archive: solo pre-checkin, no IN_HOUSE/DEPARTED/NO_SHOW/CANCELLED.
+  const canCancel = !isNoShow && !stay.actualCheckin && !stay.actualCheckout && !stay.cancelledAt
 
   const isRoomMove = stay.segmentReason === 'ROOM_MOVE'
   const isSplit    = stay.segmentReason === 'SPLIT'
@@ -277,28 +329,41 @@ export function BookingDetailSheet({
               </div>
             </div>
 
-            {/* Header controls: full-page link + close */}
-            <div className="flex items-center gap-1 flex-shrink-0">
-              <button
-                onClick={() => {
-                  onClose()
-                  navigate(`/reservations/${stay.guestStayId ?? stay.id}`)
-                }}
-                className="flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md transition-colors"
-                style={{ color: `${statusColors.text}99` }}
-                title="Ver reserva completa"
-              >
-                <ExternalLink className="h-3 w-3" />
-                <span className="hidden sm:inline">Ver completa</span>
-              </button>
-              <button
-                onClick={onClose}
-                className="w-6 h-6 flex items-center justify-center rounded-md transition-colors"
-                style={{ color: `${statusColors.text}99` }}
-                aria-label="Cerrar"
-              >
-                <X className="h-4 w-4" />
-              </button>
+            {/* Header controls: full-page link + close.
+                ID debajo del link "Ver completa" como texto plano copiable
+                (sin chip). bookingRef preferido (MX-D-001-YYMM-NNNN),
+                UUID short fallback solo para legacy/seed sin ref. */}
+            <div className="flex flex-col items-end gap-1 flex-shrink-0">
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => {
+                    onClose()
+                    navigate(`/reservations/${stay.guestStayId ?? stay.id}`)
+                  }}
+                  className="flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md transition-colors"
+                  style={{ color: `${statusColors.text}99` }}
+                  title="Ver reserva completa"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  <span className="hidden sm:inline">Ver completa</span>
+                </button>
+                <button
+                  onClick={onClose}
+                  className="w-6 h-6 flex items-center justify-center rounded-md transition-colors"
+                  style={{ color: `${statusColors.text}99` }}
+                  aria-label="Cerrar"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              {/* ID copiable — solo se muestra cuando hay bookingRef formal
+                  (MX-D-001-YYMM-NNNN del generator). Para stays legacy/seed
+                  sin bookingRef NO se renderiza — mostrar UUID interno como
+                  "ID" confunde al usuario (nomenclatura no acordada). */}
+              {stay.bookingRef && (
+                <InlineCopyId value={stay.bookingRef} statusText={statusColors.text} />
+              )}
             </div>
           </div>
         </div>
@@ -587,48 +652,35 @@ export function BookingDetailSheet({
                   </div>
                 </div>
 
-                {/* IDs */}
-                <div className="space-y-1.5">
-                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                    Identificadores
-                  </div>
-
-                  <div className="bg-slate-50 rounded-lg overflow-hidden divide-y divide-slate-100">
-                    {stay.bookingRef && (
-                      <div className="flex items-center justify-between px-3 py-2.5">
-                        <span className="text-xs text-slate-400 font-mono uppercase tracking-wide">
-                          Referencia
-                        </span>
-                        <CopyableId value={stay.bookingRef} />
-                      </div>
-                    )}
-
-                    <div className="flex items-center justify-between px-3 py-2.5">
-                      <span className="text-xs text-slate-400 font-mono uppercase tracking-wide">
-                        ID interno
-                      </span>
-                      <CopyableId value={stay.guestStayId ?? stay.id} short />
+                {/* IDs adicionales — bookingRef + ID interno ya viven en el header.
+                    Aquí mostramos solo IDs externos (OTA, PMS legacy distinto) cuando aplican. */}
+                {(stay.otaReservationId || (stay.pmsReservationId && stay.pmsReservationId !== stay.bookingRef)) && (
+                  <div className="space-y-1.5">
+                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      IDs externos
                     </div>
 
-                    {stay.pmsReservationId && stay.pmsReservationId !== stay.bookingRef && (
-                      <div className="flex items-center justify-between px-3 py-2.5">
-                        <span className="text-xs text-slate-400 font-mono uppercase tracking-wide">
-                          PMS ID
-                        </span>
-                        <CopyableId value={stay.pmsReservationId} />
-                      </div>
-                    )}
+                    <div className="bg-slate-50 rounded-lg overflow-hidden divide-y divide-slate-100">
+                      {stay.pmsReservationId && stay.pmsReservationId !== stay.bookingRef && (
+                        <div className="flex items-center justify-between px-3 py-2.5">
+                          <span className="text-xs text-slate-400 font-mono uppercase tracking-wide">
+                            PMS ID
+                          </span>
+                          <CopyableId value={stay.pmsReservationId} />
+                        </div>
+                      )}
 
-                    {stay.otaReservationId && (
-                      <div className="flex items-center justify-between px-3 py-2.5">
-                        <span className="text-xs text-slate-400 font-mono uppercase tracking-wide">
-                          {stay.otaName} ID
-                        </span>
-                        <CopyableId value={stay.otaReservationId} />
-                      </div>
-                    )}
+                      {stay.otaReservationId && (
+                        <div className="flex items-center justify-between px-3 py-2.5">
+                          <span className="text-xs text-slate-400 font-mono uppercase tracking-wide">
+                            {stay.otaName} ID
+                          </span>
+                          <CopyableId value={stay.otaReservationId} />
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* Notes */}
                 {stay.notes && (
@@ -1032,6 +1084,18 @@ export function BookingDetailSheet({
               >
                 <ArrowRightLeft className="h-3.5 w-3.5 mr-1.5" />
                 Mover hab.
+              </Button>
+            )}
+
+            {canCancel && onCancelReservation && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1 text-xs border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                onClick={() => onCancelReservation(stay.id)}
+              >
+                <X className="h-3.5 w-3.5 mr-1.5" />
+                Cancelar
               </Button>
             )}
 

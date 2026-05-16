@@ -16,8 +16,13 @@ interface OccupancyFooterProps {
   totalRooms: number
   dayWidth: number
   columnWidth: number
-  scrollLeft: number
+  /** Ref para el inner div con transform — DOM mutation directa desde
+   *  TimelineScheduler para fluidez SwiftUI (sin React re-render por scroll). */
+  innerRef?: React.Ref<HTMLDivElement>
   readinessTasks?: ReadinessTask[]
+  /** Cancel-Archive Sprint: counter "Canceladas hoy" + handler para abrir slide drawer. */
+  cancelledTodayCount?: number
+  onOpenCancelledToday?: () => void
 }
 
 function calcDayOccupancy(
@@ -40,7 +45,8 @@ function calcDayOccupancy(
 }
 
 export function OccupancyFooter({
-  virtualColumns, stays, totalRooms, dayWidth, columnWidth, scrollLeft, readinessTasks,
+  virtualColumns, stays, totalRooms, dayWidth, columnWidth, innerRef, readinessTasks,
+  cancelledTodayCount, onOpenCancelledToday,
 }: OccupancyFooterProps) {
   const today = useMemo(() => startOfDay(new Date()), [])
 
@@ -48,26 +54,61 @@ export function OccupancyFooter({
     <div className="flex-shrink-0 border-t-2 border-slate-200 bg-white
                    flex overflow-hidden select-none"
          style={{ height: 52 }}>
-      {/* Fixed label */}
-      <div
-        className="flex-shrink-0 flex flex-col justify-center px-3
-                   border-r border-slate-200 bg-slate-50"
-        style={{ width: columnWidth }}
-      >
-        <span className="text-[10px] font-semibold uppercase tracking-wider
-                        text-slate-400">
-          Ocupación
-        </span>
-        <span className="text-[9px] text-slate-300 font-mono">
-          {totalRooms} hab. total
-        </span>
-      </div>
+      {/* Fixed label — Propuesta A (Sprint CANCEL-ARCHIVE 2026-05-16):
+          Cuando hay cancelaciones, la columna se transforma 100% en CTA
+          clickeable (Fitts 1954: max touch target). Trade-off aceptado:
+          se oculta "Ocupación / X hab. total" ese día — la info de % por
+          día sigue visible en las columnas a la derecha.
+          Sin cancelaciones, vuelve al estado label informativo. */}
+      {(cancelledTodayCount ?? 0) > 0 && onOpenCancelledToday ? (
+        <button
+          type="button"
+          onClick={onOpenCancelledToday}
+          className="flex-shrink-0 flex items-center gap-3 px-3
+                     border-r border-slate-200 bg-rose-50/70 hover:bg-rose-100/80
+                     transition-colors text-left group"
+          style={{ width: columnWidth, height: '100%' }}
+          title="Ver cancelaciones del día"
+        >
+          {/* Número grande como ancla visual — Apple HIG: hero metric pattern */}
+          <span className="text-2xl font-semibold text-rose-700 leading-none tabular-nums">
+            {cancelledTodayCount}
+          </span>
+          {/* Stack label + chevron — 2 líneas compactas con rhythm correcto */}
+          <span className="flex flex-col gap-0.5 leading-tight min-w-0 flex-1">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-rose-600">
+              Canceladas
+            </span>
+            <span className="text-[10px] text-rose-500/80 inline-flex items-center gap-0.5
+                            opacity-80 group-hover:opacity-100 transition-opacity">
+              hoy
+              <span className="ml-auto text-rose-400 group-hover:translate-x-0.5 transition-transform">›</span>
+            </span>
+          </span>
+        </button>
+      ) : (
+        <div
+          className="flex-shrink-0 flex flex-col justify-center px-3
+                     border-r border-slate-200 bg-slate-50"
+          style={{ width: columnWidth }}
+        >
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            Ocupación
+          </span>
+          <span className="text-[9px] text-slate-300 font-mono">
+            {totalRooms} hab. total
+          </span>
+        </div>
+      )}
 
-      {/* Metrics per day — synced with grid scroll via translateX */}
+      {/* Metrics per day — synced with grid scroll via direct DOM mutation
+          (innerRef desde TimelineScheduler). Bypass de React reconciliation
+          en cada scroll event para fluidez SwiftUI-style. */}
       <div className="flex-1 overflow-hidden relative">
         <div
+          ref={innerRef}
           className="absolute top-0 left-0 h-full"
-          style={{ transform: `translateX(-${scrollLeft}px)` }}
+          style={{ willChange: 'transform' }}
         >
           {virtualColumns.map((vc) => {
             const { count, percent } = calcDayOccupancy(vc.date, stays, totalRooms)

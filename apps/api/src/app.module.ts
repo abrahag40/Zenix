@@ -31,6 +31,7 @@ import { GuestStaysModule } from './pms/guest-stays/guest-stays.module'
 import { RoomReadinessModule } from './pms/room-readiness/room-readiness.module'
 import { RoomTypesModule } from './pms/room-types/room-types.module'
 import { StayJourneysModule } from './pms/stay-journeys/stay-journeys.module'
+import { RatesModule } from './pms/rates/rates.module'
 import { DashboardModule } from './dashboard/dashboard.module'
 import { BlocksModule } from './blocks/blocks.module'
 import { PaymentsModule } from './payments/payments.module'
@@ -84,6 +85,7 @@ import { PropertyScopeGuard } from './common/guards/property-scope.guard'
     RoomReadinessModule,
     RoomTypesModule,
     StayJourneysModule,
+    RatesModule,
     DashboardModule,
     BlocksModule,
     PaymentsModule,
