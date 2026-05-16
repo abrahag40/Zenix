@@ -321,6 +321,10 @@ export function TimelineScheduler() {
         nights: diffDays(draggedJourneyBlock.checkOut, draggedJourneyBlock.checkIn),
         checkIn: draggedJourneyBlock.checkIn,
         checkOut: draggedJourneyBlock.checkOut,
+        // Solo es "extensión" si el journey tiene >1 segmento. Toda reserva
+        // crea automáticamente un StayJourney + ORIGINAL segment; un journey
+        // single-segment NO es una extensión, es una reserva normal.
+        isExtension: !!draggedJourneyBlock.hasMultipleSegments,
       })
       return
     }
@@ -435,6 +439,7 @@ export function TimelineScheduler() {
     nights: number
     checkIn: Date
     checkOut: Date
+    isExtension: boolean
   } | null>(null)
 
   // ─── Drag & Drop ────────────────────────────────────────────
@@ -1244,6 +1249,7 @@ export function TimelineScheduler() {
           nights={moveExtensionConfirm.nights}
           checkIn={moveExtensionConfirm.checkIn}
           checkOut={moveExtensionConfirm.checkOut}
+          isExtension={moveExtensionConfirm.isExtension}
           isPending={moveExtensionRoomMut.isPending}
           onClose={() => setMoveExtensionConfirm(null)}
           onConfirm={() => {
