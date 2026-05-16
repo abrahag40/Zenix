@@ -2652,6 +2652,33 @@ export class GuestStaysService {
       initiator:  dto.initiator,
     })
 
+    // Notif al SUPERVISOR — paridad industria (Cloudbeds/Opera notifican,
+    // Mews tiene feature request 2yr abierta). Self-suppress aplicado en
+    // NotificationCenterService.sendPush (actor nunca recibe la suya).
+    // ADMIN_ERROR es prioridad HIGH — patrón anómalo, supervisor debe revisar.
+    const priorityByKind: Record<string, 'LOW' | 'MEDIUM' | 'HIGH'> = {
+      ADMIN_ERROR: 'HIGH',
+      HOTEL:       'HIGH',
+      OTA:         'MEDIUM',
+      GUEST:       'LOW',
+      SYSTEM:      'LOW',
+    }
+    void this.notifCenter.send({
+      propertyId:    stay.propertyId,
+      type:          'INFORMATIONAL',
+      category:      'STAY_CANCELLED',
+      priority:      priorityByKind[dto.initiator] ?? 'LOW',
+      title:         `Reserva cancelada — ${stay.guestName}`,
+      body:          `Hab. ${stay.room.number} · ${dto.initiator === 'GUEST' ? 'Huésped' : dto.initiator === 'HOTEL' ? 'Hotel' : dto.initiator === 'OTA' ? 'OTA' : 'Error admin.'}${dto.reason ? ` · "${dto.reason.slice(0, 80)}"` : ''}`,
+      metadata:      { stayId, roomId: stay.roomId, initiator: dto.initiator },
+      actionUrl:     `/reservations/${stayId}`,
+      recipientType: 'ROLE',
+      recipientRole: 'SUPERVISOR',
+      triggeredById: actorId,
+    }).catch((err: Error) =>
+      this.logger.warn(`[Cancel] notification failed: ${err?.message}`),
+    )
+
     return { ok: true as const, cancelledAt: now }
   }
 

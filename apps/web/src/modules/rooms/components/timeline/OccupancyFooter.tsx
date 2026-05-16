@@ -62,23 +62,26 @@ export function OccupancyFooter({
         <button
           type="button"
           onClick={onOpenCancelledToday}
-          className="flex-shrink-0 flex flex-col items-start justify-center
-                     gap-0.5 px-3 border-r border-slate-200 bg-rose-50
-                     hover:bg-rose-100 transition-colors text-left group"
+          className="flex-shrink-0 flex items-center gap-3 px-3
+                     border-r border-slate-200 bg-rose-50/70 hover:bg-rose-100/80
+                     transition-colors text-left group"
           style={{ width: columnWidth, height: '100%' }}
           title="Ver cancelaciones del día"
         >
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-rose-500">
-            Canceladas
+          {/* Número grande como ancla visual — Apple HIG: hero metric pattern */}
+          <span className="text-2xl font-semibold text-rose-700 leading-none tabular-nums">
+            {cancelledTodayCount}
           </span>
-          <span className="text-base font-bold text-rose-700 leading-none tabular-nums">
-            {cancelledTodayCount}{' '}
-            <span className="text-[10px] font-medium text-rose-500/80">hoy</span>
-          </span>
-          <span className="text-[9px] text-rose-400 leading-tight inline-flex items-center gap-0.5
-                          opacity-70 group-hover:opacity-100 transition-opacity">
-            Ver archivo
-            <span className="text-rose-400">›</span>
+          {/* Stack label + chevron — 2 líneas compactas con rhythm correcto */}
+          <span className="flex flex-col gap-0.5 leading-tight min-w-0 flex-1">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-rose-600">
+              Canceladas
+            </span>
+            <span className="text-[10px] text-rose-500/80 inline-flex items-center gap-0.5
+                            opacity-80 group-hover:opacity-100 transition-opacity">
+              hoy
+              <span className="ml-auto text-rose-400 group-hover:translate-x-0.5 transition-transform">›</span>
+            </span>
           </span>
         </button>
       ) : (

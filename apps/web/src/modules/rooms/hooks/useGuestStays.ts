@@ -303,6 +303,7 @@ export function useCancelStay(propertyId: string) {
       await qc.refetchQueries({ queryKey: ['guest-stays', propertyId], exact: false })
       await qc.refetchQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false })
       await qc.refetchQueries({ queryKey: ['cancelled-today-count', propertyId], exact: false })
+      await qc.refetchQueries({ queryKey: ['cancelled-stays', propertyId], exact: false })
       toast.success('Reserva cancelada')
     },
     onError: (err: Error) => {

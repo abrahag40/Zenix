@@ -140,6 +140,17 @@ export class NotificationCenterService {
       })
       staffIds.push(...staff.map((s) => s.id))
     }
+
+    // Self-suppress: el actor que disparó la acción NUNCA recibe la notif
+    // de su propia acción (analogía: FB no te notifica de tu propio post).
+    // Aplica a TODOS los recipients role-based / property-all. User-targeted
+    // queda intacto (caso direct-message-style donde el actor SÍ quiere ack).
+    if (dto.triggeredById && dto.recipientType !== 'USER') {
+      const filteredIds = staffIds.filter((id) => id !== dto.triggeredById)
+      staffIds.length = 0
+      staffIds.push(...filteredIds)
+    }
+
     if (staffIds.length === 0) return
 
     // Parse actionUrl → deep-link payload para el listener mobile.
@@ -192,6 +203,16 @@ export class NotificationCenterService {
             OR: [
               { expiresAt: null },
               { expiresAt: { gt: now } },
+            ],
+          },
+          // Self-suppress: una notif disparada por este mismo staff NO aparece
+          // en su panel. Casos legítimos donde el actor SÍ debe verla deben
+          // usar recipientType=USER (esos sí pasan el filtro abajo).
+          {
+            OR: [
+              { triggeredById: null },
+              { triggeredById: { not: staffId } },
+              { recipientType: 'USER' as NotificationRecipient, recipientId: staffId },
             ],
           },
         ],

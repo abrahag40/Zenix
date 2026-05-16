@@ -49,6 +49,12 @@ enum AppNotificationCategory {
   // T2: notif URGENT al SUPERVISOR cuando pasa lateCheckoutEscalationMinutes.
   LATE_CHECKOUT_PENDING
   LATE_CHECKOUT_ESCALATED
+  // ── Sprint CANCEL-ARCHIVE 2026-05-16 ────────────────────────────────────
+  // Notif al SUPERVISOR cuando una reserva se cancela. Self-suppress aplica
+  // — el actor que canceló NO recibe la notif. Priority varía por initiator:
+  // ADMIN_ERROR / HOTEL = HIGH (anómalos), OTA = MEDIUM, GUEST = LOW.
+  STAY_CANCELLED
+  STAY_RESTORED
 }
 
 enum AppNotificationPriority {
