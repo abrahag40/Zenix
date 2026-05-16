@@ -52,36 +52,49 @@ export function OccupancyFooter({
     <div className="flex-shrink-0 border-t-2 border-slate-200 bg-white
                    flex overflow-hidden select-none"
          style={{ height: 52 }}>
-      {/* Fixed label — Ocupación + counter Canceladas integrados (mantiene
-          alineación columnar con días del calendario) */}
-      <div
-        className="flex-shrink-0 flex flex-col justify-center px-3
-                   border-r border-slate-200 bg-slate-50 relative"
-        style={{ width: columnWidth }}
-      >
-        <span className="text-[10px] font-semibold uppercase tracking-wider
-                        text-slate-400">
-          Ocupación
-        </span>
-        <span className="text-[9px] text-slate-300 font-mono">
-          {totalRooms} hab. total
-        </span>
-        {/* Cancel-Archive: counter inline cuando hay cancelaciones del día */}
-        {(cancelledTodayCount ?? 0) > 0 && onOpenCancelledToday && (
-          <button
-            type="button"
-            onClick={onOpenCancelledToday}
-            className="mt-1 self-start inline-flex items-center gap-1
-                       px-1.5 py-0.5 rounded-md bg-rose-50 hover:bg-rose-100
-                       text-rose-700 text-[10px] font-medium leading-tight
-                       transition-colors"
-            title="Ver cancelaciones del día"
-          >
-            <span className="inline-block w-1 h-1 rounded-full bg-rose-500" />
-            {cancelledTodayCount} cancelada{cancelledTodayCount === 1 ? '' : 's'} hoy
-          </button>
-        )}
-      </div>
+      {/* Fixed label — Propuesta A (Sprint CANCEL-ARCHIVE 2026-05-16):
+          Cuando hay cancelaciones, la columna se transforma 100% en CTA
+          clickeable (Fitts 1954: max touch target). Trade-off aceptado:
+          se oculta "Ocupación / X hab. total" ese día — la info de % por
+          día sigue visible en las columnas a la derecha.
+          Sin cancelaciones, vuelve al estado label informativo. */}
+      {(cancelledTodayCount ?? 0) > 0 && onOpenCancelledToday ? (
+        <button
+          type="button"
+          onClick={onOpenCancelledToday}
+          className="flex-shrink-0 flex flex-col items-start justify-center
+                     gap-0.5 px-3 border-r border-slate-200 bg-rose-50
+                     hover:bg-rose-100 transition-colors text-left group"
+          style={{ width: columnWidth, height: '100%' }}
+          title="Ver cancelaciones del día"
+        >
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-rose-500">
+            Canceladas
+          </span>
+          <span className="text-base font-bold text-rose-700 leading-none tabular-nums">
+            {cancelledTodayCount}{' '}
+            <span className="text-[10px] font-medium text-rose-500/80">hoy</span>
+          </span>
+          <span className="text-[9px] text-rose-400 leading-tight inline-flex items-center gap-0.5
+                          opacity-70 group-hover:opacity-100 transition-opacity">
+            Ver archivo
+            <span className="text-rose-400">›</span>
+          </span>
+        </button>
+      ) : (
+        <div
+          className="flex-shrink-0 flex flex-col justify-center px-3
+                     border-r border-slate-200 bg-slate-50"
+          style={{ width: columnWidth }}
+        >
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            Ocupación
+          </span>
+          <span className="text-[9px] text-slate-300 font-mono">
+            {totalRooms} hab. total
+          </span>
+        </div>
+      )}
 
       {/* Metrics per day — synced with grid scroll via translateX */}
       <div className="flex-1 overflow-hidden relative">
