@@ -1,9 +1,29 @@
 # 14 — Payment, Currency & Tax Architecture
 
 > **Audiencia:** Producto + ingeniería + comercial. **Versión objetivo:** v1.0.1 PAY-CORE + v1.0.2 CFDI-CORE.
-> **Estado:** propuesta arquitectónica aprobada para implementación. **Fecha:** 2026-05-15.
+> **Estado:** propuesta arquitectónica aprobada — **FX core parcialmente adelantado en v1.0.0 (PR #32)**.
+> **Última actualización:** 2026-05-16.
 >
 > Este documento consolida la arquitectura de **10 sub-módulos** (A-J) de gestión de cobros, divisas, impuestos y reembolsos para Zenix. Reemplaza decisiones dispersas en CLAUDE.md y refina el scope de v1.0.1 y v1.0.2 del [roadmap](03-roadmap-v1-v2.md).
+
+## ✅ Adelantado en v1.0.0 — Sprint 3-LEVEL Rates (PR #32 mergeado 2026-05-16)
+
+Los siguientes componentes del PAY-CORE/CFDI-CORE fueron **adelantados** desde v1.0.1 a v1.0.0 porque el sprint de rate display necesitaba conversión de divisas:
+
+- **A · Multi-currency** → Tabla `ExchangeRate` creada (inmutable, snapshot diario) + `PropertyFxRate` override comercial del hotel (rate absoluto o spread relativo). `PaymentFxLock` permanece sembrado para v1.0.1 (atomic lock at payment time).
+- **D · Banxico + Open Exchange Rates** → `FxService.refreshBanxicoDaily` con `@Cron 13:00 CST 'America/Mexico_City'` SF43718 FIX. Fallback OER pendiente para v1.0.1. Endpoint `POST /v1/fx/refresh-banxico` para refresh manual admin.
+- **I · FxAdvisor (DLC)** → Dashboard widget `FxRateWidget` muestra Banxico oficial vs Hotel interno con delta percent. Settings UI tab "Tipo de cambio" en `/settings/fx` permite supervisor editar override.
+
+**Lo que NO se adelantó** (sigue planeado para v1.0.1+):
+- B (OTA-collect detection) — requiere Channex inbound formal
+- C (Cash drawer multi-divisa + CashierShift)
+- E (Card payments + 3DS — Stripe/Conekta)
+- F (Cortes de caja USALI Sec 12)
+- G (Tax engine multi-impuesto)
+- H (Tax transparency OTA)
+- J (Tax catalog nativo curado)
+
+Decisiones registradas: CLAUDE.md §103 (FX-CORE detalles).
 
 ---
 

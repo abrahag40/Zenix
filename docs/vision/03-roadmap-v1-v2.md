@@ -32,13 +32,18 @@ Producto operativo y estable para 1-3 hoteles piloto LATAM. Cierre fiscal mensua
 
 ### Sprints actuales (v1.0.0)
 
-| Sprint | Alcance | Días |
-|--------|---------|------|
-| **SEC-α** | Hardening multi-tenant (bugs MT-5, MT-3, NS-3, NS-6, MT-7, MT-8) | 5-7 |
-| **Mx-1B finalización** | Cerrar gaps menores del módulo de mantenimiento web + mobile | 3-4 |
-| **HK-CFG (Setup Recamaristas)** | SettingsPage tab "Recamaristas" — turnos + cobertura + reglas | 5-7 |
-| **POLISH-α** | Bugs medios (CAL-10, PAY-8, BLK-6, MAINT-4, NOTIF-7+13, NOTIF-11) | 2-3 |
-| **QA-α** | Test coverage del Hub Recamarista mobile | 4-5 |
+| Sprint | Alcance | Días | Estado |
+|--------|---------|------|--------|
+| ~~SEC-α~~ | Hardening multi-tenant (bugs MT-5, MT-3, NS-3, NS-6, MT-7, MT-8) | — | ✅ Cerrado |
+| ~~Mx-1B finalización~~ | Cerrar gaps menores del módulo de mantenimiento web + mobile | — | ✅ Cerrado (PR #13) |
+| ~~HK-CFG (Setup Recamaristas)~~ | SettingsPage tab "Recamaristas" — turnos + cobertura + reglas | — | ✅ Cerrado (Sprint 8H) |
+| ~~POLISH-α~~ | Bugs medios (CAL-10, PAY-8, BLK-6, MAINT-4, NOTIF-7+13, NOTIF-11) | — | ✅ Cerrado |
+| ~~Bug-fixes UI + same-day turnover~~ | Fix F + tooltip drag + dim + journey by ID + ID interno + occupancySet UTC | — | ✅ Cerrado (PR #28-31) |
+| ~~**CANCEL-ARCHIVE + 3-LEVEL Rates + FX-CORE**~~ | Sprint megacumulativo: soft-delete reservas + 3 niveles rate display + Banxico daily cron + dashboard widget + Settings UI FX + modal estándar + scroll perf SwiftUI + notif self-suppress. **Decisiones CLAUDE.md §95-§104**. | — | ✅ Cerrado (PR #32) |
+| **CHANNEX-INBOUND** | Webhooks OTA → PMS (`booking_new` / `modify` / `cancel`) + HMAC verify + idempotencia + conflict review queue. Sin esto Zenix hace MENOS que un PMS comercial. | 5-7 | Bloqueante |
+| **CHECK-IN modal redesign** | Modal actual demasiado angosto (max-w-md). Apple HIG + SwiftUI Form pattern, max-w-2xl/3xl, spacing 8pt. | 1-2 | Recomendado |
+| **QA-α** | Test coverage del Hub Recamarista mobile (jest-expo configurado, 0 specs aún) | 4-5 | Bloqueante |
+| **CI-RESCUE** | 8 stale assertions API (no-show TZ, room state, stay-journeys guards, dashboard) — feature-owner adjusts | 1 | Recomendado |
 
 ### v1.0.1 · PAY-CORE — Procesamiento de pagos profesional
 
