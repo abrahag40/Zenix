@@ -52,10 +52,11 @@ export function OccupancyFooter({
     <div className="flex-shrink-0 border-t-2 border-slate-200 bg-white
                    flex overflow-hidden select-none"
          style={{ height: 52 }}>
-      {/* Fixed label */}
+      {/* Fixed label — Ocupación + counter Canceladas integrados (mantiene
+          alineación columnar con días del calendario) */}
       <div
         className="flex-shrink-0 flex flex-col justify-center px-3
-                   border-r border-slate-200 bg-slate-50"
+                   border-r border-slate-200 bg-slate-50 relative"
         style={{ width: columnWidth }}
       >
         <span className="text-[10px] font-semibold uppercase tracking-wider
@@ -65,27 +66,22 @@ export function OccupancyFooter({
         <span className="text-[9px] text-slate-300 font-mono">
           {totalRooms} hab. total
         </span>
+        {/* Cancel-Archive: counter inline cuando hay cancelaciones del día */}
+        {(cancelledTodayCount ?? 0) > 0 && onOpenCancelledToday && (
+          <button
+            type="button"
+            onClick={onOpenCancelledToday}
+            className="mt-1 self-start inline-flex items-center gap-1
+                       px-1.5 py-0.5 rounded-md bg-rose-50 hover:bg-rose-100
+                       text-rose-700 text-[10px] font-medium leading-tight
+                       transition-colors"
+            title="Ver cancelaciones del día"
+          >
+            <span className="inline-block w-1 h-1 rounded-full bg-rose-500" />
+            {cancelledTodayCount} cancelada{cancelledTodayCount === 1 ? '' : 's'} hoy
+          </button>
+        )}
       </div>
-
-      {/* Cancel-Archive: counter "Canceladas hoy" — slide footer trigger */}
-      {(cancelledTodayCount ?? 0) > 0 && onOpenCancelledToday && (
-        <button
-          type="button"
-          onClick={onOpenCancelledToday}
-          className="flex-shrink-0 flex flex-col items-center justify-center px-3
-                     border-r border-slate-200 bg-rose-50/40 hover:bg-rose-100/60
-                     transition-colors group"
-          style={{ minWidth: 110 }}
-          title="Ver cancelaciones del día"
-        >
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-rose-500">
-            Canceladas
-          </span>
-          <span className="text-[11px] font-mono font-bold text-rose-700">
-            {cancelledTodayCount} hoy
-          </span>
-        </button>
-      )}
 
       {/* Metrics per day — synced with grid scroll via translateX */}
       <div className="flex-1 overflow-hidden relative">

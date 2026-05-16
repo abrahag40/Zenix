@@ -2,6 +2,7 @@ import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { ArrowRight, Moon, MoveRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useModalDismiss } from '../../hooks/useModalDismiss'
 
 interface MoveExtensionConfirmDialogProps {
   newRoomNumber: string
@@ -31,13 +32,18 @@ export function MoveExtensionConfirmDialog({
   onClose,
   onConfirm,
 }: MoveExtensionConfirmDialogProps) {
+  // Estándar Zenix: cerrar con click outside + Esc. No hay "dirty state" aquí
+  // — el dialog solo muestra confirmación de un drag ya realizado; cerrar
+  // simplemente cancela la operación de mover (no se pierde data).
+  const { onBackdropClick } = useModalDismiss({ isDirty: false, onClose, disabled: isPending })
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+      onClick={onBackdropClick}
     >
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" />
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px] pointer-events-none" />
 
       {/* Card */}
       <div className="relative z-10 w-full max-w-sm mx-4 bg-white rounded-2xl shadow-2xl overflow-hidden">

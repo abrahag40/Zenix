@@ -5,6 +5,7 @@ import { X, AlertTriangle, User, Building2, Globe, AlertCircle, ChevronDown, Che
 import { Button } from '@/components/ui/button'
 import type { GuestStayBlock } from '../../types/timeline.types'
 import type { CancelStayInput } from '../../hooks/useGuestStays'
+import { useModalDismiss } from '../../hooks/useModalDismiss'
 
 interface CancelReservationDialogProps {
   stay: GuestStayBlock
@@ -47,19 +48,14 @@ export function CancelReservationDialog({
   const isAdminError = initiator === 'ADMIN_ERROR'
 
   // Dirty-state detection — Apple HIG: confirm before discarding work.
-  // "pristine" = nada seleccionado / sin texto. Cerrar silencioso es OK.
   const isDirty = initiator !== null || reasonCode !== '' || reason.trim() !== '' || step === 2
 
-  function handleCloseRequest() {
-    if (isPending) return
-    if (!isDirty) {
-      onClose()
-      return
-    }
-    // Confirm nativo — ligero, accesible, sin sub-dialog que duplique modal
-    const ok = window.confirm('¿Descartar los datos ingresados? La cancelación no se aplicará.')
-    if (ok) onClose()
-  }
+  const { requestClose: handleCloseRequest, onBackdropClick } = useModalDismiss({
+    isDirty,
+    onClose,
+    disabled: isPending,
+    confirmMessage: '¿Descartar los datos ingresados? La cancelación no se aplicará.',
+  })
 
   function handleSubmit() {
     if (!initiator) return
@@ -79,11 +75,9 @@ export function CancelReservationDialog({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      onClick={(e) => { if (e.target === e.currentTarget) handleCloseRequest() }}
-      onKeyDown={(e) => { if (e.key === 'Escape') handleCloseRequest() }}
-      tabIndex={-1}
+      onClick={onBackdropClick}
     >
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" />
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px] pointer-events-none" />
 
       <div className="relative z-10 w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden max-h-[85vh] flex flex-col">
         {/* Header stripe rojo apagado */}
