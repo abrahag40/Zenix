@@ -76,14 +76,17 @@ export function CancelledTodayDrawer({ open, propertyId, onClose }: CancelledTod
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end" onClick={onBackdropClick}>
-      <div className="absolute inset-0 bg-black/20 backdrop-blur-[2px] pointer-events-none" />
+    <div
+      className="fixed inset-0 z-40 flex items-center justify-center p-4"
+      onClick={onBackdropClick}
+    >
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px] pointer-events-none" />
 
-      <div className="relative z-10 w-full bg-white rounded-t-2xl shadow-2xl max-h-[75vh] flex flex-col pb-2">
-        {/* Handle */}
-        <div className="flex justify-center pt-2.5 pb-1.5 flex-shrink-0">
-          <div className="w-10 h-1 bg-slate-200 rounded-full" />
-        </div>
+      {/* Modal centrado — max-w-2xl mantiene proporción correcta de los rows en
+          desktop wide screen. Apple HIG: sheet pattern para subtarea tabular. */}
+      <div className="relative z-10 w-full max-w-2xl bg-white rounded-2xl shadow-2xl max-h-[80vh] flex flex-col overflow-hidden">
+        {/* Top accent stripe — coherente con CancelReservationDialog */}
+        <div className="h-1 bg-rose-500/70 flex-shrink-0" />
 
         {/* Sticky header — Apple HIG navigation bar pattern */}
         <div className="px-5 pb-3 border-b border-slate-100 flex-shrink-0 space-y-2.5">
@@ -191,12 +194,11 @@ export function CancelledTodayDrawer({ open, propertyId, onClose }: CancelledTod
                   <span className={`w-2 h-2 rounded-full flex-shrink-0 ${meta.dotClass}`} title={meta.label} />
 
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-sm font-medium text-slate-800 truncate flex-1">{row.guestName}</span>
-                      <span className="text-[11px] text-slate-400 tabular-nums flex-shrink-0">
-                        {format(cancelledAt, 'HH:mm')}
-                      </span>
+                    {/* Línea 1: nombre — sin time, sin elementos flotando a la derecha */}
+                    <div className="text-sm font-medium text-slate-800 truncate">
+                      {row.guestName}
                     </div>
+                    {/* Línea 2: meta con interpunctos — hora va inline al final (Apple Mail pattern) */}
                     <div className="text-[11px] text-slate-500 tabular-nums truncate">
                       Hab {row.room.number}
                       {' · '}
@@ -206,6 +208,7 @@ export function CancelledTodayDrawer({ open, propertyId, onClose }: CancelledTod
                       {inlineReason && (
                         <> {' · '} <span className="italic text-slate-400">{inlineReason}</span></>
                       )}
+                      <span className="text-slate-400"> · {format(cancelledAt, 'HH:mm')}</span>
                     </div>
                     {freeNote && (
                       <div className="text-[11px] text-slate-400 italic truncate mt-0.5" title={freeNote}>
@@ -214,11 +217,12 @@ export function CancelledTodayDrawer({ open, propertyId, onClose }: CancelledTod
                     )}
                   </div>
 
+                  {/* Acción a la derecha — agrupada visualmente con la fila, sin gap. */}
                   {canRestore && (
                     <Button
                       size="sm"
                       variant="outline"
-                      className="text-[11px] h-7 px-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50 flex-shrink-0"
+                      className="text-[11px] h-7 px-2.5 border-emerald-200 text-emerald-700 hover:bg-emerald-50 flex-shrink-0"
                       onClick={() => restoreMut.mutate(row.id)}
                       disabled={restoreMut.isPending}
                     >
