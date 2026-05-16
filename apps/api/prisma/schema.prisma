@@ -1302,18 +1302,50 @@ model GuestStay {
   //   updatedAt         DateTime @updatedAt
   // }
 
+  // ── Cancel-Archive (Sprint CANCEL-ARCHIVE) ────────────────────────────
+  // Patrón soft-delete obligatorio. Una stay cancelada permanece en DB con
+  // `cancelledAt != null`. AvailabilityService excluye cancelled stays.
+  //
+  // Diseño "espiral": campos son strings (no enums) y JSON metadata para
+  // permitir agregar valores sin migration. FK hooks listos para integrar
+  // PAY-CORE (v1.0.1), CFDI-CORE (v1.0.2), Channex outbound sin schema
+  // change. Soporta hotel boutique / hostal / STR (Airbnb-style) con el
+  // mismo modelo: STR persiste `cancelMetadata.airbnbCancelCode` sin
+  // afectar el flujo principal.
+  cancelledAt           DateTime?  @map("cancelled_at")
+  cancelledById         String?    @map("cancelled_by_id")
+  // 'GUEST' | 'HOTEL' | 'OTA' | 'ADMIN_ERROR' | 'SYSTEM' (string, no enum)
+  cancelInitiator       String?    @map("cancel_initiator")
+  // Texto libre + opcional motivo de dropdown via cancelReasonCode
+  cancelReason          String?    @map("cancel_reason")
+  cancelReasonCode      String?    @map("cancel_reason_code")
+  // OTA cancel codes, refund refs, host fees (STR), email refs, etc.
+  cancelMetadata        Json?      @map("cancel_metadata")
+  // 'PMS_DIRECT' | 'CHANNEX_WEBHOOK' | 'AUTO_SYSTEM'
+  cancelledFromChannel  String?    @map("cancelled_from_channel")
+  // FK hook para CancellationPolicy futura (v1.1+ rate plan policies)
+  cancellationPolicyId  String?    @map("cancellation_policy_id")
+  // Sembrado para v1.0.2 CFDI-CORE — emite CFDI E + FormaPago=15 si folio
+  // origen tuvo CFDI I previo y cancelInitiator != 'ADMIN_ERROR'
+  requiresFiscalReview  Boolean    @default(false) @map("requires_fiscal_review")
+  // Sembrado para anonymization scheduler v1.0.4 NS-UI
+  anonymizedAt          DateTime?  @map("anonymized_at")
+  // ──────────────────────────────────────────────────────────────────────
+
   organization Organization      @relation(fields: [organizationId], references: [id])
   room         Room              @relation(fields: [roomId], references: [id])
   stayJourney  StayJourney?
   staySegments StaySegment[]
   contactLogs  GuestContactLog[]
   paymentLogs  PaymentLog[]
+  guestStayLogs GuestStayLog[]
 
   @@index([organizationId])
   @@index([organizationId, propertyId])
   @@index([roomId])
   @@index([paymentStatus])
   @@index([noShowAt])
+  @@index([cancelledAt])
   @@map("guest_stays")
 }
 
@@ -1479,6 +1511,7 @@ enum JourneyEventType {
   NO_SHOW_MARKED
   NO_SHOW_REVERTED
   JOURNEY_SPLIT
+  RESTORED
 
   @@map("journey_event_type")
 }
@@ -1518,6 +1551,27 @@ enum NoShowChargeStatus {
   CHARGED
   FAILED
   WAIVED
+}
+
+// Audit trail append-only para eventos de ciclo de vida de una reserva.
+// Patrón análogo a §28 PaymentLog: never UPDATE, never DELETE — solo INSERT.
+// `event` y `actorType` son strings (no enums) para extensión sin migration.
+// Eventos esperados v1.0.0: CREATED, CANCELLED, RESTORED, MODIFIED, ANONYMIZED.
+// Futuros: CFDI_E_ISSUED (v1.0.2), CHANNEX_ACK (Channex sprint), REFUND_PROCESSED (v1.0.1).
+model GuestStayLog {
+  id          String   @id @default(uuid())
+  stayId      String   @map("stay_id")
+  event       String
+  actorId     String?  @map("actor_id")
+  actorType   String   @default("USER") @map("actor_type")
+  metadata    Json?
+  occurredAt  DateTime @default(now()) @map("occurred_at")
+
+  stay        GuestStay @relation(fields: [stayId], references: [id])
+
+  @@index([stayId, occurredAt])
+  @@index([event])
+  @@map("guest_stay_logs")
 }
 
 model StayJourney {

@@ -18,6 +18,9 @@ interface OccupancyFooterProps {
   columnWidth: number
   scrollLeft: number
   readinessTasks?: ReadinessTask[]
+  /** Cancel-Archive Sprint: counter "Canceladas hoy" + handler para abrir slide drawer. */
+  cancelledTodayCount?: number
+  onOpenCancelledToday?: () => void
 }
 
 function calcDayOccupancy(
@@ -41,6 +44,7 @@ function calcDayOccupancy(
 
 export function OccupancyFooter({
   virtualColumns, stays, totalRooms, dayWidth, columnWidth, scrollLeft, readinessTasks,
+  cancelledTodayCount, onOpenCancelledToday,
 }: OccupancyFooterProps) {
   const today = useMemo(() => startOfDay(new Date()), [])
 
@@ -62,6 +66,26 @@ export function OccupancyFooter({
           {totalRooms} hab. total
         </span>
       </div>
+
+      {/* Cancel-Archive: counter "Canceladas hoy" — slide footer trigger */}
+      {(cancelledTodayCount ?? 0) > 0 && onOpenCancelledToday && (
+        <button
+          type="button"
+          onClick={onOpenCancelledToday}
+          className="flex-shrink-0 flex flex-col items-center justify-center px-3
+                     border-r border-slate-200 bg-rose-50/40 hover:bg-rose-100/60
+                     transition-colors group"
+          style={{ minWidth: 110 }}
+          title="Ver cancelaciones del día"
+        >
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-rose-500">
+            Canceladas
+          </span>
+          <span className="text-[11px] font-mono font-bold text-rose-700">
+            {cancelledTodayCount} hoy
+          </span>
+        </button>
+      )}
 
       {/* Metrics per day — synced with grid scroll via translateX */}
       <div className="flex-1 overflow-hidden relative">

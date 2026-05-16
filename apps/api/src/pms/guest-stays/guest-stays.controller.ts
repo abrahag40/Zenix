@@ -8,7 +8,7 @@ import {
   Body,
   Query,
 } from '@nestjs/common'
-import { IsBoolean, IsOptional, IsString } from 'class-validator'
+import { IsBoolean, IsIn, IsObject, IsOptional, IsString } from 'class-validator'
 import { CreateContactLogDto } from './dto/create-contact-log.dto'
 import { ConfirmCheckinDto } from './dto/confirm-checkin.dto'
 import { RegisterPaymentDto } from './dto/register-payment.dto'
@@ -27,6 +27,27 @@ class MarkNoShowDto {
 class ExtendStayDto {
   @IsString()
   newCheckOut: string
+}
+
+class CancelStayDto {
+  @IsIn(['GUEST', 'HOTEL', 'OTA', 'ADMIN_ERROR', 'SYSTEM'])
+  initiator!: 'GUEST' | 'HOTEL' | 'OTA' | 'ADMIN_ERROR' | 'SYSTEM'
+
+  @IsOptional()
+  @IsString()
+  reason?: string
+
+  @IsOptional()
+  @IsString()
+  reasonCode?: string
+
+  @IsOptional()
+  @IsIn(['PMS_DIRECT', 'CHANNEX_WEBHOOK', 'AUTO_SYSTEM'])
+  cancelledFromChannel?: 'PMS_DIRECT' | 'CHANNEX_WEBHOOK' | 'AUTO_SYSTEM'
+
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>
 }
 import { GuestStaysService } from './guest-stays.service'
 import { CreateGuestStayDto } from './dto/create-guest-stay.dto'
@@ -120,6 +141,39 @@ export class GuestStaysController {
     @CurrentUser() actor: JwtPayload,
   ) {
     return this.service.getMobileDetail(id, actor.role)
+  }
+
+  /**
+   * GET /v1/guest-stays/cancelled?propertyId=&limit=&offset=&initiator=&since=
+   * Declarado ANTES de :id (CLAUDE.md §26 — route ordering crítico).
+   */
+  @Get('cancelled')
+  listCancelled(
+    @Query('propertyId') propertyId: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+    @Query('initiator') initiator?: string,
+    @Query('since') since?: string,
+  ) {
+    return this.service.listCancelled({
+      propertyId,
+      limit:    limit ? parseInt(limit, 10) : undefined,
+      offset:   offset ? parseInt(offset, 10) : undefined,
+      initiator,
+      sinceISO: since,
+    })
+  }
+
+  /**
+   * GET /v1/guest-stays/cancelled-today-count?propertyId=&timezone=
+   * Declarado ANTES de :id (CLAUDE.md §26).
+   */
+  @Get('cancelled-today-count')
+  countCancelledToday(
+    @Query('propertyId') propertyId: string,
+    @Query('timezone') timezone: string,
+  ) {
+    return this.service.countCancelledToday(propertyId, timezone || 'UTC')
   }
 
   @Get(':id')
@@ -292,5 +346,32 @@ export class GuestStaysController {
     @CurrentUser() actor: JwtPayload,
   ) {
     return this.service.logContact(id, actor.sub, dto.channel, dto.messagePreview)
+  }
+
+  /**
+   * POST /v1/guest-stays/:id/cancel
+   * Soft-delete una reserva. La fila permanece en DB; AvailabilityService la excluye.
+   * Guards: estado debe ser pre-checkin (no IN_HOUSE, no DEPARTED, no NO_SHOW, no ya CANCELLED).
+   */
+  @Post(':id/cancel')
+  cancelStay(
+    @Param('id') id: string,
+    @Body() dto: CancelStayDto,
+    @CurrentUser() actor: JwtPayload,
+  ) {
+    return this.service.cancelStay(id, actor.sub, dto)
+  }
+
+  /**
+   * POST /v1/guest-stays/:id/restore
+   * Restaura una reserva cancelada. Solo si initiator=HOTEL|ADMIN_ERROR y < 7 días.
+   * Verifica disponibilidad de la habitación antes de restaurar.
+   */
+  @Post(':id/restore')
+  restoreStay(
+    @Param('id') id: string,
+    @CurrentUser() actor: JwtPayload,
+  ) {
+    return this.service.restoreStay(id, actor.sub)
   }
 }

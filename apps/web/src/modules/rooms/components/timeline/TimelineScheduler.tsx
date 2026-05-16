@@ -6,7 +6,7 @@ import { useTimelineStore } from '../../stores/timeline.store'
 import { TIMELINE } from '../../utils/timeline.constants'
 import { getStayStatus } from '../../utils/timeline.utils'
 import { useDragDrop } from '../../hooks/useDragDrop'
-import { useGuestStays, useCreateGuestStay, useCheckout, useMoveRoom, useSplitMidStay, useSplitReservation, useMarkNoShow, useRevertNoShow, useRoomReadinessTasks, useExtendStay, useExtendSameRoom, useExtendNewRoom, useMoveExtensionRoom, useConfirmCheckin } from '../../hooks/useGuestStays'
+import { useGuestStays, useCreateGuestStay, useCheckout, useMoveRoom, useSplitMidStay, useSplitReservation, useMarkNoShow, useRevertNoShow, useRoomReadinessTasks, useExtendStay, useExtendSameRoom, useExtendNewRoom, useMoveExtensionRoom, useConfirmCheckin, useCancelStay, useCancelledTodayCount } from '../../hooks/useGuestStays'
 import { guestStaysApi } from '../../api/guest-stays.api'
 import { useStayJourneys } from '../../hooks/useStayJourneys'
 import { useBlocks, useCreateBlock, useReleaseBlock, useCancelBlock } from '../../hooks/useBlocks'
@@ -34,6 +34,8 @@ import { CheckOutDialog } from '../dialogs/CheckOutDialog'
 import { ExtendConfirmDialog } from '../dialogs/ExtendConfirmDialog'
 import { MoveRoomDialog } from '../dialogs/MoveRoomDialog'
 import { MoveExtensionConfirmDialog } from '../dialogs/MoveExtensionConfirmDialog'
+import { CancelReservationDialog } from '../dialogs/CancelReservationDialog'
+import { CancelledTodayDrawer } from '../dialogs/CancelledTodayDrawer'
 import { MoveReservationConfirmDialog } from '../dialogs/MoveReservationConfirmDialog'
 import { NoShowConfirmModal } from './NoShowConfirmModal'
 import { ConfirmCheckinDialog } from '../dialogs/ConfirmCheckinDialog'
@@ -214,6 +216,7 @@ export function TimelineScheduler() {
   const moveExtensionRoomMut = useMoveExtensionRoom(PROPERTY_ID)
   const markNoShowMut   = useMarkNoShow(PROPERTY_ID)
   const revertNoShowMut = useRevertNoShow(PROPERTY_ID)
+  const cancelStayMut   = useCancelStay(PROPERTY_ID)
   const { potentialNoShowWarningHour, noShowCutoffHour } = usePropertySettings()
 
   const { journeyBlocks: rawJourneyBlocks } = useStayJourneys(PROPERTY_ID, dataWindow.from, dataWindow.to)
@@ -380,6 +383,10 @@ export function TimelineScheduler() {
   }>({ open: false, stayId: null })
 
   const [noShowDialog, setNoShowDialog] = useState<{ stayId: string } | null>(null)
+  const [cancelDialog, setCancelDialog] = useState<{ stayId: string } | null>(null)
+  const [cancelledTodayOpen, setCancelledTodayOpen] = useState(false)
+  const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC'
+  const { data: cancelledTodayCount = 0 } = useCancelledTodayCount(PROPERTY_ID, browserTz)
 
   const [checkinDialog, setCheckinDialog] = useState<{ stayId: string } | null>(null)
   const confirmCheckinMut = useConfirmCheckin(PROPERTY_ID)
@@ -978,6 +985,14 @@ export function TimelineScheduler() {
         columnWidth={TIMELINE.COLUMN_WIDTH}
         scrollLeft={scrollLeft}
         readinessTasks={readinessTasks}
+        cancelledTodayCount={cancelledTodayCount}
+        onOpenCancelledToday={() => setCancelledTodayOpen(true)}
+      />
+
+      <CancelledTodayDrawer
+        open={cancelledTodayOpen}
+        propertyId={PROPERTY_ID}
+        onClose={() => setCancelledTodayOpen(false)}
       />
 
       {/* Drag ghost — position updated via DOM ref (no React re-render per frame).
@@ -1059,6 +1074,11 @@ export function TimelineScheduler() {
         onStartCheckin={(stayId) => {
           closeSheet()
           setCheckinDialog({ stayId })
+        }}
+        onCancelReservation={(stayId) => {
+          closeSheet()
+          setActiveJourneyId(null)
+          setCancelDialog({ stayId })
         }}
         onOpenMaintenanceTicket={(id) => openMaintenanceDrawer(id)}
         propertyId={PROPERTY_ID}
@@ -1276,6 +1296,27 @@ export function TimelineScheduler() {
           }}
         />
       )}
+
+      {/* Cancel-Archive dialog (Sprint 2026-05-16) */}
+      {cancelDialog && (() => {
+        const stay = stays.find(s => s.id === cancelDialog.stayId)
+          ?? journeyBlocks.find(s => s.id === cancelDialog.stayId)
+        if (!stay) return null
+        const roomRow = flatRows.find(r => r.id === stay.roomId && r.type === 'room')
+        return (
+          <CancelReservationDialog
+            stay={{ ...stay, roomNumber: stay.roomNumber ?? roomRow?.room?.number }}
+            isPending={cancelStayMut.isPending}
+            onClose={() => setCancelDialog(null)}
+            onConfirm={(data) => {
+              cancelStayMut.mutate(
+                { stayId: stay.guestStayId ?? stay.id, data },
+                { onSettled: () => setCancelDialog(null) },
+              )
+            }}
+          />
+        )
+      })()}
 
       {/* W3.6 — Drawer local removido. Ahora vive en App.tsx como
           GlobalMaintenanceDrawer leyendo del store useMaintenanceDrawer.

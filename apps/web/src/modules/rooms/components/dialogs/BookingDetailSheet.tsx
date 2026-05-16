@@ -55,6 +55,7 @@ interface BookingDetailSheetProps {
   onNoShow: (stayId: string, opts: { reason?: string; waiveCharge?: boolean }) => void
   onRevertNoShow: (stayId: string) => void
   onStartCheckin?: (stayId: string) => void
+  onCancelReservation?: (stayId: string) => void
   /** W3.3 — Abre el TicketDetailDrawer in-place sobre el calendario.
    *  Si no se provee, hace fallback a navigate(/maintenance?ticketId=X). */
   onOpenMaintenanceTicket?: (ticketId: string) => void
@@ -99,6 +100,7 @@ export function BookingDetailSheet({
   onNoShow,
   onRevertNoShow,
   onStartCheckin,
+  onCancelReservation,
   onOpenMaintenanceTicket,
   propertyId,
 }: BookingDetailSheetProps) {
@@ -156,6 +158,8 @@ export function BookingDetailSheet({
   // Allow early checkout if IN_HOUSE and either it's not arrival day, OR the guest
   // already confirmed check-in (actualCheckin set) — covers arrival-day check-ins.
   const canEarlyCheckout   = !isNoShow && status === 'IN_HOUSE' && (!isArrivalDay || !!stay.actualCheckin)
+  // Cancel-Archive: solo pre-checkin, no IN_HOUSE/DEPARTED/NO_SHOW/CANCELLED.
+  const canCancel = !isNoShow && !stay.actualCheckin && !stay.actualCheckout && !stay.cancelledAt
 
   const isRoomMove = stay.segmentReason === 'ROOM_MOVE'
   const isSplit    = stay.segmentReason === 'SPLIT'
@@ -1032,6 +1036,18 @@ export function BookingDetailSheet({
               >
                 <ArrowRightLeft className="h-3.5 w-3.5 mr-1.5" />
                 Mover hab.
+              </Button>
+            )}
+
+            {canCancel && onCancelReservation && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1 text-xs border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                onClick={() => onCancelReservation(stay.id)}
+              >
+                <X className="h-3.5 w-3.5 mr-1.5" />
+                Cancelar
               </Button>
             )}
 
