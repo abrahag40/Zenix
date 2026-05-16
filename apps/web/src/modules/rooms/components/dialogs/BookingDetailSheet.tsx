@@ -26,6 +26,8 @@ import {
   CreditCard,
   HandCoins,
   AlertCircle,
+  Copy,
+  Check,
 } from 'lucide-react'
 
 import { format, differenceInDays, differenceInHours, startOfDay } from 'date-fns'
@@ -58,6 +60,34 @@ interface BookingDetailSheetProps {
   onOpenMaintenanceTicket?: (ticketId: string) => void
   /** propertyId needed for soft-lock advisory (Sprint 7C). */
   propertyId?: string
+}
+
+function CopyableId({ value, short = false }: { value: string; short?: boolean }) {
+  const [copied, setCopied] = useState(false)
+  const display = short && value.length > 12 ? `${value.slice(0, 8)}…${value.slice(-4)}` : value
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(value)
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1200)
+        } catch {
+          // no-op si el navegador bloquea clipboard (preview / http)
+        }
+      }}
+      className="group flex items-center gap-1.5 text-xs font-mono font-bold text-slate-700 bg-white px-2 py-0.5 rounded border border-slate-200 hover:border-slate-400 hover:bg-slate-50 transition-colors cursor-pointer"
+      title={short ? value : 'Copiar al portapapeles'}
+    >
+      <span className="select-all">{display}</span>
+      {copied ? (
+        <Check className="h-3 w-3 text-emerald-600" />
+      ) : (
+        <Copy className="h-3 w-3 text-slate-400 group-hover:text-slate-600" />
+      )}
+    </button>
+  )
 }
 
 export function BookingDetailSheet({
@@ -564,25 +594,37 @@ export function BookingDetailSheet({
                   </div>
 
                   <div className="bg-slate-50 rounded-lg overflow-hidden divide-y divide-slate-100">
+                    {stay.bookingRef && (
+                      <div className="flex items-center justify-between px-3 py-2.5">
+                        <span className="text-xs text-slate-400 font-mono uppercase tracking-wide">
+                          Referencia
+                        </span>
+                        <CopyableId value={stay.bookingRef} />
+                      </div>
+                    )}
+
                     <div className="flex items-center justify-between px-3 py-2.5">
                       <span className="text-xs text-slate-400 font-mono uppercase tracking-wide">
-                        {stay.bookingRef ? 'Referencia' : 'PMS ID'}
+                        ID interno
                       </span>
-
-                      <span className="text-xs font-mono font-bold text-slate-700 bg-white px-2 py-0.5 rounded border border-slate-200 select-all cursor-text">
-                        {stay.bookingRef ?? stay.pmsReservationId ?? '—'}
-                      </span>
+                      <CopyableId value={stay.guestStayId ?? stay.id} short />
                     </div>
+
+                    {stay.pmsReservationId && stay.pmsReservationId !== stay.bookingRef && (
+                      <div className="flex items-center justify-between px-3 py-2.5">
+                        <span className="text-xs text-slate-400 font-mono uppercase tracking-wide">
+                          PMS ID
+                        </span>
+                        <CopyableId value={stay.pmsReservationId} />
+                      </div>
+                    )}
 
                     {stay.otaReservationId && (
                       <div className="flex items-center justify-between px-3 py-2.5">
                         <span className="text-xs text-slate-400 font-mono uppercase tracking-wide">
                           {stay.otaName} ID
                         </span>
-
-                        <span className="text-xs font-mono font-bold text-slate-700 bg-white px-2 py-0.5 rounded border border-slate-200 select-all cursor-text">
-                          {stay.otaReservationId}
-                        </span>
+                        <CopyableId value={stay.otaReservationId} />
                       </div>
                     )}
                   </div>
