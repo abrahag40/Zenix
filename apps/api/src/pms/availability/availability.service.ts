@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common'
+import { addDays, startOfDay } from 'date-fns'
 import { PrismaService } from '../../prisma/prisma.service'
 import {
   ChannexGateway,
@@ -77,6 +78,25 @@ export class AvailabilityService {
   async check(dto: AvailabilityCheckDto): Promise<AvailabilityResult> {
     const conflicts: AvailabilityConflict[] = []
 
+    // 2026-05-15 — Same-day turnover bug fix. Antes:
+    //   `scheduledCheckout: { gt: dto.from }`
+    // comparaba hora-exacta. Si el guest saliente termina al mediodía y la
+    // nueva reserva llegaba el form como midnight (00:00 UTC del mismo día),
+    // 12:00 > 00:00 → conflict falso. Estándar industria (Mews, Cloudbeds,
+    // Opera) + Channex/Booking/Expedia envían fechas-DAY (no horas):
+    // same-day turnover debe permitirse SIEMPRE.
+    //
+    // Nueva lógica: comparamos al día (startOfDay).
+    //   existing.checkOutDay > new.checkInDay  ⇔
+    //   existing.scheduledCheckout >= addDays(startOfDay(new.checkIn), 1)
+    // Para Yuki (sale May 15 12:00) y nuevo huésped (entra May 15 cualquier
+    // hora): dayAfterCheckin = May 16 00:00 → 12:00 < May 16 → false → no
+    // conflict (turnover normal). Para overlap real (existing termina May 16
+    // y nuevo entra May 15): May 16 noon >= May 16 00:00 → true → conflict ✓
+    const newCheckInDay = startOfDay(dto.from)
+    const newCheckOutDay = startOfDay(dto.to)
+    const dayAfterNewCheckIn = addDays(newCheckInDay, 1)
+
     // ── Local: direct GuestStay rows (excluding no-shows and checked-out) ────
     // Cuando se pasa excludeJourneyId, también excluimos la GuestStay padre del
     // journey: el caller está reorganizando esa estadía completa (extensión,
@@ -97,8 +117,10 @@ export class AvailabilityService {
         ...(dto.excludeJourneyId
           ? { NOT: { stayJourney: { id: dto.excludeJourneyId } } }
           : {}),
-        checkinAt: { lt: dto.to },
-        scheduledCheckout: { gt: dto.from },
+        // Day-level overlap: existing.checkinDay < new.checkoutDay AND
+        //                    existing.checkoutDay > new.checkinDay
+        checkinAt: { lt: newCheckOutDay },
+        scheduledCheckout: { gte: dayAfterNewCheckIn },
       },
       select: { id: true, guestName: true, checkinAt: true, scheduledCheckout: true },
     })
@@ -127,8 +149,9 @@ export class AvailabilityService {
         ...(dto.excludeJourneyId
           ? { journeyId: { not: dto.excludeJourneyId } }
           : {}),
-        checkIn: { lt: dto.to },
-        checkOut: { gt: dto.from },
+        // Day-level overlap, mismo razonamiento que GuestStay arriba.
+        checkIn: { lt: newCheckOutDay },
+        checkOut: { gte: dayAfterNewCheckIn },
         journey: { guestStay: { noShowAt: null, actualCheckout: null } },
       },
       include: { journey: { select: { guestName: true } } },
@@ -144,12 +167,13 @@ export class AvailabilityService {
     }
 
     // ── Local: RoomBlock (OOO / OOS / maintenance). endDate=null = indefinite ─
+    // Day-level overlap consistente con GuestStay/StaySegment arriba.
     const blocksOnRoom = await this.prisma.roomBlock.findMany({
       where: {
         roomId: dto.roomId,
         status: { in: ['ACTIVE', 'PENDING_APPROVAL', 'APPROVED'] },
-        startDate: { lt: dto.to },
-        OR: [{ endDate: null }, { endDate: { gt: dto.from } }],
+        startDate: { lt: newCheckOutDay },
+        OR: [{ endDate: null }, { endDate: { gte: dayAfterNewCheckIn } }],
       },
       select: { id: true, reason: true, startDate: true, endDate: true },
     })

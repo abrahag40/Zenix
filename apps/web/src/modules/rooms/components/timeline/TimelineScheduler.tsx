@@ -933,6 +933,7 @@ export function TimelineScheduler() {
               activeJourneyId={activeJourneyId}
               onSetActiveJourneyId={handleSetActiveJourneyId}
               onActivateJourney={handleSetActiveJourneyId}
+              selectedStayId={sheetOpen ? sheetStayId : null}
             />
           </div>
         </div>

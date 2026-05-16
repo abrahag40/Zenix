@@ -169,6 +169,13 @@ export function BookingDetailSheet({
         // y NN/g coinciden: backdrops oscuros sólo para modales bloqueantes
         // (confirmaciones destructivas), no para paneles de navegación lateral.
         overlayClassName="bg-transparent"
+        // 2026-05-15 — Radix por default mueve focus al primer elemento focusable
+        // del sheet al abrir (botón "Ver completa"). El ring focus-visible queda
+        // pintado permanentemente y parece selección "pegajosa". preventDefault
+        // suprime el auto-focus inicial — el usuario puede tabbear si quiere
+        // navegar con teclado. Pattern recomendado por Radix Dialog para
+        // inspector-style panels que no requieren acción inmediata del usuario.
+        onOpenAutoFocus={(e) => e.preventDefault()}
         className="w-[420px] sm:w-[420px] sm:max-w-[420px] p-0 flex flex-col overflow-hidden gap-0 shadow-[-12px_0_32px_-8px_rgba(15,23,42,0.18)]"
       >
         {/* HEADER */}

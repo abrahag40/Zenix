@@ -6,7 +6,7 @@ interface TooltipPosition {
   placement: 'top' | 'bottom'
 }
 
-export function useTooltip(options?: { forceAbove?: boolean }) {
+export function useTooltip(options?: { forceAbove?: boolean; enabled?: boolean }) {
   const [visible, setVisible] = useState(false)
   const [position, setPosition] = useState<TooltipPosition>({
     x: 0, y: 0, placement: 'top',
@@ -20,7 +20,7 @@ export function useTooltip(options?: { forceAbove?: boolean }) {
   const mousePosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
   const visibleRef = useRef(false)
 
-  const { forceAbove = false } = options ?? {}
+  const { forceAbove = false, enabled = true } = options ?? {}
 
   const calculatePosition = useCallback(() => {
     const el = triggerRef.current
@@ -93,6 +93,19 @@ export function useTooltip(options?: { forceAbove?: boolean }) {
     const el = triggerRef.current
     if (!el) return
 
+    // 2026-05-15 — cuando enabled=false (típicamente porque hay un drag global
+    // en curso) no listeneamos hover. Esto evita el ruido visual de tooltips
+    // de otros bloques activándose mientras el usuario arrastra uno.
+    if (!enabled) {
+      // Si había uno visible, ocultar inmediato.
+      clearTimeout(showTimerRef.current)
+      if (visibleRef.current) {
+        visibleRef.current = false
+        setVisible(false)
+      }
+      return
+    }
+
     function handleMouseMove(e: MouseEvent) {
       // Track cursor X so calculatePosition uses where the user is hovering,
       // but only update while tooltip is not yet visible (before the delay fires).
@@ -131,7 +144,7 @@ export function useTooltip(options?: { forceAbove?: boolean }) {
       clearTimeout(showTimerRef.current)
       clearTimeout(hideTimerRef.current)
     }
-  }, [calculatePosition, scheduleHide])
+  }, [calculatePosition, scheduleHide, enabled])
 
   // Safety net: window blur hides tooltip
   useEffect(() => {
