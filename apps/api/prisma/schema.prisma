@@ -451,6 +451,7 @@ model Organization {
   stayJourneys        StayJourney[]
   roomBlocks          RoomBlock[]
   appNotifications    AppNotification[]
+  exchangeRates       ExchangeRate[]
   // ── Sprint 8H ─────────────────────────────────────────────────────────────
   staffShifts         StaffShift[]
   // ── Sprint 9 ──────────────────────────────────────────────────────────────
@@ -668,6 +669,7 @@ model Property {
   userRoles          UserPropertyRole[]
   stayJourneys       StayJourney[]
   appNotifications   AppNotification[]
+  fxRates            PropertyFxRate[]
   // ── Sprint 8H ─────────────────────────────────────────────────────────────
   shifts             StaffShift[]
   staffCoverages     StaffCoverage[]
@@ -2801,4 +2803,54 @@ model MaintenanceTicketLog {
   @@index([ticketId, createdAt])
   @@index([event])
   @@map("maintenance_ticket_logs")
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// ── Sprint Rates 3-LEVEL 2026-05-16 — FX (Foreign Exchange) ────────────
+// ═════════════════════════════════════════════════════════════════════════
+
+// ExchangeRate — snapshot diario del FX oficial.
+// Fuente primaria MX: Banxico SF43718 (FIX) — gratuito, 40k req/día.
+// Fallback: Open Exchange Rates si Banxico no responde en 30s.
+// CFDI 4.0 Art. 20 CFF: usa FIX del día de la operación.
+// Patrón inmutable: una vez fetched, nunca se reescribe (alineado §28).
+model ExchangeRate {
+  id              String   @id @default(uuid())
+  organizationId  String   @map("organization_id")
+  baseCurrency    String   @map("base_currency")     // 'USD'
+  quoteCurrency   String   @map("quote_currency")    // 'MXN'
+  rate            Decimal  @db.Decimal(12, 6)
+  source          String   // 'BANXICO_SF43718' | 'OPEN_EXCHANGE' | 'MANUAL'
+  effectiveDate   DateTime @db.Date @map("effective_date")
+  fetchedAt       DateTime @default(now()) @map("fetched_at")
+
+  organization    Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, baseCurrency, quoteCurrency, effectiveDate, source])
+  @@index([effectiveDate])
+  @@map("exchange_rates")
+}
+
+// PropertyFxRate — override comercial del hotel.
+// El hotel cobra un rate distinto al oficial Banxico (spread comercial).
+// Se persiste como spread relativo O como rate absoluto editable.
+// Visible en dashboard al recepcionista junto al rate oficial Banxico.
+model PropertyFxRate {
+  id                  String    @id @default(uuid())
+  propertyId          String    @map("property_id")
+  baseCurrency        String    @map("base_currency")     // 'USD'
+  quoteCurrency       String    @map("quote_currency")    // 'MXN'
+  rate                Decimal   @db.Decimal(12, 6)
+  // Spread relativo: rate = official * (1 + spreadFromOfficial)
+  // null = override absoluto sin tracking del spread.
+  spreadFromOfficial  Decimal?  @db.Decimal(5, 4) @map("spread_from_official")
+  validFrom           DateTime  @db.Date @map("valid_from")
+  validTo             DateTime? @db.Date @map("valid_to")
+  updatedById         String    @map("updated_by_id")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  property            Property  @relation(fields: [propertyId], references: [id])
+
+  @@index([propertyId, baseCurrency, quoteCurrency, validFrom])
+  @@map("property_fx_rates")
 }

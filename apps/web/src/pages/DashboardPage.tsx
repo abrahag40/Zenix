@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { FxRateWidget } from '@/components/FxRateWidget'
 
 /**
  * DashboardPage — placeholder landing.
@@ -50,9 +51,13 @@ export function DashboardPage() {
         </Link>
       </section>
 
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <FxRateWidget />
+      </section>
+
       <div className="bg-gray-50 border border-dashed border-gray-300 rounded-xl p-6 text-center">
         <p className="text-sm text-gray-500">
-          Widgets, KPIs y resúmenes se añadirán próximamente.
+          Más widgets (ocupación, revenue, pickup) se añadirán próximamente.
         </p>
       </div>
     </div>

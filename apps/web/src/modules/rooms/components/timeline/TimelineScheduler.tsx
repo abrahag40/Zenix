@@ -36,6 +36,9 @@ import { MoveRoomDialog } from '../dialogs/MoveRoomDialog'
 import { MoveExtensionConfirmDialog } from '../dialogs/MoveExtensionConfirmDialog'
 import { CancelReservationDialog } from '../dialogs/CancelReservationDialog'
 import { CancelledTodayDrawer } from '../dialogs/CancelledTodayDrawer'
+import { BarStrip } from './BarStrip'
+import { RateQuoteSheet } from '../dialogs/RateQuoteSheet'
+import { useDailyBar } from '../../hooks/useRates'
 import { MoveReservationConfirmDialog } from '../dialogs/MoveReservationConfirmDialog'
 import { NoShowConfirmModal } from './NoShowConfirmModal'
 import { ConfirmCheckinDialog } from '../dialogs/ConfirmCheckinDialog'
@@ -385,8 +388,12 @@ export function TimelineScheduler() {
   const [noShowDialog, setNoShowDialog] = useState<{ stayId: string } | null>(null)
   const [cancelDialog, setCancelDialog] = useState<{ stayId: string } | null>(null)
   const [cancelledTodayOpen, setCancelledTodayOpen] = useState(false)
+  const [rateQuoteOpen, setRateQuoteOpen] = useState(false)
   const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC'
   const { data: cancelledTodayCount = 0 } = useCancelledTodayCount(PROPERTY_ID, browserTz)
+
+  // Sprint Rates 2026-05-16: BAR strip + Rate Quote Sheet
+  const { data: dailyBar } = useDailyBar(PROPERTY_ID, dataWindow.from, dataWindow.to)
 
   const [checkinDialog, setCheckinDialog] = useState<{ stayId: string } | null>(null)
   const confirmCheckinMut = useConfirmCheckin(PROPERTY_ID)
@@ -785,6 +792,17 @@ export function TimelineScheduler() {
           </div>
         </div>
 
+        {/* Nivel 1 — BAR strip ambient (sprint Rates 2026-05-16).
+            Sticky bajo DateHeader, click abre Rate Quote Sheet (Nivel 3). */}
+        <BarStrip
+          virtualColumns={virtualColumns}
+          scrollLeft={scrollLeft}
+          columnWidth={TIMELINE.COLUMN_WIDTH}
+          dayWidth={dayWidth}
+          data={dailyBar}
+          onClickStrip={() => setRateQuoteOpen(true)}
+        />
+
         {/* ── Body: scroll horizontal + vertical en un solo contenedor ── */}
         <div
           ref={scrollContainerRef}
@@ -1007,6 +1025,13 @@ export function TimelineScheduler() {
         open={cancelledTodayOpen}
         propertyId={PROPERTY_ID}
         onClose={() => setCancelledTodayOpen(false)}
+      />
+
+      {/* Nivel 3 — Rate Quote Sheet (side panel desde la derecha) */}
+      <RateQuoteSheet
+        open={rateQuoteOpen}
+        propertyId={PROPERTY_ID}
+        onClose={() => setRateQuoteOpen(false)}
       />
 
       {/* Drag ghost — position updated via DOM ref (no React re-render per frame).

@@ -182,18 +182,24 @@ export function TimelineGrid({
         />
       )}
 
-      {/* Ghost block — Apple Calendar / Google Calendar empty-cell hover pattern.
-          Suppressed during drag/resize (isDragging guard).
-          Design language: left-border stripe (Mews/Cloudbeds blocks) + emerald tint.
-          Rate is ALWAYS the primary value-add — rendered unconditionally.
-          "Nueva reserva" label shown only when column is wide enough (≥90px).
-          Emerald = availability signal (Mehrabian-Russell 1974). */}
+      {/* Ghost block — empty-cell hover pattern (Apple Calendar/Google Calendar).
+          Sprint Rates 2026-05-16: rediseño basado en research industria.
+          PRIORIDAD VISUAL: rate > label. Cuando narrow, rate gana toda la celda;
+          cuando wide, "+" + rate. "Nueva reserva" solo en celdas muy anchas (≥120px).
+          Resuelve el bug "USD 2…" truncado (rate quedaba sin espacio). */}
       {!isDragging && hoveredCell && getRoomRate && !isCompact && (() => {
         const rateInfo = getRoomRate(hoveredCell.roomId)
         if (!rateInfo) return null
-        const colW   = hoveredCell.colWidth
+        const colW = hoveredCell.colWidth
         const blockW = Math.max(colW - 2, dayWidth / 2)
-        const showLabel = blockW >= 90
+        const showLabel = blockW >= 120
+        const showPlus = blockW >= 60
+        // Format compacto: $1,450 en vez de "USD 1,450" cuando narrow
+        const formattedRate = rateInfo.rate >= 1000
+          ? `$${(rateInfo.rate / 1000).toFixed(rateInfo.rate >= 10000 ? 0 : 1)}k`
+          : `$${rateInfo.rate.toLocaleString()}`
+        const fullRate = `${rateInfo.currency} ${rateInfo.rate.toLocaleString()}`
+        const useCompact = blockW < 70
 
         return (
           <div
@@ -203,64 +209,74 @@ export function TimelineGrid({
               left: hoveredCell.colStart,
               width: blockW,
               height: TIMELINE.ROW_HEIGHT - 6,
-              background: 'rgba(16,185,129,0.08)',
-              borderLeft: '3px solid rgba(16,185,129,0.52)',
+              background: 'rgba(16,185,129,0.10)',
+              borderLeft: '3px solid rgba(16,185,129,0.55)',
               borderRadius: '0 5px 5px 0',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'space-between',
-              paddingLeft: 6,
-              paddingRight: 5,
+              justifyContent: showLabel ? 'space-between' : 'center',
+              paddingLeft: showLabel ? 6 : 4,
+              paddingRight: showLabel ? 5 : 4,
               pointerEvents: 'none',
               zIndex: 5,
               overflow: 'hidden',
-              gap: 3,
+              gap: 4,
             }}
           >
-            {/* Left: + indicator, optionally "Nueva reserva" when space allows */}
-            <span
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 3,
-                fontSize: 11,
-                fontWeight: 700,
-                color: 'rgba(4,120,87,0.82)',
-                letterSpacing: '-0.015em',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                lineHeight: 1,
-                fontFamily: 'inherit',
-                flexShrink: 1,
-                minWidth: 0,
-              }}
-            >
-              <span style={{ fontSize: 13, lineHeight: 1, fontWeight: 600, flexShrink: 0 }}>+</span>
-              {showLabel && (
+            {/* Left section: "+" + opcional label cuando hay espacio */}
+            {showLabel && (
+              <span
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 3,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: 'rgba(4,120,87,0.82)',
+                  letterSpacing: '-0.015em',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  lineHeight: 1,
+                  flexShrink: 1,
+                  minWidth: 0,
+                }}
+              >
+                <span style={{ fontSize: 13, fontWeight: 600, flexShrink: 0 }}>+</span>
                 <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.85, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   Nueva reserva
                 </span>
-              )}
-            </span>
+              </span>
+            )}
 
-            {/* Right: rate — always rendered, primary value-add of the ghost block */}
+            {/* Solo "+" cuando es mediana (sin label) */}
+            {!showLabel && showPlus && (
+              <span style={{
+                fontSize: 13,
+                fontWeight: 700,
+                color: 'rgba(4,120,87,0.6)',
+                lineHeight: 1,
+                flexShrink: 0,
+              }}>+</span>
+            )}
+
+            {/* Rate — sin badge bg cuando narrow, con badge cuando wide */}
             <span
               style={{
-                fontSize: 10,
+                fontSize: useCompact ? 10 : 11,
                 fontWeight: 700,
-                color: 'rgba(4,120,87,0.72)',
+                color: 'rgba(4,120,87,0.92)',
                 fontVariantNumeric: 'tabular-nums',
-                fontFamily: 'inherit',
                 whiteSpace: 'nowrap',
-                letterSpacing: '-0.01em',
+                letterSpacing: '-0.02em',
                 lineHeight: 1,
-                background: 'rgba(16,185,129,0.14)',
+                background: showLabel ? 'rgba(16,185,129,0.14)' : 'transparent',
                 borderRadius: 4,
-                padding: '2px 4px',
+                padding: showLabel ? '2px 4px' : '0',
                 flexShrink: 0,
               }}
+              title={fullRate}
             >
-              {rateInfo.currency} {rateInfo.rate.toLocaleString()}
+              {useCompact ? formattedRate : fullRate}
             </span>
           </div>
         )
