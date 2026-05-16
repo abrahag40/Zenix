@@ -323,8 +323,44 @@ export class NotificationCenterService {
       data: { notificationId, action, actionById: staffId, reason: reason ?? null },
     })
 
+    // Auto-mark as read para TODOS los recipients elegibles — la decisión
+    // "consume" la notif (ya no es accionable). Limpia el counter del bell
+    // y oculta de "Sin leer". Sigue visible en "Todas" con el badge de
+    // decisión (Aprobado/Rechazado).
+    // Feedback usuario: "siguen mostrandose las aprobaciones que ya tuvieron
+    // una acción de decisión... es ruido visual, se tienen que limpiar".
+    const eligibleStaffIds: string[] = []
+    if (notification.recipientType === 'USER' && notification.recipientId) {
+      eligibleStaffIds.push(notification.recipientId)
+    } else if (notification.recipientType === 'ROLE' && notification.recipientRole && notification.propertyId) {
+      const recipients = await this.prisma.staff.findMany({
+        where: {
+          organizationId: orgId,
+          propertyId: notification.propertyId,
+          role: notification.recipientRole,
+          active: true,
+        },
+        select: { id: true },
+      })
+      eligibleStaffIds.push(...recipients.map((s) => s.id))
+    } else if (notification.recipientType === 'PROPERTY_ALL' && notification.propertyId) {
+      const recipients = await this.prisma.staff.findMany({
+        where: { organizationId: orgId, propertyId: notification.propertyId, active: true },
+        select: { id: true },
+      })
+      eligibleStaffIds.push(...recipients.map((s) => s.id))
+    }
+
+    if (eligibleStaffIds.length > 0) {
+      await this.prisma.appNotificationRead.createMany({
+        data: eligibleStaffIds.map((sid) => ({ notificationId, readById: sid })),
+        skipDuplicates: true,
+      })
+    }
+
     this.logger.log(
-      `[NotifCenter] approval notif=${notificationId} action=${action} by=${staffId}`,
+      `[NotifCenter] approval notif=${notificationId} action=${action} by=${staffId} ` +
+      `auto-read=${eligibleStaffIds.length}`,
     )
 
     return approval
@@ -383,6 +419,10 @@ export class NotificationCenterService {
             ],
           },
         ],
+        // Excluir notifs APPROVAL_REQUIRED con decisión ya tomada — limpia
+        // counter de notifs viejas que no se beneficiaron del auto-mark-as-read
+        // introducido en este sprint. Backward-compat para data existente.
+        approvals: { none: {} },
         reads: { none: { readById: staffId } },
       },
     })

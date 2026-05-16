@@ -465,19 +465,30 @@ export function TimelineScheduler() {
     [stays],
   )
 
-  // NS collision detection — computed from COMPLETE unfiltered data so the result
+  // NS collision detection — computed from COMPLETE unfiltered data so el result
   // is independent of the hideNoShows toggle. nsStripeIds marks which NS blocks
   // to render as thin stripes; nsCollisionRanges tells active blocks to shift down.
+  //
+  // Comparación DAY-LEVEL en UTC: Laura checkout 15T12:00Z y pAAA checkin 15T05:00Z
+  // serían overlap por timestamp pero NO operativamente (same-day turnover legítimo).
+  // Mismo bug pattern arreglado en AvailabilityService (commit 7d13724).
   const { nsStripeIds, nsCollisionRanges } = useMemo(() => {
+    const utcDay = (d: Date) =>
+      Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
     const allBlocks = [...staysWithoutJourneys, ...journeyBlocks]
     const noShows   = allBlocks.filter((b) => !!b.noShowAt)
     const activos   = allBlocks.filter((b) => !b.noShowAt)
     const stripeIds = new Set<string>()
     const ranges: Array<{ roomId: string; checkIn: Date; checkOut: Date }> = []
     for (const ns of noShows) {
-      const collides = activos.some(
-        (a) => ns.roomId === a.roomId && ns.checkIn < a.checkOut && ns.checkOut > a.checkIn,
-      )
+      const nsInDay  = utcDay(ns.checkIn)
+      const nsOutDay = utcDay(ns.checkOut)
+      const collides = activos.some((a) => {
+        if (ns.roomId !== a.roomId) return false
+        const aInDay  = utcDay(a.checkIn)
+        const aOutDay = utcDay(a.checkOut)
+        return nsInDay < aOutDay && nsOutDay > aInDay
+      })
       if (collides) {
         stripeIds.add(ns.id)
         ranges.push({ roomId: ns.roomId, checkIn: ns.checkIn, checkOut: ns.checkOut })
