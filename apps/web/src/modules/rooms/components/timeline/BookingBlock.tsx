@@ -838,5 +838,10 @@ export const BookingBlock = memo(BookingBlockInner, (prev, next) =>
   prev.potentialNoShowWarningHour === next.potentialNoShowWarningHour &&
   prev.noShowCutoffHour === next.noShowCutoffHour &&
   prev.isNsStripe === next.isNsStripe &&
-  prev.hasNsAbove === next.hasNsAbove,
+  prev.hasNsAbove === next.hasNsAbove &&
+  // anyDragInProgress: flag global del drag — sin esto, memo skipea
+  // el re-render al iniciar drag y useTooltip(enabled) queda obsoleto,
+  // dejando que los tooltips de otros bloques se disparen al hover.
+  // Bug regresión observado tras suma de la prop.
+  prev.anyDragInProgress === next.anyDragInProgress,
 )

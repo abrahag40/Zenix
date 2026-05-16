@@ -64,15 +64,16 @@ interface BookingDetailSheetProps {
 }
 
 /**
- * ID copiable inline — texto plano (sin chip), color heredado del contexto.
+ * ID copiable inline — texto plano (sin chip), tipografía SF Mono nativa.
  * Apple HIG: secondary metadata sutil, copyable con un click.
  * Posicionado bajo el botón "Ver completa" en el header del sheet.
+ * Solo se renderiza cuando hay bookingRef formal (MX-D-001-YYMM-NNNN);
+ * legacy/seed sin ref NO se muestra.
  */
 function InlineCopyId({
   value,
-  display,
   statusText,
-}: { value: string; display: string; statusText: string }) {
+}: { value: string; statusText: string }) {
   const [copied, setCopied] = useState(false)
   return (
     <button
@@ -86,15 +87,25 @@ function InlineCopyId({
           // no-op si el navegador bloquea clipboard
         }
       }}
-      className="group inline-flex items-center gap-1 text-[11px] font-mono font-medium px-1.5 py-0.5 rounded hover:bg-white/60 transition-colors"
-      style={{ color: `${statusText}aa` }}
+      className="group inline-flex items-center gap-1.5 px-2 py-1 -mr-1 rounded-md hover:bg-white/50 transition-colors"
+      style={{ color: statusText }}
       title={copied ? 'Copiado' : `Copiar ${value}`}
     >
-      <span className="select-all">{display}</span>
+      <span
+        className="select-all font-mono tabular-nums tracking-tight"
+        style={{
+          fontSize: '12px',
+          fontWeight: 600,
+          letterSpacing: '-0.01em',
+          fontFeatureSettings: '"ss01", "tnum"',
+        }}
+      >
+        {value}
+      </span>
       {copied ? (
-        <Check className="h-3 w-3 text-emerald-600" />
+        <Check className="h-3.5 w-3.5 text-emerald-600" />
       ) : (
-        <Copy className="h-3 w-3 opacity-50 group-hover:opacity-100 transition-opacity" />
+        <Copy className="h-3.5 w-3.5 opacity-40 group-hover:opacity-90 transition-opacity" />
       )}
     </button>
   )
@@ -346,17 +357,13 @@ export function BookingDetailSheet({
                 </button>
               </div>
 
-              {/* ID copiable — texto plano (no chip) alineado a la derecha
-                  bajo "Ver completa". bookingRef preferido (MX-D-001-YYMM-NNNN). */}
-              {(() => {
-                const idValue = stay.bookingRef ?? stay.guestStayId ?? stay.id
-                const displayValue = stay.bookingRef
-                  ? stay.bookingRef
-                  : idValue.length > 12 ? `${idValue.slice(0, 8)}…${idValue.slice(-4)}` : idValue
-                return (
-                  <InlineCopyId value={idValue} display={displayValue} statusText={statusColors.text} />
-                )
-              })()}
+              {/* ID copiable — solo se muestra cuando hay bookingRef formal
+                  (MX-D-001-YYMM-NNNN del generator). Para stays legacy/seed
+                  sin bookingRef NO se renderiza — mostrar UUID interno como
+                  "ID" confunde al usuario (nomenclatura no acordada). */}
+              {stay.bookingRef && (
+                <InlineCopyId value={stay.bookingRef} statusText={statusColors.text} />
+              )}
             </div>
           </div>
         </div>
