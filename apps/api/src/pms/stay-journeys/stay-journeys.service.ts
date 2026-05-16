@@ -74,6 +74,10 @@ export class StayJourneyService {
         journeyCheckOut: { gt: from },
       },
       include: {
+        // bookingRef vive en GuestStay (parent) — sin esto el sheet header
+        // muestra UUID short como fallback porque journey segments NO la
+        // tienen. Sprint CANCEL-ARCHIVE 2026-05-16 fix.
+        guestStay: { select: { bookingRef: true } },
         segments: {
           where: { status: { not: 'CANCELLED' } },
           include: {

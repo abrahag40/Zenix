@@ -372,6 +372,16 @@ export class NotificationCenterService {
               { expiresAt: { gt: now } },
             ],
           },
+          // Self-suppress sistémico — mismo filtro que listForUser para
+          // evitar mismatch entre el counter del bell y el contenido del panel.
+          // Sin esto: bell muestra "1" pero panel dice "Sin notificaciones".
+          {
+            OR: [
+              { triggeredById: null },
+              { triggeredById: { not: staffId } },
+              { recipientType: 'USER' as NotificationRecipient, recipientId: staffId },
+            ],
+          },
         ],
         reads: { none: { readById: staffId } },
       },

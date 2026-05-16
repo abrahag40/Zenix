@@ -63,6 +63,43 @@ interface BookingDetailSheetProps {
   propertyId?: string
 }
 
+/**
+ * ID copiable inline — texto plano (sin chip), color heredado del contexto.
+ * Apple HIG: secondary metadata sutil, copyable con un click.
+ * Posicionado bajo el botón "Ver completa" en el header del sheet.
+ */
+function InlineCopyId({
+  value,
+  display,
+  statusText,
+}: { value: string; display: string; statusText: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(value)
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1200)
+        } catch {
+          // no-op si el navegador bloquea clipboard
+        }
+      }}
+      className="group inline-flex items-center gap-1 text-[11px] font-mono font-medium px-1.5 py-0.5 rounded hover:bg-white/60 transition-colors"
+      style={{ color: `${statusText}aa` }}
+      title={copied ? 'Copiado' : `Copiar ${value}`}
+    >
+      <span className="select-all">{display}</span>
+      {copied ? (
+        <Check className="h-3 w-3 text-emerald-600" />
+      ) : (
+        <Copy className="h-3 w-3 opacity-50 group-hover:opacity-100 transition-opacity" />
+      )}
+    </button>
+  )
+}
+
 function CopyableId({ value, short = false }: { value: string; short?: boolean }) {
   const [copied, setCopied] = useState(false)
   const display = short && value.length > 12 ? `${value.slice(0, 8)}…${value.slice(-4)}` : value
@@ -226,15 +263,6 @@ export function BookingDetailSheet({
                 {stay.guestName}
               </SheetTitle>
 
-              {/* ID prominente — bookingRef (MX-D-001-YYMM-NNNN) preferido, UUID short fallback.
-                  Apple HIG: secondary metadata cerca del título. Color contraste neutro slate. */}
-              <div className="mt-1 -mb-0.5">
-                <CopyableId
-                  value={stay.bookingRef ?? stay.guestStayId ?? stay.id}
-                  short={!stay.bookingRef}
-                />
-              </div>
-
               <div className="flex items-center flex-wrap gap-1.5 mt-1.5">
                 {/* Chip 1 — estado de la reserva (fase operativa) */}
                 {isNoShow ? (
@@ -290,28 +318,45 @@ export function BookingDetailSheet({
               </div>
             </div>
 
-            {/* Header controls: full-page link + close */}
-            <div className="flex items-center gap-1 flex-shrink-0">
-              <button
-                onClick={() => {
-                  onClose()
-                  navigate(`/reservations/${stay.guestStayId ?? stay.id}`)
-                }}
-                className="flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md transition-colors"
-                style={{ color: `${statusColors.text}99` }}
-                title="Ver reserva completa"
-              >
-                <ExternalLink className="h-3 w-3" />
-                <span className="hidden sm:inline">Ver completa</span>
-              </button>
-              <button
-                onClick={onClose}
-                className="w-6 h-6 flex items-center justify-center rounded-md transition-colors"
-                style={{ color: `${statusColors.text}99` }}
-                aria-label="Cerrar"
-              >
-                <X className="h-4 w-4" />
-              </button>
+            {/* Header controls: full-page link + close.
+                ID debajo del link "Ver completa" como texto plano copiable
+                (sin chip). bookingRef preferido (MX-D-001-YYMM-NNNN),
+                UUID short fallback solo para legacy/seed sin ref. */}
+            <div className="flex flex-col items-end gap-1 flex-shrink-0">
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => {
+                    onClose()
+                    navigate(`/reservations/${stay.guestStayId ?? stay.id}`)
+                  }}
+                  className="flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md transition-colors"
+                  style={{ color: `${statusColors.text}99` }}
+                  title="Ver reserva completa"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  <span className="hidden sm:inline">Ver completa</span>
+                </button>
+                <button
+                  onClick={onClose}
+                  className="w-6 h-6 flex items-center justify-center rounded-md transition-colors"
+                  style={{ color: `${statusColors.text}99` }}
+                  aria-label="Cerrar"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              {/* ID copiable — texto plano (no chip) alineado a la derecha
+                  bajo "Ver completa". bookingRef preferido (MX-D-001-YYMM-NNNN). */}
+              {(() => {
+                const idValue = stay.bookingRef ?? stay.guestStayId ?? stay.id
+                const displayValue = stay.bookingRef
+                  ? stay.bookingRef
+                  : idValue.length > 12 ? `${idValue.slice(0, 8)}…${idValue.slice(-4)}` : idValue
+                return (
+                  <InlineCopyId value={idValue} display={displayValue} statusText={statusColors.text} />
+                )
+              })()}
             </div>
           </div>
         </div>
