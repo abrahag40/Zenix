@@ -985,6 +985,49 @@ Filtrable por rango de fechas: cada no-show con nombre, habitación, monto del c
 
 Cada reserva tiene un historial cronológico de todos sus eventos: creación, modificaciones, traslados de habitación, check-in, check-out, no-show, reversiónm intentos de contacto. Cuando un huésped abre una disputa, el recepcionista tiene toda la evidencia en 10 segundos.
 
+### Cancelación con audit-trail fiscal-grade (v1.0.0 PR #32)
+
+Cancelar una reserva en Zenix nunca pierde data: la fila permanece en la base, con `cancelledAt`, quién canceló, motivo, initiator (huésped / hotel / OTA / error administrativo), notas adicionales. Esta evidencia es **defensa contra chargeback Visa Reason Code 13.7** (ventana 120 días) — el recepcionista exporta el archivo de cancelaciones del día con un click.
+
+**Diferenciadores frente a la competencia (research citado 2026-05-16):**
+
+| PMS | Cancel UX | Audit trail | Restore |
+|---|---|---|---|
+| **Cloudbeds** | Cancel + Delete (¡Delete es irreversible!) ([source](https://myfrontdesk.cloudbeds.com/hc/en-us/articles/360003077054)) | Sí, pero motivo NO se exporta a reportes | No |
+| **Mews** | Cancel con motivo opcional; "Undo cancellation" tardó 2 años + 817 votos del foro ([source](https://feedback.mews.com/forums/918232-property-operations-pms/suggestions/36660172-undo-booking-cancellation)) | Posting Journal export sin reason | Sí, ventana editable (post-2023) |
+| **Opera Cloud** | Reason mandatory desde enum; Business Events `ROLLBACK_CANCEL` | Sí, vía Business Events | Sí, matrix por estado |
+| **RoomRaccoon** | Cancel sin reason; bug oficial: cancelaciones Booking.com no se borran del calendario ([source](https://help.roomraccoon.com/en/article/why-are-some-cancelled-reservations-from-bookingcom-not-automatically-removed-from-my-roomraccoon-calendar-1wg4udr/)) | No | No |
+| **Little Hotelier** | Política channel-first; sin restore documentado | No | No |
+| **Zenix v1.0.0** | 1 botón Cancel + dropdown initiator obligatorio (huésped/hotel/OTA/admin-error) + motivo opcional + 2-step confirm para admin-error | `GuestStayLog` append-only con motivo exportable + chip color en archive | Sí, 7d window para HOTEL/ADMIN_ERROR — bloquea GUEST/OTA (cumple lógica fiscal) |
+
+**Archive UX inspirada en Cloudbeds + mejorada**: sub-tab "Canceladas" en `/reservations` + slide drawer "Canceladas hoy" con counter en footer del calendario.
+
+### Consulta rápida de tarifas (3-LEVEL Rates pattern, PR #32)
+
+Solución al gap competitivo más votado en Mews (8 votos, 2 quejas verbatim 2024):
+
+> *"It would be much more efficient to display the base room rates (for BAR) in the timeline, per room per day… would make inquiries phone sales much easier"* — Wesley McCloskey, [Mews feedback](https://feedback.mews.com/forums/918232-property-operations-pms/suggestions/49021937-dispay-daily-rate-on-the-calendar) (sigue abierto)
+
+**Patrón 3-LEVEL de Zenix:**
+
+| Nivel | Qué muestra | Cuándo aparece |
+|---|---|---|
+| **1 · Ambient** | BAR por grupo de habitación en cada fila de categoría ("Cabaña $130, Suite $280") | Siempre visible en el calendar |
+| **2 · Hover ghost** | Rate del room-type al pasar el cursor sobre celda vacía + "+ Nueva reserva" | On hover |
+| **3 · Rate Quote Sheet** | Side panel con grid completo `RoomType × Dates` + totales · selector de rango + presets "Hoy" / "7d" | Click botón "Tarifas" en calendar |
+
+**Comparación con el mercado**: Opera Cloud requiere 5 menú-clicks para llegar al rate lookup. WebRezPro solo muestra rack rate. RoomRaccoon ofrece hover-with-AI pero solo en tier de pago. Zenix entrega los 3 niveles en core gratis. Resuelve el caso "phone-call quick quote" del Mews feedback con 1 click.
+
+### Tipo de cambio: oficial Banxico vs interno del hotel (FX-CORE, PR #32)
+
+Único PMS del mercado con dual-view de tasas de cambio:
+
+- **Banxico oficial** (SF43718 FIX) fetcheado diariamente vía cron 13:00 CST. Es el rate que el SAT acepta para CFDI 4.0 Art. 20 CFF. Token gratuito Banxico SIE — 40k consultas/día.
+- **Hotel interno** (override comercial) editable por el supervisor: rate absoluto o spread relativo sobre el oficial. Aplica solo para quotes al huésped y cobros front-desk — nunca para CFDI.
+- **Dashboard widget** muestra ambos lado a lado con delta percent. Settings tab "Tipo de cambio" permite supervisor editar override con historial validFrom/validTo.
+
+**Por qué importa al hotelero**: el hotel cobra un USD/MXN distinto al oficial (spread comercial es revenue). Zenix lo persiste transparente y separa de la obligación fiscal — el contador no tiene que explicar por qué la factura usa una tasa y el folio otra.
+
 ---
 
 ## Módulo 5 — Configuración Multi-Propiedad + Multi-País
