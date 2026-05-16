@@ -79,14 +79,14 @@ export function CancelledTodayDrawer({ open, propertyId, onClose }: CancelledTod
     <div className="fixed inset-0 z-40 flex items-end" onClick={onBackdropClick}>
       <div className="absolute inset-0 bg-black/20 backdrop-blur-[2px] pointer-events-none" />
 
-      <div className="relative z-10 w-full bg-white rounded-t-2xl shadow-2xl max-h-[75vh] flex flex-col">
+      <div className="relative z-10 w-full bg-white rounded-t-2xl shadow-2xl max-h-[75vh] flex flex-col pb-2">
         {/* Handle */}
-        <div className="flex justify-center pt-2 pb-1 flex-shrink-0">
-          <div className="w-12 h-1 bg-slate-200 rounded-full" />
+        <div className="flex justify-center pt-2.5 pb-1.5 flex-shrink-0">
+          <div className="w-10 h-1 bg-slate-200 rounded-full" />
         </div>
 
         {/* Sticky header — Apple HIG navigation bar pattern */}
-        <div className="px-4 pb-2 border-b border-slate-100 flex-shrink-0 space-y-2">
+        <div className="px-5 pb-3 border-b border-slate-100 flex-shrink-0 space-y-2.5">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-sm font-semibold text-slate-900 leading-tight">Canceladas hoy</h2>
@@ -150,8 +150,9 @@ export function CancelledTodayDrawer({ open, propertyId, onClose }: CancelledTod
           )}
         </div>
 
-        {/* List — Apple Mail / Reminders density (2 lines per row, full width) */}
-        <div className="flex-1 overflow-y-auto">
+        {/* List — Apple Mail / Reminders density (2 lines per row, full width).
+            Padding bottom 12px asegura espacio respiratorio del último row al borde. */}
+        <div className="flex-1 overflow-y-auto py-1.5">
           {isLoading && <div className="text-xs text-slate-400 text-center py-8">Cargando…</div>}
 
           {!isLoading && rawRows.length === 0 && (
@@ -175,30 +176,42 @@ export function CancelledTodayDrawer({ open, propertyId, onClose }: CancelledTod
               const elapsedDays = (Date.now() - cancelledAt.getTime()) / 86_400_000
               const canRestore = (initiator === 'HOTEL' || initiator === 'ADMIN_ERROR') && elapsedDays <= RESTORE_WINDOW_DAYS
 
+              // Notas: el reasonCode (dropdown) viaja en la línea 2 inline.
+              // Las notas libres (reason) — si difieren del code — van en línea 3
+              // opcional, con truncate. Char limit del input = 140 chars (Twitter
+              // pattern, suficiente para "guest llamó al cel +52..., recolocado
+              // a hotel hermano") — enforced en el dialog de cancel.
+              const inlineReason = row.cancelReasonCode || ''
+              const freeNote = (row.cancelReason && row.cancelReason !== row.cancelReasonCode)
+                ? row.cancelReason
+                : ''
+
               return (
-                <li key={row.id} className="px-4 py-2 hover:bg-slate-50 flex items-center gap-3">
-                  {/* Dot color de initiator — denso, sin chip que ocupe espacio */}
+                <li key={row.id} className="px-5 py-2.5 hover:bg-slate-50 flex items-center gap-3">
                   <span className={`w-2 h-2 rounded-full flex-shrink-0 ${meta.dotClass}`} title={meta.label} />
 
                   <div className="flex-1 min-w-0">
-                    {/* Línea 1: nombre + meta secundaria a la derecha */}
                     <div className="flex items-baseline gap-2">
                       <span className="text-sm font-medium text-slate-800 truncate flex-1">{row.guestName}</span>
                       <span className="text-[11px] text-slate-400 tabular-nums flex-shrink-0">
                         {format(cancelledAt, 'HH:mm')}
                       </span>
                     </div>
-                    {/* Línea 2: meta con interpuntos — Apple style */}
                     <div className="text-[11px] text-slate-500 tabular-nums truncate">
                       Hab {row.room.number}
                       {' · '}
                       {format(new Date(row.checkinAt), 'd MMM', { locale: es })}–{format(new Date(row.scheduledCheckout), 'd MMM', { locale: es })}
                       {' · '}
                       {row.currency} {Number(row.totalAmount).toLocaleString()}
-                      {(row.cancelReasonCode || row.cancelReason) && (
-                        <> {' · '} <span className="italic text-slate-400">{row.cancelReasonCode ?? row.cancelReason}</span></>
+                      {inlineReason && (
+                        <> {' · '} <span className="italic text-slate-400">{inlineReason}</span></>
                       )}
                     </div>
+                    {freeNote && (
+                      <div className="text-[11px] text-slate-400 italic truncate mt-0.5" title={freeNote}>
+                        “{freeNote}”
+                      </div>
+                    )}
                   </div>
 
                   {canRestore && (

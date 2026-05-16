@@ -49,6 +49,10 @@ function adaptStay(raw: Record<string, unknown>): GuestStayBlock {
     noShowFeeCurrency:    raw.noShowFeeCurrency as string | undefined,
     noShowChargeStatus:   raw.noShowChargeStatus as GuestStayBlock['noShowChargeStatus'],
     stripePaymentMethodId: raw.stripePaymentMethodId as string | undefined,
+    cancelledAt:          raw.cancelledAt ? new Date(raw.cancelledAt as string) : undefined,
+    cancelInitiator:      raw.cancelInitiator as GuestStayBlock['cancelInitiator'],
+    cancelReason:         raw.cancelReason as string | undefined,
+    cancelReasonCode:     raw.cancelReasonCode as string | undefined,
   }
 }
 

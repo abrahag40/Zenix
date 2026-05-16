@@ -457,8 +457,11 @@ export function TimelineScheduler() {
   // GuestStay blocks whose journey is tracked via StayJourney segments are
   // replaced visually by the ORIGINAL + extension/move segments. Hide them
   // from the rendered layer so the original room row is not double-occupied.
+  // Excluye stays cancelled (Sprint CANCEL-ARCHIVE): paridad industria
+  // (Cloudbeds, Mews, Opera, RoomRaccoon, Little Hotelier liberan el slot
+  // visual del calendar; aparecen solo en el drawer/archive).
   const staysWithoutJourneys = useMemo(
-    () => stays.filter((s) => !s.journeyId),
+    () => stays.filter((s) => !s.journeyId && !s.cancelledAt),
     [stays],
   )
 

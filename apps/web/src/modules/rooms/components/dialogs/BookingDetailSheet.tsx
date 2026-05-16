@@ -226,6 +226,15 @@ export function BookingDetailSheet({
                 {stay.guestName}
               </SheetTitle>
 
+              {/* ID prominente — bookingRef (MX-D-001-YYMM-NNNN) preferido, UUID short fallback.
+                  Apple HIG: secondary metadata cerca del título. Color contraste neutro slate. */}
+              <div className="mt-1 -mb-0.5">
+                <CopyableId
+                  value={stay.bookingRef ?? stay.guestStayId ?? stay.id}
+                  short={!stay.bookingRef}
+                />
+              </div>
+
               <div className="flex items-center flex-wrap gap-1.5 mt-1.5">
                 {/* Chip 1 — estado de la reserva (fase operativa) */}
                 {isNoShow ? (
@@ -591,48 +600,35 @@ export function BookingDetailSheet({
                   </div>
                 </div>
 
-                {/* IDs */}
-                <div className="space-y-1.5">
-                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                    Identificadores
-                  </div>
-
-                  <div className="bg-slate-50 rounded-lg overflow-hidden divide-y divide-slate-100">
-                    {stay.bookingRef && (
-                      <div className="flex items-center justify-between px-3 py-2.5">
-                        <span className="text-xs text-slate-400 font-mono uppercase tracking-wide">
-                          Referencia
-                        </span>
-                        <CopyableId value={stay.bookingRef} />
-                      </div>
-                    )}
-
-                    <div className="flex items-center justify-between px-3 py-2.5">
-                      <span className="text-xs text-slate-400 font-mono uppercase tracking-wide">
-                        ID interno
-                      </span>
-                      <CopyableId value={stay.guestStayId ?? stay.id} short />
+                {/* IDs adicionales — bookingRef + ID interno ya viven en el header.
+                    Aquí mostramos solo IDs externos (OTA, PMS legacy distinto) cuando aplican. */}
+                {(stay.otaReservationId || (stay.pmsReservationId && stay.pmsReservationId !== stay.bookingRef)) && (
+                  <div className="space-y-1.5">
+                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      IDs externos
                     </div>
 
-                    {stay.pmsReservationId && stay.pmsReservationId !== stay.bookingRef && (
-                      <div className="flex items-center justify-between px-3 py-2.5">
-                        <span className="text-xs text-slate-400 font-mono uppercase tracking-wide">
-                          PMS ID
-                        </span>
-                        <CopyableId value={stay.pmsReservationId} />
-                      </div>
-                    )}
+                    <div className="bg-slate-50 rounded-lg overflow-hidden divide-y divide-slate-100">
+                      {stay.pmsReservationId && stay.pmsReservationId !== stay.bookingRef && (
+                        <div className="flex items-center justify-between px-3 py-2.5">
+                          <span className="text-xs text-slate-400 font-mono uppercase tracking-wide">
+                            PMS ID
+                          </span>
+                          <CopyableId value={stay.pmsReservationId} />
+                        </div>
+                      )}
 
-                    {stay.otaReservationId && (
-                      <div className="flex items-center justify-between px-3 py-2.5">
-                        <span className="text-xs text-slate-400 font-mono uppercase tracking-wide">
-                          {stay.otaName} ID
-                        </span>
-                        <CopyableId value={stay.otaReservationId} />
-                      </div>
-                    )}
+                      {stay.otaReservationId && (
+                        <div className="flex items-center justify-between px-3 py-2.5">
+                          <span className="text-xs text-slate-400 font-mono uppercase tracking-wide">
+                            {stay.otaName} ID
+                          </span>
+                          <CopyableId value={stay.otaReservationId} />
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* Notes */}
                 {stay.notes && (

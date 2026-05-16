@@ -174,13 +174,19 @@ export function CancelReservationDialog({
                         <option value="OTHER">Otro (especificar abajo)</option>
                       </select>
 
-                      <textarea
-                        value={reason}
-                        onChange={(e) => setReason(e.target.value)}
-                        placeholder="Notas adicionales, referencias…"
-                        rows={2}
-                        className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-md bg-white focus:border-slate-400 focus:ring-0 resize-none"
-                      />
+                      <div className="relative">
+                        <textarea
+                          value={reason}
+                          onChange={(e) => setReason(e.target.value.slice(0, 140))}
+                          placeholder="Notas adicionales, referencias…"
+                          rows={2}
+                          maxLength={140}
+                          className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-md bg-white focus:border-slate-400 focus:ring-0 resize-none"
+                        />
+                        <span className={`absolute bottom-1 right-2 text-[10px] tabular-nums ${reason.length >= 130 ? 'text-amber-600' : 'text-slate-400'}`}>
+                          {reason.length}/140
+                        </span>
+                      </div>
                     </div>
                   )}
                 </>
