@@ -62,33 +62,22 @@ function hasNsAboveCheck(stay: GuestStayBlock, ranges: NsCollisionRange[]): bool
   )
 }
 
-// Compare two dates by calendar day only (ignores time-of-day).
-// Used to match predecessor.checkOut with segment.checkIn — the API may store
-// them at different times (e.g. noon vs midnight) on the same logical day.
-function sameDay(a: Date, b: Date): boolean {
-  return (
-    a.getUTCFullYear() === b.getUTCFullYear() &&
-    a.getUTCMonth()    === b.getUTCMonth() &&
-    a.getUTCDate()     === b.getUTCDate()
-  )
-}
-
 // Find the predecessor stay for a journey segment.
-// A predecessor is a stay whose checkOut falls on the same calendar day as the
-// segment's checkIn. Prefer same room (extension), fall back to same guest name
-// (room move). Excludes the segment itself.
+// IMPORTANTE: relación basada en `journeyId` (fuente de verdad), nunca en
+// proximidad de fechas o nombre de huésped. Dos bloques pegados en el
+// calendario NO son una extensión a menos que compartan journeyId. Predecessor
+// = el segmento del MISMO journey cuyo checkOut es el más cercano (anterior)
+// al checkIn del segmento actual.
 function findPredecessor(
   seg: GuestStayBlock,
   allStays: GuestStayBlock[],
 ): GuestStayBlock | undefined {
-  return (
-    allStays.find(
-      (s) => s.id !== seg.id && sameDay(s.checkOut, seg.checkIn) && s.roomId === seg.roomId,
-    ) ??
-    allStays.find(
-      (s) => s.id !== seg.id && sameDay(s.checkOut, seg.checkIn) && s.guestName === seg.guestName,
-    )
-  )
+  if (!seg.journeyId) return undefined
+  const siblings = allStays
+    .filter((s) => s.id !== seg.id && s.journeyId === seg.journeyId)
+    .filter((s) => s.checkOut.getTime() <= seg.checkIn.getTime())
+    .sort((a, b) => b.checkOut.getTime() - a.checkOut.getTime())
+  return siblings[0]
 }
 
 // Given all journey segments (from journeyStays, have journeyId) and the pool

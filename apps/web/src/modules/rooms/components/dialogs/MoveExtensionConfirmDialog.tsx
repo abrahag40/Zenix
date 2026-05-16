@@ -9,6 +9,14 @@ interface MoveExtensionConfirmDialogProps {
   checkIn: Date
   checkOut: Date
   isPending: boolean
+  /**
+   * Indica si el segmento que se mueve forma parte de un journey multi-segmento
+   * (la reserva tiene extensión o room move encadenado). En ese caso, el copy
+   * usa "extensión". Si es false (journey de 1 solo segmento = reserva simple),
+   * el copy es "reserva". Evita confundir al usuario diciendo que está moviendo
+   * una "extensión" cuando solo hay una reserva.
+   */
+  isExtension: boolean
   onClose: () => void
   onConfirm: () => void
 }
@@ -19,6 +27,7 @@ export function MoveExtensionConfirmDialog({
   checkIn,
   checkOut,
   isPending,
+  isExtension,
   onClose,
   onConfirm,
 }: MoveExtensionConfirmDialogProps) {
@@ -43,18 +52,20 @@ export function MoveExtensionConfirmDialog({
             </span>
             <div>
               <h2 className="text-base font-semibold text-gray-900 leading-snug">
-                Mover extensión a Hab.&nbsp;{newRoomNumber}
+                {isExtension ? 'Mover extensión' : 'Mover reserva'} a Hab.&nbsp;{newRoomNumber}
               </h2>
-              <p className="text-xs text-gray-500 mt-0.5">
-                La reserva original no se modifica
-              </p>
+              {isExtension && (
+                <p className="text-xs text-gray-500 mt-0.5">
+                  La reserva original no se modifica
+                </p>
+              )}
             </div>
           </div>
 
           {/* Extension period summary */}
           <div className="rounded-xl bg-gray-50 border border-gray-100 px-4 py-3 space-y-2">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-gray-500">Período de extensión</span>
+              <span className="text-gray-500">{isExtension ? 'Período de extensión' : 'Período'}</span>
               <span className="flex items-center gap-1.5 font-medium text-gray-800 tabular-nums">
                 {format(checkIn, 'd MMM', { locale: es })}
                 <ArrowRight size={12} className="text-gray-400" />
@@ -62,7 +73,7 @@ export function MoveExtensionConfirmDialog({
               </span>
             </div>
             <div className="flex items-center justify-between text-sm">
-              <span className="text-gray-500">Noches de extensión</span>
+              <span className="text-gray-500">{isExtension ? 'Noches de extensión' : 'Noches'}</span>
               <span className="flex items-center gap-1 font-semibold text-emerald-700">
                 <Moon size={13} />
                 {nights}
