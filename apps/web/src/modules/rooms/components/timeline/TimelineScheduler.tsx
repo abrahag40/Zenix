@@ -491,15 +491,30 @@ export function TimelineScheduler() {
   // Pre-built occupancy Set for O(1) per-cell lookup in TimelineGrid.
   // Without this, isOccupied scans all blocks on every cell × every render,
   // costing O(rooms × days × blocks) when dragTargetRoomId changes.
+  //
+  // Iteramos por DÍA UTC (no por incremento de 86_400_000 ms desde el timestamp
+  // exacto). Sin esto, Abraham Aaa con checkOut 2026-05-17T17:00Z producía un
+  // step en 2026-05-17T05:00Z que es < checkOut → marcaba el día 17 como
+  // ocupado y la celda PM del 17 quedaba blocked → sin ghost ni click para
+  // crear reserva same-day turnover. Bug paralelo al fix de availability:
+  // ambos paths necesitan day-level UTC comparison, no timestamp arithmetic.
   const occupancySet = useMemo(() => {
     const set = new Set<string>()
+    const MS_DAY = 86400000
     for (const block of allBlocksForDragCheck) {
       if (block.actualCheckout) continue // departed — not an active occupancy
       if (block.noShowAt) continue       // no-show releases inventory (CLAUDE.md §17)
-      const checkIn = block.checkIn.getTime()
-      const checkOut = block.checkOut.getTime()
-      const MS_DAY = 86400000
-      for (let t = checkIn; t < checkOut; t += MS_DAY) {
+      const startDayMs = Date.UTC(
+        block.checkIn.getUTCFullYear(),
+        block.checkIn.getUTCMonth(),
+        block.checkIn.getUTCDate(),
+      )
+      const endDayMs = Date.UTC(
+        block.checkOut.getUTCFullYear(),
+        block.checkOut.getUTCMonth(),
+        block.checkOut.getUTCDate(),
+      )
+      for (let t = startDayMs; t < endDayMs; t += MS_DAY) {
         const d = new Date(t)
         set.add(`${block.roomId}:${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`)
       }

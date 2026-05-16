@@ -1,6 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common'
-import { addDays, startOfDay } from 'date-fns'
 import { PrismaService } from '../../prisma/prisma.service'
+
+// UTC day boundary helper — independiente de la TZ del runtime del server.
+// date-fns startOfDay() usa TZ local y rompe day-level overlap cuando el
+// proceso corre fuera de UTC (ver comentario inline en `check`).
+function utcStartOfDay(d: Date): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+}
 import {
   ChannexGateway,
   ChannexInventoryUpdate,
@@ -86,16 +92,22 @@ export class AvailabilityService {
     // Opera) + Channex/Booking/Expedia envían fechas-DAY (no horas):
     // same-day turnover debe permitirse SIEMPRE.
     //
-    // Nueva lógica: comparamos al día (startOfDay).
+    // Nueva lógica: comparamos al día.
     //   existing.checkOutDay > new.checkInDay  ⇔
-    //   existing.scheduledCheckout >= addDays(startOfDay(new.checkIn), 1)
+    //   existing.scheduledCheckout >= dayAfter(new.checkIn)
     // Para Yuki (sale May 15 12:00) y nuevo huésped (entra May 15 cualquier
     // hora): dayAfterCheckin = May 16 00:00 → 12:00 < May 16 → false → no
     // conflict (turnover normal). Para overlap real (existing termina May 16
     // y nuevo entra May 15): May 16 noon >= May 16 00:00 → true → conflict ✓
-    const newCheckInDay = startOfDay(dto.from)
-    const newCheckOutDay = startOfDay(dto.to)
-    const dayAfterNewCheckIn = addDays(newCheckInDay, 1)
+    //
+    // IMPORTANTE: usamos UTC day boundaries (Date.UTC), NO date-fns startOfDay,
+    // porque éste interpreta en la TZ local del runtime del server. Si el server
+    // corre fuera de UTC, `startOfDay(2026-05-17T00:00:00Z)` cae en 2026-05-16
+    // local y desplaza el rango — Abraham Aaa (checkout 17T17:00Z) aparece como
+    // conflict para un check-in 17→18 que debería ser turnover válido.
+    const newCheckInDay  = utcStartOfDay(dto.from)
+    const newCheckOutDay = utcStartOfDay(dto.to)
+    const dayAfterNewCheckIn = new Date(newCheckInDay.getTime() + 86400000)
 
     // ── Local: direct GuestStay rows (excluding no-shows and checked-out) ────
     // Cuando se pasa excludeJourneyId, también excluimos la GuestStay padre del
