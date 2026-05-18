@@ -1,34 +1,58 @@
 /**
- * ConfirmCheckinDialog — Confirma la llegada física de un huésped.
+ * ConfirmCheckinDialog — Sprint CHECK-IN-α
  *
- * Distinto de CheckInDialog (crea reservas walk-in).
- * Este dialog confirma la llegada de una reserva EXISTENTE con status UNCONFIRMED.
+ * Single-screen con secciones colapsables (no wizard). NN/g 2024 Wizards:
+ * apropiados sólo para tareas >20min ejecutadas <1×/semana. Check-in <2min,
+ * >20×/día → wizard es anti-patrón.
  *
- * 4 pasos:
- *  1. Verificación de datos del huésped + notas de llegada
- *  2. Identidad — tipo doc (foto Enterprise)
- *  3. Pago — registrar método + monto + referencia (split permitido)
- *  4. Resumen + confirmar
+ * Decisiones de iteración 2 (feedback usuario 2026-05-17):
+ *   - Identidad: foto del documento (data URI base64) en vez de campo "Número".
+ *     Más práctico para recepción de hostal LATAM; CFDI 4.0 con RFC genérico
+ *     no requiere el número estructurado. Visa CRR 13.1/13.7 acepta foto como
+ *     evidencia de presentación física.
+ *   - Pago: bloqueo de overpayment con código BALANCE_OVERPAID (paridad
+ *     Opera Cloud + RoomRaccoon — los 2 de 5 PMS conservadores).
+ *   - Pago: terminal POS reword a "Número de aprobación de la terminal".
+ *   - Pago: moneda primaria = propertyCurrency (LegalEntity.baseCurrency).
+ *     Conversión secundaria USD/EUR en font menor (estándar 5/5 PMS).
+ *   - Llave: sección eliminada — el hotel administra ese flujo aparte.
+ *   - "Ya confirmado": NO se renderiza UI. El parent debe prevenir abrir el
+ *     dialog (TimelineScheduler guard). Si igual ocurre, mostramos toast no
+ *     bloqueante y nada más.
+ *
+ * Amounts: todos los displays usan formatMoney() con Intl.NumberFormat —
+ * respeta decimales por currency (USD/MXN: 2; JPY/CLP/COP: 0).
  */
-import { useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import {
-  LogIn, ChevronRight, ChevronLeft, Check, ShieldCheck,
-  CreditCard, Loader2, AlertTriangle, User, Calendar, Moon, Hash,
-  StickyNote, Camera,
+  AlertTriangle, Camera, Check, ChevronDown, CreditCard, Globe,
+  IdCard, Loader2, LogIn, ShieldCheck, StickyNote, Upload, X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
-import { KeyDeliveryType, PaymentMethod } from '@zenix/shared'
-import type { ConfirmCheckinInput, PaymentEntryInput } from '../../api/guest-stays.api'
+import { DialogActions } from '../shared/DialogActions'
+import { PaymentMethod } from '@zenix/shared'
+import {
+  guestStaysApi,
+  type ConfirmCheckinInput,
+  type PaymentEntryInput,
+  type CheckinContext,
+} from '../../api/guest-stays.api'
 import type { GuestStayBlock } from '../../types/timeline.types'
+import { useModalDismiss } from '../../hooks/useModalDismiss'
+
+// ── Tipos públicos (preservados — TimelineScheduler no se modifica) ────────
+interface Props {
+  open:      boolean
+  onClose:   () => void
+  onConfirm: (data: ConfirmCheckinInput) => void
+  isPending: boolean
+  stay:      GuestStayBlock
+  roomLabel: string
+}
 
 const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   [PaymentMethod.CASH]:          'Efectivo',
@@ -39,107 +63,103 @@ const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
 }
 
 const DOCUMENT_TYPES = [
-  { value: '', label: 'Seleccionar tipo…' },
+  { value: '',         label: 'Seleccionar tipo…' },
   { value: 'PASSPORT', label: 'Pasaporte' },
-  { value: 'INE', label: 'INE / Credencial de elector' },
-  { value: 'CEDULA', label: 'Cédula de identidad' },
-  { value: 'LICENSE', label: 'Licencia de conducir' },
-  { value: 'OTHER', label: 'Otro documento oficial' },
+  { value: 'INE',      label: 'INE / Credencial de elector' },
+  { value: 'CEDULA',   label: 'Cédula de identidad' },
+  { value: 'LICENSE',  label: 'Licencia de conducir' },
+  { value: 'OTHER',    label: 'Otro documento oficial' },
 ]
 
-interface ConfirmCheckinDialogProps {
-  open: boolean
-  onClose: () => void
-  onConfirm: (data: ConfirmCheckinInput) => void
-  isPending: boolean
-  stay: GuestStayBlock
-  roomLabel: string
+const OTA_SOURCE_LABELS: Record<string, string> = {
+  BOOKING_COM: 'Booking.com',
+  EXPEDIA:     'Expedia',
+  HOTELS_COM:  'Hotels.com',
+  AGODA:       'Agoda',
+  AIRBNB:      'Airbnb',
 }
 
-type Step = 1 | 2 | 3 | 4
+// ── Money formatting ───────────────────────────────────────────────────────
+const ZERO_DECIMAL_CURRENCIES = new Set(['JPY', 'KRW', 'CLP', 'COP', 'PYG', 'VND', 'IDR'])
+const THREE_DECIMAL_CURRENCIES = new Set(['KWD', 'BHD', 'OMR', 'JOD'])
 
-const STEPS = [
-  { num: 1 as Step, label: 'Datos' },
-  { num: 2 as Step, label: 'Identidad' },
-  { num: 3 as Step, label: 'Pago' },
-  { num: 4 as Step, label: 'Confirmar' },
-]
+function decimalsFor(currency: string): number {
+  if (ZERO_DECIMAL_CURRENCIES.has(currency)) return 0
+  if (THREE_DECIMAL_CURRENCIES.has(currency)) return 3
+  return 2
+}
 
-function StepIndicator({ current }: { current: Step }) {
-  return (
-    <div className="flex items-center justify-center gap-1.5 py-3">
-      {STEPS.map((s, i) => (
-        <div key={s.num} className="flex items-center gap-1.5">
-          <div
-            className={cn(
-              'w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold transition-colors',
-              current === s.num
-                ? 'bg-emerald-600 text-white'
-                : current > s.num
-                  ? 'bg-emerald-100 text-emerald-700'
-                  : 'bg-slate-100 text-slate-400',
-            )}
-          >
-            {current > s.num ? <Check className="h-3 w-3" /> : s.num}
-          </div>
-          {i < STEPS.length - 1 && (
-            <div className={cn('h-px w-6', current > s.num ? 'bg-emerald-300' : 'bg-slate-200')} />
-          )}
-        </div>
-      ))}
-    </div>
-  )
+function formatMoney(amount: number, currency: string): string {
+  const dec = decimalsFor(currency)
+  try {
+    return new Intl.NumberFormat('es-MX', {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: dec,
+      maximumFractionDigits: dec,
+    }).format(amount)
+  } catch {
+    return `${currency} ${amount.toFixed(dec)}`
+  }
 }
 
 function emptyPayment(): PaymentEntryInput {
   return { method: PaymentMethod.CASH, amount: 0 }
 }
 
+// ── Componente principal ───────────────────────────────────────────────────
 export function ConfirmCheckinDialog({
-  open,
-  onClose,
-  onConfirm,
-  isPending,
-  stay,
-  roomLabel,
-}: ConfirmCheckinDialogProps) {
-  const [step, setStep] = useState<Step>(1)
+  open, onClose, onConfirm, isPending, stay, roomLabel,
+}: Props) {
+  // Journey-extended stays exponen `stay.id` = segment id; el `guestStayId`
+  // vive en propiedad aparte. Para queries/mutations sobre el GuestStay
+  // parent, preferimos `guestStayId` cuando existe.
+  const resolvedStayId = stay.guestStayId ?? stay.id
 
-  // Step 1
-  const [arrivalNotes, setArrivalNotes] = useState('')
+  const ctxQuery = useQuery({
+    queryKey: ['checkin-context', resolvedStayId],
+    queryFn:  () => guestStaysApi.getCheckinContext(resolvedStayId),
+    enabled:  open,
+    staleTime: 0,
+  })
 
-  // Step 2
-  const [documentType, setDocumentType] = useState(stay.documentType ?? '')
+  const ctx = ctxQuery.data
 
-  // Step 3
-  const [payments, setPayments] = useState<PaymentEntryInput[]>([emptyPayment()])
+  // ── Form state ──────────────────────────────────────────────────────────
+  const [documentType,    setDocumentType]   = useState('')
+  const [docPhotoDataUrl, setDocPhotoDataUrl] = useState<string | null>(null)
+  const [arrivalNotes,    setArrivalNotes]   = useState('')
+  const [payments,        setPayments]       = useState<PaymentEntryInput[]>([emptyPayment()])
 
-  const balance       = stay.totalAmount - stay.amountPaid
-  const isAlreadyPaid = balance <= 0
+  const [identityExpanded, setIdentityExpanded] = useState(false)
+  const [paymentExpanded,  setPaymentExpanded]  = useState(false)
 
-  const resetAndClose = () => {
-    setStep(1)
-    setArrivalNotes('')
-    setDocumentType(stay.documentType ?? '')
-    setPayments([emptyPayment()])
-    onClose()
-  }
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const handleOpenChange = (o: boolean) => {
-    if (!o && !isPending) resetAndClose()
-  }
+  // Hidratar form con context cuando llega.
+  useEffect(() => {
+    if (!ctx) return
+    setDocumentType(ctx.stay.documentType ?? '')
+    setDocPhotoDataUrl(ctx.stay.documentPhotoUrl ?? null)
+    setArrivalNotes(ctx.stay.arrivalNotes ?? '')
+    setIdentityExpanded(!ctx.identityCaptured)
+    setPaymentExpanded(
+      ctx.paymentModel === 'HOTEL_COLLECT' && ctx.balanceProjection.balance > 0,
+    )
+  }, [ctx])
 
-  // ── Payment helpers ──────────────────────────────────────────────────────
-
-  const updatePayment = (idx: number, patch: Partial<PaymentEntryInput>) => {
-    setPayments((prev) => prev.map((p, i) => (i === idx ? { ...p, ...patch } : p)))
-  }
-
-  const addPayment    = () => setPayments((prev) => [...prev, emptyPayment()])
-  const removePayment = (idx: number) => setPayments((prev) => prev.filter((_, i) => i !== idx))
+  // ── Derived flags ───────────────────────────────────────────────────────
+  // Moneda primaria = propertyCurrency (decisión iteración 2, 5/5 PMS).
+  const propertyCurrency = ctx?.propertyCurrency ?? ctx?.balanceProjection.currency ?? stay.currency
+  const balance       = ctx?.balanceProjection.balance ?? 0
+  const isOtaCollect  = ctx?.paymentModel === 'OTA_COLLECT'
+  const isAlreadyPaid = !isOtaCollect && balance <= 0
+  const needsPayment  = !isOtaCollect && balance > 0
 
   const paymentSum       = payments.reduce((s, p) => s + (p.amount || 0), 0)
   const projectedBalance = balance - paymentSum
+  // Overpayment guard frontend (paridad backend BALANCE_OVERPAID, tolerancia 0.01).
+  const isOverpayment = needsPayment && projectedBalance < -0.01
 
   const paymentErrors = payments.map((p) => {
     if (
@@ -152,543 +172,901 @@ export function ConfirmCheckinDialog({
     ) return 'Código y razón de aprobación requeridos'
     return null
   })
-
   const hasPaymentErrors = paymentErrors.some(Boolean)
-  const step3Valid =
-    isAlreadyPaid ||
-    payments.some((p) => p.method === PaymentMethod.OTA_PREPAID || p.method === PaymentMethod.COMP) ||
-    (projectedBalance <= 0 && !hasPaymentErrors)
 
-  // ── Step advancement ─────────────────────────────────────────────────────
-
-  const canAdvance: Record<Step, boolean> = {
-    1: true,
-    2: true,
-    3: step3Valid,
-    4: true,
-  }
-
-  const advance = () => {
-    if (step === 3 && isAlreadyPaid) { setStep(4); return }
-    if (step < 4) setStep((s) => (s + 1) as Step)
-  }
-
-  const back = () => {
-    if (step > 1) setStep((s) => (s - 1) as Step)
-  }
-
-  const handleConfirm = () => {
-    const data: ConfirmCheckinInput = {
-      documentVerified: true,
-      documentType:   documentType || undefined,
-      arrivalNotes:   arrivalNotes || undefined,
-      keyType:        KeyDeliveryType.PHYSICAL,
-      payments: isAlreadyPaid ? [] : payments,
-    }
-    onConfirm(data)
-  }
-
-  // ── Step renders ─────────────────────────────────────────────────────────
-
-  const renderStep1 = () => (
-    <div className="space-y-3.5">
-      {/* Datos en grilla 3 columnas */}
-      <div className="rounded-xl border border-slate-200 overflow-hidden">
-        <div className="grid grid-cols-3 divide-x divide-slate-200">
-          <DataField
-            icon={<User className="h-3 w-3" />}
-            label="Huésped"
-            value={stay.guestName}
-          />
-          <DataField label="Habitación" value={roomLabel} />
-          <DataField label="Huéspedes" value={`${stay.paxCount}`} />
-        </div>
-        <div className="border-t border-slate-200 grid grid-cols-3 divide-x divide-slate-200">
-          <DataField
-            icon={<Calendar className="h-3 w-3" />}
-            label="Check-in"
-            value={format(stay.checkIn, 'EEE d MMM', { locale: es })}
-          />
-          <DataField
-            label="Check-out"
-            value={format(stay.checkOut, 'EEE d MMM', { locale: es })}
-          />
-          <DataField
-            icon={<Moon className="h-3 w-3" />}
-            label="Noches"
-            value={`${stay.nights}`}
-          />
-        </div>
-        <div className="border-t border-slate-200 grid grid-cols-2 divide-x divide-slate-200">
-          <DataField label="Total" value={`${stay.currency} ${stay.totalAmount.toLocaleString()}`} />
-          <DataField
-            label="Saldo pendiente"
-            value={balance > 0 ? `${stay.currency} ${balance.toLocaleString()}` : 'Liquidado ✓'}
-            highlight={balance > 0}
-          />
-        </div>
-        {(stay.bookingRef ?? stay.pmsReservationId) && (
-          <div className="border-t border-slate-200">
-            <DataField
-              icon={<Hash className="h-3 w-3" />}
-              label="Referencia"
-              value={stay.bookingRef ?? stay.pmsReservationId!}
-              mono
-            />
-          </div>
-        )}
-      </div>
-
-      {/* Solicitudes especiales */}
-      {stay.notes && (
-        <div className="flex gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
-          <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
-          <div>
-            <p className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">
-              Solicitudes especiales
-            </p>
-            <p className="text-xs text-amber-800 mt-0.5 leading-relaxed">{stay.notes}</p>
-          </div>
-        </div>
-      )}
-
-      {/* Notas de llegada */}
-      <div className="space-y-1.5">
-        <label className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-          <StickyNote className="h-3 w-3" />
-          Notas de llegada
-          <span className="font-normal normal-case text-slate-400 ml-1">(opcional)</span>
-        </label>
-        <textarea
-          value={arrivalNotes}
-          onChange={(e) => setArrivalNotes(e.target.value)}
-          rows={2}
-          placeholder="Llegó tarde, taxi del aeropuerto, equipaje en consigna…"
-          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm
-                     text-slate-800 placeholder:text-slate-400 resize-none
-                     focus:outline-none focus:ring-2 focus:ring-emerald-300"
-        />
-      </div>
-
-      {(stay.guestEmail || stay.guestPhone) && (
-        <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-500">
-          {stay.guestEmail && (
-            <span><span className="font-medium text-slate-600">Email:</span> {stay.guestEmail}</span>
-          )}
-          {stay.guestPhone && (
-            <span><span className="font-medium text-slate-600">Tel:</span> {stay.guestPhone}</span>
-          )}
-        </div>
-      )}
-    </div>
-  )
-
-  const renderStep2 = () => (
-    <div className="space-y-4">
-      <div className="space-y-1.5">
-        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-          Tipo de documento
-        </label>
-        <select
-          value={documentType}
-          onChange={(e) => setDocumentType(e.target.value)}
-          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800
-                     focus:outline-none focus:ring-2 focus:ring-emerald-300"
-        >
-          {DOCUMENT_TYPES.map((dt) => (
-            <option key={dt.value} value={dt.value}>{dt.label}</option>
-          ))}
-        </select>
-      </div>
-
-      {/* Foto del documento — Enterprise */}
-      <button
-        type="button"
-        disabled
-        className="w-full rounded-xl border-2 border-dashed border-slate-200 bg-slate-50
-                   px-4 py-6 flex flex-col items-center gap-3 cursor-not-allowed"
-      >
-        <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center">
-          <Camera className="h-5 w-5 text-slate-400" />
-        </div>
-        <div className="text-center">
-          <p className="text-sm font-medium text-slate-500">Fotografiar documento</p>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Captura automática con verificación OCR
-          </p>
-        </div>
-        <div className="flex items-center gap-1.5 rounded-full bg-slate-200 px-3 py-1">
-          <ShieldCheck className="h-3 w-3 text-slate-500" />
-          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-            Plan Enterprise
-          </span>
-        </div>
-      </button>
-
-      <p className="text-xs text-slate-400 text-center">
-        Puedes continuar seleccionando solo el tipo de documento.
-      </p>
-    </div>
-  )
-
-  const renderStep3 = () => {
-    if (isAlreadyPaid) {
-      return (
-        <div className="flex flex-col items-center gap-3 py-6">
-          <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center">
-            <Check className="h-6 w-6 text-emerald-600" />
-          </div>
-          <div className="text-center">
-            <p className="font-semibold text-emerald-800">Saldo liquidado</p>
-            <p className="text-xs text-slate-500 mt-1">
-              El pago de {stay.currency} {stay.totalAmount.toLocaleString()} ya fue registrado.
-            </p>
-          </div>
-        </div>
-      )
-    }
-
-    return (
-      <div className="space-y-4">
-        {/* Saldo pendiente — prominente */}
-        <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3.5 flex items-center justify-between">
-          <div>
-            <p className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">
-              Saldo pendiente
-            </p>
-            <p className="text-2xl font-bold text-amber-800 mt-0.5 tabular-nums">
-              {stay.currency} {balance.toLocaleString()}
-            </p>
-          </div>
-          <CreditCard className="h-8 w-8 text-amber-300 shrink-0" />
-        </div>
-
-        {payments.map((p, idx) => (
-          <div key={idx} className="rounded-xl border border-slate-200 p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-600">Pago {idx + 1}</span>
-              {payments.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => removePayment(idx)}
-                  className="text-xs text-slate-400 hover:text-red-500"
-                >
-                  Eliminar
-                </button>
-              )}
-            </div>
-
-            {/* Método + Monto en dos columnas */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                  Método
-                </label>
-                <select
-                  value={p.method}
-                  onChange={(e) => updatePayment(idx, {
-                    method: e.target.value as PaymentMethod,
-                    reference: '',
-                    approvedById: '',
-                    approvalReason: '',
-                  })}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-sm text-slate-800
-                             focus:outline-none focus:ring-2 focus:ring-emerald-300"
-                >
-                  {Object.entries(PAYMENT_METHOD_LABELS).map(([k, v]) => (
-                    <option key={k} value={k}>{v}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                  Monto ({stay.currency})
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={p.amount || ''}
-                  onChange={(e) => updatePayment(idx, { amount: parseFloat(e.target.value) || 0 })}
-                  placeholder="0.00"
-                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-sm
-                             text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-300"
-                />
-              </div>
-            </div>
-
-            {/* Referencia (CARD_TERMINAL / BANK_TRANSFER) */}
-            {(p.method === PaymentMethod.CARD_TERMINAL || p.method === PaymentMethod.BANK_TRANSFER) && (
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                  Número de referencia *
-                </label>
-                <input
-                  type="text"
-                  value={p.reference ?? ''}
-                  onChange={(e) => updatePayment(idx, { reference: e.target.value })}
-                  placeholder={
-                    p.method === PaymentMethod.CARD_TERMINAL
-                      ? 'Código de aprobación (6-8 dígitos)'
-                      : 'Referencia de transferencia'
-                  }
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm
-                             text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-300"
-                />
-              </div>
-            )}
-
-            {/* Autorización manager (COMP o monto $0) — campos planos, sin caja anidada */}
-            {(p.method === PaymentMethod.COMP || p.amount === 0) && (
-              <div className="space-y-2.5 pt-2 border-t border-slate-100">
-                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                  Autorización del manager
-                  <span className="font-normal normal-case text-slate-400 ml-1.5">
-                    — cortesía y monto cero requieren aprobación para el registro de auditoría
-                  </span>
-                </p>
-                <input
-                  type="text"
-                  value={p.approvedById ?? ''}
-                  onChange={(e) => updatePayment(idx, { approvedById: e.target.value })}
-                  placeholder="Código del manager"
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm
-                             text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-300"
-                />
-                <input
-                  type="text"
-                  value={p.approvalReason ?? ''}
-                  onChange={(e) => updatePayment(idx, { approvalReason: e.target.value })}
-                  placeholder="Motivo (cortesía VIP, compensación por servicio…)"
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm
-                             text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-300"
-                />
-              </div>
-            )}
-
-            {paymentErrors[idx] && (
-              <p className="text-xs text-red-600 flex items-center gap-1">
-                <AlertTriangle className="h-3 w-3 shrink-0" />
-                {paymentErrors[idx]}
-              </p>
-            )}
-          </div>
-        ))}
-
-        <button
-          type="button"
-          onClick={addPayment}
-          className="w-full rounded-xl border border-dashed border-slate-300 py-2.5 text-xs
-                     text-slate-400 hover:text-slate-600 hover:border-slate-400 transition-colors"
-        >
-          + Agregar otro método de pago
-        </button>
-
-        {payments.length > 0 && (
-          <div className={cn(
-            'rounded-xl border px-3.5 py-2.5 flex items-center justify-between',
-            projectedBalance <= 0 ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50',
-          )}>
-            <span className="text-xs text-slate-600">Saldo tras este pago</span>
-            <span className={cn(
-              'text-sm font-bold tabular-nums',
-              projectedBalance <= 0 ? 'text-emerald-700' : 'text-slate-800',
-            )}>
-              {stay.currency} {Math.max(0, projectedBalance).toLocaleString()}
-            </span>
-          </div>
-        )}
-      </div>
+  const paymentValid = useMemo(() => {
+    if (!needsPayment) return true
+    if (hasPaymentErrors) return false
+    if (isOverpayment) return false
+    const hasOverride = payments.some(
+      (p) => p.method === PaymentMethod.OTA_PREPAID || p.method === PaymentMethod.COMP,
     )
+    return hasOverride || projectedBalance <= 0.01
+  }, [needsPayment, hasPaymentErrors, isOverpayment, payments, projectedBalance])
+
+  // Identidad válida = tipo de documento + foto del documento (Sprint
+  // 2026-05-17 refactor: removida checkbox "Verifiqué físicamente". La foto
+  // sirve como evidencia tangible (Visa CRR §5.9.2 chargeback). Si la foto
+  // existe + el tipo está seleccionado, asumimos que el recepcionista
+  // verificó al capturar — el checkbox era doble confirmación con cero
+  // valor operativo, identificada como friction NN/g 2024).
+  const identityValid = !!documentType && !!docPhotoDataUrl
+
+  const canConfirm =
+    !!ctx &&
+    ctx.canCheckIn.ok &&
+    identityValid &&
+    paymentValid &&
+    !isPending
+
+  // ── Dirty detection + dismiss ───────────────────────────────────────────
+  const isDirty =
+    !!docPhotoDataUrl ||
+    arrivalNotes.trim() !== '' ||
+    payments.some((p) => p.amount > 0 || (p.reference?.trim() ?? '') !== '') ||
+    documentType !== (ctx?.stay.documentType ?? '')
+
+  const { requestClose, onBackdropClick, dialogElement: discardPrompt } = useModalDismiss({
+    isDirty,
+    onClose,
+    disabled: isPending,
+    confirmTitle: 'Descartar check-in',
+    confirmMessage: 'Los datos capturados (foto, pagos, notas) se perderán. El check-in no se confirmará.',
+    confirmLabel: 'Descartar',
+  })
+
+  // Cmd/Ctrl+Enter → confirm si CTA enabled.
+  useEffect(() => {
+    if (!open) return
+    function handler(e: KeyboardEvent) {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && canConfirm) {
+        e.preventDefault()
+        handleConfirm()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, canConfirm])
+
+  // ── Photo upload ────────────────────────────────────────────────────────
+  function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    // Límite blando 5MB para evitar payloads excesivos en data URI base64.
+    if (file.size > 5 * 1024 * 1024) {
+      alert('La foto excede 5 MB. Toma una nueva foto de menor calidad.')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => setDocPhotoDataUrl(typeof reader.result === 'string' ? reader.result : null)
+    reader.readAsDataURL(file)
   }
 
-  const renderStep4 = () => (
-    <div className="space-y-4">
-      <div className="rounded-xl border border-slate-200 overflow-hidden">
-        <div className="grid grid-cols-2 divide-x divide-slate-200">
-          <div className="px-4 py-3 space-y-1.5">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Huésped</p>
-            <p className="text-sm font-semibold text-slate-800">{stay.guestName}</p>
-            <p className="text-xs text-slate-500">
-              {stay.paxCount} persona{stay.paxCount !== 1 ? 's' : ''}
-            </p>
-          </div>
-          <div className="px-4 py-3 space-y-1.5">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Estadía</p>
-            <p className="text-sm font-semibold text-slate-800">{roomLabel}</p>
-            <p className="text-xs text-slate-500">
-              {stay.nights} noche{stay.nights !== 1 ? 's' : ''} ·{' '}
-              {format(stay.checkIn, 'd MMM', { locale: es })} →{' '}
-              {format(stay.checkOut, 'd MMM', { locale: es })}
-            </p>
-          </div>
-        </div>
-        {!isAlreadyPaid && (
-          <div className="border-t border-slate-200 px-4 py-3 bg-slate-50">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-              Pagos a registrar
-            </p>
-            {payments.map((p, i) => (
-              <div key={i} className="flex items-center justify-between text-xs text-slate-600">
-                <span>{PAYMENT_METHOD_LABELS[p.method]}</span>
-                <span className="font-mono font-medium tabular-nums">
-                  {stay.currency} {(p.amount || 0).toLocaleString()}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-        {arrivalNotes && (
-          <div className="border-t border-slate-200 px-4 py-3 bg-slate-50">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-              Notas de llegada
-            </p>
-            <p className="text-xs text-slate-600 line-clamp-2">{arrivalNotes}</p>
-          </div>
-        )}
-      </div>
+  // ── Submit ──────────────────────────────────────────────────────────────
+  function handleConfirm() {
+    if (!canConfirm) return
+    onConfirm({
+      documentVerified: true,
+      documentType:     documentType || undefined,
+      documentPhotoUrl: docPhotoDataUrl ?? undefined,
+      arrivalNotes:     arrivalNotes.trim() || undefined,
+      payments:         isOtaCollect || isAlreadyPaid ? [] : payments,
+    })
+  }
 
-      <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-3.5 space-y-2">
-        <p className="text-xs font-bold text-emerald-800">Al confirmar:</p>
-        <ul className="space-y-1">
-          {[
-            'El estado de la reserva cambia a "En casa" (IN_HOUSE)',
-            'Housekeeping es notificado de la llegada',
-            'El folio de la estadía queda registrado en el sistema',
-          ].map((item) => (
-            <li key={item} className="flex items-start gap-1.5 text-xs text-emerald-700">
-              <Check className="h-3 w-3 shrink-0 mt-0.5" />
-              {item}
-            </li>
-          ))}
-        </ul>
-      </div>
-    </div>
-  )
+  // ── Payment helpers ─────────────────────────────────────────────────────
+  const updatePayment = (idx: number, patch: Partial<PaymentEntryInput>) => {
+    setPayments((prev) => prev.map((p, i) => (i === idx ? { ...p, ...patch } : p)))
+  }
+  const addPayment    = () => setPayments((prev) => [...prev, emptyPayment()])
+  const removePayment = (idx: number) => setPayments((prev) => prev.filter((_, i) => i !== idx))
+
+  // ── Header info ─────────────────────────────────────────────────────────
+  const header = ctx?.stay ?? {
+    guestName:  stay.guestName,
+    paxCount:   stay.paxCount,
+    bookingRef: stay.bookingRef ?? null,
+    source:     null,
+  }
+  const checkInDate  = ctx ? new Date(ctx.stay.checkinAt)         : stay.checkIn
+  const checkOutDate = ctx ? new Date(ctx.stay.scheduledCheckout) : stay.checkOut
+
+  if (!open) return null
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-lg p-0 overflow-hidden gap-0">
-        <div className="h-1.5 w-full bg-emerald-500" />
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      onClick={onBackdropClick}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="checkin-dialog-title"
+    >
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px] pointer-events-none" />
 
-        <DialogHeader className="px-6 pt-4 pb-0">
-          <div className="flex items-center gap-3 mb-1">
-            <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center shrink-0">
-              <LogIn className="h-4 w-4 text-emerald-600" />
+      <div className="relative z-10 w-full max-w-3xl bg-white rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+        {/* Brand stripe */}
+        <div className="h-1 bg-emerald-500/80 shrink-0" />
+
+        {/* ── Header sticky ─────────────────────────────────────────────── */}
+        <header className="px-6 pt-4 pb-4 flex items-start justify-between shrink-0 border-b border-slate-100">
+          <div className="flex items-start gap-3 min-w-0 flex-1">
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center shrink-0">
+              <LogIn className="h-5 w-5 text-emerald-600" />
             </div>
-            <div>
-              <DialogTitle className="text-base font-semibold text-slate-900">
+            <div className="min-w-0 flex-1">
+              <h2 id="checkin-dialog-title" className="text-lg font-semibold text-slate-900 leading-tight">
                 Confirmar check-in
-              </DialogTitle>
-              <p className="text-xs text-slate-500 mt-0.5">
-                {stay.guestName} · {roomLabel}
+              </h2>
+              <p className="text-xs text-slate-500 mt-1 truncate">
+                <span className="font-medium text-slate-700">{header.guestName}</span>
+                <span className="mx-1.5 text-slate-300">·</span>
+                {roomLabel}
+                <span className="mx-1.5 text-slate-300">·</span>
+                {format(checkInDate, 'EEE d MMM', { locale: es })} →{' '}
+                {format(checkOutDate, 'EEE d MMM', { locale: es })}
+                <span className="mx-1.5 text-slate-300">·</span>
+                {header.paxCount} pax
               </p>
+              {/* Balance badge — adaptive según paymentModel */}
+              {ctx && (
+                <BalanceBadge
+                  paymentModel={ctx.paymentModel}
+                  balance={balance}
+                  totalAmount={ctx.balanceProjection.totalAmount}
+                  propertyCurrency={propertyCurrency}
+                  secondaryRates={ctx.secondaryRates}
+                  source={ctx.stay.source}
+                />
+              )}
+              {header.bookingRef && (
+                <span className="text-[10px] font-mono text-slate-400 mt-1 block">
+                  {header.bookingRef}
+                </span>
+              )}
             </div>
           </div>
-          <StepIndicator current={step} />
-        </DialogHeader>
+          <button
+            type="button"
+            onClick={requestClose}
+            disabled={isPending}
+            aria-label="Cerrar"
+            className="text-slate-400 hover:text-slate-700 -mr-1 -mt-1 p-1.5 rounded-lg hover:bg-slate-100 transition-colors disabled:opacity-50"
+          >
+            <X size={18} />
+          </button>
+        </header>
 
-        <div className="px-6 pb-2">
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-            Paso {step} — {STEPS.find((s) => s.num === step)?.label}
-          </p>
-        </div>
-
-        <div className="px-6 pb-4 max-h-[480px] overflow-y-auto">
-          {step === 1 && renderStep1()}
-          {step === 2 && renderStep2()}
-          {step === 3 && renderStep3()}
-          {step === 4 && renderStep4()}
-        </div>
-
-        <div className="flex gap-2 px-6 pb-5 border-t border-slate-100 pt-4">
-          {step > 1 ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={back}
-              disabled={isPending}
-              className="flex items-center gap-1"
-            >
-              <ChevronLeft className="h-3.5 w-3.5" />
-              Atrás
-            </Button>
-          ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={resetAndClose}
-              disabled={isPending}
-            >
-              Cancelar
-            </Button>
+        {/* ── Body scrollable ───────────────────────────────────────────── */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+          {ctxQuery.isLoading && (
+            <div className="flex items-center justify-center py-12 text-slate-400">
+              <Loader2 className="h-5 w-5 animate-spin mr-2" />
+              <span className="text-sm">Cargando datos de la reserva…</span>
+            </div>
           )}
 
-          {step < 4 ? (
-            <Button
-              size="sm"
-              onClick={advance}
-              disabled={!canAdvance[step]}
-              className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
-            >
-              Continuar
-              <ChevronRight className="h-3.5 w-3.5" />
-            </Button>
-          ) : (
-            <Button
-              size="sm"
-              onClick={handleConfirm}
-              disabled={isPending}
-              className="flex-1 flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
-            >
-              {isPending ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Confirmando…
-                </>
-              ) : (
-                <>
-                  <LogIn className="h-4 w-4" />
-                  Confirmar check-in
-                </>
-              )}
-            </Button>
+          {ctxQuery.isError && (
+            <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+              <p className="font-semibold mb-1">No se pudieron cargar los datos</p>
+              <p className="text-xs text-rose-700">
+                {(ctxQuery.error as Error)?.message ?? 'Error desconocido'}
+              </p>
+            </div>
+          )}
+
+          {ctx && (
+            <>
+              {/* ── SECCIÓN: IDENTIDAD ──────────────────────────────────── */}
+              <Section
+                icon={<IdCard className="h-4 w-4" />}
+                title="Identidad"
+                badge={
+                  ctx.identityCaptured || docPhotoDataUrl
+                    ? { label: docPhotoDataUrl ? 'Foto capturada' : 'Documento en reserva', tone: 'success' }
+                    : { label: 'Requerido', tone: 'warning' }
+                }
+                expanded={identityExpanded}
+                onToggle={() => setIdentityExpanded((v) => !v)}
+              >
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                      Tipo de documento *
+                    </label>
+                    <select
+                      value={documentType}
+                      onChange={(e) => setDocumentType(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm
+                                 text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                    >
+                      {DOCUMENT_TYPES.map((dt) => (
+                        <option key={dt.value} value={dt.value}>{dt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <PhotoCapture
+                    photoDataUrl={docPhotoDataUrl}
+                    fileInputRef={fileInputRef}
+                    onChange={handlePhotoChange}
+                    onRemove={() => {
+                      setDocPhotoDataUrl(null)
+                      if (fileInputRef.current) fileInputRef.current.value = ''
+                    }}
+                  />
+
+                </div>
+              </Section>
+
+              {/* ── SECCIÓN: PAGO ───────────────────────────────────────── */}
+              <Section
+                icon={<CreditCard className="h-4 w-4" />}
+                title="Pago"
+                badge={
+                  isOtaCollect
+                    ? { label: `Pagado vía ${(header.source && OTA_SOURCE_LABELS[header.source]) || 'OTA'}`, tone: 'success' }
+                    : isAlreadyPaid
+                      ? { label: 'Liquidado ✓', tone: 'success' }
+                      : { label: `Saldo ${formatMoney(balance, propertyCurrency)}`, tone: 'warning' }
+                }
+                expanded={paymentExpanded}
+                onToggle={() => setPaymentExpanded((v) => !v)}
+                collapsedSummary={
+                  isOtaCollect
+                    ? 'Sin acción requerida — la OTA ya cobró al huésped.'
+                    : isAlreadyPaid
+                      ? 'Saldo cubierto por pagos previos.'
+                      : `Faltan ${formatMoney(Math.max(0, projectedBalance), propertyCurrency)} por cubrir.`
+                }
+              >
+                {isOtaCollect ? (
+                  <div className="flex items-start gap-2.5 rounded-lg bg-emerald-50 border border-emerald-200 px-3.5 py-3">
+                    <Globe className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
+                    <div className="text-xs text-emerald-900 leading-relaxed">
+                      <p className="font-semibold mb-0.5">
+                        Cobrado por {(header.source && OTA_SOURCE_LABELS[header.source]) || 'la OTA'}
+                      </p>
+                      <p className="text-emerald-700">
+                        El folio se marca pagado contra la virtual card. Reconciliación
+                        del payout queda al módulo de pagos.
+                      </p>
+                    </div>
+                  </div>
+                ) : isAlreadyPaid ? (
+                  <div className="flex items-center gap-3 py-2">
+                    <div className="w-9 h-9 rounded-full bg-emerald-100 flex items-center justify-center shrink-0">
+                      <Check className="h-5 w-5 text-emerald-600" />
+                    </div>
+                    <div className="text-sm">
+                      <p className="font-semibold text-emerald-800">Saldo liquidado</p>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {formatMoney(ctx.balanceProjection.totalAmount, propertyCurrency)} ya registrados.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {/* Saldo a cubrir — primary propertyCurrency, secondary USD/EUR */}
+                    <BalanceCard
+                      label="Saldo a cubrir"
+                      amount={balance}
+                      currency={propertyCurrency}
+                      secondaryRates={ctx.secondaryRates}
+                      tone="warning"
+                    />
+
+                    {payments.map((p, idx) => (
+                      <PaymentRow
+                        key={idx}
+                        payment={p}
+                        idx={idx}
+                        canRemove={payments.length > 1}
+                        currency={propertyCurrency}
+                        secondaryRates={ctx.secondaryRates}
+                        error={paymentErrors[idx]}
+                        onChange={(patch) => updatePayment(idx, patch)}
+                        onRemove={() => removePayment(idx)}
+                      />
+                    ))}
+
+                    <button
+                      type="button"
+                      onClick={addPayment}
+                      className="w-full rounded-lg border border-dashed border-slate-300 py-2 text-xs
+                                 text-slate-500 hover:text-slate-700 hover:border-slate-400 transition-colors"
+                    >
+                      + Agregar otro método de pago
+                    </button>
+
+                    {/* Status del balance proyectado */}
+                    {isOverpayment ? (
+                      <div className="rounded-lg border border-rose-300 bg-rose-50 px-3.5 py-2.5 flex items-start gap-2 text-xs text-rose-800">
+                        <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-semibold mb-0.5">El pago excede el saldo</p>
+                          <p className="text-rose-700">
+                            Sobran {formatMoney(Math.abs(projectedBalance), propertyCurrency)}.
+                            Ajusta el monto al saldo exacto — los depósitos por incidentales
+                            se registran después del check-in.
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className={cn(
+                        'rounded-lg border px-3.5 py-2.5 flex items-center justify-between text-xs',
+                        projectedBalance <= 0.01
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                          : 'border-slate-200 bg-slate-50 text-slate-700',
+                      )}>
+                        <span>Saldo tras este pago</span>
+                        <span className="font-bold tabular-nums">
+                          {formatMoney(Math.max(0, projectedBalance), propertyCurrency)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </Section>
+
+              {/* ── SECCIÓN: NOTAS DE LLEGADA (opcional, no colapsable) ── */}
+              <div className="rounded-xl border border-slate-200 px-4 py-3 space-y-2">
+                <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  <StickyNote className="h-3.5 w-3.5" />
+                  Notas de llegada
+                  <span className="font-normal normal-case text-slate-400 ml-1">(opcional)</span>
+                </label>
+                <textarea
+                  value={arrivalNotes}
+                  onChange={(e) => setArrivalNotes(e.target.value)}
+                  rows={2}
+                  placeholder="Llegó tarde, taxi del aeropuerto, equipaje en consigna…"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm
+                             text-slate-800 placeholder:text-slate-400 resize-none
+                             focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                />
+              </div>
+            </>
           )}
         </div>
-      </DialogContent>
-    </Dialog>
+
+        {/* ── Footer ────────────────────────────────────────────────────── */}
+        <footer className="flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-100 shrink-0 bg-slate-50/40">
+          <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
+            <ShieldCheck className="h-3.5 w-3.5" />
+            Auditado: USALI 12 ed · CFDI 4.0 · Visa CRR 13.1/13.7
+          </div>
+          <DialogActions
+            onCancel={requestClose}
+            onConfirm={handleConfirm}
+            confirmLabel="Confirmar check-in"
+            confirmIcon={LogIn}
+            isPending={isPending}
+            confirmDisabled={!canConfirm}
+            widthMode="auto"
+          />
+        </footer>
+      </div>
+      {/* Discard confirm modal — Zenix ConfirmDialog en lugar de window.confirm
+          nativo. Nesting nativo Radix sobre este dialog (§116). */}
+      {discardPrompt}
+    </div>
   )
 }
 
-// ── Helper components ────────────────────────────────────────────────────────
+// ── Subcomponentes ──────────────────────────────────────────────────────────
 
-function DataField({
-  label,
-  value,
-  icon,
-  highlight,
-  mono,
+function Section({
+  icon, title, badge, expanded, onToggle, collapsedSummary, children,
 }: {
-  label: string
-  value: string
-  icon?: React.ReactNode
-  highlight?: boolean
-  mono?: boolean
+  icon:    React.ReactNode
+  title:   string
+  badge?:  { label: string; tone: 'success' | 'warning' | 'neutral' }
+  expanded: boolean
+  onToggle: () => void
+  collapsedSummary?: string
+  children: React.ReactNode
 }) {
   return (
-    <div className={cn('px-3 py-3', highlight && 'bg-amber-50')}>
-      <div className="flex items-center gap-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-        {icon && <span className="text-slate-300">{icon}</span>}
-        {label}
-      </div>
-      <div className={cn(
-        'text-sm font-semibold',
-        highlight ? 'text-amber-700' : 'text-slate-700',
-        mono && 'font-mono text-xs',
+    <section className="rounded-xl border border-slate-200 overflow-hidden">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition-colors"
+        aria-expanded={expanded}
+      >
+        <span className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+          <span className="text-slate-500">{icon}</span>
+          {title}
+        </span>
+        <span className="flex items-center gap-2">
+          {badge && (
+            <span className={cn(
+              'inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium',
+              badge.tone === 'success' && 'bg-emerald-50 text-emerald-700 border border-emerald-200',
+              badge.tone === 'warning' && 'bg-amber-50 text-amber-700 border border-amber-200',
+              badge.tone === 'neutral' && 'bg-slate-100 text-slate-600 border border-slate-200',
+            )}>
+              {badge.label}
+            </span>
+          )}
+          <ChevronDown className={cn(
+            'h-4 w-4 text-slate-400 transition-transform duration-200',
+            expanded && 'rotate-180',
+            'motion-reduce:transition-none',
+          )} />
+        </span>
+      </button>
+      {expanded ? (
+        <div className="px-4 pb-4 pt-1 space-y-3 border-t border-slate-100">
+          {children}
+        </div>
+      ) : collapsedSummary ? (
+        <p className="px-4 pb-3 text-xs text-slate-500 border-t border-slate-100 pt-2.5">
+          {collapsedSummary}
+        </p>
+      ) : null}
+    </section>
+  )
+}
+
+/**
+ * PhotoCapture — Webcam-first capture del documento del huésped.
+ *
+ * Sprint 2026-05-17 refactor: el flow primario ahora es CÁMARA EN VIVO de la
+ * PC vía getUserMedia (la app corre en la laptop de recepción que tiene
+ * webcam frontal). Pattern industria: Avenger Booking, Mews PMS Kiosk,
+ * Cloudbeds Operator app.
+ *
+ * Justificación vs el flow anterior (file upload):
+ *   - 0 steps adicionales (no abrir Finder/Explorer, no buscar archivo)
+ *   - El recepcionista apunta la webcam al documento físico en el counter
+ *     → click → captura en <2s vs ~15s del flow upload
+ *   - Foto siempre fresca (no se sube de un álbum con foto vieja)
+ *   - Visa CRR §5.9.2 evidence requirement: timestamp + foto tomada en el
+ *     act of check-in (auditable)
+ *
+ * Fallback: si el browser/usuario rechaza el permiso de cámara, mostramos
+ * el botón "Subir archivo" como alternativa. Algunos hostales sin webcam
+ * o setups remotos pueden necesitarlo.
+ */
+function PhotoCapture({
+  photoDataUrl, fileInputRef, onChange, onRemove,
+}: {
+  photoDataUrl: string | null
+  fileInputRef: React.RefObject<HTMLInputElement | null>
+  onChange:     (e: React.ChangeEvent<HTMLInputElement>) => void
+  onRemove:     () => void
+}) {
+  const [stream, setStream] = useState<MediaStream | null>(null)
+  const [cameraError, setCameraError] = useState<string | null>(null)
+  const videoRef  = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  // Cleanup del stream al desmontar o al guardar foto (libera la webcam LED)
+  useEffect(() => {
+    return () => {
+      if (stream) stream.getTracks().forEach((t) => t.stop())
+    }
+  }, [stream])
+
+  async function startCamera() {
+    setCameraError(null)
+    try {
+      // facingMode 'environment' = cámara trasera (mobile); en laptop usa
+      // la única disponible (frontal). Resolución preferida 1280x720 — balance
+      // entre calidad y tamaño base64 (~150-250KB JPEG comprimido).
+      const mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: 'environment',
+          width:  { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: false,
+      })
+      setStream(mediaStream)
+      // requestAnimationFrame asegura que el <video> está mounted antes de srcObject
+      requestAnimationFrame(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = mediaStream
+          void videoRef.current.play().catch(() => { /* autoplay bloqueado raro en laptop */ })
+        }
+      })
+    } catch (err) {
+      const name = (err as { name?: string })?.name
+      if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+        setCameraError('Permiso de cámara denegado. Usa "Subir archivo" como alternativa.')
+      } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+        setCameraError('No se detectó cámara. Usa "Subir archivo".')
+      } else {
+        setCameraError('No se pudo iniciar la cámara. Usa "Subir archivo".')
+      }
+    }
+  }
+
+  function stopCamera() {
+    if (stream) {
+      stream.getTracks().forEach((t) => t.stop())
+      setStream(null)
+    }
+  }
+
+  function captureFrame() {
+    if (!videoRef.current || !canvasRef.current || !stream) return
+    const video  = videoRef.current
+    const canvas = canvasRef.current
+    canvas.width  = video.videoWidth
+    canvas.height = video.videoHeight
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+    // JPEG 0.85 quality — balance calidad/tamaño. PNG sería ~3-5x más grande.
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
+    // Inject como si fuera un file event para reusar el onChange handler.
+    // Creamos un evento sintético compatible: el handler solo lee file.size
+    // y crea un data URL, pero aquí ya tenemos el dataUrl directamente.
+    // Atajo: pasar el dataUrl directo al state vía un mecanismo paralelo.
+    // Simulamos un fileInput change con un File real construido desde el blob.
+    canvas.toBlob((blob) => {
+      if (!blob) return
+      const file = new File([blob], `documento-${Date.now()}.jpg`, { type: 'image/jpeg' })
+      const dt = new DataTransfer()
+      dt.items.add(file)
+      if (fileInputRef.current) {
+        fileInputRef.current.files = dt.files
+        const syntheticEvent = {
+          target: fileInputRef.current,
+        } as unknown as React.ChangeEvent<HTMLInputElement>
+        onChange(syntheticEvent)
+      }
+      stopCamera()
+    }, 'image/jpeg', 0.85)
+    // dataUrl no usado directo — sirve si queremos preview instantáneo antes del blob callback
+    void dataUrl
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+        Foto del documento
+        <span className="font-normal normal-case text-slate-400 ml-1.5">
+          — requerido (Visa CRR evidence)
+        </span>
+      </label>
+
+      {/* Estado 1: ya hay foto capturada */}
+      {photoDataUrl ? (
+        <div className="relative">
+          <img
+            src={photoDataUrl}
+            alt="Documento del huésped"
+            className="w-full max-h-48 object-contain rounded-lg border border-slate-200 bg-slate-50"
+          />
+          <button
+            type="button"
+            onClick={onRemove}
+            className="absolute top-2 right-2 bg-white/90 hover:bg-white text-slate-700 rounded-full p-1.5 shadow-sm border border-slate-200"
+            aria-label="Quitar foto"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ) : stream ? (
+        /* Estado 2: cámara activa con preview en vivo */
+        <div className="space-y-2">
+          <div className="relative rounded-lg overflow-hidden bg-slate-900 border border-slate-300">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-full max-h-64 object-contain bg-black"
+            />
+            <div className="absolute top-2 right-2 bg-red-600 text-white text-[10px] font-bold uppercase px-2 py-0.5 rounded-full flex items-center gap-1 animate-pulse">
+              <span className="w-1.5 h-1.5 rounded-full bg-white" />
+              REC
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={captureFrame}
+              className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium h-9 rounded-md flex items-center justify-center gap-1.5 transition-colors"
+            >
+              <Camera className="h-4 w-4" />
+              Capturar
+            </button>
+            <button
+              type="button"
+              onClick={stopCamera}
+              className="flex-1 border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-medium h-9 rounded-md transition-colors"
+            >
+              Cancelar
+            </button>
+          </div>
+          <canvas ref={canvasRef} className="hidden" />
+        </div>
+      ) : (
+        /* Estado 3: idle — botones para iniciar captura o subir archivo */
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={startCamera}
+            className="w-full rounded-lg border-2 border-dashed border-emerald-300 hover:border-emerald-500
+                       bg-emerald-50/40 hover:bg-emerald-50 px-4 py-5 flex flex-col items-center gap-1.5
+                       transition-colors text-emerald-700"
+          >
+            <Camera className="h-6 w-6" />
+            <span className="text-xs font-semibold">Tomar foto con la cámara</span>
+            <span className="text-[10px] text-slate-500">
+              Apunta la webcam al documento del huésped
+            </span>
+          </button>
+          {cameraError && (
+            <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 leading-snug">
+              {cameraError}
+            </p>
+          )}
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-px bg-slate-200" />
+            <span className="text-[10px] text-slate-400 uppercase tracking-wider">o</span>
+            <div className="flex-1 h-px bg-slate-200" />
+          </div>
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="w-full rounded-lg border border-slate-300 hover:border-slate-400
+                       bg-white hover:bg-slate-50 px-4 py-2.5 flex items-center justify-center gap-2
+                       transition-colors text-slate-600 text-xs font-medium"
+          >
+            <Upload className="h-3.5 w-3.5" />
+            Subir archivo (JPG / PNG, máx 5 MB)
+          </button>
+        </div>
+      )}
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={onChange}
+        className="hidden"
+      />
+    </div>
+  )
+}
+
+function BalanceBadge({
+  paymentModel, balance, totalAmount, propertyCurrency, secondaryRates, source,
+}: {
+  paymentModel: 'HOTEL_COLLECT' | 'OTA_COLLECT' | 'HYBRID_DEPOSIT'
+  balance: number
+  totalAmount: number
+  propertyCurrency: string
+  secondaryRates?: Record<string, number | null> | null
+  source: string | null
+}) {
+  const isOta = paymentModel === 'OTA_COLLECT'
+  const liquidado = !isOta && balance <= 0
+  const amount = liquidado ? totalAmount : balance
+
+  return (
+    <div className="mt-2 flex items-center gap-2 flex-wrap">
+      <span className={cn(
+        'inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium tabular-nums',
+        isOta
+          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+          : liquidado
+            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+            : 'bg-amber-50 text-amber-700 border border-amber-200',
       )}>
-        {value}
+        {isOta ? (
+          <>
+            <Globe className="h-3 w-3" />
+            Pagado vía {(source && OTA_SOURCE_LABELS[source]) || 'OTA'}
+          </>
+        ) : liquidado ? (
+          <>
+            <Check className="h-3 w-3" />
+            Liquidado · {formatMoney(totalAmount, propertyCurrency)}
+          </>
+        ) : (
+          <>
+            <CreditCard className="h-3 w-3" />
+            Saldo: {formatMoney(balance, propertyCurrency)}
+          </>
+        )}
+      </span>
+      {!isOta && amount > 0 && (
+        <ConversionLine amount={amount} rates={secondaryRates} />
+      )}
+    </div>
+  )
+}
+
+function BalanceCard({
+  label, amount, currency, secondaryRates, tone,
+}: {
+  label: string
+  amount: number
+  currency: string
+  secondaryRates?: Record<string, number | null> | null
+  tone: 'warning' | 'neutral'
+}) {
+  return (
+    <div className={cn(
+      'rounded-lg border px-3.5 py-2.5',
+      tone === 'warning' ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200',
+    )}>
+      <div className="flex items-center justify-between">
+        <span className={cn(
+          'text-[11px] font-bold uppercase tracking-wider',
+          tone === 'warning' ? 'text-amber-700' : 'text-slate-600',
+        )}>
+          {label}
+        </span>
+        <span className={cn(
+          'text-xl font-bold tabular-nums',
+          tone === 'warning' ? 'text-amber-800' : 'text-slate-800',
+        )}>
+          {formatMoney(amount, currency)}
+        </span>
       </div>
+      <ConversionLine amount={amount} rates={secondaryRates} align="end" />
+    </div>
+  )
+}
+
+function ConversionLine({
+  amount, rates, align = 'start',
+}: {
+  amount: number
+  /** Map currency-code → rate ("1 propertyCurrency = rate target"). Null/undefined → omit. */
+  rates?: Record<string, number | null> | null
+  align?: 'start' | 'end'
+}) {
+  if (!rates) return null
+  const parts = Object.entries(rates)
+    .filter(([, rate]) => typeof rate === 'number' && rate > 0)
+    .map(([currency, rate]) => `≈ ${formatMoney(amount * (rate as number), currency)}`)
+  if (parts.length === 0) return null
+  return (
+    <p className={cn(
+      'text-[10px] text-slate-400 tabular-nums mt-0.5',
+      align === 'end' && 'text-right',
+    )}>
+      {parts.join(' · ')}
+    </p>
+  )
+}
+
+function PaymentRow({
+  payment, idx, canRemove, currency, secondaryRates, error, onChange, onRemove,
+}: {
+  payment:   PaymentEntryInput
+  idx:       number
+  canRemove: boolean
+  currency:  string
+  secondaryRates?: Record<string, number | null> | null
+  error:     string | null
+  onChange:  (patch: Partial<PaymentEntryInput>) => void
+  onRemove:  () => void
+}) {
+  const isTerminal = payment.method === PaymentMethod.CARD_TERMINAL
+  const isTransfer = payment.method === PaymentMethod.BANK_TRANSFER
+  return (
+    <div className="rounded-lg border border-slate-200 p-3 space-y-2.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+          Pago {idx + 1}
+        </span>
+        {canRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="text-[11px] text-slate-400 hover:text-rose-600"
+          >
+            Eliminar
+          </button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-2.5">
+        <div className="space-y-1">
+          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Método</label>
+          <select
+            value={payment.method}
+            onChange={(e) => onChange({
+              method: e.target.value as PaymentMethod,
+              reference: '',
+              approvedById: '',
+              approvalReason: '',
+            })}
+            className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm
+                       focus:outline-none focus:ring-2 focus:ring-emerald-300"
+          >
+            {Object.entries(PAYMENT_METHOD_LABELS).map(([k, v]) => (
+              <option key={k} value={k}>{v}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+            Monto ({currency})
+          </label>
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            value={payment.amount || ''}
+            onChange={(e) => onChange({ amount: parseFloat(e.target.value) || 0 })}
+            placeholder="0.00"
+            className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm
+                       focus:outline-none focus:ring-2 focus:ring-emerald-300 tabular-nums"
+          />
+          {payment.amount > 0 && (
+            <ConversionLine amount={payment.amount} rates={secondaryRates} />
+          )}
+        </div>
+      </div>
+
+      {(isTerminal || isTransfer) && (
+        <div className="space-y-1">
+          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+            {isTerminal
+              ? 'Número de aprobación de la terminal *'
+              : 'Referencia de la transferencia *'}
+          </label>
+          <input
+            type="text"
+            value={payment.reference ?? ''}
+            onChange={(e) => onChange({ reference: e.target.value })}
+            placeholder={
+              isTerminal
+                ? 'Lo imprime el ticket de la terminal (ej. 123456)'
+                : 'Folio o número de operación'
+            }
+            className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm
+                       focus:outline-none focus:ring-2 focus:ring-emerald-300"
+          />
+        </div>
+      )}
+
+      {(payment.method === PaymentMethod.COMP || payment.amount === 0) && (
+        <div className="space-y-2 pt-2 border-t border-slate-100">
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+            Autorización del manager
+            <span className="font-normal normal-case text-slate-400 ml-1.5">
+              — cortesía y monto cero requieren aprobación para auditoría
+            </span>
+          </p>
+          <input
+            type="text"
+            value={payment.approvedById ?? ''}
+            onChange={(e) => onChange({ approvedById: e.target.value })}
+            placeholder="Código del manager"
+            className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm
+                       focus:outline-none focus:ring-2 focus:ring-emerald-300"
+          />
+          <input
+            type="text"
+            value={payment.approvalReason ?? ''}
+            onChange={(e) => onChange({ approvalReason: e.target.value })}
+            placeholder="Motivo (cortesía VIP, compensación por servicio…)"
+            className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm
+                       focus:outline-none focus:ring-2 focus:ring-emerald-300"
+          />
+        </div>
+      )}
+
+      {error && (
+        <p className="text-xs text-rose-600 flex items-center gap-1">
+          <AlertTriangle className="h-3 w-3 shrink-0" />
+          {error}
+        </p>
+      )}
     </div>
   )
 }

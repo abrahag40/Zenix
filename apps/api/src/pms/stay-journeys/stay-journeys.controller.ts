@@ -95,4 +95,21 @@ export class StayJourneyController {
   ) {
     return this.service.moveExtensionRoom(segmentId, dto.newRoomId)
   }
+
+  /**
+   * POST /v1/stay-journeys/segments/:segmentId/cancel
+   *
+   * Cancela un segmento FUTURO de un journey (extensión que el guest, ya
+   * checked-in, decide no tomar). Difiere semánticamente del cancel-stay
+   * (que requiere stay no-checked-in) y del early-checkout (guest se va HOY).
+   * Ver service.cancelFutureSegment() para guards + justificación.
+   */
+  @Post('segments/:segmentId/cancel')
+  cancelFutureSegment(
+    @Param('segmentId') segmentId: string,
+    @CurrentUser() actor: JwtPayload,
+    @Body() body: { reason?: string },
+  ) {
+    return this.service.cancelFutureSegment(segmentId, actor.sub, body?.reason)
+  }
 }

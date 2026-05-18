@@ -77,7 +77,12 @@ export class StayJourneyService {
         // bookingRef vive en GuestStay (parent) — sin esto el sheet header
         // muestra UUID short como fallback porque journey segments NO la
         // tienen. Sprint CANCEL-ARCHIVE 2026-05-16 fix.
-        guestStay: { select: { bookingRef: true } },
+        // actualCheckin: necesario para propagar a TODOS los segments del
+        // journey. Sin esto, la extensión de un guest checked-in se renderiza
+        // como "UNCONFIRMED" → muestra botón "Confirmar check-in" erróneo
+        // (anti-pattern operacional: 5/5 PMS hacen extension auto-IN_HOUSE
+        // si el parent stay ya está checked-in). Sprint 2026-05-17.
+        guestStay: { select: { bookingRef: true, actualCheckin: true } },
         segments: {
           where: { status: { not: 'CANCELLED' } },
           include: {
@@ -334,11 +339,16 @@ export class StayJourneyService {
     })
 
     // Housekeeping bridge: the old room is vacated at activeSegment.checkOut.
-    // Create PENDING cleaning tasks for each unit in that room so housekeeping
-    // knows it needs servicing (room change, not checkout — guest is still in-house).
+    // Create PENDING cleaning tasks for each unit scheduled for the MOVE DAY
+    // (not booking day). Sprint 2026-05-17 fix — antes scheduledFor=today
+    // creaba la task en el grid del día equivocado si la extension era para
+    // un día futuro. Ahora la task aparece en el grid del día del move.
+    // Morning roster valida idempotencia, así que si la extension se booked
+    // hoy para hoy, ambos paths (eager + cron) NO duplican.
     await this.createRoomChangeTasks(
       journey.propertyId,
       activeSegment.roomId,
+      activeSegment.checkOut,
     )
 
     return newSegment
@@ -450,10 +460,11 @@ export class StayJourneyService {
     })
 
     // Housekeeping bridge: the old room is vacated at effectiveDate.
-    // Create PENDING cleaning tasks so housekeeping is notified of the room change.
+    // Sprint 2026-05-17 — scheduledFor ahora es la fecha real del move.
     await this.createRoomChangeTasks(
       journey.propertyId,
       activeSegment.roomId,
+      effectiveDate,
     )
 
     // Channel manager sync — fire-and-forget (CLAUDE.md §31).
@@ -670,11 +681,13 @@ export class StayJourneyService {
 
     // Housekeeping bridge: crear CleaningTask(PENDING) para cada habitación
     // liberada (estaba en algún segmento activo previo y NO aparece en ningún part).
+    // Split sucede INMEDIATAMENTE — scheduledFor=today (la habitación libera ahora).
     const previousRoomIds = new Set(activeSegments.map((s) => s.roomId))
     const newRoomIds = new Set(parts.map((p) => p.roomId))
+    const splitToday = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`)
     for (const roomId of previousRoomIds) {
       if (!newRoomIds.has(roomId)) {
-        await this.createRoomChangeTasks(journey.propertyId, roomId)
+        await this.createRoomChangeTasks(journey.propertyId, roomId, splitToday)
       }
     }
 
@@ -809,13 +822,189 @@ export class StayJourneyService {
     return updated
   }
 
+  /**
+   * Cancela un segmento FUTURO de un journey (típicamente una extensión que el
+   * huésped, ya checked-in, decide no tomar). NO confunde con cancelar la
+   * estadía entera ni con early checkout — el huésped sigue alojado en el
+   * segmento activo; solo se revoca la prolongación planeada.
+   *
+   * Justificación (Sprint EXT-CANCEL 2026-05-17, validado vs 5/5 PMS):
+   *   - Cancelar una extensión ≠ early checkout (Mews, Cloudbeds, Opera,
+   *     RR, LH consensus). El guest no se va HOY, simplemente revierte un
+   *     plan futuro a su fecha original.
+   *   - Forzar early checkout en este caso genera audit trail erróneo +
+   *     housekeeping task prematura + balance/refund incorrecto.
+   *
+   * Guards:
+   *   - El segmento debe estar ACTIVE (no ya CANCELLED ni COMPLETED).
+   *   - El segmento.checkIn debe ser estrictamente futuro (no es el actual).
+   *   - El journey debe tener al menos otro segmento ACTIVE (no podemos
+   *     dejarlo huérfano — cancelar el ÚNICO segmento = cancelar la stay
+   *     entera, que tiene su propio flujo con guards distintos).
+   *   - El stay parent NO debe estar cancelled/no-show/checked-out.
+   *
+   * Efectos:
+   *   1. Segment.status = 'CANCELLED'
+   *   2. Journey.journeyCheckOut = max(checkOut de segmentos activos restantes)
+   *   3. GuestStay.scheduledCheckout = ídem (la fecha "oficial" para reports)
+   *   4. Availability: liberar las noches del segmento cancelado (Channex push)
+   *   5. Audit log + SSE
+   */
+  async cancelFutureSegment(segmentId: string, actorId: string, reason?: string) {
+    const segment = await this.prisma.staySegment.findUnique({
+      where: { id: segmentId },
+      include: {
+        journey: {
+          include: {
+            segments: { orderBy: { checkIn: 'asc' } },
+            guestStay: {
+              select: {
+                id: true,
+                cancelledAt: true,
+                noShowAt: true,
+                actualCheckout: true,
+              },
+            },
+          },
+        },
+      },
+    })
+    if (!segment) throw new NotFoundException('Segmento no encontrado')
+
+    // Stay-level guards
+    const stay = segment.journey.guestStay
+    if (!stay) throw new ConflictException('Segmento sin estadía asociada — estado inconsistente')
+    if (stay.cancelledAt) {
+      throw new ConflictException('La estadía ya está cancelada')
+    }
+    if (stay.noShowAt) {
+      throw new ConflictException('La estadía está marcada como no-show')
+    }
+    if (stay.actualCheckout) {
+      throw new ConflictException('La estadía ya hizo checkout')
+    }
+
+    // Segment-level guards
+    if (segment.status !== 'ACTIVE') {
+      throw new ConflictException(`Solo se puede cancelar un segmento ACTIVE (estado actual: ${segment.status})`)
+    }
+    const now = new Date()
+    if (segment.checkIn <= now) {
+      throw new BadRequestException(
+        'Solo se puede cancelar un segmento FUTURO. Este segmento ya está en curso — para terminarlo antes usa checkout anticipado.',
+      )
+    }
+
+    // Verificar que NO sea el único segmento activo del journey
+    const otherActive = segment.journey.segments.filter(
+      (s) => s.id !== segmentId && s.status === 'ACTIVE',
+    )
+    if (otherActive.length === 0) {
+      throw new ConflictException(
+        'No se puede cancelar el único segmento activo del journey — cancela la estadía completa en su lugar',
+      )
+    }
+
+    // Calcular la nueva fecha de checkout del journey (el max checkOut entre los segmentos activos restantes)
+    const newJourneyCheckOut = otherActive.reduce(
+      (max, s) => (s.checkOut > max ? s.checkOut : max),
+      new Date(0),
+    )
+
+    await this.prisma.$transaction(async (tx) => {
+      // 1. Cancelar el segmento
+      await tx.staySegment.update({
+        where: { id: segmentId },
+        data: { status: 'CANCELLED' },
+      })
+
+      // 2. Revertir journey.journeyCheckOut a la nueva fecha máxima
+      await tx.stayJourney.update({
+        where: { id: segment.journey.id },
+        data: { journeyCheckOut: newJourneyCheckOut },
+      })
+
+      // 3. Sincronizar GuestStay.scheduledCheckout (fuente de verdad fiscal)
+      await tx.guestStay.update({
+        where: { id: stay.id },
+        data: { scheduledCheckout: newJourneyCheckOut },
+      })
+
+      // 4. Audit trail — usamos enum existente CANCELLED + subType en payload
+      // (en lugar de agregar EXTENSION_CANCELLED al enum que requeriría migration).
+      // El payload.subType permite filtrar/distinguir en reportes futuros.
+      await tx.stayJourneyEvent.create({
+        data: {
+          journeyId: segment.journey.id,
+          eventType: 'CANCELLED',
+          actorId,
+          payload: {
+            subType: 'EXTENSION_CANCELLED',
+            segmentId,
+            previousCheckOut: segment.checkOut.toISOString(),
+            newJourneyCheckOut: newJourneyCheckOut.toISOString(),
+            reason: reason ?? null,
+            roomId: segment.roomId,
+          },
+        },
+      })
+    })
+
+    // 5. Availability: liberar las noches (best-effort fire-and-forget)
+    void this.availability.notifyReservation({
+      roomId: segment.roomId,
+      from: segment.checkIn,
+      to: segment.checkOut,
+      reason: 'CANCELLATION',
+      traceId: `ext-cancel-${segmentId}-${Date.now()}`,
+    })
+
+    // 6. Emit SSE para refresh del calendar
+    this.events.emit('stay.extended', {
+      journeyId: segment.journey.id,
+      roomId: segment.roomId,
+      newCheckOut: newJourneyCheckOut,
+    })
+
+    this.logger.log(
+      `[CancelExtension] segment=${segmentId} journey=${segment.journey.id} ` +
+      `newCheckOut=${newJourneyCheckOut.toISOString()} actor=${actorId}`,
+    )
+
+    return {
+      segmentId,
+      journeyId: segment.journey.id,
+      newJourneyCheckOut,
+    }
+  }
+
   // ── Private helpers ──────────────────────────────────────────────────────────
 
   /** Creates PENDING cleaning tasks for all units in a vacated room (room-change bridge
    *  to housekeeping) and emits `task:planned` SSE so the dashboard updates immediately. */
+  /**
+   * Crea CleaningTask(PENDING) por cada unit de la habitación que será desalojada
+   * por una room change (extension new room / mid-stay move / split).
+   *
+   * Sprint 2026-05-17 fix: `scheduledFor` ahora es REQUERIDO (antes hardcoded
+   * a "today" del booking). Bug operacional: si la extension se booked hoy
+   * pero el move sucede en 3 días, la tarea aparecía en grid de hoy aunque
+   * la habitación seguía ocupada. Ahora cada caller especifica la fecha
+   * correcta del move (= la fecha en que la habitación queda libre).
+   *
+   * Idempotencia: el caller no debería invocar dos veces para el mismo
+   * (roomId, scheduledFor). El morning roster sí valida idempotencia antes
+   * de crear, así que el doble path eager + cron coexiste sin duplicar.
+   *
+   * @param propertyId  Propiedad — para SSE emit
+   * @param roomId      Habitación que será desalojada (origen del move)
+   * @param scheduledFor Día (UTC midnight) en que la habitación queda libre
+   *                    y la limpieza debe aparecer en el grid del staff.
+   */
   private async createRoomChangeTasks(
     propertyId: string,
     roomId: string,
+    scheduledFor: Date,
   ): Promise<void> {
     const units = await this.prisma.unit.findMany({
       where: { roomId },
@@ -824,16 +1013,34 @@ export class StayJourneyService {
 
     if (units.length === 0) return
 
-    const today = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`)
+    // Normalizar a UTC midnight para que la idempotencia del morning roster
+    // (que también compara contra UTC midnight) funcione correctamente.
+    const scheduledForDay = new Date(
+      `${scheduledFor.toISOString().slice(0, 10)}T00:00:00.000Z`,
+    )
+
     const newTaskIds: string[] = []
     for (const unit of units) {
+      // Idempotencia local: si ya existe task para esta unit+día, NO duplicar.
+      // (Caso: doble call accidental, o el cron ya pre-pobló y ahora una
+      // nueva extension se confirma para el mismo día.)
+      const existing = await this.prisma.cleaningTask.findFirst({
+        where: {
+          unitId: unit.id,
+          scheduledFor: scheduledForDay,
+          status: { notIn: ['CANCELLED'] },
+        },
+        select: { id: true },
+      })
+      if (existing) continue
+
       const task = await this.prisma.cleaningTask.create({
         data: {
           unitId: unit.id,
           taskType: 'CLEANING',
           status: 'PENDING',
           priority: 'MEDIUM',
-          scheduledFor: today,
+          scheduledFor: scheduledForDay,
         },
       })
       newTaskIds.push(task.id)
@@ -849,7 +1056,9 @@ export class StayJourneyService {
       )
     }
 
-    this.notifications.emit(propertyId, 'task:planned', { roomId })
+    if (newTaskIds.length > 0) {
+      this.notifications.emit(propertyId, 'task:planned', { roomId })
+    }
   }
 
   private getActiveSegment(segments: ActiveSegment[]): ActiveSegment {

@@ -6,7 +6,7 @@ import { useTimelineStore } from '../../stores/timeline.store'
 import { TIMELINE } from '../../utils/timeline.constants'
 import { getStayStatus } from '../../utils/timeline.utils'
 import { useDragDrop } from '../../hooks/useDragDrop'
-import { useGuestStays, useCreateGuestStay, useCheckout, useMoveRoom, useSplitMidStay, useSplitReservation, useMarkNoShow, useRevertNoShow, useRoomReadinessTasks, useExtendStay, useExtendSameRoom, useExtendNewRoom, useMoveExtensionRoom, useConfirmCheckin, useCancelStay, useCancelledTodayCount } from '../../hooks/useGuestStays'
+import { useGuestStays, useCreateGuestStay, useCheckout, useMoveRoom, useSplitMidStay, useSplitReservation, useMarkNoShow, useRevertNoShow, useRoomReadinessTasks, useExtendStay, useExtendSameRoom, useExtendNewRoom, useMoveExtensionRoom, useConfirmCheckin, useCancelStay, useCancelExtensionSegment, useCancelledTodayCount } from '../../hooks/useGuestStays'
 import { guestStaysApi } from '../../api/guest-stays.api'
 import { useStayJourneys } from '../../hooks/useStayJourneys'
 import { useBlocks, useCreateBlock, useReleaseBlock, useCancelBlock } from '../../hooks/useBlocks'
@@ -253,6 +253,7 @@ export function TimelineScheduler() {
   const markNoShowMut   = useMarkNoShow(PROPERTY_ID)
   const revertNoShowMut = useRevertNoShow(PROPERTY_ID)
   const cancelStayMut   = useCancelStay(PROPERTY_ID)
+  const cancelExtMut    = useCancelExtensionSegment(PROPERTY_ID)
   const { potentialNoShowWarningHour, noShowCutoffHour } = usePropertySettings()
 
   const { journeyBlocks: rawJourneyBlocks } = useStayJourneys(PROPERTY_ID, dataWindow.from, dataWindow.to)
@@ -408,6 +409,24 @@ export function TimelineScheduler() {
     setActiveJourneyId(id)
     if (id === null) closeSheet()
   }, [closeSheet])
+
+  // ── Perf: memo de la prop `stay` pasada al BookingDetailSheet. ──────────
+  // Sin memo, el spread `{ ...raw, roomNumber }` creaba un objeto nuevo en
+  // cada render del TimelineScheduler (scroll, SSE, hover...). Eso disparaba
+  // re-effects en el sheet (useSoftLock acquire/release, queries...) y la
+  // animación Radix Sheet acumulaba lag al abrir/cerrar varias reservas
+  // seguidas. Con esta memo, la prop solo cambia si cambió la reserva
+  // seleccionada o su roomNumber resuelto.
+  const sheetStay = useMemo(() => {
+    if (!sheetStayId) return null
+    const raw = stays.find(s => s.id === sheetStayId)
+            ?? journeyBlocks.find(s => s.id === sheetStayId)
+            ?? null
+    if (!raw) return null
+    if (raw.roomNumber) return raw
+    const roomRow = flatRows.find(r => r.id === raw.roomId && r.type === 'room')
+    return { ...raw, roomNumber: roomRow?.room?.number }
+  }, [sheetStayId, stays, journeyBlocks, flatRows])
 
   // ─── Dialogs ────────────────────────────────────────────────
   const [checkInDialog, setCheckInDialog] = useState<{
@@ -1124,13 +1143,7 @@ export function TimelineScheduler() {
       )}
 
       <BookingDetailSheet
-        stay={(() => {
-          const raw = stays.find(s => s.id === sheetStayId) ?? journeyBlocks.find(s => s.id === sheetStayId) ?? null
-          if (!raw) return null
-          if (raw.roomNumber) return raw
-          const roomRow = flatRows.find(r => r.id === raw.roomId && r.type === 'room')
-          return { ...raw, roomNumber: roomRow?.room?.number }
-        })()}
+        stay={sheetStay}
         open={sheetOpen}
         onClose={() => {
           setActiveJourneyId(null)
@@ -1178,10 +1191,21 @@ export function TimelineScheduler() {
         }}
       />
 
-      {/* ─── Confirm check-in dialog (Sprint 8) ─────────────── */}
+      {/* ─── Confirm check-in dialog (Sprint 8 · CHECK-IN-α §5) ─────────── */}
       {checkinDialog && (() => {
         const raw = [...stays, ...journeyBlocks].find(s => s.id === checkinDialog.stayId) ?? null
         if (!raw) return null
+        // Guard: si la stay ya tiene actualCheckin la cache local fue refrescada
+        // (SSE checkin.confirmed) entre el momento del click y este render.
+        // No abrimos el dialog — auto-cierre + toast informativo. NN/g H1:
+        // estado del sistema siempre visible. CLAUDE.md §99 sugerido.
+        if (raw.actualCheckin) {
+          setTimeout(() => {
+            toast('Esta reserva ya está checked-in.', { icon: 'ℹ️' })
+            setCheckinDialog(null)
+          }, 0)
+          return null
+        }
         const roomRow = flatRows.find(r => r.id === raw.roomId && r.type === 'room')
         const stay = raw.roomNumber ? raw : { ...raw, roomNumber: roomRow?.room?.number }
         return (
@@ -1191,8 +1215,12 @@ export function TimelineScheduler() {
             open={true}
             onClose={() => setCheckinDialog(null)}
             onConfirm={(data) => {
+              // Journey segments tienen id=segmentId; el backend confirmCheckin
+              // opera sobre GuestStay parent. Sprint CHECK-IN-α fix Amelia
+              // Robinson (seg-tul-205-amelia-2 → guestStayId).
+              const realStayId = stay.guestStayId ?? checkinDialog.stayId
               confirmCheckinMut.mutate(
-                { stayId: checkinDialog.stayId, data },
+                { stayId: realStayId, data },
                 { onSettled: () => setCheckinDialog(null) },
               )
             }}
@@ -1378,22 +1406,48 @@ export function TimelineScheduler() {
         />
       )}
 
-      {/* Cancel-Archive dialog (Sprint 2026-05-16) */}
+      {/* Cancel-Archive dialog (Sprint 2026-05-16) +
+          Cancel-Extension (Sprint 2026-05-17): si el bloque es un segmento
+          FUTURO de un journey con checkin ya hecho, NO es una cancelación
+          de stay completa — es revocar una extensión planeada. Routing
+          condicional al endpoint correcto (cancelExtensionSegment vs cancelStay).
+          Justificación: 5/5 PMS (Mews/Cloudbeds/Opera/RR/LH) tratan estos
+          casos como operaciones distintas; forzar early checkout aquí es
+          un anti-pattern que genera audit erróneo + housekeeping prematuro. */}
       {cancelDialog && (() => {
         const stay = stays.find(s => s.id === cancelDialog.stayId)
           ?? journeyBlocks.find(s => s.id === cancelDialog.stayId)
         if (!stay) return null
         const roomRow = flatRows.find(r => r.id === stay.roomId && r.type === 'room')
+
+        // Detección: ¿es un segmento de extensión futuro? Criterios:
+        //   - tiene segmentId (es journey block, no stay standalone)
+        //   - segment.checkIn > now (futuro, guest no ha entrado a este tramo)
+        //   - NO es el primer segmento (si es first y futuro, es la reserva
+        //     original sin checkin → cancel-stay normal aplica)
+        const now = new Date()
+        const isFutureExtensionSegment = !!stay.segmentId
+          && stay.checkIn > now
+          && !stay.isFirstSegment
+        const isPending = isFutureExtensionSegment ? cancelExtMut.isPending : cancelStayMut.isPending
+
         return (
           <CancelReservationDialog
             stay={{ ...stay, roomNumber: stay.roomNumber ?? roomRow?.room?.number }}
-            isPending={cancelStayMut.isPending}
+            isPending={isPending}
             onClose={() => setCancelDialog(null)}
             onConfirm={(data) => {
-              cancelStayMut.mutate(
-                { stayId: stay.guestStayId ?? stay.id, data },
-                { onSettled: () => setCancelDialog(null) },
-              )
+              if (isFutureExtensionSegment && stay.segmentId) {
+                cancelExtMut.mutate(
+                  { segmentId: stay.segmentId, reason: data.reason },
+                  { onSettled: () => setCancelDialog(null) },
+                )
+              } else {
+                cancelStayMut.mutate(
+                  { stayId: stay.guestStayId ?? stay.id, data },
+                  { onSettled: () => setCancelDialog(null) },
+                )
+              }
             }}
           />
         )

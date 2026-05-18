@@ -34,3 +34,6 @@ prisma/migrations/dev.db
 .expo
 android
 ios
+apps/web/.claude/
+.claire/
+.claude/

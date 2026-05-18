@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import React, { useCallback, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import toast from 'react-hot-toast'
 import { useSoftLock } from '@/hooks/useSoftLock'
 import { useShakeOnInvalid } from '@/hooks/useShakeOnInvalid'
 import { useMaintenanceTickets } from '../../../maintenance/hooks/useMaintenanceTickets'
+import { Dialog as DialogPrimitive } from 'radix-ui'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
@@ -28,6 +30,10 @@ import {
   AlertCircle,
   Copy,
   Check,
+  Ban,
+  Pencil,
+  Camera,
+  Upload,
 } from 'lucide-react'
 
 import { format, differenceInDays, differenceInHours, startOfDay } from 'date-fns'
@@ -41,8 +47,21 @@ import {
 
 import { getStayStatus } from '../../utils/timeline.utils'
 import { PaymentStatusBadge } from '../shared/PaymentStatusBadge'
-import { useLogContact, useChargeNoShow, useWaiveNoShow, useEarlyCheckout } from '../../hooks/useGuestStays'
+import { useLogContact, useChargeNoShow, useWaiveNoShow, useEarlyCheckout, useUpdateGuestStay, useStayPayments, useVoidPayment, useRegisterPayment, useStayContext } from '../../hooks/useGuestStays'
+import { useStayUpdatedSSE } from '../../hooks/useStayUpdatedSSE'
 import { EarlyCheckoutDialog } from './EarlyCheckoutDialog'
+import { InlineEditField } from '../shared/InlineEditField'
+import { ReservationNotesThread } from '../shared/ReservationNotesThread'
+import { ChangeConfirmDialog } from '../shared/ChangeConfirmDialog'
+import { VoidPaymentDialog } from '../shared/VoidPaymentDialog'
+import { RegisterPaymentDialog } from '../shared/RegisterPaymentDialog'
+import { PaymentHeroCard } from '../shared/PaymentHeroCard'
+import { PaymentMovementsList } from '../shared/PaymentMovementsList'
+import { EditableSectionHeader } from '../shared/EditableSectionHeader'
+import { DialogActions } from '../shared/DialogActions'
+import type { PaymentLogDto } from '../../api/guest-stays.api'
+import { useAuthStore } from '@/store/auth'
+import { useQueryClient } from '@tanstack/react-query'
 
 import type { GuestStayBlock } from '../../types/timeline.types'
 
@@ -139,6 +158,293 @@ function CopyableId({ value, short = false }: { value: string; short?: boolean }
   )
 }
 
+// ── DocumentPhotoCard — Sprint EDIT-RESERVATION iter 5 ─────────────────────
+// Thumbnail de la foto del documento (captura en check-in §108). Click → lightbox.
+// Si no hay foto, render compacto invitando a capturarla (legacy fallback antes
+// que v1.0.3 IMG migre a S3 con upload background). Visa CRR §5.9.2 evidence.
+
+function DocumentPhotoCard({
+  photoUrl, documentType, guestName, onUploadRequest, canUpload,
+}: {
+  photoUrl: string | null | undefined
+  documentType: string | null | undefined
+  guestName: string
+  /** Abre el dialog de upload — el parent maneja la mutation. */
+  onUploadRequest: () => void
+  /** False si la reserva está locked (cancelled/no-show post-checkout audit). */
+  canUpload: boolean
+}) {
+  const [lightboxOpen, setLightboxOpen] = useState(false)
+
+  if (!photoUrl) {
+    // Estado vacío — clickable si canUpload (pre-check-in capture allowed).
+    // Apple HIG signifier: dashed border + hover affordance = "click me to add".
+    if (canUpload) {
+      return (
+        <button
+          type="button"
+          onClick={onUploadRequest}
+          aria-label={`Cargar foto del documento de ${guestName}`}
+          className="w-full rounded-lg border border-dashed border-slate-300 bg-slate-50/60 hover:bg-emerald-50/60 hover:border-emerald-400 px-3 py-2.5 flex items-center gap-2.5 transition-colors group text-left"
+        >
+          <div className="w-10 h-10 rounded-md bg-white border border-slate-200 group-hover:border-emerald-300 flex items-center justify-center shrink-0 transition-colors">
+            <Camera className="h-4 w-4 text-slate-400 group-hover:text-emerald-600 transition-colors" />
+          </div>
+          <div className="text-[11px] leading-snug flex-1 min-w-0">
+            <p className="font-medium text-slate-700 group-hover:text-emerald-800 transition-colors">
+              Cargar foto del documento
+            </p>
+            <p className="text-slate-400 group-hover:text-emerald-600/80 transition-colors">
+              Click para tomar o seleccionar archivo · INE, pasaporte, licencia
+            </p>
+          </div>
+          <Upload className="h-3.5 w-3.5 text-slate-300 group-hover:text-emerald-600 transition-colors shrink-0" />
+        </button>
+      )
+    }
+    // Locked — info only, sin click action.
+    return (
+      <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-3 py-2.5 flex items-center gap-2.5">
+        <div className="w-10 h-10 rounded-md bg-white border border-slate-200 flex items-center justify-center shrink-0">
+          <FileText className="h-4 w-4 text-slate-300" />
+        </div>
+        <div className="text-[11px] text-slate-500 leading-snug">
+          <p className="font-medium text-slate-600">Sin foto del documento</p>
+          <p className="text-slate-400">Documento bloqueado por audit fiscal.</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => setLightboxOpen(true)}
+          aria-label={`Ver foto del documento de ${guestName}`}
+          className="relative w-12 h-12 rounded-md overflow-hidden border border-slate-200 hover:border-emerald-400 transition-colors shrink-0 group bg-slate-100"
+        >
+          <img
+            src={photoUrl}
+            alt={`Documento de ${guestName}`}
+            className="w-full h-full object-cover"
+            loading="lazy"
+          />
+          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors flex items-center justify-center">
+            <ExternalLink className="h-3 w-3 text-white opacity-0 group-hover:opacity-100 drop-shadow" />
+          </div>
+        </button>
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+            Foto del documento
+          </p>
+          <p className="text-xs text-slate-700 font-medium truncate mt-0.5">
+            {documentType ? `${documentType.toUpperCase()} verificado` : 'Identificación capturada'}
+          </p>
+          <div className="flex items-center gap-2 mt-0.5">
+            <button
+              type="button"
+              onClick={() => setLightboxOpen(true)}
+              className="text-[10px] text-emerald-700 hover:text-emerald-900 font-medium"
+            >
+              Ver en tamaño real →
+            </button>
+            {canUpload && (
+              <>
+                <span className="text-slate-300 text-[10px]">·</span>
+                <button
+                  type="button"
+                  onClick={onUploadRequest}
+                  className="text-[10px] text-slate-500 hover:text-emerald-700 font-medium"
+                >
+                  Reemplazar
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Lightbox fullscreen */}
+      {lightboxOpen && (
+        <div
+          className="fixed inset-0 z-[80] bg-black/85 flex items-center justify-center p-6 cursor-zoom-out"
+          onClick={() => setLightboxOpen(false)}
+          onKeyDown={(e) => e.key === 'Escape' && setLightboxOpen(false)}
+          tabIndex={-1}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Vista ampliada del documento"
+        >
+          <button
+            type="button"
+            onClick={() => setLightboxOpen(false)}
+            aria-label="Cerrar"
+            className="absolute top-4 right-4 text-white/80 hover:text-white p-2 rounded-full bg-white/10 hover:bg-white/20"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <img
+            src={photoUrl}
+            alt={`Documento de ${guestName} — vista ampliada`}
+            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+    </>
+  )
+}
+
+// ── UploadDocumentPhotoDialog ──────────────────────────────────────────────
+// Modal nested-over-sheet usando Radix Dialog primitives (§116). File picker
+// nativo + preview + confirm. Data URI base64 (mismo patrón ConfirmCheckin
+// §108) — migración a S3 background en v1.0.4 IMG.
+
+function UploadDocumentPhotoDialog({
+  open, onOpenChange, existingPhotoUrl, guestName, onSave, isSaving,
+}: {
+  open: boolean
+  onOpenChange: (next: boolean) => void
+  existingPhotoUrl: string | null | undefined
+  guestName: string
+  onSave: (dataUrl: string) => Promise<void> | void
+  isSaving: boolean
+}) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [fileName, setFileName] = useState<string | null>(null)
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null)
+
+  // Reset al abrir/cerrar — no fugamos preview entre sesiones.
+  React.useEffect(() => {
+    if (!open) { setPreviewUrl(null); setFileName(null) }
+  }, [open])
+
+  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('La foto excede 5 MB. Toma una nueva foto de menor calidad.')
+      e.target.value = ''
+      return
+    }
+    if (!file.type.startsWith('image/')) {
+      toast.error('Selecciona una imagen (JPG, PNG, HEIC).')
+      e.target.value = ''
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : null
+      setPreviewUrl(result)
+      setFileName(file.name)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  async function handleConfirm() {
+    if (!previewUrl || isSaving) return
+    await onSave(previewUrl)
+    onOpenChange(false)
+  }
+
+  const displayUrl = previewUrl ?? existingPhotoUrl ?? null
+
+  return (
+    <DialogPrimitive.Root open={open} onOpenChange={(next) => { if (!isSaving) onOpenChange(next) }}>
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay className="fixed inset-0 z-[90] bg-black/40 backdrop-blur-sm" />
+        <DialogPrimitive.Content
+          className="fixed left-1/2 top-1/2 z-[91] w-[92vw] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl bg-white shadow-2xl border border-slate-200 p-5"
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
+          <div className="flex items-start justify-between gap-3 mb-3">
+            <div>
+              <DialogPrimitive.Title className="text-sm font-semibold text-slate-900">
+                Foto del documento
+              </DialogPrimitive.Title>
+              <DialogPrimitive.Description className="text-[11px] text-slate-500 mt-0.5">
+                {guestName} · INE, pasaporte o licencia
+              </DialogPrimitive.Description>
+            </div>
+            <DialogPrimitive.Close
+              disabled={isSaving}
+              className="text-slate-400 hover:text-slate-600 p-1 -m-1 rounded disabled:opacity-50"
+              aria-label="Cerrar"
+            >
+              <X className="h-4 w-4" />
+            </DialogPrimitive.Close>
+          </div>
+
+          {/* Preview area */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50 overflow-hidden mb-3 aspect-[4/3] flex items-center justify-center">
+            {displayUrl ? (
+              // eslint-disable-next-line jsx-a11y/img-redundant-alt
+              <img
+                src={displayUrl}
+                alt="Vista previa del documento"
+                className="max-w-full max-h-full object-contain"
+              />
+            ) : (
+              <div className="text-center px-4">
+                <Camera className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+                <p className="text-[11px] text-slate-500">
+                  Aún no has seleccionado una foto
+                </p>
+              </div>
+            )}
+          </div>
+
+          {fileName && (
+            <p className="text-[10px] text-slate-500 truncate mb-2 font-mono">
+              {fileName}
+            </p>
+          )}
+
+          {/* File input hidden — botón visible lo dispara */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={handleFile}
+            className="hidden"
+            disabled={isSaving}
+          />
+
+          <div className="flex flex-col gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isSaving}
+              className="w-full text-xs h-9"
+            >
+              <Camera className="h-3.5 w-3.5 mr-1.5" />
+              {previewUrl ? 'Elegir otra foto' : existingPhotoUrl ? 'Reemplazar foto' : 'Tomar / elegir foto'}
+            </Button>
+
+            <DialogActions
+              onCancel={() => onOpenChange(false)}
+              onConfirm={() => void handleConfirm()}
+              confirmLabel="Guardar foto"
+              isPending={isSaving}
+              confirmDisabled={!previewUrl}
+              className="pt-1"
+            />
+          </div>
+
+          <p className="text-[10px] text-slate-400 mt-3 leading-snug">
+            Máximo 5 MB · JPG/PNG/HEIC · Evidencia chargeback Visa CRR §5.9.2
+          </p>
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
+  )
+}
+
 export function BookingDetailSheet({
   stay,
   open,
@@ -184,6 +490,257 @@ export function BookingDetailSheet({
     : []
   const [showEarlyCheckout, setShowEarlyCheckout] = useState(false)
   const earlyCheckoutMutation = useEarlyCheckout(propertyId ?? '')
+
+  // Sprint EDIT-RESERVATION — hook único para todas las ediciones inline.
+  // Backend aplica matriz phase×campo + audit log. El frontend solo dispatcha.
+  const updateMut    = useUpdateGuestStay(propertyId ?? '')
+  const currentUser  = useAuthStore((s) => s.user)
+  const currentUserId = currentUser?.id ?? currentUser?.email ?? ''
+  const realStayId   = stay?.guestStayId ?? stay?.id ?? null
+  const qc           = useQueryClient()
+
+  // Helper para guardar 1 campo. Mantiene el wrapper limpio en cada
+  // InlineEditField. Lanza si falla → el componente entra en state error.
+  const saveField = async (field: string, newValue: string | number) => {
+    if (!realStayId) return
+    await updateMut.mutateAsync({ stayId: realStayId, patch: { [field]: newValue } })
+  }
+
+  // ── ChangeConfirmDialog state: pax + rate edits ─────────────────────────
+  // Pattern: el InlineEditField llama a confirmBeforeSave; abrimos el dialog
+  // y resolvemos vía promesa. La promesa se resuelve true→continúa save,
+  // false→cancela edit.
+  type ConfirmContext = {
+    field: 'paxCount' | 'ratePerNight'
+    before: string
+    after: string
+    rawAfter: string
+    requireApproval: boolean
+    derivedSummary?: string
+  }
+  const [confirmCtx, setConfirmCtx] = useState<ConfirmContext | null>(null)
+  const [confirmResolver, setConfirmResolver] = useState<((v: boolean) => void) | null>(null)
+
+  // ── Tab control ─────────────────────────────────────────────────────────
+  // Controlled tab → permite ocultar el footer de acciones en la tab Notas
+  // (la barra de acciones destructivas no aporta valor en contexto del chat).
+  const [activeTab, setActiveTab] = useState<'stay' | 'payment' | 'guest' | 'notes'>('stay')
+
+  // Phase de la stay — usada por los 3 tabs editables para decidir guards.
+  const stayPhase: 'PRE_CHECKIN' | 'POST_CHECKIN' | 'POST_CHECKOUT' | 'CANCELLED' | 'NOSHOW' =
+    stay?.cancelledAt    ? 'CANCELLED'
+    : stay?.noShowAt     ? 'NOSHOW'
+    : stay?.actualCheckout ? 'POST_CHECKOUT'
+    : stay?.actualCheckin  ? 'POST_CHECKIN'
+    : 'PRE_CHECKIN'
+  const isStayLockedHard = stayPhase === 'CANCELLED' || stayPhase === 'NOSHOW'
+
+  // ── Estadía tab bulk-edit ───────────────────────────────────────────────
+  type StayDraft = { paxCount: number; arrivalNotes: string }
+  const emptyStayDraft = (): StayDraft => ({
+    paxCount:     stay?.paxCount    ?? 1,
+    arrivalNotes: stay?.arrivalNotes ?? '',
+  })
+  const [stayEditMode, setStayEditMode] = useState(false)
+  const [stayDraft,    setStayDraft]    = useState<StayDraft>(emptyStayDraft)
+  const [stayErrors,   setStayErrors]   = useState<Partial<Record<keyof StayDraft, string>>>({})
+  const enterStayEdit = () => { setStayDraft(emptyStayDraft()); setStayErrors({}); setStayEditMode(true) }
+  const cancelStayEdit = () => { setStayEditMode(false); setStayErrors({}) }
+  const saveStayEdit = async () => {
+    if (!stay || !realStayId) return
+    const errors: Partial<Record<keyof StayDraft, string>> = {}
+    if (!Number.isFinite(stayDraft.paxCount) || stayDraft.paxCount < 1) errors.paxCount = 'Mínimo 1'
+    if (stayDraft.paxCount > 20) errors.paxCount = 'Máximo 20'
+    if (Object.keys(errors).length > 0) { setStayErrors(errors); return }
+
+    const orig = emptyStayDraft()
+    const patch: Partial<StayDraft> = {}
+    if (stayDraft.paxCount !== orig.paxCount) patch.paxCount = stayDraft.paxCount
+    if (stayDraft.arrivalNotes.trim() !== (orig.arrivalNotes || '').trim()) {
+      patch.arrivalNotes = stayDraft.arrivalNotes.trim()
+    }
+    if (Object.keys(patch).length === 0) { setStayEditMode(false); return }
+
+    // paxCount post-checkin → abrimos ChangeConfirmDialog para confirmar
+    // con diff visible + razón (opcional, audit log). Sin approval bloqueante
+    // del manager (política Cloudbeds/Mews — iter 6).
+    if (patch.paxCount !== undefined && stayPhase === 'POST_CHECKIN') {
+      const orig = stay.paxCount
+      setConfirmCtx({
+        field: 'paxCount',
+        before: `${orig} pax`,
+        after:  `${patch.paxCount} pax`,
+        rawAfter: String(patch.paxCount),
+        requireApproval: false,
+        derivedSummary: 'Cambio post-checkin — queda registrado en audit trail.',
+      })
+      setConfirmResolver(() => (confirmed: boolean) => {
+        if (confirmed) setStayEditMode(false)
+      })
+      return
+    }
+
+    try {
+      await updateMut.mutateAsync({ stayId: realStayId, patch })
+      setStayEditMode(false)
+    } catch { /* hook ya muestra toast.error */ }
+  }
+
+  // ── Pago tab bulk-edit ──────────────────────────────────────────────────
+  type PaymentDraft = { ratePerNight: number }
+  const emptyPaymentDraft = (): PaymentDraft => ({
+    ratePerNight: Number(stay?.ratePerNight ?? 0),
+  })
+  const [paymentEditMode, setPaymentEditMode] = useState(false)
+  const [paymentDraft,    setPaymentDraft]    = useState<PaymentDraft>(emptyPaymentDraft)
+  const [paymentErrors,   setPaymentErrors]   = useState<Partial<Record<keyof PaymentDraft, string>>>({})
+  const enterPaymentEdit = () => { setPaymentDraft(emptyPaymentDraft()); setPaymentErrors({}); setPaymentEditMode(true) }
+  const cancelPaymentEdit = () => { setPaymentEditMode(false); setPaymentErrors({}) }
+  const savePaymentEdit = async () => {
+    if (!stay || !realStayId) return
+    const errors: Partial<Record<keyof PaymentDraft, string>> = {}
+    if (!Number.isFinite(paymentDraft.ratePerNight) || paymentDraft.ratePerNight < 0) {
+      errors.ratePerNight = 'Tarifa inválida'
+    }
+    if (Object.keys(errors).length > 0) { setPaymentErrors(errors); return }
+
+    const orig = emptyPaymentDraft()
+    if (paymentDraft.ratePerNight === orig.ratePerNight) {
+      setPaymentEditMode(false); return
+    }
+
+    // Post-checkout: bloqueado (CFDI lock) — backend lo rechazará pero
+    // mejor short-circuit aquí con mensaje claro.
+    if (stayPhase === 'POST_CHECKOUT') {
+      toast.error('Reserva cerrada — usar nota de crédito para correcciones monetarias')
+      return
+    }
+
+    // Post-checkin: abrir ChangeConfirmDialog con diff + razón (opcional).
+    // Sin approval bloqueante del manager (política Cloudbeds/Mews iter 6).
+    // El cambio queda registrado en GuestStayLog para auditoría posterior.
+    if (stayPhase === 'POST_CHECKIN') {
+      const newTotal = paymentDraft.ratePerNight * nights
+      const oldTotal = orig.ratePerNight * nights
+      const delta = newTotal - oldTotal
+      setConfirmCtx({
+        field: 'ratePerNight',
+        before: `${stay.currency} ${orig.ratePerNight.toFixed(2)}`,
+        after:  `${stay.currency} ${paymentDraft.ratePerNight.toFixed(2)}`,
+        rawAfter: String(paymentDraft.ratePerNight),
+        requireApproval: false,
+        derivedSummary:
+          `Total: ${stay.currency} ${oldTotal.toFixed(2)} → ` +
+          `${stay.currency} ${newTotal.toFixed(2)} (${delta >= 0 ? '+' : ''}${stay.currency} ${delta.toFixed(2)}).`,
+      })
+      setConfirmResolver(() => (confirmed: boolean) => {
+        if (confirmed) setPaymentEditMode(false)
+      })
+      return
+    }
+
+    // Pre-checkin: PATCH directo, sin modal.
+    try {
+      await updateMut.mutateAsync({
+        stayId: realStayId,
+        patch: { ratePerNight: paymentDraft.ratePerNight },
+      })
+      setPaymentEditMode(false)
+    } catch { /* hook ya toast.error */ }
+  }
+
+  // ── Guest tab bulk-edit (Sprint EDIT-RESERVATION iteración 2) ──────────
+  // Pattern Mews/Cloudbeds: un solo botón "Editar" arriba del tab toggle-ea
+  // todos los inputs simultáneamente. Save dispara UN PATCH con sólo los
+  // campos modificados — más eficiente que 5 PATCH individuales y un solo
+  // entry de audit log agrupa todos los cambios.
+  type GuestDraft = {
+    guestName:      string
+    guestEmail:     string
+    guestPhone:     string
+    nationality:    string
+    documentType:   string
+    documentNumber: string
+  }
+  const emptyGuestDraft = (): GuestDraft => ({
+    guestName:      stay?.guestName      ?? '',
+    guestEmail:     stay?.guestEmail     ?? '',
+    guestPhone:     stay?.guestPhone     ?? '',
+    nationality:    stay?.nationality    ?? '',
+    documentType:   stay?.documentType   ?? '',
+    documentNumber: stay?.documentNumber ?? '',
+  })
+  const [guestEditMode, setGuestEditMode] = useState(false)
+  const [guestDraft,    setGuestDraft]    = useState<GuestDraft>(emptyGuestDraft)
+  const [guestErrors,   setGuestErrors]   = useState<Partial<Record<keyof GuestDraft, string>>>({})
+  const [docPhotoUploadOpen, setDocPhotoUploadOpen] = useState(false)
+
+  // ── Payment void + register state ──────────────────────────────────────
+  const [voidTarget, setVoidTarget] = useState<PaymentLogDto | null>(null)
+  const [registerOpen, setRegisterOpen] = useState(false)
+  const paymentsQuery  = useStayPayments(realStayId)
+  const voidMut        = useVoidPayment(realStayId ?? '', propertyId ?? '')
+  const registerMut    = useRegisterPayment(realStayId ?? '', propertyId ?? '')
+  // Context (propertyCurrency + secondaryRates + paymentModel) reusado del
+  // mismo query cache que el ConfirmCheckinDialog — un solo round-trip.
+  const stayContext    = useStayContext(realStayId)
+
+  // ── SSE concurrent edit banner ──────────────────────────────────────────
+  const { staleByOtherSession, dismiss: dismissStale } = useStayUpdatedSSE({
+    stayId: realStayId,
+    currentUserId,
+  })
+
+  // Helpers del bulk-edit del tab Huésped.
+  const enterGuestEdit = () => {
+    setGuestDraft(emptyGuestDraft())
+    setGuestErrors({})
+    setGuestEditMode(true)
+  }
+  const cancelGuestEdit = () => {
+    setGuestEditMode(false)
+    setGuestErrors({})
+  }
+  const saveGuestEdit = async () => {
+    if (!stay || !realStayId) return
+
+    // Validación local pre-PATCH (Apple HIG error prevention).
+    const errors: Partial<Record<keyof GuestDraft, string>> = {}
+    if (guestDraft.guestName.trim().length === 0) errors.guestName = 'Nombre requerido'
+    if (guestDraft.guestEmail.trim() !== ''
+        && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(guestDraft.guestEmail.trim())) {
+      errors.guestEmail = 'Email inválido'
+    }
+    if (Object.keys(errors).length > 0) { setGuestErrors(errors); return }
+
+    // Diff vs original — sólo enviamos lo que cambió.
+    const patch: Partial<GuestDraft> = {}
+    const original = emptyGuestDraft()
+    for (const k of Object.keys(guestDraft) as (keyof GuestDraft)[]) {
+      if (guestDraft[k].trim() !== original[k].trim()) {
+        patch[k] = guestDraft[k].trim()
+      }
+    }
+
+    // Sin cambios → solo cerrar el modo edit sin tocar el backend.
+    if (Object.keys(patch).length === 0) { setGuestEditMode(false); return }
+
+    try {
+      await updateMut.mutateAsync({ stayId: realStayId, patch })
+      setGuestEditMode(false)
+    } catch {
+      // El hook ya muestra toast.error — mantenemos modo edit para reintentar.
+    }
+  }
+
+  const refreshStaleData = useCallback(() => {
+    if (!realStayId || !propertyId) return
+    qc.invalidateQueries({ queryKey: ['guest-stays', propertyId], exact: false, refetchType: 'active' })
+    qc.invalidateQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false, refetchType: 'active' })
+    qc.invalidateQueries({ queryKey: ['stay-payments', realStayId], refetchType: 'active' })
+    qc.invalidateQueries({ queryKey: ['guest-stay-notes', realStayId], refetchType: 'active' })
+    dismissStale()
+  }, [realStayId, propertyId, qc, dismissStale])
 
   if (!stay) return null
 
@@ -258,6 +815,15 @@ export function BookingDetailSheet({
         // navegar con teclado. Pattern recomendado por Radix Dialog para
         // inspector-style panels que no requieren acción inmediata del usuario.
         onOpenAutoFocus={(e) => e.preventDefault()}
+        // 2026-05-17 (iter 4 final) — Los 3 dialogs hijos
+        // (RegisterPaymentDialog, VoidPaymentDialog, ChangeConfirmDialog) se
+        // refactorizaron a Radix Dialog primitives. Radix soporta NESTED
+        // dialogs nativamente: el inner FocusScope toma precedencia sobre el
+        // outer Sheet, el DismissableLayer maneja stack de capas, los pointer
+        // events se respetan automáticamente. No se requieren bypass manuales
+        // de onPointerDownOutside / onInteractOutside / onFocusOutside.
+        // Pattern: usar Radix primitives para todos los modales que vivan
+        // dentro del Sheet — NO inventar contenedores fixed manualmente.
         className="w-[420px] sm:w-[420px] sm:max-w-[420px] p-0 flex flex-col overflow-hidden gap-0 shadow-[-12px_0_32px_-8px_rgba(15,23,42,0.18)]"
       >
         {/* HEADER */}
@@ -400,11 +966,47 @@ export function BookingDetailSheet({
           </div>
         )}
 
-        {/* Tabs: list OUTSIDE the scroll area so it stays fixed while content scrolls */}
-        <Tabs defaultValue="stay" className="flex-1 flex flex-col min-h-0">
-          <div className="px-4 py-3 shrink-0">
-            <TabsList className="w-full h-9 bg-slate-100 rounded-xl p-1 grid grid-cols-3">
-              {(['stay', 'payment', 'guest'] as const).map((v) => (
+        {/* ── Banner concurrent-edit (Sprint EDIT-RESERVATION) ────────────
+            SSE detectó que otra sesión escribió esta reserva. Apple HIG:
+            visibilidad del estado del sistema + respeto de la agencia
+            (no auto-refrescar — usuario decide). */}
+        {staleByOtherSession && (
+          <div className="mx-4 mt-1 mb-2 shrink-0 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 flex items-center gap-2 text-[11px]">
+            <AlertCircle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+            <span className="flex-1 text-amber-800 leading-snug">
+              Otra sesión actualizó esta reserva.
+            </span>
+            <button
+              type="button"
+              onClick={refreshStaleData}
+              className="font-semibold text-amber-700 hover:text-amber-900 underline-offset-2 hover:underline"
+            >
+              Recargar
+            </button>
+            <button
+              type="button"
+              onClick={dismissStale}
+              className="text-amber-500 hover:text-amber-700 p-0.5"
+              aria-label="Descartar aviso"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        )}
+
+        {/* Tabs: list OUTSIDE the scroll area so it stays fixed while content scrolls.
+            Controlled — necesitamos el active tab para condicionalmente ocultar
+            el footer de acciones cuando estás en "Notas" (la barra de acciones
+            destructivas/CTA no aporta en el contexto del chat). */}
+        <Tabs
+          value={activeTab}
+          onValueChange={(v) => setActiveTab(v as 'stay' | 'payment' | 'guest' | 'notes')}
+          className="flex-1 flex flex-col min-h-0"
+        >{/* px-4 py-2 (en vez de py-3) reduce gap visual del tab-pill al primer
+            elemento. Apple Tabs sample: 8pt entre pill y content. */}
+          <div className="px-4 py-2 shrink-0">
+            <TabsList className="w-full h-9 bg-slate-100 rounded-xl p-1 grid grid-cols-4">
+              {(['stay', 'payment', 'guest', 'notes'] as const).map((v) => (
                 <TabsTrigger
                   key={v}
                   value={v}
@@ -415,7 +1017,10 @@ export function BookingDetailSheet({
                     'data-[state=active]:text-slate-900 data-[state=active]:font-semibold',
                   )}
                 >
-                  {v === 'stay' ? 'Estadía' : v === 'payment' ? 'Pago' : 'Huésped'}
+                  {v === 'stay' ? 'Estadía'
+                    : v === 'payment' ? 'Pago'
+                    : v === 'guest' ? 'Huésped'
+                    : 'Notas'}
                 </TabsTrigger>
               ))}
             </TabsList>
@@ -423,9 +1028,23 @@ export function BookingDetailSheet({
 
           <div className="flex-1 overflow-y-auto">
 
-            {/* TAB ESTADÍA */}
+            {/* TAB ESTADÍA — Sprint EDIT-RESERVATION iter 3 bulk-edit
+                Campos editables: paxCount + arrivalNotes.
+                Pattern: EditableSectionHeader sticky con Editar/Cancelar/Guardar. */}
             <TabsContent value="stay" className="mt-0 ">
               <div className="p-4 space-y-3">
+                <EditableSectionHeader
+                  title="Estadía"
+                  editMode={stayEditMode}
+                  canEdit={!isStayLockedHard}
+                  isSaving={updateMut.isPending}
+                  disabledReason={isStayLockedHard
+                    ? (stay.cancelledAt ? 'Reserva cancelada' : 'Flujo no-show')
+                    : undefined}
+                  onEnterEdit={enterStayEdit}
+                  onCancel={cancelStayEdit}
+                  onSave={() => void saveStayEdit()}
+                />
                 {/* W3.2 — Maintenance callout: tickets activos en esta habitación.
                     Color por prioridad más alta. Click → /maintenance?ticketId=X
                     abre el TicketDetailDrawer en el módulo dedicado. */}
@@ -647,8 +1266,41 @@ export function BookingDetailSheet({
 
                     <div className="text-base font-bold text-slate-800 mt-1 flex items-center gap-1.5">
                       <Users className="h-4 w-4 text-slate-400" />
-                      {stay.paxCount}
+                      {stayEditMode && !stay.actualCheckout ? (
+                        <input
+                          type="number"
+                          min={1}
+                          max={20}
+                          value={stayDraft.paxCount}
+                          onChange={(e) => {
+                            const v = parseInt(e.target.value, 10)
+                            setStayDraft({ ...stayDraft, paxCount: Number.isFinite(v) ? v : 1 })
+                            if (stayErrors.paxCount) setStayErrors({ ...stayErrors, paxCount: undefined })
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') { e.preventDefault(); void saveStayEdit() }
+                            if (e.key === 'Escape') { e.preventDefault(); cancelStayEdit() }
+                          }}
+                          className={cn(
+                            'w-16 px-2 py-1 text-base rounded border bg-white outline-none tabular-nums',
+                            '[-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0',
+                            stayErrors.paxCount
+                              ? 'border-rose-400 ring-1 ring-rose-200'
+                              : 'border-slate-300 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-200',
+                          )}
+                        />
+                      ) : (
+                        <span>{stay.paxCount}</span>
+                      )}
+                      {stayEditMode && stay.actualCheckout && (
+                        <span className="text-[10px] text-amber-600 italic font-normal">
+                          · bloqueado (fiscal)
+                        </span>
+                      )}
                     </div>
+                    {stayErrors.paxCount && (
+                      <p className="text-[11px] text-rose-600 mt-1">{stayErrors.paxCount}</p>
+                    )}
                   </div>
                 </div>
 
@@ -682,92 +1334,225 @@ export function BookingDetailSheet({
                   </div>
                 )}
 
-                {/* Notes */}
-                {stay.notes && (
+                {/* Nota interna removida — redundante con tab "Notas". */}
+
+                {/* arrivalNotes — info DEL EVENTO DE LLEGADA (pre-arrival).
+                    Industry consensus 5/5 PMS (Mews, Cloudbeds, Opera, Little
+                    Hotelier, RoomRaccoon): vive en el panel de la reserva (=
+                    Estadía), NO en el perfil del huésped — la nota es del
+                    booking arrival event, no del guest como entidad.
+                    Distinto del tab Notas (thread multi-entry de turno).
+                    Read-mode: oculto si vacío (cognitive load — Sweller),
+                    visible con stripe ámbar si filled (pre-attentive Treisman).
+                    Edit-mode: siempre visible con helper text aclarando el
+                    propósito vs tab Notas (NN/g H10 documentation). */}
+                {stayEditMode ? (
+                  <div className="bg-slate-50 rounded-lg p-3 space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                      Notas para recepción al arrival
+                      <span className="font-normal normal-case text-slate-400 ml-1">(pre-arrival)</span>
+                    </label>
+                    <textarea
+                      value={stayDraft.arrivalNotes}
+                      onChange={(e) => setStayDraft({ ...stayDraft, arrivalNotes: e.target.value })}
+                      rows={2}
+                      placeholder="Llega tarde, vuelo X, equipaje en consigna…"
+                      className="w-full px-2 py-1.5 text-sm rounded border border-slate-300 bg-white outline-none
+                                 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-200 resize-none"
+                    />
+                    <p className="text-[10px] text-slate-400 leading-snug">
+                      Visible en el card de la reserva. Para mensajes durante la estadía usa el tab <span className="font-semibold">Notas</span>.
+                    </p>
+                  </div>
+                ) : stay.arrivalNotes ? (
                   <div className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2.5">
                     <div className="text-[10px] font-bold text-amber-600 uppercase tracking-wider mb-1">
-                      Nota
+                      Notas para recepción al arrival
                     </div>
-
-                    <div className="text-xs text-amber-800">
-                      {stay.notes}
-                    </div>
+                    <div className="text-xs text-amber-800">{stay.arrivalNotes}</div>
                   </div>
-                )}
+                ) : null}
               </div>
             </TabsContent>
 
-            {/* TAB PAYMENT */}
+            {/* TAB PAYMENT — Sprint EDIT-RESERVATION iter 3 bulk-edit
+                Campo editable: ratePerNight (con approval modal on save si post-checkin). */}
             <TabsContent value="payment" className="mt-0 ">
-              <div className="bg-slate-50 rounded-lg p-4 space-y-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-xs text-slate-500">
-                    {nights} noche{nights > 1 ? 's' : ''} × {stay.currency}{' '}
-                    {nightlyRate.toFixed(0)}
-                  </span>
+              <div className="p-4 space-y-3">
+                <EditableSectionHeader
+                  title="Pago"
+                  editMode={paymentEditMode}
+                  canEdit={!isStayLockedHard && stayPhase !== 'POST_CHECKOUT'}
+                  isSaving={updateMut.isPending}
+                  disabledReason={
+                    stayPhase === 'POST_CHECKOUT'
+                      ? 'Cerrada — usar nota crédito'
+                      : isStayLockedHard
+                        ? (stay.cancelledAt ? 'Reserva cancelada' : 'Flujo no-show')
+                        : undefined
+                  }
+                  saveTone={stayPhase === 'POST_CHECKIN' ? 'amber' : 'emerald'}
+                  onEnterEdit={enterPaymentEdit}
+                  onCancel={cancelPaymentEdit}
+                  onSave={() => void savePaymentEdit()}
+                />
 
-                  <span className="text-sm font-mono font-bold text-slate-800">
-                    {stay.currency}{' '}
-                    {stay.totalAmount.toLocaleString()}
-                  </span>
-                </div>
-
-                <Separator />
-
-                <div className="flex justify-between items-center">
-                  <span className="text-xs text-slate-500">
-                    Pagado
-                  </span>
-
-                  <span className="text-sm font-mono font-semibold text-emerald-600">
-                    {stay.currency}{' '}
-                    {stay.amountPaid.toLocaleString()}
-                  </span>
-                </div>
-
-                <div className="flex justify-between items-center">
-                  <span className="text-xs font-semibold text-slate-700">
-                    Saldo pendiente
-                  </span>
-
-                  <span
-                    className={cn(
-                      'text-sm font-mono font-bold',
-                      balance > 0
-                        ? 'text-amber-600'
-                        : 'text-emerald-600'
+                {/* ── HERO CARD (Sprint EDIT-RESERVATION iter 4) ──────────
+                    Jerarquía F-pattern: saldo → status → conversión → progress → CTA.
+                    En edit mode se muestra el rate editor en su lugar para no
+                    duplicar UI. */}
+                {paymentEditMode ? (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-4 space-y-3">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-amber-700">
+                      Editando tarifa
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-slate-600 shrink-0">
+                        {nights} noche{nights > 1 ? 's' : ''} ×
+                      </label>
+                      <span className="text-xs text-slate-500 font-mono">{stay.currency}</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={paymentDraft.ratePerNight}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value)
+                          setPaymentDraft({ ratePerNight: Number.isFinite(v) ? v : 0 })
+                          if (paymentErrors.ratePerNight) setPaymentErrors({ ...paymentErrors, ratePerNight: undefined })
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') { e.preventDefault(); void savePaymentEdit() }
+                          if (e.key === 'Escape') { e.preventDefault(); cancelPaymentEdit() }
+                        }}
+                        className={cn(
+                          'flex-1 rounded-lg border bg-white px-3 py-2 text-base font-mono tabular-nums',
+                          'focus:outline-none focus:ring-2',
+                          '[-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0',
+                          paymentErrors.ratePerNight
+                            ? 'border-rose-400 ring-1 ring-rose-200'
+                            : 'border-slate-300 focus:border-emerald-400 focus:ring-emerald-200',
+                        )}
+                      />
+                    </div>
+                    {paymentErrors.ratePerNight && (
+                      <p className="text-[11px] text-rose-600">{paymentErrors.ratePerNight}</p>
                     )}
-                  >
-                    {stay.currency} {balance.toLocaleString()}
-                  </span>
-                </div>
-              </div>
+                    {(() => {
+                      // Desglose financiero completo del cambio de tarifa.
+                      // Sin esto, el usuario no entiende qué pasa con lo ya
+                      // pagado cuando baja/sube la tarifa. Ejemplo: total $350
+                      // ya pagado, baja a $280 → no es "Total cambia y ya",
+                      // queda crédito a favor del huésped por $70.
+                      const oldTotal = Number(stay.totalAmount)
+                      const newTotal = paymentDraft.ratePerNight * nights
+                      const totalDelta = newTotal - oldTotal
+                      const paid = Number(stay.amountPaid)
+                      const oldBalance = oldTotal - paid
+                      const newBalance = newTotal - paid
+                      const noChange = Math.abs(totalDelta) < 0.005
+                      if (noChange) return null
 
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-[10px] text-slate-400">
-                  <span>Progreso de pago</span>
-                  <span className="font-mono font-bold">
-                    {paidPercent}%
-                  </span>
-                </div>
+                      // Resultado neto post-cambio
+                      const credito = newBalance < -0.005   // crédito a favor del huésped
+                      const porCobrar = newBalance > 0.005  // saldo nuevo pendiente
 
-                <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-500"
-                    style={{
-                      width: `${paidPercent}%`,
-                      backgroundColor:
-                        paidPercent >= 100
-                          ? '#10B981'
-                          : paidPercent >= 50
-                          ? '#F59E0B'
-                          : '#EF4444',
-                    }}
+                      return (
+                        <div className="rounded-md bg-white/70 border border-amber-200 px-3 py-2 text-[11px] space-y-1.5">
+                          <div className="grid grid-cols-[auto_1fr_auto] gap-x-2 gap-y-0.5 items-baseline font-mono tabular-nums text-amber-900">
+                            <span className="text-amber-700">Total</span>
+                            <span className="text-amber-400 text-right">{stay.currency} {oldTotal.toFixed(2)} →</span>
+                            <span className="font-bold">{stay.currency} {newTotal.toFixed(2)}</span>
+
+                            <span className="text-amber-700">Pagado</span>
+                            <span className="text-amber-400 text-right italic">sin cambio</span>
+                            <span>{stay.currency} {paid.toFixed(2)}</span>
+
+                            <span className="text-amber-700">Saldo</span>
+                            <span className="text-amber-400 text-right">{stay.currency} {oldBalance.toFixed(2)} →</span>
+                            <span className={cn(
+                              'font-bold',
+                              credito ? 'text-rose-700' : porCobrar ? 'text-amber-900' : 'text-emerald-700',
+                            )}>
+                              {credito ? '−' : ''}{stay.currency} {Math.abs(newBalance).toFixed(2)}
+                            </span>
+                          </div>
+
+                          {/* Línea de consecuencia — qué significa el saldo nuevo */}
+                          {credito && (
+                            <p className="text-rose-700 font-medium leading-snug pt-1 border-t border-amber-200">
+                              Queda {stay.currency} {Math.abs(newBalance).toFixed(2)} a favor del huésped (crédito devolvible al checkout).
+                            </p>
+                          )}
+                          {porCobrar && (
+                            <p className="text-amber-900 font-medium leading-snug pt-1 border-t border-amber-200">
+                              Quedan {stay.currency} {newBalance.toFixed(2)} pendientes de cobrar al huésped.
+                            </p>
+                          )}
+                          {stayPhase === 'POST_CHECKIN' && (
+                            <p className="italic text-amber-700 leading-snug">
+                              Al guardar se pedirá una razón del cambio (queda en audit trail).
+                            </p>
+                          )}
+                        </div>
+                      )
+                    })()}
+                  </div>
+                ) : (
+                  <PaymentHeroCard
+                    paymentModel={stayContext.data?.paymentModel ?? 'HOTEL_COLLECT'}
+                    totalAmount={Number(stay.totalAmount)}
+                    amountPaid={Number(stay.amountPaid)}
+                    balance={balance}
+                    currency={stayContext.data?.propertyCurrency ?? stay.currency}
+                    secondaryRates={stayContext.data?.secondaryRates}
+                    otaSource={stay.source ?? null}
+                    canRegisterPayment={!isStayLockedHard && stayPhase !== 'POST_CHECKOUT'}
+                    onRegisterPayment={() => setRegisterOpen(true)}
                   />
-                </div>
+                )}
 
-                <PaymentStatusBadge status={stay.paymentStatus} />
-              </div>
+                {/* ── Detalles colapsable: rate breakdown + tax (v1.0.2 CFDI-CORE) ─ */}
+                <details className="group rounded-lg border border-slate-200 bg-white">
+                  <summary className="cursor-pointer flex items-center justify-between px-3 py-2 text-[11px] font-medium text-slate-600 hover:text-slate-800 select-none">
+                    <span>Detalles del cálculo</span>
+                    <span className="text-slate-400 group-open:rotate-180 transition-transform">▾</span>
+                  </summary>
+                  <div className="px-3 pb-2.5 pt-1 space-y-1 text-[11px] text-slate-600 border-t border-slate-100">
+                    <div className="flex justify-between">
+                      <span>Tarifa × noches</span>
+                      <span className="font-mono tabular-nums">
+                        {stay.currency} {Number(stay.ratePerNight ?? nightlyRate).toFixed(2)} × {nights}
+                      </span>
+                    </div>
+                    <div className="flex justify-between font-semibold text-slate-800 pt-1 border-t border-slate-100">
+                      <span>Total</span>
+                      <span className="font-mono tabular-nums">
+                        {stay.currency} {Number(stay.totalAmount).toLocaleString(undefined, {minimumFractionDigits:2,maximumFractionDigits:2})}
+                      </span>
+                    </div>
+                    {/* TODO v1.0.2 CFDI-CORE: insertar líneas IVA + ISH + DSA aquí */}
+                  </div>
+                </details>
+
+                {/* ── MOVIMIENTOS — lista enriquecida (collector + método icon + running balance) ─ */}
+                <div className="space-y-1.5">
+                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    Movimientos
+                  </div>
+                  {paymentsQuery.isLoading ? (
+                    <p className="text-xs text-slate-400 py-2 text-center">Cargando…</p>
+                  ) : (
+                    <PaymentMovementsList
+                      payments={paymentsQuery.data ?? []}
+                      currency={stayContext.data?.propertyCurrency ?? stay.currency}
+                      secondaryRates={stayContext.data?.secondaryRates}
+                      canVoid={!isStayLockedHard}
+                      isVoidPending={voidMut.isPending}
+                      onVoid={(p) => setVoidTarget(p)}
+                    />
+                  )}
+                </div>
 
               {/* ── Sección de cargo de no-show (visible solo si hay noShowAt) ── */}
               {stay.noShowAt && (
@@ -907,49 +1692,171 @@ export function BookingDetailSheet({
                   )}
                 </div>
               )}
+              </div>{/* /wrapper "p-4 space-y-3" del tab Pago bulk-edit */}
             </TabsContent>
 
-            {/* TAB GUEST */}
+            {/* TAB GUEST — Sprint EDIT-RESERVATION bulk-edit pattern.
+                Mews/Cloudbeds: un botón "Editar" arriba toggle-ea todos los
+                inputs simultáneamente; "Guardar cambios" dispara un solo
+                PATCH con sólo los campos modificados (1 audit log entry agrupado). */}
             <TabsContent value="guest" className="mt-0 ">
               <div className="p-4 space-y-2">
-                {[
-                  { icon: User, label: 'Nombre', value: stay.guestName },
-                  { icon: Phone, label: 'WhatsApp', value: stay.guestPhone },
-                  { icon: MapPin, label: 'Nacionalidad', value: stay.nationality },
-                  {
-                    icon: FileText,
-                    label: 'Documento',
-                    value:
-                      stay.documentType && stay.documentNumber
-                        ? `${stay.documentType.toUpperCase()} · ${stay.documentNumber}`
-                        : null,
-                  },
-                  { icon: Mail, label: 'Email', value: stay.guestEmail },
-                ]
-                  .filter((f) => f.value)
-                  .map(({ icon: Icon, label, value }) => (
-                    <div
-                      key={label}
-                      className="flex items-center gap-3 px-3 py-2.5 bg-slate-50 rounded-lg"
-                    >
-                      <div className="w-7 h-7 bg-white rounded-md border border-slate-200 flex items-center justify-center flex-shrink-0">
-                        <Icon className="h-3.5 w-3.5 text-slate-400" />
-                      </div>
+                {(() => {
+                  const isStayLocked = !!stay.cancelledAt || !!stay.noShowAt
+                  const isPostCheckout = !!stay.actualCheckout
+                  const canEditAny = !isStayLocked
+                  return (
+                    <>
+                      <EditableSectionHeader
+                        title="Datos del huésped"
+                        editMode={guestEditMode}
+                        canEdit={canEditAny}
+                        isSaving={updateMut.isPending}
+                        disabledReason={isStayLocked
+                          ? (stay.cancelledAt ? 'Reserva cancelada' : 'Flujo no-show')
+                          : undefined}
+                        onEnterEdit={enterGuestEdit}
+                        onCancel={cancelGuestEdit}
+                        onSave={() => void saveGuestEdit()}
+                      />
 
-                      <div className="min-w-0">
-                        <div className="text-[9px] text-slate-400 uppercase tracking-wider">
-                          {label}
+                      {/* Banner stay locked (cancelled/no-show) */}
+                      {isStayLocked && (
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600 leading-snug">
+                          Reserva {stay.cancelledAt ? 'cancelada' : 'en flujo no-show'} — datos congelados para audit trail.
                         </div>
+                      )}
 
-                        <div className="text-sm text-slate-700 font-medium truncate">
-                          {value}
+                      {/* Foto del documento — capturada al check-in (§108).
+                          Thumbnail clickeable abre lightbox fullscreen.
+                          Visa CRR §5.9.2 chargeback evidence visible al staff. */}
+                      <DocumentPhotoCard
+                        photoUrl={stayContext.data?.stay.documentPhotoUrl}
+                        documentType={stayContext.data?.stay.documentType ?? stay.documentType}
+                        guestName={stay.guestName}
+                        canUpload={canEditAny && !isPostCheckout}
+                        onUploadRequest={() => setDocPhotoUploadOpen(true)}
+                      />
+
+
+                      {/* Banner post-checkout — algunos campos siguen editables. */}
+                      {!isStayLocked && isPostCheckout && guestEditMode && (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800 leading-snug">
+                          Reserva ya cerrada — documento queda bloqueado por audit fiscal. Otros campos siguen editables.
                         </div>
-                      </div>
-                    </div>
-                  ))}
+                      )}
 
-                {/* Contact buttons — fire-and-forget, log kept for dispute docs (CLAUDE.md §35) */}
-                {(stay.guestPhone || stay.guestEmail) ? (
+                      {/* Lista de campos — display o input según editMode. */}
+                      {[
+                        {
+                          icon: User, label: 'Nombre', field: 'guestName' as const,
+                          value: stay.guestName, type: 'text',
+                          placeholder: 'Nombre completo del huésped',
+                        },
+                        {
+                          icon: Phone, label: 'WhatsApp', field: 'guestPhone' as const,
+                          value: stay.guestPhone, type: 'tel',
+                          placeholder: '+52 123 456 7890',
+                        },
+                        {
+                          icon: MapPin, label: 'Nacionalidad', field: 'nationality' as const,
+                          value: stay.nationality, type: 'text',
+                          placeholder: 'MX, US, FR…',
+                        },
+                        {
+                          icon: FileText, label: 'Documento', field: 'documentNumber' as const,
+                          value: stay.documentNumber, type: 'text',
+                          placeholder: 'Pasaporte / INE / Cédula',
+                          displayValue: stay.documentNumber
+                            ? (stay.documentType
+                                ? `${stay.documentType.toUpperCase()} · ${stay.documentNumber}`
+                                : stay.documentNumber)
+                            : null,
+                          fiscalLocked: isPostCheckout,
+                        },
+                        {
+                          icon: Mail, label: 'Email', field: 'guestEmail' as const,
+                          value: stay.guestEmail, type: 'email',
+                          placeholder: 'huesped@ejemplo.com',
+                        },
+                      ].map(({ icon: Icon, label, field, value, type, placeholder, displayValue, fiscalLocked }) => {
+                        const isEditingThis = guestEditMode && !fiscalLocked
+                        const error = guestErrors[field]
+                        return (
+                          <div
+                            key={label}
+                            className={cn(
+                              'flex items-start gap-3 px-3 py-2.5 rounded-lg transition-colors',
+                              isEditingThis ? 'bg-white border border-emerald-200' : 'bg-slate-50',
+                            )}
+                          >
+                            <div className="w-7 h-7 bg-white rounded-md border border-slate-200 flex items-center justify-center flex-shrink-0 mt-0.5">
+                              <Icon className="h-3.5 w-3.5 text-slate-400" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-[9px] text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                                {label}
+                                {guestEditMode && fiscalLocked && (
+                                  <span className="text-amber-600 normal-case font-normal italic">
+                                    · bloqueado (fiscal)
+                                  </span>
+                                )}
+                              </div>
+                              {isEditingThis ? (
+                                <>
+                                  <input
+                                    type={type}
+                                    value={guestDraft[field]}
+                                    onChange={(e) => {
+                                      setGuestDraft({ ...guestDraft, [field]: e.target.value })
+                                      if (error) setGuestErrors({ ...guestErrors, [field]: undefined })
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') { e.preventDefault(); void saveGuestEdit() }
+                                      if (e.key === 'Escape') { e.preventDefault(); cancelGuestEdit() }
+                                    }}
+                                    placeholder={placeholder}
+                                    autoFocus={field === 'guestName'}
+                                    className={cn(
+                                      'w-full mt-1 px-2 py-1 text-sm rounded border bg-white outline-none',
+                                      'transition-shadow',
+                                      error
+                                        ? 'border-rose-400 ring-1 ring-rose-200'
+                                        : 'border-slate-300 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-200',
+                                    )}
+                                  />
+                                  {error && (
+                                    <p className="text-[11px] text-rose-600 mt-0.5">{error}</p>
+                                  )}
+                                </>
+                              ) : (
+                                <div className={cn(
+                                  'text-sm font-medium truncate',
+                                  (displayValue ?? value) ? 'text-slate-700' : 'text-slate-400 italic',
+                                )}>
+                                  {displayValue ?? value ?? '—'}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+
+                      {/* Cancelar/Guardar viven en EditableSectionHeader (sticky top).
+                          Apple HIG Edit/Done — botones siempre visibles sin scroll. */}
+                    </>
+                  )
+                })()}
+
+                {/*
+                 * Contact buttons — visibles SOLO si hay datos de contacto.
+                 * NN/g Empty States 2023 + Sweller carga cognitiva: el label
+                 * "Sin datos de contacto" es redundante con las filas vacías
+                 * de WhatsApp/Email arriba (que ya muestran "—"). Hide
+                 * completo cuando no hay nada — el usuario sabe que falta info
+                 * por las dashes; agregar otro mensaje "sin contacto" es ruido.
+                 */}
+                {(stay.guestPhone || stay.guestEmail) && (
                   <div className="pt-1">
                     <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
                       Contactar
@@ -999,17 +1906,26 @@ export function BookingDetailSheet({
                       )}
                     </div>
                   </div>
-                ) : (
-                  <p className="text-xs text-slate-400 text-center py-1">
-                    Sin datos de contacto
-                  </p>
                 )}
+              </div>
+            </TabsContent>
+
+            {/* TAB NOTAS — Sprint EDIT-RESERVATION bitácora chat */}
+            <TabsContent value="notes" className="mt-0 h-full">
+              <div className="p-4 h-full min-h-[320px]">
+                <ReservationNotesThread
+                  stayId={stay.guestStayId ?? stay.id}
+                  currentUserId={currentUserId}
+                />
               </div>
             </TabsContent>
           </div>
         </Tabs>
 
-        {/* FOOTER */}
+        {/* FOOTER — oculto en tab Notas (Apple HIG: hide UI not applicable to
+            the current context). El chat necesita máxima altura útil y la
+            barra de acciones destructivas no aporta valor mientras escribes. */}
+        {activeTab !== 'notes' && (
         <div className="flex-shrink-0 border-t border-slate-200 p-3 bg-white space-y-2">
           {/* No-show confirm panel (inline — no separate Dialog) */}
           {showNoShowConfirm && (
@@ -1167,6 +2083,7 @@ export function BookingDetailSheet({
             )}
           </div>
         </div>
+        )}
       </SheetContent>
     </Sheet>
 
@@ -1190,6 +2107,91 @@ export function BookingDetailSheet({
       roomLabel={stay.roomNumber ? `Hab. ${stay.roomNumber}` : 'Habitación'}
       checkinAt={new Date(stay.checkIn)}
       scheduledCheckout={new Date(stay.checkOut)}
+    />
+
+    {/* ── ChangeConfirmDialog: approval flow para paxCount/rate post-checkin.
+        Disparado desde saveStayEdit / savePaymentEdit cuando phase=POST_CHECKIN.
+        En este punto el draft local ya tiene el valor nuevo; el dialog sólo
+        recolecta razón + manager code para anexarlos al PATCH. */}
+    <ChangeConfirmDialog
+      open={!!confirmCtx}
+      onResolve={(confirmed, extras) => {
+        if (confirmed && extras && realStayId && confirmCtx) {
+          updateMut.mutate({
+            stayId: realStayId,
+            patch: {
+              [confirmCtx.field]: confirmCtx.field === 'paxCount'
+                ? parseInt(confirmCtx.rawAfter, 10)
+                : parseFloat(confirmCtx.rawAfter),
+              reason: extras.reason,
+              managerApprovalCode: extras.managerApprovalCode,
+              managerApprovalReason: extras.managerApprovalReason,
+            },
+          })
+        }
+        // Notifica al saveXxxEdit caller para que cierre su edit mode si OK.
+        confirmResolver?.(confirmed)
+        setConfirmCtx(null)
+        setConfirmResolver(null)
+      }}
+      title={confirmCtx?.field === 'paxCount' ? 'Cambiar número de huéspedes' : 'Cambiar tarifa por noche'}
+      subtitle={confirmCtx?.requireApproval ? 'Reserva en check-in — requiere aprobación' : 'Confirma el cambio'}
+      fieldLabel={confirmCtx?.field === 'paxCount' ? 'Huéspedes' : 'Tarifa por noche'}
+      beforeDisplay={confirmCtx?.before ?? ''}
+      afterDisplay={confirmCtx?.after ?? ''}
+      derivedSummary={confirmCtx?.derivedSummary}
+      changeKind="increase"
+      requireReason={confirmCtx?.requireApproval ?? false}
+      requireApproval={confirmCtx?.requireApproval ?? false}
+    />
+
+    {/* ── VoidPaymentDialog ───────────────────────────────────────────────── */}
+    <VoidPaymentDialog
+      open={!!voidTarget}
+      payment={voidTarget}
+      isPending={voidMut.isPending}
+      onClose={() => setVoidTarget(null)}
+      onConfirm={(voidReason) => {
+        if (!voidTarget) return
+        voidMut.mutate(
+          { paymentLogId: voidTarget.id, voidReason },
+          { onSettled: () => setVoidTarget(null) },
+        )
+      }}
+    />
+
+    {/* ── RegisterPaymentDialog ───────────────────────────────────────────── */}
+    <RegisterPaymentDialog
+      open={registerOpen}
+      isPending={registerMut.isPending}
+      balance={balance}
+      currency={stayContext.data?.propertyCurrency ?? stay.currency}
+      secondaryRates={stayContext.data?.secondaryRates}
+      onClose={() => setRegisterOpen(false)}
+      onConfirm={(payload) => {
+        registerMut.mutate(payload, { onSuccess: () => setRegisterOpen(false) })
+      }}
+    />
+
+    {/* ── UploadDocumentPhotoDialog ───────────────────────────────────────── */}
+    <UploadDocumentPhotoDialog
+      open={docPhotoUploadOpen}
+      onOpenChange={setDocPhotoUploadOpen}
+      existingPhotoUrl={stayContext.data?.stay.documentPhotoUrl}
+      guestName={stay.guestName}
+      isSaving={updateMut.isPending}
+      onSave={async (dataUrl) => {
+        if (!realStayId) return
+        try {
+          await updateMut.mutateAsync({
+            stayId: realStayId,
+            patch: { documentPhotoUrl: dataUrl },
+          })
+          toast.success('Foto del documento actualizada')
+        } catch {
+          // toast.error ya emitido por el hook
+        }
+      }}
     />
     </>
   )

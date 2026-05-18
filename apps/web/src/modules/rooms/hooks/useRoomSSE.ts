@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import type { SseEvent, SseEventType } from '@zenix/shared'
+import type { SseEventType } from '@zenix/shared'
+import { subscribeSse } from '@/lib/sseClient'
 
-const ROOM_EVENT_TYPES: SseEventType[] = [
+const ROOM_EVENT_TYPES = new Set<SseEventType>([
   'room:ready',
   'room:moved',
   'checkin:completed',
@@ -32,92 +33,49 @@ const ROOM_EVENT_TYPES: SseEventType[] = [
   'task:retry-scheduled',
   'task:blocked',
   'task:rescheduled',
-]
+])
 
 /**
- * Subscribes to the existing SSE stream and invalidates room/timeline queries
- * when room-related events arrive. Reuses the same /api/events endpoint
- * as the housekeeping dashboard (one connection serves all event types).
+ * Subscribes to room-related events vía sseClient singleton e invalida queries
+ * de room/timeline cuando llegan. Sprint SSE-RESILIENCE (2026-05-17):
+ *
+ * ANTES: este hook abría SU PROPIA EventSource a /api/events. Combinado con
+ * useSSE + useSoftLockSSE = 3 conns por tab. Con HMR los cleanups raceaban
+ * y se acumulaban zombies hasta agotar el pool HTTP/1.1.
+ *
+ * AHORA: subscriber filtrado del singleton compartido. 1 conn total para
+ * todo el tab. HMR re-monta solo el handler, no la conexión.
  */
 export function useRoomSSE(propertyId: string) {
   const queryClient = useQueryClient()
-  const esRef = useRef<EventSource | null>(null)
-  const retryRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  const retryCount = useRef(0)
+  const propertyIdRef = useRef(propertyId)
+  propertyIdRef.current = propertyId
 
   useEffect(() => {
     if (!propertyId) return
 
-    function connect() {
-      const token = localStorage.getItem('hk_token') ?? ''
-      const base = import.meta.env.VITE_API_URL ?? ''
-      // MT-9 (audit 2026-05-13): el JWT viaja como query param porque la API
-      //   `EventSource` nativa del navegador NO admite headers personalizados.
-      //   Riesgo: nginx/reverse-proxies suelen loggear la URL completa, lo que
-      //   filtra el token a access.log. Mitigación mientras se hace el refactor:
-      //     · El proxy de producción (nginx/Cloudfront) DEBE redactar el query
-      //       param `token=` antes de escribir el access log. Ver
-      //       `docs/ops/sse-token-redaction.md` (pendiente).
-      //     · TTL del JWT ya se baja a 24h en SEC-α (MT-8) para acotar la
-      //       ventana de exposición si el log se filtra.
-      //   TODO(v1.0.x SSE-auth refactor): migrar a cookie httpOnly + SameSite=Strict
-      //   o a un short-lived sse-token vía POST /v1/auth/sse-token que se
-      //   intercambie en milisegundos (patrón Vercel/Supabase realtime). Esto
-      //   elimina por completo el query param del log.
-      const url = `${base}/api/events?token=${encodeURIComponent(token)}`
-      const es = new EventSource(url)
-      esRef.current = es
+    const unsub = subscribeSse((event) => {
+      if (!ROOM_EVENT_TYPES.has(event.type)) return
 
-      const handler = (e: MessageEvent) => {
-        try {
-          const event = JSON.parse(e.data) as SseEvent
-          if (!ROOM_EVENT_TYPES.includes(event.type)) return
+      // Invalidate relevant queries — TanStack refetches active ones
+      queryClient.invalidateQueries({
+        queryKey: ['guest-stays'],
+        refetchType: 'active',
+      })
+      queryClient.invalidateQueries({
+        queryKey: ['rooms'],
+        refetchType: 'active',
+      })
+      queryClient.invalidateQueries({
+        queryKey: ['room-readiness'],
+        refetchType: 'active',
+      })
+      queryClient.invalidateQueries({
+        queryKey: ['blocks'],
+        refetchType: 'active',
+      })
+    })
 
-          retryCount.current = 0
-
-          // Invalidate relevant queries — TanStack refetches active ones
-          queryClient.invalidateQueries({
-            queryKey: ['guest-stays'],
-            refetchType: 'active',
-          })
-          queryClient.invalidateQueries({
-            queryKey: ['rooms'],
-            refetchType: 'active',
-          })
-          queryClient.invalidateQueries({
-            queryKey: ['room-readiness'],
-            refetchType: 'active',
-          })
-          queryClient.invalidateQueries({
-            queryKey: ['blocks'],
-            refetchType: 'active',
-          })
-        } catch {
-          // ignore parse errors
-        }
-      }
-
-      // The existing SSE emits named events (event: type\ndata: ...\n\n)
-      // Listen to all room event types
-      for (const eventType of ROOM_EVENT_TYPES) {
-        es.addEventListener(eventType, handler)
-      }
-      // Also listen on generic 'message' in case events come without named type
-      es.addEventListener('message', handler)
-
-      es.onerror = () => {
-        es.close()
-        const delay = Math.min(2000 * Math.pow(2, retryCount.current), 30_000)
-        retryCount.current++
-        retryRef.current = setTimeout(connect, delay)
-      }
-    }
-
-    connect()
-
-    return () => {
-      clearTimeout(retryRef.current)
-      esRef.current?.close()
-    }
+    return unsub
   }, [propertyId, queryClient])
 }

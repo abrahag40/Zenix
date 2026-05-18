@@ -1,10 +1,22 @@
 import { useState, useMemo } from 'react'
 import { format, addDays, differenceInDays } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { X, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Users } from 'lucide-react'
+import { X, Calendar as CalendarIcon, Users, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useRateQuoteGrid } from '../../hooks/useRates'
 import { useModalDismiss } from '../../hooks/useModalDismiss'
+
+/**
+ * Cap UX del rango: rango > 14d genera una tabla horizontal de 14+ columnas
+ * que no cabe en el sheet (640px max-width). Cualquier rango mayor degrada
+ * a scroll horizontal gigante con tipografía minúscula — anti-UX.
+ *
+ * Pattern Mews/Cloudbeds: side panel quote = 7-14d window. Para >14d,
+ * usar el reporte "Rate Calendar" full-page (sprint v1.0.3 REPORTS-CORE).
+ *
+ * Hard cap aquí impide al usuario meterse en ese estado degradado.
+ */
+const MAX_NIGHTS = 14
 
 interface RateQuoteSheetProps {
   open: boolean
@@ -45,10 +57,11 @@ export function RateQuoteSheet({
   const [from, setFrom] = useState<Date>(initialFrom ?? today)
   const [to, setTo] = useState<Date>(initialTo ?? addDays(today, 3))
 
-  const { data, isLoading } = useRateQuoteGrid(propertyId, from, to, open)
+  const { data, isLoading, isError, error, refetch } = useRateQuoteGrid(propertyId, from, to, open)
   const { onBackdropClick } = useModalDismiss({ isDirty: false, onClose })
 
   const nights = Math.max(1, differenceInDays(to, from))
+  const exceedsMax = nights > MAX_NIGHTS
 
   if (!open) return null
 
@@ -95,7 +108,9 @@ export function RateQuoteSheet({
                 const d = new Date(e.target.value)
                 d.setHours(0, 0, 0, 0)
                 setFrom(d)
+                // Clamp to dentro del rango MAX_NIGHTS y >= from+1
                 if (d >= to) setTo(addDays(d, 1))
+                if (differenceInDays(to, d) > MAX_NIGHTS) setTo(addDays(d, MAX_NIGHTS))
               }}
               className="px-2 py-1 border border-slate-200 rounded text-xs focus:border-slate-400 focus:ring-0"
             />
@@ -106,8 +121,12 @@ export function RateQuoteSheet({
               onChange={(e) => {
                 const d = new Date(e.target.value)
                 d.setHours(0, 0, 0, 0)
-                if (d > from) setTo(d)
+                if (d <= from) return
+                // Hard cap MAX_NIGHTS — UX prevention vs degradation a scroll gigante
+                const capped = differenceInDays(d, from) > MAX_NIGHTS ? addDays(from, MAX_NIGHTS) : d
+                setTo(capped)
               }}
+              max={addDays(from, MAX_NIGHTS).toISOString().slice(0, 10)}
               className="px-2 py-1 border border-slate-200 rounded text-xs focus:border-slate-400 focus:ring-0"
             />
             {/* Quick presets */}
@@ -128,22 +147,56 @@ export function RateQuoteSheet({
               >
                 7d
               </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 px-2 text-[10px]"
+                onClick={() => { setFrom(today); setTo(addDays(today, MAX_NIGHTS)) }}
+              >
+                14d
+              </Button>
             </div>
           </div>
+
+          {/* Cap notice — feedback informativo (NN/g H1) explicando el límite. */}
+          {exceedsMax && (
+            <div className="flex items-start gap-2 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2.5 py-1.5">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-px" />
+              <span>
+                Rango limitado a {MAX_NIGHTS} días en consulta rápida. Para horizontes más largos usa el reporte
+                <span className="text-slate-400"> (Rate Calendar — llega en v1.0.3)</span>.
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Grid roomTypes × dates */}
         <div className="flex-1 overflow-auto">
           {isLoading && (
-            <div className="text-xs text-slate-400 text-center py-10">Cargando tarifas…</div>
+            <div className="flex flex-col items-center justify-center py-12 text-xs text-slate-400 gap-2">
+              <div className="h-4 w-4 border-2 border-slate-300 border-t-emerald-500 rounded-full animate-spin" />
+              Cargando tarifas…
+            </div>
           )}
-          {!isLoading && data && data.roomTypes.length === 0 && (
+          {!isLoading && isError && (
+            <div className="text-center py-12 px-6 space-y-2">
+              <AlertCircle className="h-6 w-6 text-rose-400 mx-auto" />
+              <div className="text-sm text-slate-700 font-medium">No se pudieron cargar las tarifas</div>
+              <div className="text-xs text-slate-500 max-w-sm mx-auto">
+                {(error as Error | null)?.message ?? 'Error de red — verifica tu conexión.'}
+              </div>
+              <Button size="sm" variant="outline" className="mt-2 text-xs h-8" onClick={() => void refetch()}>
+                Reintentar
+              </Button>
+            </div>
+          )}
+          {!isLoading && !isError && data && data.roomTypes.length === 0 && (
             <div className="text-center py-12 px-6">
               <div className="text-sm text-slate-500 font-medium mb-1">Sin tipos de habitación configurados</div>
               <div className="text-xs text-slate-400">Configura tipos + tarifas base en Ajustes.</div>
             </div>
           )}
-          {!isLoading && data && data.roomTypes.length > 0 && (
+          {!isLoading && !isError && data && data.roomTypes.length > 0 && (
             <table className="w-full text-xs">
               <thead className="sticky top-0 bg-slate-50/95 border-b border-slate-100 backdrop-blur">
                 <tr>
@@ -153,7 +206,7 @@ export function RateQuoteSheet({
                   {data.dates.map((date) => (
                     <th
                       key={date}
-                      className="text-right px-3 py-2.5 text-[10px] font-medium text-slate-500 tabular-nums"
+                      className="text-right px-3 py-2.5 text-[10px] font-medium text-slate-500 tabular-nums whitespace-nowrap"
                     >
                       {format(new Date(date + 'T12:00:00Z'), 'd MMM', { locale: es })}
                     </th>
@@ -180,7 +233,7 @@ export function RateQuoteSheet({
                       {data.dates.map((d) => (
                         <td
                           key={d}
-                          className="text-right px-3 py-3 font-mono tabular-nums text-slate-700"
+                          className="text-right px-3 py-3 font-mono tabular-nums text-slate-700 whitespace-nowrap"
                           style={{ fontWeight: 500 }}
                         >
                           ${data.grid[rt.id]?.[d]?.toLocaleString() ?? '—'}

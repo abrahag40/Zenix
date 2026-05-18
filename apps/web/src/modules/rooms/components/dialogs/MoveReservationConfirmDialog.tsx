@@ -1,7 +1,7 @@
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { ArrowRight, Moon, MoveRight } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { DialogActions } from '../shared/DialogActions'
 
 interface MoveReservationConfirmDialogProps {
   guestName: string
@@ -75,18 +75,14 @@ export function MoveReservationConfirmDialog({
             </div>
           </div>
 
-          <div className="flex gap-2 pt-1">
-            <Button variant="outline" className="flex-1" onClick={onClose} disabled={isPending}>
-              Cancelar
-            </Button>
-            <Button
-              className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
-              onClick={onConfirm}
-              disabled={isPending}
-            >
-              {isPending ? 'Moviendo…' : 'Confirmar'}
-            </Button>
-          </div>
+          <DialogActions
+            onCancel={onClose}
+            onConfirm={onConfirm}
+            confirmLabel="Confirmar"
+            confirmPendingLabel="Moviendo…"
+            isPending={isPending}
+            className="pt-1"
+          />
         </div>
       </div>
     </div>

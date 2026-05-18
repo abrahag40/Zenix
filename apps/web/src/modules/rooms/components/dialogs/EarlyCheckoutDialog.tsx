@@ -11,6 +11,7 @@ import { format, differenceInDays } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { LogOut, Moon, Calendar, Wrench } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { DialogActions } from '../shared/DialogActions'
 import {
   Dialog,
   DialogContent,
@@ -153,25 +154,15 @@ export function EarlyCheckoutDialog({
         </div>
 
         {/* Footer */}
-        <div className="flex gap-2 px-6 pb-5">
-          <Button
-            variant="outline"
-            size="sm"
-            className="flex-1 text-sm"
-            onClick={onClose}
-            disabled={isPending}
-          >
-            Cancelar
-          </Button>
-          <Button
-            size="sm"
-            className="flex-1 text-sm bg-amber-600 hover:bg-amber-700 text-white"
-            onClick={handleConfirm}
-            disabled={isPending}
-          >
-            {isPending ? 'Registrando…' : 'Confirmar salida anticipada'}
-          </Button>
-        </div>
+        <DialogActions
+          onCancel={onClose}
+          onConfirm={handleConfirm}
+          confirmLabel="Confirmar salida anticipada"
+          confirmPendingLabel="Registrando…"
+          tone="warning"
+          isPending={isPending}
+          className="px-6 pb-5"
+        />
       </DialogContent>
     </Dialog>
   )

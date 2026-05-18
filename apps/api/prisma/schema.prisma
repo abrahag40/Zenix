@@ -292,6 +292,20 @@ enum PaymentStatus {
   OVERDUE
 }
 
+// ── PaymentModel (Sprint CHECK-IN-α §106, adelanto de §87 v1.0.1 PAY-CORE) ──
+// Determina si el cobro del folio es responsabilidad del hotel o de la OTA.
+//   HOTEL_COLLECT   — walk-in, direct booking, OTA con cobro on-site (algunos casos).
+//                     `confirmCheckin` exige balance == 0 (o COMP aprobado).
+//   OTA_COLLECT     — OTA cobró al guest (Booking.com/Expedia/Hotels.com/Agoda con
+//                     payment_collect=ota). `confirmCheckin` skip guard BALANCE_UNPAID
+//                     y marca folio "paid via OTA virtual card / pending reconciliation".
+//   HYBRID_DEPOSIT  — depósito previo + saldo en hotel. balance = total − depositReceived.
+enum PaymentModel {
+  HOTEL_COLLECT
+  OTA_COLLECT
+  HYBRID_DEPOSIT
+}
+
 // ── New enums for multi-tenant foundation ──
 
 enum OrgPlan {
@@ -1244,6 +1258,10 @@ model GuestStay {
   totalAmount           Decimal             @map("total_amount") @db.Decimal(10, 2)
   amountPaid            Decimal             @default(0) @map("amount_paid") @db.Decimal(10, 2)
   paymentStatus         PaymentStatus       @default(PENDING) @map("payment_status")
+  // Sprint CHECK-IN-α §106 — driver de OTA-collect detection. Default seguro
+  // = HOTEL_COLLECT (no rebaja guards existentes). Channex inbound (sprint
+  // próximo) escribe OTA_COLLECT cuando `payment_collect=ota`.
+  paymentModel          PaymentModel        @default(HOTEL_COLLECT) @map("payment_model")
   source                String?
   notes                 String?
   checkedInById         String              @map("checked_in_by_id")
@@ -1271,6 +1289,12 @@ model GuestStay {
   // ── Check-in extended fields (Sprint 9) ─────────────────────────────────
   arrivalNotes          String?             @map("arrival_notes")
   keyType               KeyDeliveryType?    @map("key_type")
+  // Sprint CHECK-IN-α — foto del documento capturada al check-in. Hoy data
+  // URI base64 (mismo patrón que MaintenanceTicket.photos, deuda MAINT-11
+  // a resolver en v1.0.3 IMG con S3+Sharp). Visa CRR 13.1/13.7 chargeback
+  // evidence: la foto demuestra que el huésped se presentó físicamente con
+  // documento válido.
+  documentPhotoUrl      String?             @map("document_photo_url")
   // ── Reports — pace/lead-time analytics (Sprint 9 research recommendation) ─
   // Días entre creación de la reserva y check-in. Calculado al crear.
   // Habilita pace/lead-time analysis (top wanted report en cross-research)
@@ -1347,6 +1371,7 @@ model GuestStay {
   contactLogs  GuestContactLog[]
   paymentLogs  PaymentLog[]
   guestStayLogs GuestStayLog[]
+  noteThread   GuestStayNote[]
 
   @@index([organizationId])
   @@index([organizationId, propertyId])
@@ -1580,6 +1605,31 @@ model GuestStayLog {
   @@index([stayId, occurredAt])
   @@index([event])
   @@map("guest_stay_logs")
+}
+
+// ── GuestStayNote — bitácora/chat humano de la reserva ────────────────────
+// Sprint EDIT-RESERVATION. Diferente de GuestStayLog (audit automático del
+// sistema). Las notas son creadas por staff (recep / housekeeper / supervisor)
+// con propósito de comunicación intra-turno. Patrón análogo a
+// MaintenanceTicketComment. Append-only.
+//
+// Editable hasta 5 minutos post-creación por el mismo autor (anti-typo); no
+// hay delete — si la nota está mal, se agrega otra nota corrigiendo.
+model GuestStayNote {
+  id        String   @id @default(uuid())
+  stayId    String   @map("stay_id")
+  authorId  String   @map("author_id")
+  content   String   @db.Text
+  // Channel hint para filtrado UI: 'GENERAL' | 'GUEST_REQUEST' | 'HOUSEKEEPING' | 'INTERNAL'
+  // Default GENERAL. No enum — patrón "espiral" §95 para evolución sin migration.
+  channel   String   @default("GENERAL")
+  createdAt DateTime @default(now()) @map("created_at")
+  editedAt  DateTime? @map("edited_at")
+
+  stay   GuestStay @relation(fields: [stayId], references: [id])
+
+  @@index([stayId, createdAt])
+  @@map("guest_stay_notes")
 }
 
 model StayJourney {

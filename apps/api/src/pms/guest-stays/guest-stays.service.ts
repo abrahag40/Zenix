@@ -25,6 +25,8 @@ import { Prisma } from '@prisma/client'
 import { ConfirmCheckinDto } from './dto/confirm-checkin.dto'
 import { RegisterPaymentDto } from './dto/register-payment.dto'
 import { VoidPaymentDto } from './dto/void-payment.dto'
+import { UpdateGuestStayDto } from './dto/update-guest-stay.dto'
+import { CreateGuestStayNoteDto, UpdateGuestStayNoteDto } from './dto/guest-stay-note.dto'
 import { StayJourneyService } from '../stay-journeys/stay-journeys.service'
 import { ChannexGateway } from '../../integrations/channex/channex.gateway'
 import { NotificationCenterService } from '../../notification-center/notification-center.service'
@@ -1844,6 +1846,206 @@ export class GuestStaysService {
   // ─── Check-in Confirmation (Sprint 8) ────────────────────────────────────
 
   /**
+   * GET /v1/guest-stays/:id/checkin-context
+   *
+   * Sprint CHECK-IN-α §107 — endpoint consolidado que precarga TODO lo que
+   * la UI del dialog de check-in necesita en un solo round-trip.
+   *
+   * Pattern Cloudbeds "action drawer": el frontend abre el dialog y recibe
+   * en una llamada: datos del stay, modelo de pago (driver de auto-skip
+   * para OTA prepaid), proyección de balance, flags `canCheckIn` con
+   * razones machine-readable, e identidad capturada o no.
+   *
+   * Reduce 3 calls separadas (stay + payments + property settings) a 1.
+   */
+  async getCheckinContext(stayId: string) {
+    const orgId = this.tenant.getOrganizationId()
+
+    const stay = await this.prisma.guestStay.findUnique({
+      where: { id: stayId, organizationId: orgId },
+      include: {
+        room: {
+          select: {
+            id: true,
+            number: true,
+            status: true,
+            property: {
+              select: {
+                id: true,
+                settings: true,
+                legalEntity: { select: { baseCurrency: true } },
+              },
+            },
+          },
+        },
+        paymentLogs: {
+          where:   { isVoid: false },
+          orderBy: { createdAt: 'desc' },
+          take:    50,
+        },
+      },
+    })
+    if (!stay) throw new NotFoundException('Estadía no encontrada')
+
+    // Sprint CHECK-IN-α — property currency primary (5/5 PMS analizados).
+    // Fallback a stay.currency si LegalEntity aún no asignada (v1.0.5 transición).
+    const propertyCurrency = stay.room.property.legalEntity?.baseCurrency ?? stay.currency
+
+    // Rates secundarios USD/EUR para display. Sólo expongo lo que la DB tiene
+    // (sin inventar). FX-CORE §103: ExchangeRate Banxico SF43718 (USD/MXN).
+    // Para otras monedas o EUR, queda null y la UI omite la conversión.
+    const secondaryRates = await this.getSecondaryFxRates(orgId, propertyCurrency, stay.room.property.id)
+
+    const totalAmount = Number(stay.totalAmount)
+    const amountPaid  = Number(stay.amountPaid)
+    const balance     = Math.max(0, totalAmount - amountPaid)
+
+    const tz = stay.room.property.settings?.timezone ?? 'UTC'
+    const todayLocal   = toLocalDate(new Date(), tz)
+    const checkinLocal = toLocalDate(stay.checkinAt, tz)
+
+    // Razones machine-readable agregadas — la UI decide qué mostrar.
+    const reasons: string[] = []
+    if (stay.actualCheckin !== null) reasons.push('CHECKIN_ALREADY_CONFIRMED')
+    if (stay.noShowAt !== null)      reasons.push('NOSHOW_LOCKED')
+    if (stay.cancelledAt !== null)   reasons.push('CANCELLED')
+    if (checkinLocal > todayLocal)   reasons.push('FUTURE_CHECKIN')
+
+    // Balance no es bloqueo absoluto (puede cubrirse con pago al confirmar
+    // o por OTA_COLLECT). Se reporta como warning para que UI decida.
+    const warnings: string[] = []
+    if (balance > 0 && stay.paymentModel !== 'OTA_COLLECT') {
+      warnings.push('BALANCE_PENDING')
+    }
+
+    return {
+      stay: {
+        id:                 stay.id,
+        bookingRef:         stay.bookingRef,
+        guestName:          stay.guestName,
+        guestEmail:         stay.guestEmail,
+        guestPhone:         stay.guestPhone,
+        documentType:       stay.documentType,
+        documentNumber:     stay.documentNumber,
+        documentPhotoUrl:   stay.documentPhotoUrl,
+        nationality:        stay.nationality,
+        paxCount:           stay.paxCount,
+        checkinAt:          stay.checkinAt.toISOString(),
+        scheduledCheckout:  stay.scheduledCheckout.toISOString(),
+        source:             stay.source,
+        currency:           stay.currency,
+        arrivalNotes:       stay.arrivalNotes,
+      },
+      room: {
+        id:     stay.room.id,
+        number: stay.room.number,
+        status: stay.room.status,
+      },
+      paymentModel: stay.paymentModel,
+      // Sprint CHECK-IN-α — primary = property currency (operacional);
+      // secondaryRates expresan cuánto vale 1 unidad de propertyCurrency
+      // en USD/EUR (para mostrar conversión secundaria en UI).
+      propertyCurrency,
+      secondaryRates,
+      balanceProjection: {
+        totalAmount,
+        amountPaid,
+        balance,
+        currency: stay.currency,
+      },
+      canCheckIn: {
+        ok:       reasons.length === 0,
+        reasons,
+        warnings,
+      },
+      // identityCaptured ahora considera foto OR número (foto preferida).
+      identityCaptured: !!(stay.documentPhotoUrl || (stay.documentType && stay.documentNumber)),
+      paymentLogs: stay.paymentLogs.map((p) => ({
+        id:        p.id,
+        method:    p.method,
+        amount:    Number(p.amount),
+        currency:  p.currency,
+        reference: p.reference,
+        createdAt: p.createdAt.toISOString(),
+      })),
+    }
+  }
+
+  /**
+   * Sprint CHECK-IN-α — busca rates secundarios para las 3 monedas universales
+   * de hospedaje turístico (USD, EUR, MXN) excluyendo la moneda primaria.
+   * Cada rate expresa "1 unidad de propertyCurrency = X targetCurrency".
+   *
+   * Lookup bidireccional: si hay `propertyCurrency→target` la usa directo, si
+   * sólo hay `target→propertyCurrency` (caso típico Banxico USD→MXN) usa el
+   * inverso. Si no hay nada, devuelve null para ese target (la UI omite).
+   *
+   * Considera tanto ExchangeRate (oficial Banxico §103) como PropertyFxRate
+   * (override del manager §103). PropertyFxRate tiene precedencia.
+   */
+  private async getSecondaryFxRates(
+    organizationId: string,
+    propertyCurrency: string,
+    propertyId: string,
+  ): Promise<Record<string, number | null>> {
+    const universal = ['USD', 'EUR', 'MXN'] as const
+    const targets = universal.filter((c) => c !== propertyCurrency)
+    const out: Record<string, number | null> = {}
+    for (const t of targets) {
+      out[t] = await this.lookupFxRate(organizationId, propertyId, propertyCurrency, t)
+    }
+    return out
+  }
+
+  /** Resolución de rate con fallback PropertyFxRate → ExchangeRate, direcciones ambas. */
+  private async lookupFxRate(
+    organizationId: string,
+    propertyId: string,
+    from: string,
+    to: string,
+  ): Promise<number | null> {
+    const now = new Date()
+
+    // 1. PropertyFxRate override (manager) — direct
+    const overrideDirect = await this.prisma.propertyFxRate.findFirst({
+      where: {
+        propertyId, baseCurrency: from, quoteCurrency: to,
+        validFrom: { lte: now },
+        OR: [{ validTo: null }, { validTo: { gte: now } }],
+      },
+      orderBy: { validFrom: 'desc' },
+    })
+    if (overrideDirect && Number(overrideDirect.rate) > 0) return Number(overrideDirect.rate)
+
+    // 2. PropertyFxRate override — inverse
+    const overrideInverse = await this.prisma.propertyFxRate.findFirst({
+      where: {
+        propertyId, baseCurrency: to, quoteCurrency: from,
+        validFrom: { lte: now },
+        OR: [{ validTo: null }, { validTo: { gte: now } }],
+      },
+      orderBy: { validFrom: 'desc' },
+    })
+    if (overrideInverse && Number(overrideInverse.rate) > 0) return 1 / Number(overrideInverse.rate)
+
+    // 3. ExchangeRate oficial (Banxico) — direct
+    const officialDirect = await this.prisma.exchangeRate.findFirst({
+      where:   { organizationId, baseCurrency: from, quoteCurrency: to },
+      orderBy: { effectiveDate: 'desc' },
+    })
+    if (officialDirect && Number(officialDirect.rate) > 0) return Number(officialDirect.rate)
+
+    // 4. ExchangeRate oficial — inverse
+    const officialInverse = await this.prisma.exchangeRate.findFirst({
+      where:   { organizationId, baseCurrency: to, quoteCurrency: from },
+      orderBy: { effectiveDate: 'desc' },
+    })
+    if (officialInverse && Number(officialInverse.rate) > 0) return 1 / Number(officialInverse.rate)
+
+    return null
+  }
+
+  /**
    * POST /v1/guest-stays/:id/confirm-checkin
    *
    * Confirma la llegada física del huésped. Este es el único endpoint que escribe
@@ -1889,14 +2091,21 @@ export class GuestStaysService {
     })
     if (!stay) throw new NotFoundException('Estadía no encontrada')
 
-    // Guard 1: ya confirmado
+    // Guard 1: ya confirmado — código machine-readable (Sprint CHECK-IN-α §110)
     if (stay.actualCheckin !== null) {
-      throw new ConflictException('El check-in ya fue confirmado')
+      throw new ConflictException({
+        code:          'CHECKIN_ALREADY_CONFIRMED',
+        message:       'El check-in ya fue confirmado',
+        actualCheckin: stay.actualCheckin.toISOString(),
+      })
     }
 
     // Guard 2: no-show
     if (stay.noShowAt !== null) {
-      throw new BadRequestException('No se puede confirmar check-in de un no-show')
+      throw new BadRequestException({
+        code:    'NOSHOW_LOCKED',
+        message: 'No se puede confirmar check-in de un no-show',
+      })
     }
 
     // Guard 3: fecha aún no llegó
@@ -1904,7 +2113,10 @@ export class GuestStaysService {
     const todayLocal   = toLocalDate(new Date(), tz)
     const checkinLocal = toLocalDate(stay.checkinAt, tz)
     if (checkinLocal > todayLocal) {
-      throw new BadRequestException('La fecha de check-in aún no ha llegado')
+      throw new BadRequestException({
+        code:    'FUTURE_CHECKIN',
+        message: 'La fecha de check-in aún no ha llegado',
+      })
     }
 
     // Guard 4: documento no verificado
@@ -1933,18 +2145,33 @@ export class GuestStaysService {
     }
 
     // Guard 5: balance pendiente sin pago
+    // Sprint CHECK-IN-α §106 — paymentModel=OTA_COLLECT skip-ea este guard:
+    // la OTA ya cobró al guest vía VCC. Marcamos folio "paid via OTA".
     const paidSoFar        = Number(stay.amountPaid)
     const totalAmount      = Number(stay.totalAmount)
     const paymentSum       = dto.payments.reduce((s, p) => s + p.amount, 0)
     const projectedBalance = totalAmount - paidSoFar - paymentSum
     const hasOtaPrepaid    = dto.payments.some((p) => p.method === PaymentMethod.OTA_PREPAID)
     const hasComp          = dto.payments.some((p) => p.method === PaymentMethod.COMP)
+    const isOtaCollect     = stay.paymentModel === 'OTA_COLLECT'
 
-    if (projectedBalance > 0 && !hasOtaPrepaid && !hasComp) {
+    if (projectedBalance > 0 && !hasOtaPrepaid && !hasComp && !isOtaCollect) {
       throw new BadRequestException({
         code:    'BALANCE_UNPAID',
         balance: projectedBalance,
         message: `Saldo pendiente de $${projectedBalance.toFixed(2)} ${stay.currency} sin cubrir`,
+      })
+    }
+
+    // Sprint CHECK-IN-α §110b — bloquear overpayment. Opera Cloud + RoomRaccoon
+    // hacen lo mismo (2/5 PMS analizados). Depósitos por incidentales son flujo
+    // aparte (v1.0.1 PAY-CORE), no parte del check-in.
+    // Tolerancia 0.01 para evitar falsos positivos por rounding de float JS.
+    if (projectedBalance < -0.01 && !hasComp && !isOtaCollect) {
+      throw new BadRequestException({
+        code:      'BALANCE_OVERPAID',
+        excess:    Math.abs(projectedBalance),
+        message:   `El pago excede el saldo por $${Math.abs(projectedBalance).toFixed(2)} ${stay.currency}. Ajusta el monto al saldo exacto.`,
       })
     }
 
@@ -1972,9 +2199,11 @@ export class GuestStaysService {
       }
 
       // 2. Calcular nuevo amountPaid y paymentStatus
+      // OTA_COLLECT: folio se considera PAID aunque no haya PaymentLog
+      // (reconciliación contra VCC payout llega en v1.0.1 PAY-CORE).
       const newAmountPaid = paidSoFar + paymentSum
       const paymentStatus =
-        hasOtaPrepaid || hasComp || newAmountPaid >= totalAmount
+        hasOtaPrepaid || hasComp || isOtaCollect || newAmountPaid >= totalAmount
           ? 'PAID'
           : newAmountPaid > 0
             ? 'PARTIAL'
@@ -1988,10 +2217,11 @@ export class GuestStaysService {
           checkinConfirmedById:   actorId,
           amountPaid:             newAmountPaid,
           paymentStatus,
-          documentType:           dto.documentType   ?? stay.documentType,
-          documentNumber:         dto.documentNumber ?? stay.documentNumber,
-          arrivalNotes:           dto.arrivalNotes   ?? null,
-          keyType:                dto.keyType        ?? null,
+          documentType:           dto.documentType     ?? stay.documentType,
+          documentNumber:         dto.documentNumber   ?? stay.documentNumber,
+          documentPhotoUrl:       dto.documentPhotoUrl ?? stay.documentPhotoUrl,
+          arrivalNotes:           dto.arrivalNotes     ?? null,
+          keyType:                dto.keyType          ?? null,
         },
       })
 
@@ -2182,6 +2412,338 @@ export class GuestStaysService {
 
     this.logger.log(`[VoidPayment] paymentLogId=${paymentLogId} amount=${original.amount} voided by ${actorId}`)
     return { success: true }
+  }
+
+  /**
+   * GET /v1/guest-stays/:id/payments — Sprint EDIT-RESERVATION.
+   * Devuelve TODOS los PaymentLogs (originales + voids) ordenados desc.
+   * La UI distingue voided vía isVoid + voidsLogId.
+   */
+  async listPaymentLogs(stayId: string) {
+    const orgId = this.tenant.getOrganizationId()
+    const stay = await this.prisma.guestStay.findUnique({
+      where: { id: stayId, organizationId: orgId }, select: { id: true },
+    })
+    if (!stay) throw new NotFoundException('Estadía no encontrada')
+
+    // Sprint EDIT-RESERVATION iter 4 — Pago tab redesign:
+    // Cloudbeds/Mews UX pattern + USALI 12 ed §Cashier's Shift Report exigen
+    // mostrar QUIÉN cobró cada pago (col "Collector" en el folio).
+    // Visa CRR §5.9.2 chargeback evidence también requiere collector identifiable.
+    const logs = await this.prisma.paymentLog.findMany({
+      where:   { stayId, organizationId: orgId },
+      orderBy: { createdAt: 'desc' },
+      take:    100,
+    })
+
+    // Resolver staff names en batch. Sin N+1: 1 query agrupada por IDs únicos.
+    const staffIds = [...new Set(logs.flatMap((l) => [l.collectedById, l.voidedById]).filter(Boolean) as string[])]
+    const staff = staffIds.length === 0
+      ? []
+      : await this.prisma.staff.findMany({
+          where:  { id: { in: staffIds } },
+          select: { id: true, name: true, email: true },
+        })
+    const staffById = new Map(staff.map((s) => [s.id, s]))
+
+    return logs.map((l) => ({
+      ...l,
+      collector: l.collectedById ? staffById.get(l.collectedById) ?? null : null,
+      voider:    l.voidedById    ? staffById.get(l.voidedById)    ?? null : null,
+    }))
+  }
+
+  // ─── Edit Reservation (Sprint EDIT-RESERVATION) ─────────────────────────
+
+  /**
+   * PATCH /v1/guest-stays/:id
+   *
+   * Update parcial de campos de la reserva. Aplica la matriz de guards
+   * per-phase documentada en `docs/sprints/EDIT-RESERVATION-plan.md`.
+   *
+   * Matriz resumida:
+   *   - Cancelled / NoShow → solo `notes` (campo interno) editable.
+   *   - Post-checkout      → soft fields editables; rate/doc bloqueados (fiscal).
+   *   - Post-checkin       → soft libre; rate/pax requieren managerApprovalCode + reason.
+   *   - Pre-checkin        → todo libre, con audit log.
+   *
+   * Ojo: NO toca `checkinAt` / `scheduledCheckout` — esos viven en
+   * `extendStay` / `moveRoom` por su lógica de AvailabilityService.
+   *
+   * Performance: 1 read + 1 transaction (update + GuestStayLog create).
+   * Sin loops, sin re-reads — el diff se computa in-memory.
+   */
+  async updateGuestStay(stayId: string, dto: UpdateGuestStayDto, actorId: string) {
+    const orgId = this.tenant.getOrganizationId()
+
+    const stay = await this.prisma.guestStay.findUnique({
+      where:  { id: stayId, organizationId: orgId },
+      select: {
+        id: true, propertyId: true, roomId: true,
+        guestName: true, guestEmail: true, guestPhone: true,
+        documentType: true, documentNumber: true, documentPhotoUrl: true,
+        nationality: true, notes: true, arrivalNotes: true,
+        paxCount: true, ratePerNight: true, totalAmount: true,
+        checkinAt: true, scheduledCheckout: true,
+        actualCheckin: true, actualCheckout: true,
+        noShowAt: true, cancelledAt: true,
+      },
+    })
+    if (!stay) throw new NotFoundException('Estadía no encontrada')
+
+    // Phase detection — orden importa (terminal states primero).
+    const phase: 'CANCELLED' | 'NOSHOW' | 'POST_CHECKOUT' | 'POST_CHECKIN' | 'PRE_CHECKIN' =
+      stay.cancelledAt    ? 'CANCELLED'
+      : stay.noShowAt     ? 'NOSHOW'
+      : stay.actualCheckout ? 'POST_CHECKOUT'
+      : stay.actualCheckin  ? 'POST_CHECKIN'
+      : 'PRE_CHECKIN'
+
+    // ── Guards por phase ────────────────────────────────────────────────
+    if (phase === 'CANCELLED') {
+      // Solo `notes` (campo interno) editable — útil para registrar contexto
+      // post-cancel ("disputa con OTA", "refund procesado", etc.).
+      const allowed = ['notes']
+      const blocked = Object.keys(dto).filter(
+        (k) => dto[k as keyof UpdateGuestStayDto] !== undefined && !allowed.includes(k),
+      )
+      if (blocked.length > 0) {
+        throw new BadRequestException({
+          code:    'STAY_CANCELLED',
+          message: 'Reserva cancelada — campos congelados para audit trail',
+          blocked,
+        })
+      }
+    }
+    if (phase === 'NOSHOW') {
+      const allowed = ['notes']
+      const blocked = Object.keys(dto).filter(
+        (k) => dto[k as keyof UpdateGuestStayDto] !== undefined && !allowed.includes(k),
+      )
+      if (blocked.length > 0) {
+        throw new BadRequestException({
+          code:    'STAY_NOSHOW',
+          message: 'Reserva en flujo no-show — campos congelados',
+          blocked,
+        })
+      }
+    }
+    if (phase === 'POST_CHECKOUT') {
+      // Bloqueados por fiscal lock (CFDI evidence, Visa CRR 13.x).
+      const fiscalLocked: (keyof UpdateGuestStayDto)[] = [
+        'documentType', 'documentNumber', 'documentPhotoUrl',
+        'ratePerNight', 'paxCount',
+      ]
+      const blocked = fiscalLocked.filter((k) => dto[k] !== undefined)
+      if (blocked.length > 0) {
+        throw new BadRequestException({
+          code:    'STAY_CHECKED_OUT_IMMUTABLE_FIELD',
+          message: 'Reserva ya cerrada — campos fiscales bloqueados. Usar nota crédito para correcciones monetarias.',
+          blocked,
+        })
+      }
+    }
+    // Sprint EDIT-RESERVATION iter 6 — política Cloudbeds/Mews:
+    // cambios post-checkin NO requieren approval bloqueante del manager.
+    // Razón (opcional) queda en audit log; saldo negativo = crédito a favor.
+    // Justificación: manager ocupado no debe ser cuello de botella para
+    // operación de recepción. Audit trail + reversibilidad post-hoc bastan.
+    // (Antes §117/§118: requería managerApprovalCode + managerApprovalReason.
+    // Decisión revertida por feedback usuario — overhead operacional alto.)
+
+    // ── Compute diff (in-memory, sin re-query) ──────────────────────────
+    type FieldKey =
+      | 'guestName' | 'guestEmail' | 'guestPhone'
+      | 'documentType' | 'documentNumber' | 'documentPhotoUrl'
+      | 'nationality' | 'notes' | 'arrivalNotes'
+      | 'paxCount' | 'ratePerNight'
+    const trackedFields: FieldKey[] = [
+      'guestName', 'guestEmail', 'guestPhone',
+      'documentType', 'documentNumber', 'documentPhotoUrl',
+      'nationality', 'notes', 'arrivalNotes',
+      'paxCount', 'ratePerNight',
+    ]
+    // JSON-safe value types — Prisma exige InputJsonValue compatible.
+    type JsonChange = { from: string | number | null; to: string | number | null }
+    const changes: Record<string, JsonChange> = {}
+    for (const k of trackedFields) {
+      const incoming = dto[k]
+      if (incoming === undefined) continue
+      const current = stay[k] as unknown
+      // Decimal comparison: ratePerNight viene como number en DTO, Decimal en BD
+      const currentNorm = current instanceof Object && 'toString' in (current as object)
+        ? Number((current as { toString: () => string }).toString())
+        : current
+      if (currentNorm !== incoming) {
+        changes[k] = {
+          from: (currentNorm ?? null) as string | number | null,
+          to:   incoming as string | number | null,
+        }
+      }
+    }
+
+    // Si no hay cambios, no escribimos — short-circuit elegante (NN/g H1
+    // estado del sistema visible: el caller recibe ok=true, changed=false).
+    if (Object.keys(changes).length === 0) {
+      return { ok: true, changed: false, phase }
+    }
+
+    // Recompute totalAmount si rate cambió. nights derivado de fechas (no
+    // se editan acá). Decimal-safe via Prisma.Decimal en el update.
+    const newRate = dto.ratePerNight ?? Number(stay.ratePerNight)
+    const nights = Math.max(
+      1,
+      Math.round(
+        (stay.scheduledCheckout.getTime() - stay.checkinAt.getTime()) / (1000 * 60 * 60 * 24),
+      ),
+    )
+    const recomputedTotal = dto.ratePerNight !== undefined ? newRate * nights : undefined
+
+    // ── Transaction: 1 update + 1 audit log entry ───────────────────────
+    await this.prisma.$transaction([
+      this.prisma.guestStay.update({
+        where: { id: stayId },
+        data: {
+          ...(dto.guestName        !== undefined && { guestName:        dto.guestName }),
+          ...(dto.guestEmail       !== undefined && { guestEmail:       dto.guestEmail }),
+          ...(dto.guestPhone       !== undefined && { guestPhone:       dto.guestPhone }),
+          ...(dto.documentType     !== undefined && { documentType:     dto.documentType }),
+          ...(dto.documentNumber   !== undefined && { documentNumber:   dto.documentNumber }),
+          ...(dto.documentPhotoUrl !== undefined && { documentPhotoUrl: dto.documentPhotoUrl }),
+          ...(dto.nationality      !== undefined && { nationality:      dto.nationality }),
+          ...(dto.notes            !== undefined && { notes:            dto.notes }),
+          ...(dto.arrivalNotes     !== undefined && { arrivalNotes:     dto.arrivalNotes }),
+          ...(dto.paxCount         !== undefined && { paxCount:         dto.paxCount }),
+          ...(dto.ratePerNight     !== undefined && { ratePerNight:     dto.ratePerNight }),
+          ...(recomputedTotal      !== undefined && { totalAmount:      recomputedTotal }),
+        },
+      }),
+      this.prisma.guestStayLog.create({
+        data: {
+          stayId,
+          event:    'STAY_UPDATED',
+          actorId,
+          metadata: {
+            phase,
+            // PII: enmascarar documentNumber en audit (§109). Single source of
+            // truth: construimos el objeto changes ya con el masking aplicado.
+            changes: changes.documentNumber
+              ? {
+                  ...changes,
+                  documentNumber: {
+                    from: changes.documentNumber.from
+                      ? `***${String(changes.documentNumber.from).slice(-4)}` : null,
+                    to: changes.documentNumber.to
+                      ? `***${String(changes.documentNumber.to).slice(-4)}` : null,
+                  },
+                }
+              : changes,
+            approval: dto.managerApprovalCode
+              ? { code: dto.managerApprovalCode, reason: dto.managerApprovalReason }
+              : null,
+            reason: dto.reason ?? null,
+          },
+        },
+      }),
+    ])
+
+    // Post-tx fire-and-forget: SSE para refresh concurrent sessions
+    // (banner "Datos actualizados en otra sesión" en clientes con dialog abierto).
+    this.events.emit('stay.updated', {
+      stayId,
+      propertyId: stay.propertyId,
+      orgId,
+      changedFields: Object.keys(changes),
+      actorId,
+    })
+
+    this.logger.log(`[UpdateStay] stayId=${stayId} phase=${phase} fields=${Object.keys(changes).join(',')}`)
+    return { ok: true, changed: true, phase, changedFields: Object.keys(changes) }
+  }
+
+  // ─── GuestStayNote — bitácora humana ────────────────────────────────────
+
+  /** Ventana de edición post-creación para typos. 5 min, mismo autor. */
+  private static readonly NOTE_EDIT_WINDOW_MS = 5 * 60 * 1000
+
+  /** GET /v1/guest-stays/:id/notes — lista append-only de notas. */
+  async listNotes(stayId: string) {
+    const orgId = this.tenant.getOrganizationId()
+    // Verify ownership via stay lookup (defense in depth — global guard ya scope).
+    const stay = await this.prisma.guestStay.findUnique({
+      where: { id: stayId, organizationId: orgId }, select: { id: true },
+    })
+    if (!stay) throw new NotFoundException('Estadía no encontrada')
+
+    return this.prisma.guestStayNote.findMany({
+      where:   { stayId },
+      orderBy: { createdAt: 'asc' },
+      take:    200,
+    })
+  }
+
+  /** POST /v1/guest-stays/:id/notes */
+  async createNote(stayId: string, dto: CreateGuestStayNoteDto, actorId: string) {
+    const orgId = this.tenant.getOrganizationId()
+    const stay = await this.prisma.guestStay.findUnique({
+      where: { id: stayId, organizationId: orgId },
+      select: { id: true, propertyId: true },
+    })
+    if (!stay) throw new NotFoundException('Estadía no encontrada')
+
+    const note = await this.prisma.guestStayNote.create({
+      data: {
+        stayId,
+        authorId: actorId,
+        content:  dto.content.trim(),
+        channel:  dto.channel ?? 'GENERAL',
+      },
+    })
+
+    // SSE para que clientes con BookingDetailSheet abierto refresquen el thread.
+    this.events.emit('stay.note.created', {
+      stayId, propertyId: stay.propertyId, orgId, noteId: note.id, actorId,
+    })
+
+    return note
+  }
+
+  /**
+   * PATCH /v1/guest-stays/notes/:noteId — edit típico typo, ventana 5min,
+   * mismo autor. Después de la ventana, la nota es inmutable (audit trail).
+   */
+  async editNote(noteId: string, dto: UpdateGuestStayNoteDto, actorId: string) {
+    const orgId = this.tenant.getOrganizationId()
+    const note = await this.prisma.guestStayNote.findUnique({
+      where:  { id: noteId },
+      include: { stay: { select: { organizationId: true, propertyId: true } } },
+    })
+    if (!note) throw new NotFoundException('Nota no encontrada')
+    if (note.stay.organizationId !== orgId) throw new ForbiddenException()
+    if (note.authorId !== actorId) {
+      throw new ForbiddenException({
+        code: 'NOTE_NOT_OWNER',
+        message: 'Solo el autor original puede editar la nota',
+      })
+    }
+    const ageMs = Date.now() - note.createdAt.getTime()
+    if (ageMs > GuestStaysService.NOTE_EDIT_WINDOW_MS) {
+      throw new ForbiddenException({
+        code: 'NOTE_EDIT_WINDOW_EXPIRED',
+        message: 'La ventana de edición de 5 minutos expiró. Agrega una nueva nota corrigiendo.',
+      })
+    }
+
+    const updated = await this.prisma.guestStayNote.update({
+      where: { id: noteId },
+      data:  { content: dto.content.trim(), editedAt: new Date() },
+    })
+
+    this.events.emit('stay.note.updated', {
+      stayId: note.stayId, propertyId: note.stay.propertyId, orgId, noteId, actorId,
+    })
+
+    return updated
   }
 
   /**
@@ -2796,6 +3358,15 @@ export class GuestStaysService {
   }
 
   // Lista de cancelaciones para archive UI. Pagination simple + filtros.
+  /**
+   * Lista UNIFICADA de cancelaciones — reservas (stay-level) Y extensiones
+   * (segment-level). Patrón Mews/Cloudbeds "Cancellations report" que muestra
+   * ambos tipos en una sola vista con distinción de tipo.
+   *
+   * Sprint 2026-05-17 (post EXT-CANCEL): el `cancelFutureSegment` registra
+   * un StayJourneyEvent con eventType=CANCELLED + payload.subType='EXTENSION_CANCELLED'.
+   * Esta query lee de ambas fuentes y devuelve un shape unificado.
+   */
   async listCancelled(opts: {
     propertyId: string
     limit?: number
@@ -2804,41 +3375,154 @@ export class GuestStaysService {
     sinceISO?: string
   }) {
     const orgId = this.tenant.getOrganizationId()
-    const where: Prisma.GuestStayWhereInput = {
+    const takeLimit = Math.min(opts.limit ?? 50, 200)
+    const skipOffset = opts.offset ?? 0
+    const sinceDate = opts.sinceISO ? new Date(opts.sinceISO) : null
+
+    // ── Stay-level cancellations ────────────────────────────────────────────
+    const stayWhere: Prisma.GuestStayWhereInput = {
       organizationId: orgId,
       propertyId:     opts.propertyId,
-      cancelledAt:    { not: null },
+      cancelledAt:    sinceDate
+        ? { gte: sinceDate, not: null }
+        : { not: null },
       ...(opts.initiator ? { cancelInitiator: opts.initiator } : {}),
-      ...(opts.sinceISO ? { cancelledAt: { gte: new Date(opts.sinceISO) } } : {}),
     }
-    const [rows, total] = await this.prisma.$transaction([
-      this.prisma.guestStay.findMany({
-        where,
-        orderBy: { cancelledAt: 'desc' },
-        take:    Math.min(opts.limit ?? 50, 200),
-        skip:    opts.offset ?? 0,
-        include: {
-          room: { select: { number: true } },
-        },
-      }),
-      this.prisma.guestStay.count({ where }),
-    ])
+    const stayRows = await this.prisma.guestStay.findMany({
+      where: stayWhere,
+      orderBy: { cancelledAt: 'desc' },
+      include: {
+        room: { select: { number: true } },
+      },
+    })
+
+    // ── Extension-level cancellations (subType discriminator) ───────────────
+    // Initiator filter NO aplica a segment cancellations en v1 — son siempre
+    // iniciadas por HOTEL (recepcionista cancela una extensión planeada).
+    // Si initiator filter está activo y NO es 'HOTEL', omitimos extensions.
+    const includeExtensions = !opts.initiator || opts.initiator === 'HOTEL'
+    const extensionEvents = includeExtensions
+      ? await this.prisma.stayJourneyEvent.findMany({
+          where: {
+            eventType: 'CANCELLED',
+            payload: { path: ['subType'], equals: 'EXTENSION_CANCELLED' },
+            ...(sinceDate ? { occurredAt: { gte: sinceDate } } : {}),
+            journey: {
+              guestStay: {
+                organizationId: orgId,
+                propertyId: opts.propertyId,
+              },
+            },
+          },
+          orderBy: { occurredAt: 'desc' },
+          include: {
+            journey: {
+              include: {
+                guestStay: {
+                  select: {
+                    id: true,
+                    guestName: true,
+                    bookingRef: true,
+                  },
+                },
+              },
+            },
+          },
+        })
+      : []
+
+    // ── Unificar shape ──────────────────────────────────────────────────────
+    type UnifiedRow = {
+      id: string
+      type: 'STAY' | 'EXTENSION_SEGMENT'
+      guestStayId: string
+      guestName: string
+      bookingRef: string | null
+      roomNumber: string | null
+      cancelledAt: Date
+      cancelInitiator: string | null
+      cancelReason: string | null
+      // Solo presente para EXTENSION_SEGMENT
+      segmentId?: string
+      previousCheckOut?: string
+      newJourneyCheckOut?: string
+    }
+
+    const unified: UnifiedRow[] = []
+    for (const s of stayRows) {
+      unified.push({
+        id: s.id,
+        type: 'STAY',
+        guestStayId: s.id,
+        guestName: s.guestName,
+        bookingRef: s.bookingRef ?? null,
+        roomNumber: s.room?.number ?? null,
+        cancelledAt: s.cancelledAt!,
+        cancelInitiator: s.cancelInitiator ?? null,
+        cancelReason: s.cancelReason ?? null,
+      })
+    }
+    for (const e of extensionEvents) {
+      const payload = e.payload as Record<string, unknown> | null
+      const stay = e.journey.guestStay
+      if (!stay) continue
+      unified.push({
+        id: e.id,
+        type: 'EXTENSION_SEGMENT',
+        guestStayId: stay.id,
+        guestName: stay.guestName,
+        bookingRef: stay.bookingRef ?? null,
+        roomNumber: null,  // segment.roomId está en el payload pero requiere extra join
+        cancelledAt: e.occurredAt,
+        cancelInitiator: 'HOTEL',
+        cancelReason: (payload?.reason as string | null) ?? null,
+        segmentId: (payload?.segmentId as string | undefined),
+        previousCheckOut: (payload?.previousCheckOut as string | undefined),
+        newJourneyCheckOut: (payload?.newJourneyCheckOut as string | undefined),
+      })
+    }
+
+    // Sort merged by cancelledAt desc
+    unified.sort((a, b) => b.cancelledAt.getTime() - a.cancelledAt.getTime())
+
+    const total = unified.length
+    const rows = unified.slice(skipOffset, skipOffset + takeLimit)
     return { rows, total }
   }
 
-  // Counter para el slide footer del calendario — "Canceladas hoy: N"
+  /**
+   * Counter para el slide footer "Canceladas hoy: N".
+   * Suma stay-level + extension-segment cancellations dentro del día local.
+   */
   async countCancelledToday(propertyId: string, timezone: string) {
     const orgId = this.tenant.getOrganizationId()
     const todayLocal = toLocalDate(new Date(), timezone)
     const dayStart = new Date(`${todayLocal}T00:00:00.000Z`)
     const dayEnd   = new Date(`${todayLocal}T23:59:59.999Z`)
-    return this.prisma.guestStay.count({
-      where: {
-        organizationId: orgId,
-        propertyId,
-        cancelledAt: { gte: dayStart, lte: dayEnd },
-      },
-    })
+
+    const [stayCount, extensionCount] = await Promise.all([
+      this.prisma.guestStay.count({
+        where: {
+          organizationId: orgId,
+          propertyId,
+          cancelledAt: { gte: dayStart, lte: dayEnd },
+        },
+      }),
+      this.prisma.stayJourneyEvent.count({
+        where: {
+          eventType: 'CANCELLED',
+          payload: { path: ['subType'], equals: 'EXTENSION_CANCELLED' },
+          occurredAt: { gte: dayStart, lte: dayEnd },
+          journey: {
+            guestStay: {
+              organizationId: orgId,
+              propertyId,
+            },
+          },
+        },
+      }),
+    ])
+    return stayCount + extensionCount
   }
 
   async logContact(

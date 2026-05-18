@@ -38,6 +38,15 @@ export class ConfirmCheckinDto {
   @IsOptional()
   documentNumber?: string
 
+  /**
+   * Sprint CHECK-IN-α — data URI base64 de la foto del documento.
+   * Sustituye al input manual del número (más práctico para recepción).
+   * Tamaño esperado ~500KB-2MB. Persistido en GuestStay.documentPhotoUrl.
+   */
+  @IsString()
+  @IsOptional()
+  documentPhotoUrl?: string
+
   @IsString()
   @IsOptional()
   arrivalNotes?: string

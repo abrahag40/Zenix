@@ -3,6 +3,7 @@ import { format, differenceInDays } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { X, AlertTriangle, User, Building2, Globe, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { DialogActions } from '../shared/DialogActions'
 import type { GuestStayBlock } from '../../types/timeline.types'
 import type { CancelStayInput } from '../../hooks/useGuestStays'
 import { useModalDismiss } from '../../hooks/useModalDismiss'
@@ -50,11 +51,13 @@ export function CancelReservationDialog({
   // Dirty-state detection — Apple HIG: confirm before discarding work.
   const isDirty = initiator !== null || reasonCode !== '' || reason.trim() !== '' || step === 2
 
-  const { requestClose: handleCloseRequest, onBackdropClick } = useModalDismiss({
+  const { requestClose: handleCloseRequest, onBackdropClick, dialogElement: discardPrompt } = useModalDismiss({
     isDirty,
     onClose,
     disabled: isPending,
-    confirmMessage: '¿Descartar los datos ingresados? La cancelación no se aplicará.',
+    confirmTitle: 'Descartar cancelación',
+    confirmMessage: 'Los datos capturados se perderán. La reserva NO será cancelada.',
+    confirmLabel: 'Descartar',
   })
 
   function handleSubmit() {
@@ -220,28 +223,18 @@ export function CancelReservationDialog({
         </div>
 
         {/* Actions footer — fixed bottom */}
-        <div className="flex gap-2 px-5 pb-4 pt-1 flex-shrink-0 border-t border-slate-100 mt-1">
-          <Button
-            variant="outline"
-            size="sm"
-            className="flex-1 text-xs"
-            onClick={() => step === 2 ? setStep(1) : handleCloseRequest()}
-            disabled={isPending}
-          >
-            {step === 2 ? 'Atrás' : 'Cancelar acción'}
-          </Button>
-          <Button
-            size="sm"
-            className="flex-1 text-xs bg-rose-600 hover:bg-rose-700 text-white"
-            onClick={handleSubmit}
-            disabled={!canConfirm || isPending}
-          >
-            {isPending ? 'Procesando…' : (
-              step === 2 ? 'Confirmar' : (isAdminError ? 'Continuar' : 'Confirmar')
-            )}
-          </Button>
-        </div>
+        <DialogActions
+          onCancel={() => step === 2 ? setStep(1) : handleCloseRequest()}
+          cancelLabel={step === 2 ? 'Atrás' : 'Cancelar acción'}
+          onConfirm={handleSubmit}
+          confirmLabel={step === 2 ? 'Confirmar' : (isAdminError ? 'Continuar' : 'Confirmar')}
+          tone="destructive"
+          isPending={isPending}
+          confirmDisabled={!canConfirm}
+          className="px-5 pb-4 pt-1 flex-shrink-0 border-t border-slate-100 mt-1"
+        />
       </div>
+      {discardPrompt}
     </div>
   )
 }

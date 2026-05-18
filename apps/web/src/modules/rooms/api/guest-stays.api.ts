@@ -3,6 +3,93 @@ import type { RoomAvailabilityResult, ConfirmCheckinInput, PaymentEntryInput } f
 
 export type { ConfirmCheckinInput, PaymentEntryInput }
 
+// Sprint CHECK-IN-α §107 — payload del endpoint /checkin-context.
+export type PaymentModel = 'HOTEL_COLLECT' | 'OTA_COLLECT' | 'HYBRID_DEPOSIT'
+
+// Sprint EDIT-RESERVATION — bitácora de notas
+export type NoteChannel = 'GENERAL' | 'GUEST_REQUEST' | 'HOUSEKEEPING' | 'INTERNAL'
+
+export interface PaymentLogDto {
+  id: string
+  stayId: string
+  method: string
+  amount: number | string  // Decimal serializa como string en JSON
+  currency: string
+  reference: string | null
+  approvedById: string | null
+  approvalReason: string | null
+  isVoid: boolean
+  voidedAt: string | null
+  voidedById: string | null
+  voidReason: string | null
+  voidsLogId: string | null
+  collectedById: string
+  createdAt: string
+  shiftDate: string
+  // Sprint EDIT-RESERVATION iter 4 — staff resolvido server-side.
+  collector: { id: string; name: string | null; email: string } | null
+  voider:    { id: string; name: string | null; email: string } | null
+}
+
+export interface GuestStayNoteDto {
+  id: string
+  stayId: string
+  authorId: string
+  content: string
+  channel: NoteChannel
+  createdAt: string
+  editedAt: string | null
+}
+
+export interface CheckinContext {
+  stay: {
+    id: string
+    bookingRef: string | null
+    guestName: string
+    guestEmail: string | null
+    guestPhone: string | null
+    documentType: string | null
+    documentNumber: string | null
+    documentPhotoUrl: string | null
+    nationality: string | null
+    paxCount: number
+    checkinAt: string
+    scheduledCheckout: string
+    source: string | null
+    currency: string
+    arrivalNotes: string | null
+  }
+  room: { id: string; number: string; status: string }
+  paymentModel: PaymentModel
+  /** Moneda primaria operacional — LegalEntity.baseCurrency o folio fallback. */
+  propertyCurrency: string
+  /**
+   * Map currency-code → "1 unidad de propertyCurrency = rate target".
+   * Typically {USD, EUR, MXN} \ propertyCurrency. Null por target sin rate.
+   */
+  secondaryRates: Record<string, number | null>
+  balanceProjection: {
+    totalAmount: number
+    amountPaid: number
+    balance: number
+    currency: string
+  }
+  canCheckIn: {
+    ok: boolean
+    reasons: string[]
+    warnings: string[]
+  }
+  identityCaptured: boolean
+  paymentLogs: Array<{
+    id: string
+    method: string
+    amount: number
+    currency: string
+    reference: string | null
+    createdAt: string
+  }>
+}
+
 const BASE = '/v1/guest-stays'
 
 export const guestStaysApi = {
@@ -74,6 +161,15 @@ export const guestStaysApi = {
   moveExtensionRoom: (segmentId: string, newRoomId: string) =>
     api.patch(`/v1/stay-journeys/segments/${segmentId}/move-room`, { newRoomId }),
 
+  /**
+   * Cancela un segmento futuro de un journey (extensión que el guest checked-in
+   * decide no tomar). Difiere del cancel-stay (guards no-checked-in) y del
+   * early-checkout (guest se va HOY). El guest sigue alojado en el segmento
+   * actual; solo se revoca la prolongación planeada.
+   */
+  cancelExtensionSegment: (segmentId: string, reason?: string) =>
+    api.post(`/v1/stay-journeys/segments/${segmentId}/cancel`, { reason }),
+
   splitReservation: (
     journeyId: string,
     parts: Array<{ roomId: string; checkIn: Date; checkOut: Date }>,
@@ -91,6 +187,72 @@ export const guestStaysApi = {
       `${BASE}/${stayId}/confirm-checkin`,
       data,
     ),
+
+  /** Sprint CHECK-IN-α §107 — datos consolidados para el dialog de check-in. */
+  getCheckinContext: (stayId: string) =>
+    api.get<CheckinContext>(`${BASE}/${stayId}/checkin-context`),
+
+  // ─── Sprint EDIT-RESERVATION ─────────────────────────────────────────────
+
+  /**
+   * PATCH parcial — guards per-phase enforced server-side.
+   * Devuelve `{ ok, changed, phase, changedFields }`. Si `changed=false`,
+   * el server short-circuiteó (sin escritura ni audit).
+   */
+  updateStay: (
+    stayId: string,
+    patch: {
+      guestName?: string
+      guestEmail?: string
+      guestPhone?: string
+      documentType?: string
+      documentNumber?: string
+      documentPhotoUrl?: string
+      nationality?: string
+      notes?: string
+      arrivalNotes?: string
+      paxCount?: number
+      ratePerNight?: number
+      managerApprovalCode?: string
+      managerApprovalReason?: string
+      reason?: string
+    },
+  ) =>
+    api.patch<{
+      ok: true
+      changed: boolean
+      phase: 'PRE_CHECKIN' | 'POST_CHECKIN' | 'POST_CHECKOUT' | 'CANCELLED' | 'NOSHOW'
+      changedFields?: string[]
+    }>(`${BASE}/${stayId}`, patch),
+
+  /** Notes — bitácora humana per reserva (append-only, edit window 5min). */
+  listNotes: (stayId: string) =>
+    api.get<Array<GuestStayNoteDto>>(`${BASE}/${stayId}/notes`),
+
+  createNote: (
+    stayId: string,
+    payload: { content: string; channel?: NoteChannel },
+  ) => api.post<GuestStayNoteDto>(`${BASE}/${stayId}/notes`, payload),
+
+  editNote: (noteId: string, payload: { content: string }) =>
+    api.patch<GuestStayNoteDto>(`${BASE}/notes/${noteId}`, payload),
+
+  /** Lista PaymentLogs de la stay (incluye voided + entradas negativas). */
+  listPayments: (stayId: string) =>
+    api.get<PaymentLogDto[]>(`${BASE}/${stayId}/payments`),
+
+  /** Anula un PaymentLog — backend crea entrada negativa append-only (§28). */
+  voidPayment: (paymentLogId: string, voidReason: string) =>
+    api.post<{ success: true }>(`${BASE}/payments/${paymentLogId}/void`, { voidReason }),
+
+  /** Registra un pago adicional sobre la stay (ya existe el endpoint backend). */
+  registerPayment: (stayId: string, payload: {
+    method: string
+    amount: number
+    reference?: string
+    approvedById?: string
+    approvalReason?: string
+  }) => api.post<PaymentLogDto>(`${BASE}/${stayId}/payments`, payload),
 
   // ── Cancel-Archive (Sprint 2026-05-16) ───────────────────────────────────
   cancel: (stayId: string, data: {
