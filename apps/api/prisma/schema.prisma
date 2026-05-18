@@ -1671,6 +1671,14 @@ model StaySegment {
   createdAt    DateTime      @default(now()) @map("created_at")
   updatedAt    DateTime      @updatedAt @map("updated_at")
 
+  /// Timestamp en que recepción confirmó FÍSICAMENTE que el guest cambió de
+  /// habitación (le entregaron la nueva llave). Solo aplica a segments con
+  /// reason en [EXTENSION_NEW_ROOM, ROOM_MOVE]. NULL = mudanza pendiente o no
+  /// aplica. Sprint MOVE-CONFIRM 2026-05-18: separa el flow operativo (mudanza
+  /// hecha = HK puede limpiar room previa) del flow contable (segment activo).
+  moveConfirmedAt   DateTime? @map("move_confirmed_at")
+  moveConfirmedById String?   @map("move_confirmed_by_id")
+
   journey   StayJourney    @relation(fields: [journeyId], references: [id])
   room      Room           @relation(fields: [roomId], references: [id])
   guestStay GuestStay?     @relation(fields: [guestStayId], references: [id])
@@ -1679,6 +1687,7 @@ model StaySegment {
   @@index([journeyId])
   @@index([roomId, checkIn, checkOut])
   @@index([status, locked])
+  @@index([moveConfirmedAt])
   @@map("stay_segments")
 }
 

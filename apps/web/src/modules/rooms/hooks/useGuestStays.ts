@@ -540,6 +540,36 @@ export function useCancelExtensionSegment(propertyId: string) {
   })
 }
 
+/**
+ * Confirma físicamente que el guest cambió de habitación (recepción entregó
+ * nueva llave). Acción 1-click el día del move. Triggera HK task READY para
+ * el cuarto previo. Sprint MOVE-CONFIRM 2026-05-18.
+ */
+export function useConfirmSegmentMove(propertyId: string) {
+  const qc = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ segmentId }: { segmentId: string }) =>
+      guestStaysApi.confirmSegmentMove(segmentId),
+    onSuccess: async () => {
+      // Refetch journey timeline para que el segmento muestre el nuevo estado
+      // (moveConfirmedAt) y desaparezca la acción "Confirmar mudanza".
+      await qc.refetchQueries({
+        queryKey: ['stay-journeys-timeline', propertyId],
+        exact: false,
+        type: 'active',
+      })
+      // Rooms invalidate — HK task READY puede cambiar la animación del cuarto
+      qc.invalidateQueries({ queryKey: ['rooms', propertyId], exact: false })
+      qc.invalidateQueries({ queryKey: ['room-readiness', propertyId], exact: false })
+      toast.success('Mudanza confirmada — limpieza disponible para la habitación previa')
+    },
+    onError: (err: Error) => {
+      toast.error(err.message ?? 'No se pudo confirmar la mudanza')
+    },
+  })
+}
+
 /** Split N-way: reemplaza los segmentos ACTIVE del journey con N tramos nuevos.
  *  Soporta ARRIVING (toda la reserva en N cuartos) e IN_HOUSE (primer tramo
  *  = cuarto actual hasta hoy, resto en otros cuartos). Invalida ambos caches

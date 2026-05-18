@@ -60,6 +60,7 @@ describe('StayJourneyService', () => {
     },
     staySegment: {
       findFirst: jest.fn(),
+      findUnique: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
     },
@@ -344,6 +345,140 @@ describe('StayJourneyService', () => {
           actorId: 'actor-1',
         }),
       ).rejects.toThrow(BadRequestException)
+    })
+  })
+
+  // ─── confirmSegmentMove (Sprint MOVE-CONFIRM 2026-05-18) ──────────────────
+  describe('confirmSegmentMove', () => {
+    function makeJourneyWithMove() {
+      const original = makeSegment({
+        id: 'seg-original',
+        roomId: 'room-1',
+        reason: 'ORIGINAL',
+        status: 'COMPLETED',
+        checkIn: new Date('2026-04-01T00:00:00.000Z'),
+        checkOut: new Date('2026-04-04T00:00:00.000Z'),
+      })
+      const moveSegment = makeSegment({
+        id: 'seg-move',
+        roomId: 'room-2',
+        reason: 'ROOM_MOVE',
+        status: 'ACTIVE',
+        checkIn: new Date('2026-04-04T00:00:00.000Z'),
+        checkOut: new Date('2026-04-07T00:00:00.000Z'),
+        moveConfirmedAt: null,
+      })
+      const journey = makeJourney([original, moveSegment])
+      // El método usa findUnique con include — devolvemos shape completo
+      return {
+        ...moveSegment,
+        journey: {
+          ...journey,
+          guestStay: {
+            id: 'stay-1',
+            cancelledAt: null,
+            noShowAt: null,
+            actualCheckout: null,
+            propertyId: 'prop-1',
+          },
+          segments: [original, moveSegment],
+        },
+      }
+    }
+
+    it('confirma move + crea audit event + promueve task PENDING → READY', async () => {
+      const segmentWithIncludes = makeJourneyWithMove()
+      prismaMock.staySegment.findUnique.mockResolvedValue(segmentWithIncludes as never)
+      prismaMock.staySegment.update.mockResolvedValue({})
+      prismaMock.stayJourneyEvent.create.mockResolvedValue({})
+      // unit.findMany para promoteRoomChangeTaskToReady
+      prismaMock.unit.findMany.mockResolvedValue([{ id: 'unit-1' }])
+      // findFirst encuentra PENDING task existente
+      prismaMock.cleaningTask.findFirst = jest.fn().mockResolvedValue({
+        id: 'pending-task',
+        status: 'PENDING',
+      })
+      prismaMock.cleaningTask.update = jest.fn().mockResolvedValue({})
+      prismaMock.taskLog = { create: jest.fn().mockResolvedValue({}) } as never
+
+      jest.useFakeTimers().setSystemTime(new Date('2026-04-04T10:00:00Z'))
+      const result = await service.confirmSegmentMove('seg-move', 'actor-1')
+
+      expect(result.previousRoomId).toBe('room-1')
+      expect(prismaMock.staySegment.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'seg-move' },
+          data: expect.objectContaining({
+            moveConfirmedAt: expect.any(Date),
+            moveConfirmedById: 'actor-1',
+          }),
+        }),
+      )
+      // PENDING → READY
+      expect(prismaMock.cleaningTask.update).toHaveBeenCalledWith({
+        where: { id: 'pending-task' },
+        data: { status: 'READY' },
+      })
+      jest.useRealTimers()
+    })
+
+    it('rechaza si segment.reason es ORIGINAL (no aplica mudanza física)', async () => {
+      const segment = {
+        ...makeSegment({ reason: 'ORIGINAL', status: 'ACTIVE', moveConfirmedAt: null }),
+        journey: {
+          ...makeJourney(),
+          guestStay: { id: 's', cancelledAt: null, noShowAt: null, actualCheckout: null, propertyId: 'p' },
+          segments: [],
+        },
+      }
+      prismaMock.staySegment.findUnique.mockResolvedValue(segment as never)
+
+      await expect(
+        service.confirmSegmentMove('seg-1', 'actor-1'),
+      ).rejects.toThrow(BadRequestException)
+    })
+
+    it('rechaza si segment ya tiene moveConfirmedAt (idempotency)', async () => {
+      const segment = {
+        ...makeSegment({
+          reason: 'ROOM_MOVE',
+          status: 'ACTIVE',
+          moveConfirmedAt: new Date('2026-04-04T10:00:00Z'),
+        }),
+        journey: {
+          ...makeJourney(),
+          guestStay: { id: 's', cancelledAt: null, noShowAt: null, actualCheckout: null, propertyId: 'p' },
+          segments: [],
+        },
+      }
+      prismaMock.staySegment.findUnique.mockResolvedValue(segment as never)
+
+      await expect(
+        service.confirmSegmentMove('seg-1', 'actor-1'),
+      ).rejects.toThrow(ConflictException)
+    })
+
+    it('rechaza si segment.checkIn es futuro (no se puede confirmar move adelantado)', async () => {
+      const segment = {
+        ...makeSegment({
+          reason: 'EXTENSION_NEW_ROOM',
+          status: 'ACTIVE',
+          checkIn: new Date('2030-01-01T00:00:00Z'),
+          moveConfirmedAt: null,
+        }),
+        journey: {
+          ...makeJourney(),
+          guestStay: { id: 's', cancelledAt: null, noShowAt: null, actualCheckout: null, propertyId: 'p' },
+          segments: [],
+        },
+      }
+      prismaMock.staySegment.findUnique.mockResolvedValue(segment as never)
+
+      jest.useFakeTimers().setSystemTime(new Date('2026-04-04T10:00:00Z'))
+      await expect(
+        service.confirmSegmentMove('seg-1', 'actor-1'),
+      ).rejects.toThrow(BadRequestException)
+      jest.useRealTimers()
     })
   })
 })

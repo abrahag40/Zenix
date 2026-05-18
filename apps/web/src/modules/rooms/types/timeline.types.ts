@@ -61,6 +61,11 @@ export interface GuestStayBlock {
   segmentId?: string
   segmentReason?: 'ORIGINAL' | 'EXTENSION_SAME_ROOM' | 'EXTENSION_NEW_ROOM' | 'ROOM_MOVE' | 'SPLIT'
   segmentLocked?: boolean
+  /** Timestamp en que recepción confirmó la mudanza física (entrega de nueva
+   *  llave). Solo aplica a segments con reason EXTENSION_NEW_ROOM o ROOM_MOVE.
+   *  Sprint MOVE-CONFIRM 2026-05-18: alimenta la acción "Confirmar mudanza"
+   *  inline en el bloque cuando es null + checkIn ≤ today. */
+  moveConfirmedAt?: Date
   isFirstSegment?: boolean
   isLastSegment?: boolean
   hasMultipleSegments?: boolean

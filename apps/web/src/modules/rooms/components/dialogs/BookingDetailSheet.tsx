@@ -75,6 +75,11 @@ interface BookingDetailSheetProps {
   onRevertNoShow: (stayId: string) => void
   onStartCheckin?: (stayId: string) => void
   onCancelReservation?: (stayId: string) => void
+  /** Confirma la mudanza física de un segmento (entrega de nueva llave).
+   *  Solo se renderiza la acción cuando segment.reason in [EXT_NEW_ROOM,
+   *  ROOM_MOVE] + checkIn ≤ today + !moveConfirmedAt. */
+  onConfirmSegmentMove?: (segmentId: string) => void
+  confirmMovePending?: boolean
   /** W3.3 — Abre el TicketDetailDrawer in-place sobre el calendario.
    *  Si no se provee, hace fallback a navigate(/maintenance?ticketId=X). */
   onOpenMaintenanceTicket?: (ticketId: string) => void
@@ -455,6 +460,8 @@ export function BookingDetailSheet({
   onRevertNoShow,
   onStartCheckin,
   onCancelReservation,
+  onConfirmSegmentMove,
+  confirmMovePending = false,
   onOpenMaintenanceTicket,
   propertyId,
 }: BookingDetailSheetProps) {
@@ -2039,6 +2046,30 @@ export function BookingDetailSheet({
               >
                 <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
                 Revertir no-show
+              </Button>
+            )}
+
+            {/* MOVE_PENDING: bloque es segmento de room change (EXT_NEW_ROOM
+                o ROOM_MOVE), checkIn ya llegó (≤ today), y la mudanza
+                física aún no se ha confirmado. CTA primary el día del move.
+                Pattern Mews/Cloudbeds "Confirm move executed". §125 + §126. */}
+            {!!stay.segmentId
+              && !!stay.segmentReason
+              && (stay.segmentReason === 'EXTENSION_NEW_ROOM' || stay.segmentReason === 'ROOM_MOVE')
+              && !stay.moveConfirmedAt
+              && startOfDay(new Date(stay.checkIn)).getTime() <= startOfDay(new Date()).getTime()
+              && onConfirmSegmentMove && (
+              <Button
+                size="sm"
+                className="flex-1 text-xs text-white bg-emerald-600 hover:bg-emerald-700"
+                onClick={() => {
+                  onConfirmSegmentMove(stay.segmentId!)
+                  onClose()
+                }}
+                disabled={confirmMovePending}
+              >
+                <ArrowRightLeft className="h-3.5 w-3.5 mr-1.5" />
+                {confirmMovePending ? 'Confirmando…' : 'Confirmar mudanza'}
               </Button>
             )}
 
