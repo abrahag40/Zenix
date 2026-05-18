@@ -4,8 +4,8 @@ import { useState } from 'react'
 import { format, differenceInCalendarDays } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { CalendarPlus, Moon, AlertTriangle, Check, ArrowRight } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { DialogActions } from '../shared/DialogActions'
 
 export interface RoomOption {
   id: string
@@ -266,47 +266,27 @@ export function ExtendConfirmDialog({
         </div>
 
         {/* Actions */}
-        <div className="px-5 pb-5 flex gap-2.5">
-          <Button
-            variant="outline"
-            className="flex-1"
-            onClick={onClose}
-            disabled={isPending}
-          >
-            Cancelar
-          </Button>
-
-          {roomConflict ? (
-            <Button
-              className={cn(
-                'flex-1 text-white shadow-sm',
-                canConfirmNewRoom
-                  ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200'
-                  : 'bg-slate-300 cursor-not-allowed',
-              )}
-              onClick={() => canConfirmNewRoom && onConfirmNewRoom!(selectedRoomId)}
-              disabled={isPending || !canConfirmNewRoom}
-            >
-              {isPending
-                ? 'Extendiendo...'
-                : canConfirmNewRoom
-                ? `Mover a Hab. ${availableRooms.find(r => r.id === selectedRoomId)?.number}`
-                : 'Elige habitación'
-              }
-            </Button>
-          ) : (
-            <Button
-              className={cn(
-                'flex-1 bg-emerald-600 hover:bg-emerald-700 text-white',
-                'shadow-sm shadow-emerald-200',
-              )}
-              onClick={onConfirm}
-              disabled={isPending}
-            >
-              {isPending ? 'Extendiendo...' : `Extender +${daysAdded}n`}
-            </Button>
-          )}
-        </div>
+        <DialogActions
+          onCancel={onClose}
+          onConfirm={() => {
+            if (roomConflict) {
+              if (canConfirmNewRoom) onConfirmNewRoom!(selectedRoomId)
+            } else {
+              onConfirm()
+            }
+          }}
+          confirmLabel={
+            roomConflict
+              ? (canConfirmNewRoom
+                  ? `Mover a Hab. ${availableRooms.find(r => r.id === selectedRoomId)?.number}`
+                  : 'Elige habitación')
+              : `Extender +${daysAdded}n`
+          }
+          confirmPendingLabel="Extendiendo…"
+          isPending={isPending}
+          confirmDisabled={roomConflict && !canConfirmNewRoom}
+          className="px-5 pb-5"
+        />
       </div>
     </div>
   )

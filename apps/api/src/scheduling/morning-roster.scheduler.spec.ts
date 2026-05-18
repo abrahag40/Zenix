@@ -29,6 +29,9 @@ describe('MorningRosterScheduler', () => {
       update: jest.fn(),
     },
     guestStay: { findMany: jest.fn(), count: jest.fn() },
+    // Sprint 2026-05-17 — añadido por refactor processPredictedCheckouts que
+    // ahora también query segments (move-out vacated rooms + move-in urgency).
+    staySegment: { findMany: jest.fn() },
     taskLog: { create: jest.fn() },
     $transaction: jest.fn((fn) => fn(prismaMock)),
   }
@@ -58,6 +61,8 @@ describe('MorningRosterScheduler', () => {
     prismaMock.cleaningTask.findFirst.mockResolvedValue(null)
     prismaMock.guestStay.findMany.mockResolvedValue([])
     prismaMock.guestStay.count.mockResolvedValue(0)
+    // Default: sin segment moves. Tests específicos de mid-stay moves overridean.
+    prismaMock.staySegment.findMany.mockResolvedValue([])
   })
 
   // ── Idempotencia / hora ──────────────────────────────────────────────────
@@ -358,6 +363,146 @@ describe('MorningRosterScheduler', () => {
       const result = await scheduler.runForProperty('p1')
       expect(result.newTasks).toBe(0)
       expect(result.reusedTasks).toBe(1)
+      jest.useRealTimers()
+    })
+  })
+
+  // ── Sprint 2026-05-17: segment-level moves (mid-stay room changes) ─────────
+  describe('processPredictedCheckouts — segment moves (Sprint 2026-05-17)', () => {
+    const baseSettings = {
+      propertyId: 'p1',
+      timezone: 'UTC',
+      morningRosterHour: 7,
+      morningRosterDate: null,
+      carryoverPolicy: 'REASSIGN_TO_TODAY_SHIFT',
+      autoAssignmentEnabled: true,
+      property: { isActive: true, organizationId: 'org-1' },
+    }
+
+    it('B2: crea CleaningTask para Room que un guest vacates hoy via mid-stay move (segment.checkOut=today, reason=EXTENSION_NEW_ROOM)', async () => {
+      prismaMock.propertySettings.findUnique.mockResolvedValue(baseSettings)
+      prismaMock.cleaningTask.findMany.mockResolvedValue([])
+      prismaMock.guestStay.findMany
+        .mockResolvedValueOnce([])  // no stay-level checkouts
+        .mockResolvedValueOnce([])  // sameDayCheckIns: vacío
+      prismaMock.staySegment.findMany
+        .mockResolvedValueOnce([
+          // move-out: guest deja Room A
+          { id: 'seg-out', roomId: 'rA', room: { id: 'rA', number: '201', units: [{ id: 'uA' }] } },
+        ])
+        .mockResolvedValueOnce([])  // sameDayMoveIns: vacío
+      prismaMock.cleaningTask.findFirst.mockResolvedValue(null)
+      prismaMock.cleaningTask.create.mockResolvedValue({ id: 'new-task' })
+      prismaMock.taskLog.create.mockResolvedValue({})
+
+      jest.useFakeTimers().setSystemTime(new Date('2026-04-29T08:00:00Z'))
+      const result = await scheduler.runForProperty('p1')
+
+      expect(result.newTasks).toBe(1)  // task creada para Room A
+      expect(prismaMock.cleaningTask.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            unitId: 'uA',
+            priority: 'MEDIUM',  // sin same-day arrival → MEDIUM
+            hasSameDayCheckIn: false,
+          }),
+        }),
+      )
+      jest.useRealTimers()
+    })
+
+    it('B3: priority URGENT cuando la room vacated tiene un guest llegando hoy via segment move-in', async () => {
+      // Escenario exacto reportado: Guest B sale de Room C2 hoy (stay-level
+      // checkout). Guest A se mueve A Room C2 hoy (segment move-in).
+      // Resultado: Room C2 task debe ser URGENT (Guest A esperando).
+      prismaMock.propertySettings.findUnique.mockResolvedValue(baseSettings)
+      prismaMock.cleaningTask.findMany.mockResolvedValue([])
+      prismaMock.guestStay.findMany
+        .mockResolvedValueOnce([
+          // Guest B sale de Room C2 hoy
+          { id: 'stay-B', roomId: 'rC2', room: { id: 'rC2', number: 'C2', units: [{ id: 'uC2' }] } },
+        ])
+        .mockResolvedValueOnce([])  // sameDayCheckIns (stay-level): vacío
+      prismaMock.staySegment.findMany
+        .mockResolvedValueOnce([])  // no move-outs
+        .mockResolvedValueOnce([
+          // Guest A se mueve A Room C2 hoy
+          { roomId: 'rC2' },
+        ])
+      prismaMock.cleaningTask.findFirst.mockResolvedValue(null)
+      prismaMock.cleaningTask.create.mockResolvedValue({ id: 'new' })
+      prismaMock.taskLog.create.mockResolvedValue({})
+
+      jest.useFakeTimers().setSystemTime(new Date('2026-04-29T08:00:00Z'))
+      await scheduler.runForProperty('p1')
+
+      expect(prismaMock.cleaningTask.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            unitId: 'uC2',
+            priority: 'URGENT',
+            hasSameDayCheckIn: true,
+          }),
+        }),
+      )
+      jest.useRealTimers()
+    })
+
+    it('upgrade-in-place: task existente sin URGENT se eleva si AHORA hay same-day move-in', async () => {
+      // Caso: extendNewRoom creó eagerly una task para mañana con priority
+      // MEDIUM (sin same-day arrival al momento de creación). Hoy llega el
+      // día del move y se confirma una extension adicional que mueve a otro
+      // guest a esa misma room → debe elevarse a URGENT.
+      prismaMock.propertySettings.findUnique.mockResolvedValue(baseSettings)
+      prismaMock.cleaningTask.findMany.mockResolvedValue([])
+      prismaMock.guestStay.findMany
+        .mockResolvedValueOnce([
+          { id: 's-out', roomId: 'rX', room: { id: 'rX', number: '305', units: [{ id: 'uX' }] } },
+        ])
+        .mockResolvedValueOnce([])
+      prismaMock.staySegment.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ roomId: 'rX' }])  // move-in a rX
+      prismaMock.cleaningTask.findFirst.mockResolvedValue({
+        id: 'preexisting-task',
+        priority: 'MEDIUM',
+        hasSameDayCheckIn: false,
+      })
+      prismaMock.cleaningTask.update.mockResolvedValue({})
+
+      jest.useFakeTimers().setSystemTime(new Date('2026-04-29T08:00:00Z'))
+      const result = await scheduler.runForProperty('p1')
+
+      expect(result.reusedTasks).toBe(1)
+      expect(prismaMock.cleaningTask.update).toHaveBeenCalledWith({
+        where: { id: 'preexisting-task' },
+        data: { priority: 'URGENT', hasSameDayCheckIn: true },
+      })
+      jest.useRealTimers()
+    })
+
+    it('dedup: si una room aparece via stay-checkout Y segment-moveout, solo una task se crea', async () => {
+      prismaMock.propertySettings.findUnique.mockResolvedValue(baseSettings)
+      prismaMock.cleaningTask.findMany.mockResolvedValue([])
+      prismaMock.guestStay.findMany
+        .mockResolvedValueOnce([
+          { id: 's1', roomId: 'rZ', room: { id: 'rZ', number: '410', units: [{ id: 'uZ' }] } },
+        ])
+        .mockResolvedValueOnce([])
+      prismaMock.staySegment.findMany
+        .mockResolvedValueOnce([
+          // misma room también aparece como segment move-out (edge case)
+          { id: 'seg-x', roomId: 'rZ', room: { id: 'rZ', number: '410', units: [{ id: 'uZ' }] } },
+        ])
+        .mockResolvedValueOnce([])
+      prismaMock.cleaningTask.findFirst.mockResolvedValue(null)
+      prismaMock.cleaningTask.create.mockResolvedValue({ id: 'new' })
+      prismaMock.taskLog.create.mockResolvedValue({})
+
+      jest.useFakeTimers().setSystemTime(new Date('2026-04-29T08:00:00Z'))
+      const result = await scheduler.runForProperty('p1')
+
+      expect(result.newTasks).toBe(1)  // SOLO 1, no 2
       jest.useRealTimers()
     })
   })

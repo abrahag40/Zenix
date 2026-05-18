@@ -1,7 +1,7 @@
 # CLAUDE.md — Zenix PMS
 
 > Instrucciones técnicas para el agente IA + decisiones no-negociables del código.
-> **Última actualización:** 2026-05-16 (PR #32 mergeado — Sprint CANCEL-ARCHIVE completo + 3-LEVEL RATES + FX-CORE Banxico + modal dismiss estándar + scroll perf SwiftUI + notif self-suppress sistémico).
+> **Última actualización:** 2026-05-18 (Sprint EDIT-RESERVATION + SSE-RESILIENCE + EXT-CANCEL + HK-MIDSTAY-MOVE consolidados. §116-§126 registradas: Radix Dialog primitives + ConfirmDialog/DialogActions canónicos + colores quirúrgicos PaymentHeroCard + HTTP client standard + SSE singleton + cancel-extension flow + mid-stay HK propagation. CountryCombobox + PhoneFieldWithCountry searchable. Webcam capture en check-in. Backend: 365/365 tests, 4 nuevos en morning-roster cubriendo segment-level moves.)
 
 ---
 
@@ -609,6 +609,127 @@ housekeeping3/
     - `BarStrip` + `OccupancyFooter` signatura: `scrollLeft: number` → `innerRef: Ref<HTMLDivElement>`. Componente NO conoce el valor, solo expone el ref.
     - Patrón Apple Calendar / SwiftUI scroll-aware container — el scroll es 100% imperativo.
 
+126. **Cancelar extensión de un guest checked-in ≠ early checkout.** Sprint 2026-05-17. Cuando un guest checked-in tiene un segmento futuro (extension) y decide cancelar esa extensión, NO debe forzarse el flow de early checkout — el guest sigue alojado en su segmento actual; solo se revoca la prolongación planeada. Endpoint: `POST /v1/stay-journeys/segments/:segmentId/cancel` → `StayJourneyService.cancelFutureSegment`. Guards: segment.checkIn > now + status=ACTIVE + journey con ≥1 otro segmento ACTIVE. Efectos: segment.status=CANCELLED + journey.journeyCheckOut + GuestStay.scheduledCheckout revierten al max checkOut de los segmentos restantes; availability libera noches; audit en StayJourneyEvent con subType='EXTENSION_CANCELLED'. Frontend routing condicional en TimelineScheduler: `isFutureExtensionSegment = !!stay.segmentId && stay.checkIn > now && !stay.isFirstSegment` → llama `useCancelExtensionSegment` en lugar de `useCancelStay`. **Cross-PMS consensus 5/5** (Mews, Cloudbeds, Opera, Little Hotelier, RoomRaccoon): cancel extension = revertir fecha de salida; NO genera checkout, NO requiere re-check-in, NO genera housekeeping task. El bug previo "El huésped ya hizo check-in — usar checkout anticipado" forzaba audit erróneo + HK task prematura + balance/refund incorrecto. Las extension cancellations aparecen en el footer "Canceladas hoy" con badge `Extensión` (ícono CalendarMinus ámbar) distinguible visualmente de stay-level cancellations.
+
+125. **Mid-stay room change housekeeping flow — task PENDING en el día del move, NO en el día del booking.** Sprint 2026-05-17. Cuando un guest extiende su estadía a otra habitación (EXTENSION_NEW_ROOM o ROOM_MOVE), la habitación origen necesita limpieza el día del move, no el día que se registra la extensión.
+   - **`createRoomChangeTasks(propertyId, roomId, scheduledFor: Date)`** (privado en StayJourneyService) — el tercer parámetro `scheduledFor` es REQUERIDO. Normaliza a UTC midnight; valida idempotency local antes de crear; skipea SSE emit si no se creó task nueva.
+   - **Callers actualizados:** `extendNewRoom` pasa `activeSegment.checkOut` (= fecha del move). `executeMidStayRoomMove` pasa `effectiveDate`. `splitReservation` pasa `today` (split sucede ahora).
+   - **Morning roster cron amplía detección:** además de `GuestStay.scheduledCheckout` (stay-level), ahora query `StaySegment` con `checkOut=today + reason in [EXTENSION_NEW_ROOM, ROOM_MOVE]` (move-outs) Y `checkIn=today + reason in [...]` (move-ins). Unifica fuentes con `Map<roomId>` dedup.
+   - **`hasSameDayCheckIn` URGENT escalation:** rooms con guest llegando hoy via move-in (segment-level) se marcan URGENT igual que stay-level checkins. Tu escenario (Guest A se mueve a C2 donde Guest B hizo checkout same-day) ahora correctamente prioriza C2 sobre otras rooms del roster — el guest esperando no se queda con maletas en recepción mientras la recamarista limpia otra cosa.
+   - **Upgrade-in-place:** si la task ya existía (creada eagerly por `extendNewRoom` con priority MEDIUM) y AHORA el cron detecta same-day arrival, hace `UPDATE` con priority=URGENT + hasSameDayCheckIn=true. La señal "guest llegando" se preserva incluso si llega después de la creación de la task.
+   - **Tests:** 4 nuevos en `morning-roster.scheduler.spec.ts` (B2 task creation segment moveout / B3 URGENT priority via move-in / upgrade-in-place / dedup). Total 16/16 passing, 365/365 backend suite passing.
+
+124. **SSE singleton — UNA sola EventSource por tab del navegador, garantizado.** Ubicación: [apps/web/src/lib/sseClient.ts](apps/web/src/lib/sseClient.ts). Los hooks `useSSE`, `useSoftLockSSE`, `useRoomSSE` son subscribers ligeros del singleton — NO crean sus propias `EventSource`. Decisión fundacional Sprint SSE-RESILIENCE (2026-05-17, adelantada de v1.0.4 al detectar bloqueo recurrente en testing dev).
+   - **Bug raíz que motivó:** 3 EventSources por tab (useSSE + useSoftLockSSE + useRoomSSE), cada una con su propio lifecycle, cada una capaz de leak con HMR. Tras horas de dev se acumulaban 15-25 conns TCP a localhost:3000 → pool HTTP/1.1 de Chrome (6 simultáneas por origin) se agotaba → POSTs colgaban hasta timeout. Bug reportado 4+ veces en una sola sesión.
+   - **Garantías:** (1) máximo 1 EventSource activa por tab, ref-counted via subscribers; (2) reconnect con exponential backoff 1s→2s→4s→8s→max 30s; (3) token-aware: re-conecta al cambiar JWT (switchProperty); (4) HMR-safe via `import.meta.hot.dispose()` que cierra la conn vieja al re-importar el módulo; (5) AbortController para preflight evita race conditions; (6) handlers aislados (un throw en uno no rompe a los demás).
+   - **API pública mínima:** `subscribeSse(handler) → unsubscribe()`. Cualquier hook nuevo que necesite SSE usa esta API — está PROHIBIDO crear `new EventSource()` fuera de `sseClient.ts`.
+   - **Debug helper:** `_sseDebug()` retorna `{ connected, readyState, subscribers, token, reconnectAttempts }` para introspección desde DevTools console.
+   - **Por qué documentamos esto:** prevenir que la próxima feature reintroduzca el patrón `new EventSource()` ad-hoc que ya nos costó 4+ iteraciones de debugging. La eficiencia SSE en dev (HMR-safe) y en prod (cero accumulation) depende de mantener la disciplina del singleton.
+
+123. **`DialogActions` es el primitive canónico para footers de modal — par Cancelar/Confirmar.** Ubicación: [apps/web/src/modules/rooms/components/shared/DialogActions.tsx](apps/web/src/modules/rooms/components/shared/DialogActions.tsx). Prohibido renderizar pares `<Button variant="outline">Cancelar</Button> + <Button>Confirmar</Button>` ad-hoc en footers de dialog — la inconsistencia visual (heights mixtos h-8/h-9/h-10, text-xs vs text-sm, ghost vs outline vs solid) viola NN/g H4 (consistency & standards) y erosiona la confianza del usuario en herramientas operativas.
+   - **Reglas canónicas no-negociables:**
+     1. Cancelar SIEMPRE izquierda (variant `outline`), Confirmar SIEMPRE derecha (solid coloreado por `tone`). Western reading flow + Apple HIG (primary action es el "destino" del gesto).
+     2. Mismo `h-9` (36px ≥ 44pt iOS effective con padding), mismo `text-xs`, mismo `gap-2`.
+     3. `tone: 'primary' | 'destructive' | 'warning' | 'info'` mapea 1:1 a tonos `ConfirmDialog` (§117). Primary = emerald-600, destructive = red-600, warning = amber-600, info = slate-700.
+     4. `isPending` deshabilita AMBOS botones (Cancel + Confirm) — el HTTP standard §122 garantiza terminal state, el band-aid "habilitar Cancel durante pending" está explícitamente prohibido.
+     5. `confirmPendingLabel` se deriva automáticamente del verbo del label ("Registrar pago" → "Registrando…"). Override sólo si la derivación no aplica.
+     6. Icono opcional `confirmIcon` (`LucideIcon`) a la izquierda del label primary, h-3.5 w-3.5.
+     7. `widthMode: 'stretch' | 'auto'` — stretch default (cada botón flex-1). Auto para footers con contenido a la izquierda (ej: línea audit ConfirmCheckin USALI/CFDI).
+   - **Modales migrados al primitive (2026-05-17 post-debate):** `ConfirmDialog` (los demás `*ConfirmDialog` heredan al delegar), `RegisterPaymentDialog`, `VoidPaymentDialog`, `ChangeConfirmDialog`, `ConfirmCheckinDialog`, `CancelReservationDialog`, `MoveExtensionConfirmDialog`, `MoveReservationConfirmDialog`, `MoveRoomDialog`, `EarlyCheckoutDialog`, `ExtendConfirmDialog`, `UploadDocumentPhotoDialog`.
+   - **Por qué documentamos esto:** auditoría detectó 10+ modales con button pairs inconsistentes (heights mixtos, sizes mixtos, tonos arbitrarios). Cada modal era "casi" igual pero no idéntico, lo cual produce esa sensación de UI "armada por varios devs" — exactamente lo que Apple HIG previene mediante design tokens. Cualquier modal NUEVO usa `DialogActions` desde el día 1.
+
+122. **HTTP Client Standard — estandarizado y formalizado en [docs/engineering/http-client.md](docs/engineering/http-client.md).** Resumen ejecutivo:
+   - `apps/web/src/api/client.ts` es el ÚNICO entry point para HTTP del frontend. Raw `fetch()` fuera de él está prohibido (única excepción documentada: `useSSE.ts` preflight para EventSource).
+   - Timeouts automáticos via `AbortSignal.timeout()`: GET 30s · POST 20s · PATCH 20s · DELETE 15s. Override per-call con `opts.timeoutMs`.
+   - Timeout vence → throw `ApiError(0, msg, { code: 'TIMEOUT' })` con mensaje accionable en español.
+   - Network error → `ApiError(0, ..., { code: 'NETWORK_ERROR' })`. 401 → logout + redirect a /login con `returnTo`.
+   - **Estado terminal garantizado**: toda mutation resuelve OK o ERROR — `isPending` siempre vuelve a `false`. Modales que dependen de `isPending` para Cancel/X tienen ciclo cerrado.
+   - **Anti-pattern explícitamente prohibido**: habilitar Cancel durante `isPending` para "salir de modales colgados". Si un modal se cuelga, el bug está en el cliente (sin timeout), no en el modal. Cura es timeout, no band-aid.
+   - Browsers soportados: `AbortSignal.timeout/any` desde 2023 (Chrome 103+, Safari 16.4+, Firefox 124+). Sin polyfill.
+   - Cualquier modificación al contrato requiere update simultáneo de `client.ts` + `docs/engineering/http-client.md` + este §122.
+
+121. **`useSSE.ts` usa `AbortController` para el fetch preflight** (fix iter 6 EDIT-RESERVATION). Bug original: el cleanup hacía `es?.close()` pero si HMR re-ejecutaba el effect mientras el fetch preflight estaba en flight, `es` era null en ese momento → la EventSource creada al resolver el fetch quedaba huérfana. Cada HMR sumaba 1 EventSource zombie. Chrome limita HTTP/1.1 a **6 conexiones simultáneas por host** → 6+ zombies bloqueaban el pool → POSTs como Registrar Pago, GETs de Movimientos/Notas quedaban en queue indefinidamente. Síntoma engañoso: "Cargando..." stuck sin error en consola, "Registrando..." sin progreso. Fix definitivo: `AbortController.abort()` en cleanup cancela el fetch antes de que pueda crear una EventSource huérfana. Cualquier hook NUEVO que use `EventSource` debe seguir este pattern.
+
+### CHECK-IN-α — implementación iteración 2 (2026-05-17)
+
+> Decisiones registradas tras feedback del usuario en sesión 2026-05-17. Ver [docs/sprints/CHECKIN-ALPHA-plan.md](docs/sprints/CHECKIN-ALPHA-plan.md) §3 + plan implementación.
+
+105. **Check-in es single-screen con secciones colapsables, no wizard.** Justificación: NN/g 2024 "Wizards" — apropiados sólo para tareas >20min ejecutadas <1×/semana. Check-in es <2min, >20×/día → wizard es anti-patrón. Mercado boutique-PMS: 5/6 PMS (Cloudbeds, Mews, Clock PMS+, Little Hotelier, RoomRaccoon) usan single-screen. Sólo Opera (legacy) usa wizard de 7-12+ clicks — el más odiado en reviews verbatim. Anatomía: header sticky con balance badge → Identidad colapsable → Pago colapsable adaptativo (OTA/paid/pending) → Notas opcionales. CTA único `Confirmar check-in` con Cmd/Ctrl+Enter shortcut. `useModalDismiss` (Esc + backdrop + dirty confirm).
+
+106. **`GuestStay.paymentModel` driver de OTA-collect detection.** Enum `HOTEL_COLLECT | OTA_COLLECT | HYBRID_DEPOSIT`, default `HOTEL_COLLECT` (no rebaja guards). Si `OTA_COLLECT`, `confirmCheckin` skip guard `BALANCE_UNPAID` y marca folio `paymentStatus=PAID` con nota "paid via OTA virtual card / pending reconciliation". `HYBRID_DEPOSIT` reservado para cuando Channex webhook escriba el flag real (sprint CHANNEX-INBOUND). Sin breaking change.
+
+107. **Endpoint `GET /v1/guest-stays/:id/checkin-context` consolida data en single round-trip.** Pattern Cloudbeds "action drawer" — frontend recibe todo lo que necesita en una llamada (stay, paymentModel, balanceProjection, canCheckIn{reasons,warnings}, identityCaptured, paymentLogs, propertyCurrency, secondaryRates). Reduce 3 calls separadas (stay + payments + property settings) a 1. Declarado antes de `:id` en el controller para evitar shadowing (§26).
+
+108. **Identidad por foto del documento, NO por campo "número" tipeado.** Sustitución completa del input manual. Pattern Maintenance MAINT-11 (data URI base64 hoy, migración S3 en v1.0.4 IMG). Justificación: CFDI 4.0 con RFC genérico `XAXX010101000` no requiere número estructurado (95% casos hospedaje turístico); Visa CRR 13.1/13.7 acepta foto como evidencia equivalente. Más práctico para recepción hostal LATAM (NN/g Form Usability: cognitive cost del typing eliminado). Límite blando 5MB. Checkbox "Verifiqué físicamente" sigue siendo requirement (audit trail).
+
+109. **`documentNumber` enmascarado al perder foco (`••••XXXX`), plain con foco.** Pattern Stripe Elements. Audit log siempre enmascara `***XXXX` (ya en backend §2016). GDPR/LFPDPPP best practice — el número visible reduce superficie de exposición. Aplica al campo legacy cuando viene precargado de OTA/reserva direct previo a la foto.
+
+110. **Backend devuelve códigos machine-readable en `confirmCheckin` errors:** `CHECKIN_ALREADY_CONFIRMED`, `BALANCE_UNPAID` (ya), `BALANCE_OVERPAID` (nuevo §110b), `NOSHOW_LOCKED`, `FUTURE_CHECKIN`. Frontend (`ApiError.code` getter) muestra feedback informativo específico (NN/g H9). Idempotency `CHECKIN_ALREADY_CONFIRMED` NO es error rojo — toast info + refetch silencioso. Mejor: parent TimelineScheduler guard previene apertura del dialog si `actualCheckin != null` → toast "Esta reserva ya está checked-in" sin renderizar dialog (evita el race en primera línea).
+
+**110b. Overpayment bloqueado con `BALANCE_OVERPAID`** (Opera Cloud + RoomRaccoon paridad — 2/5 PMS conservadores). Tolerancia float 0.01. Crédito a favor / depósitos por incidentales son flujo aparte (v1.0.1 PAY-CORE territory, no parte del check-in). Mensaje claro: "El pago excede el saldo por $X. Ajusta el monto al saldo exacto — los depósitos por incidentales se registran después del check-in." Justificación: Cloudbeds/Mews/Little Hotelier permiten línea negativa silenciosa, lo cual genera errores en arqueo del turno. Cloudbeds adicionalmente usa banker's rounding (raro contra USALI half-up) — descartado para Zenix.
+
+**110c. Currency display: property currency primary, USD/EUR/MXN secundarios.** 5/5 PMS analizados (Mews "outlet currency", Cloudbeds "house currency", Opera "operational currency", RoomRaccoon, Little Hotelier) priorizan property currency. Cash drawer física opera en property currency — mostrar otra moneda como primary genera errores de arqueo. Conversión secundaria con `Intl.NumberFormat` (decimales correctos per ISO 4217: USD/MXN: 2; JPY/CLP/COP: 0; KWD/BHD: 3). `propertyCurrency` derivado de `LegalEntity.baseCurrency` con fallback a folio currency durante v1.0.5 transición. `secondaryRates` lookup bidireccional 4-niveles: `PropertyFxRate` directo → inverso → `ExchangeRate` directo → inverso.
+
+**110d. Sección "Entrega de llave" eliminada.** El hotel administra ese flujo aparte. NN/g H8 (minimalist) + Hick's Law — opciones irrelevantes son ruido cognitivo. Campo `keyType` permanece en DTO/schema como opcional para backward-compat; el UI ya no lo expone.
+
+**110e. Foto upload sin OCR sirve hoy** (data URI base64, mismo patrón Maintenance MAINT-11). Migración a S3+Sharp en v1.0.4 IMG sprint — back-fill rows existentes. Razón vs esperar S3: Visa chargeback ventana es 120d; hoteles operando v1.0.1/v1.0.2 perderían evidencia retroactiva si esperamos.
+
+### FX-LATAM — decisiones planeadas (registrar al ejecutar sprint v1.0.4)
+
+> Decisiones del [plan FX-LATAM](docs/sprints/FX-LATAM-plan.md). Aún no implementadas — primer cliente Zenix fuera de MX las activa. Numeración reservada para preservar continuidad.
+
+111. **`IFxAdapter` Strategy pattern paralelo a `IFiscalAdapter` (§89).** Cada `FiscalRegime` mapea su `fxAdapterClass` (campo nuevo). Agregar país = 1 class + 1 seed row, sin migration. Interface: `{ countryCode, primaryCurrency, cronSchedule, cronTimezone, fetchOfficial(): ExchangeRateInput[] }`. First batch: `BanxicoMxAdapter` (refactor existente), `BancoRepublicaCoAdapter` (Datos Abiertos GOV.CO), `BccrCrAdapter` (webservice SOAP), `SbsPeAdapter` (REST). Países USD-nativos (PA, SV) sin adapter.
+
+112. **`FxAdapterRegistry` con `OnModuleInit` auto-registra crons per-país** usando `SchedulerRegistry` de `@nestjs/schedule`. Cada cron corre en timezone local del banco central (Banxico 13:00 CST, Banrep 19:00 COT, BCCR 19:00 CRT, SBS 19:00 PET). Fail-soft per-país: try/catch + log + SSE alerta admin si falla 3× consecutivos. Un adapter caído NO afecta los demás.
+
+113. **`PropertySettings.secondaryDisplayCurrencies: String[]`** override del set de monedas secundarias en el check-in dialog. Si vacío, fallback a defaults por país (helper `defaultTouristCurrencies(countryCode)`): MX/CO/CR/PE → `['USD', 'EUR']`; AR → `['USD']` (EUR poco usado); PA/SV → `['EUR']` (USD ya primary). Nunca incluye la propia `baseCurrency`. Configurable en SettingsPage con `<TagInput>` para tourist edge cases.
+
+114. **Argentina rates múltiples (oficial vs MEP vs CCL vs blue) requieren decisión de producto + contador AR antes de implementar.** Out-of-scope FX-LATAM first batch. Decreto AR 671/2024 obliga rate MEP para extranjeros pero realidad operativa hostal usa blue. Zona gris legal. Investigar al primer cliente Argentina.
+
+115. **Brasil FX adapter llega bundled con Sovos `IFiscalAdapter` post v1.2** (consistencia §93). BCB Olinda PTAX API existe y es estable, pero entrar a Brasil sin el motor fiscal completo no tiene sentido — la conversión sin invoicing CFDI/NFSe equivalente es feature parcial. Bundle con Sovos asegura activación completa de Brasil de una vez.
+
+### Modales — patrón canónico Zenix (no negociable post-2026-05-17)
+
+> Decisiones cristalizadas tras 4 iteraciones costosas en sprint EDIT-RESERVATION
+> reinventando contenedores cuando Radix ya los proveía. **Documentado para
+> evitar repetir el ciclo.** Cualquier modal nuevo en el repo SIGUE estas reglas.
+
+116. **Todo modal usa Radix Dialog primitives — NO inventar contenedores `fixed inset-0` manuales.** Si un modal vive dentro de otro Radix Sheet/Dialog abierto, los hacks de portal manual fallan en cascada:
+   - **pointer-events lock** — Radix Sheet/Dialog setea `pointer-events:none` en body. Modal manual hereda → clicks pasan al overlay debajo → cierra ambos.
+   - **dismissable layer** — Radix detecta clicks fuera del SheetContent y dispara `onOpenChange(false)`. Cualquier modal "fuera" del árbol gatilla esto.
+   - **FocusScope trap** — Radix succiona el focus de regreso al primer focusable del Sheet padre. Inputs del modal manual no reciben keystrokes.
+
+   Radix Dialog primitives (`Root`/`Portal`/`Overlay`/`Content`) **soportan nesting nativo** sobre Sheets/Dialogs padre — el inner FocusScope cede, los pointer events funcionan, el dismiss stack se respeta. **Importar de `radix-ui`** (`import { Dialog as DialogPrimitive } from 'radix-ui'`), no replicar la estructura.
+
+117. **`<ConfirmDialog>` + `useDiscardConfirm` + `useConfirmDialog` son los primitives canónicos de confirmación.** Ubicación: [apps/web/src/modules/rooms/components/shared/ConfirmDialog.tsx](apps/web/src/modules/rooms/components/shared/ConfirmDialog.tsx). NUNCA usar `window.confirm` nativo — look & feel inconsistente per OS, bloquea JS thread, no respeta Apple HIG. Tones: `warning` (descartar) / `destructive` (anular, eliminar) / `info` (neutro) / `success` (acción positiva). Mapean a stripe + icono + color del botón confirmativo.
+
+118. **`isDirty` se computa contra snapshot inicial — NO contra empty.** Si el modal pre-fillea cualquier campo (e.g., `amount = balance.toFixed(2)` en RegisterPaymentDialog), comparar `value !== ''` da false-positive: el dialog se considera dirty desde el primer render y el prompt de descartar aparece aunque el usuario no haya tocado nada. Pattern correcto:
+   ```ts
+   const [initial, setInitial] = useState({...})
+   useEffect(() => { if (open) {
+     const init = computeInitialState(props)
+     setForm(init); setInitial(init)
+   }}, [open, ...deps])
+   const isDirty = form.field !== initial.field || ...
+   ```
+   Apple HIG: confirm dirty solo si HAY pérdida real de trabajo.
+
+119. **Cero animaciones en modales/sheets.** Decisión 2026-05-17 — instant feedback prevalece sobre motion polish para herramientas operativas (recepción no debe esperar fade-in mientras un huésped espera frente al desk). Aplica a: `ui/sheet.tsx`, `ui/alert-dialog.tsx`, `ui/drawer.tsx`, todos los dialogs custom (ConfirmDialog, ConfirmCheckinDialog, etc.). Tooltips, dropdown-menu, select, NotificationPanel slide-in PRESERVAN animación (no son modales). Los comentarios sobre spring/ease curves en `ui/sheet.tsx` se mantienen por si se revierte la decisión.
+
+120-bis. **Cambios post-checkin NO requieren approval bloqueante del manager** (revisión 2026-05-17 PM tras feedback usuario). Política original §117 pedía `managerApprovalCode + managerApprovalReason` para rate/pax post-checkin; revertida porque manager ocupado = cuello de botella operativo. Política actual (Cloudbeds/Mews pattern):
+   - `ChangeConfirmDialog` se sigue mostrando con diff side-by-side + razón (textarea, opcional pero recomendado).
+   - Backend acepta el cambio sin `managerApprovalCode` requirido; `reason` queda en `GuestStayLog.metadata`.
+   - Saldo resultante negativo (= crédito a favor del huésped) se muestra con `−USD X` y línea explicativa: "Queda USD X a favor del huésped (crédito devolvible al checkout)". Sin entity `GuestCredit` automática (eso es v1.0.1 PAY-CORE §86).
+   - Backward-compat: el backend SIGUE aceptando `managerApprovalCode/Reason` si la UI los manda, no lanza error. La columna en audit log preserva el dato si se proveyó. UI ya no los pide.
+   - Tests: `RATE_CHANGE_REQUIRES_APPROVAL` ya no se lanza. Spec reemplazado por "rate change post-checkin sin approval — permitido".
+
+120. **Reglas de discoverability para inline-edit (Apple HIG):**
+    - Lapicito siempre visible al 40% opacity en estado idle, 100% en hover (signifier perceptible sin requerir hover). El pattern "pencil oculto hasta hover" mata descubrimiento.
+    - Para tabs con múltiples campos editables, preferir **bulk-edit mode** con header sticky "✎ Editar" → `[Cancelar] [Guardar cambios]`: 1 PATCH consolidado vs N round-trips, 1 audit log entry agrupado, header siempre arriba (no scroll para encontrar Save). Pattern Mews/Cloudbeds para guest profile.
+    - Para acciones con consecuencia significativa (rate, paxCount post-checkin), abrir `ChangeConfirmDialog` con diff side-by-side + razón + approval modal. Pattern Apple HIG "destructive confirmation".
+
+> **Por qué documentamos esto**: este sprint EDIT-RESERVATION reinventó tres veces lo mismo. El primer modal custom (`useModalDismiss` + div + createPortal) funcionaba bien para dialogs hermanos a nivel root. El segundo fallaba dentro del Sheet porque ignoró las 3 capas internas de Radix. Cada parche revelaba la siguiente capa hasta refactorizar a Radix Dialog primitives. **La lección no es "Radix es complicado" — es "no reinventar el contenedor cuando Radix ya provee uno con nesting nativo".** Si la próxima vez ves un modal dentro de un Sheet, primer reflejo: importar `Dialog as DialogPrimitive from 'radix-ui'`.
+
 ---
 
 ## Patterns & Conventions
@@ -834,6 +955,8 @@ npx prisma studio
 - **v1.0.2 CFDI-CORE** (~3 sem adicionales) — `MxCfdi40Adapter` (Facturama/SW Sapien) + CFDI I/E/REP + cancelación CFDI + cumplimiento `FormaPago=15 (Condonación)` para GuestCredit no-monetario. **Tax engine §84:** `TaxRate` multi-cálculo (PERCENT_OF_BASE | FIXED_PER_ROOM_NIGHT | UMA_MULTIPLIER) + `UmaValue` versionada + `IFiscalAdapter` Strategy. **Tax transparency §82:** `PropertySettings.taxStrategy=INCLUSIVE` default + push Channex con `is_inclusive` selectivo (resuelve fricción Hostelworld)
 - **v1.0.3 REPORTS-CORE** (~6-8 sem) — 12 reportes esenciales + GuestCredit liabilities (pasivo contable USALI) + Cashier Shift Report per-divisa
 - **v1.0.4 IMG + NS-UI + DEBT-α** (~1-2 sem) — S3 + toggle no-shows + cleanup deuda técnica
+- **v1.0.4 FX-LATAM** (~3-5 días, paralelizable con IMG)
+- **v1.0.4 SSE-RESILIENCE** (~2-3 días, paralelizable) — consolidar SSE a 1 sola EventSource (refactor `useSoftLockSSE` a handler global de `useSSE`) + heartbeat client-side 60s + Tab Visibility API (close SSE al ocultar tab) + reconnect exponential backoff (1s/2s/4s/8s/16s/30s) + server-side metric "SSE conns per user" + verificación HTTP/2 en deploy Render/Vercel pre-piloto. Hardening prod-grade contra escenarios sleep/wake, network glitch, switchProperty rápido. Bug raíz (race condition useSSE cleanup) ya fixed iter 6 con AbortController — esto cubre los caminos alternos hacia SSE zombie que persisten en producción independiente del race. — `IFxAdapter` Strategy pattern (analog §89 `IFiscalAdapter`) + adapters CO/CR/PE first batch (Banco República TRM, BCCR webservice, SBS) + `FiscalRegime.fxAdapterClass` seed-driven + refactor `BanxicoMxAdapter` a clase + multi-par UI en `FxSection.tsx` + `PropertySettings.secondaryDisplayCurrencies: String[]` (override del manager). Ver [docs/sprints/FX-LATAM-plan.md](docs/sprints/FX-LATAM-plan.md). **Bloqueante para primer cliente fuera de MX.**
 
 ### v1.1.x+ (post-Foundation)
 - **v1.1.0** — Mensajería Booking + Online check-in + Digital signature
@@ -925,6 +1048,8 @@ Tres capas de defensa:
 ---
 
 ## Bitácora de cambios mayores a este documento
+
+- **2026-05-17** — **Sprint CHECK-IN-α implementación (iteración 2) + plan FX-LATAM creado.** Día 1 backend (migration `paymentModel` + `documentPhotoUrl` + `getCheckinContext` endpoint + 17 tests verdes). Día 2 frontend (ConfirmCheckinDialog rediseñado single-screen `max-w-3xl`, `useModalDismiss`, foto del documento data URI base64 reemplaza campo "número", overpayment bloqueado con `BALANCE_OVERPAID` siguiendo Opera/RoomRaccoon, terminal POS reword a "Número de aprobación de la terminal", llave eliminada, `propertyCurrency` (LegalEntity.baseCurrency) como primary + secondaryRates `{USD, EUR, MXN}` con lookup bidireccional 4-niveles (PropertyFxRate override directo/inverso → ExchangeRate Banxico directo/inverso). Guard nuevo en `TimelineScheduler:1182` previene abrir dialog si `actualCheckin` ya existe → toast informativo + auto-close. `ApiError` extendido para exponer `.code` machine-readable. Sprint a registrar §105-§110 en próxima iteración. **Plan FX-LATAM** ([docs/sprints/FX-LATAM-plan.md](docs/sprints/FX-LATAM-plan.md)) creado para v1.0.4 — 3-5 días, `IFxAdapter` Strategy pattern paralelo a `IFiscalAdapter` (§89), first batch MX/CO/CR/PE con Banco República TRM + BCCR + SBS, `FxAdapterRegistry` auto-cron registration via `SchedulerRegistry`, `FxSection.tsx` multi-par, `PropertySettings.secondaryDisplayCurrencies` override. Bloqueante para primer cliente fuera de MX. **Wizard `docs/vision/13` Etapa 3 LegalEntity actualizada** con sub-sección "FX integration" análoga a "PAC integration" — adapter auto-seleccionado por countryCode + test sandbox + health check pre-activación. Decisiones §111-§115 a registrar post-sprint FX-LATAM.
 
 - **2026-05-16** (final) — **Sprint CANCEL-ARCHIVE + 3-LEVEL Rates + FX-CORE mergeado (PR #32).** Resumen del megasprint cerrado:
   - **Cancel-Archive** completo: soft-delete obligatorio + audit log append-only `GuestStayLog` + sub-tab archive con filter chips + slide drawer "Canceladas hoy" + restore 7d window (HOTEL/ADMIN_ERROR only) + AvailabilityService excluye cancelled. Calendar libera slot visual (paridad Cloudbeds/Mews/Opera/RR/LH). Schema "espiral": string fields no enum, `cancelMetadata: Json?`, `cancellationPolicyId: String?` FK hook + `requiresFiscalReview: Boolean` sembrado para v1.0.2 CFDI-CORE. 20 unit tests verdes. Decisiones §95-§98.

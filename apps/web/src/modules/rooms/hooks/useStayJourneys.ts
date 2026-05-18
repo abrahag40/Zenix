@@ -24,8 +24,8 @@ interface ApiJourney {
   status?: string
   /** Set cuando journey.status === 'CHECKED_OUT' — el moment del checkout real */
   journeyCheckOut?: string
-  /** bookingRef vive en GuestStay (parent) — incluido via `include: { guestStay: { select: { bookingRef } } }` */
-  guestStay?: { bookingRef?: string | null }
+  /** bookingRef + actualCheckin viven en GuestStay (parent) — incluidos via include. */
+  guestStay?: { bookingRef?: string | null; actualCheckin?: string | null }
   segments: ApiSegment[]
 }
 
@@ -43,6 +43,18 @@ function adaptJourneys(journeys: ApiJourney[]): GuestStayBlock[] {
       journey.status === 'CHECKED_OUT' && journey.journeyCheckOut
         ? new Date(journey.journeyCheckOut)
         : undefined
+
+    // ACTUAL CHECK-IN propagation (Sprint 2026-05-17):
+    // El check-in es operación única por estadía (verificar doc + capturar
+    // pago). Las EXTENSIONES no requieren re-check-in — 5/5 PMS consensus
+    // (Mews, Cloudbeds, Opera, Little Hotelier, RoomRaccoon). Sin esta
+    // propagación, segmentos de extensión se renderizan como "UNCONFIRMED"
+    // y muestran "Confirmar check-in" duplicado (anti-pattern operacional).
+    // Para room-change segments, sigue mostrándose el cambio de habitación
+    // como indicador visual (sin requerir re-check-in del documento/pago).
+    const actualCheckinDate = journey.guestStay?.actualCheckin
+      ? new Date(journey.guestStay.actualCheckin)
+      : undefined
 
     // Determine first/last by checkIn/checkOut dates
     const sorted = [...activeSegments].sort(
@@ -119,6 +131,9 @@ function adaptJourneys(journeys: ApiJourney[]): GuestStayBlock[] {
             : undefined,
         // DEPARTED detection — set solo cuando journey ya cerró
         actualCheckout: actualCheckoutDate,
+        // CHECKED-IN propagation — heredado del parent GuestStay para que
+        // las extensiones NO muestren "Confirmar check-in" duplicado.
+        actualCheckin: actualCheckinDate,
       })
     }
   }

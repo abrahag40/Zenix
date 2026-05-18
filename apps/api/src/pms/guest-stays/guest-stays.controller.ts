@@ -13,6 +13,8 @@ import { CreateContactLogDto } from './dto/create-contact-log.dto'
 import { ConfirmCheckinDto } from './dto/confirm-checkin.dto'
 import { RegisterPaymentDto } from './dto/register-payment.dto'
 import { VoidPaymentDto } from './dto/void-payment.dto'
+import { UpdateGuestStayDto } from './dto/update-guest-stay.dto'
+import { CreateGuestStayNoteDto, UpdateGuestStayNoteDto } from './dto/guest-stay-note.dto'
 
 class MarkNoShowDto {
   @IsOptional()
@@ -176,6 +178,26 @@ export class GuestStaysController {
     return this.service.countCancelledToday(propertyId, timezone || 'UTC')
   }
 
+  /**
+   * GET /v1/guest-stays/:id/checkin-context
+   * Sprint CHECK-IN-α §107 — datos consolidados para el dialog de check-in.
+   * Declarado antes de `:id` para evitar shadowing (CLAUDE.md §26).
+   */
+  @Get(':id/checkin-context')
+  getCheckinContext(@Param('id') id: string) {
+    return this.service.getCheckinContext(id)
+  }
+
+  /**
+   * GET /v1/guest-stays/:id/payments
+   * Sprint EDIT-RESERVATION — lista PaymentLogs (incluye voided + void
+   * entries para que la UI muestre la línea original tachada + la anulación).
+   */
+  @Get(':id/payments')
+  listPayments(@Param('id') id: string) {
+    return this.service.listPaymentLogs(id)
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.service.findOne(id)
@@ -277,6 +299,47 @@ export class GuestStaysController {
     @CurrentUser() actor: JwtPayload,
   ) {
     return this.service.confirmCheckin(id, dto, actor.sub)
+  }
+
+  /**
+   * PATCH /v1/guest-stays/:id
+   * Sprint EDIT-RESERVATION — update parcial con guards per-phase.
+   */
+  @Patch(':id')
+  updateStay(
+    @Param('id') id: string,
+    @Body() dto: UpdateGuestStayDto,
+    @CurrentUser() actor: JwtPayload,
+  ) {
+    return this.service.updateGuestStay(id, dto, actor.sub)
+  }
+
+  /**
+   * Notes (bitácora humana) — append-only con ventana edición 5min.
+   * IMPORTANT: la ruta `notes/:noteId` debe declararse ANTES de `:id/notes`
+   * pero como tiene 2 segments distintos no colisiona con `:id` (§26).
+   */
+  @Get(':id/notes')
+  listNotes(@Param('id') id: string) {
+    return this.service.listNotes(id)
+  }
+
+  @Post(':id/notes')
+  createNote(
+    @Param('id') id: string,
+    @Body() dto: CreateGuestStayNoteDto,
+    @CurrentUser() actor: JwtPayload,
+  ) {
+    return this.service.createNote(id, dto, actor.sub)
+  }
+
+  @Patch('notes/:noteId')
+  editNote(
+    @Param('noteId') noteId: string,
+    @Body() dto: UpdateGuestStayNoteDto,
+    @CurrentUser() actor: JwtPayload,
+  ) {
+    return this.service.editNote(noteId, dto, actor.sub)
   }
 
   /**

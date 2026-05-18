@@ -88,7 +88,12 @@ export function useCreateGuestStay(propertyId: string) {
         children: data.children ?? 0,
         amountPaid: data.amountPaid ?? 0,
         guestEmail: data.guestEmail || undefined,
-        guestPhone: data.guestPhone || undefined,
+        // Si el form pre-fillea "+52" como dial code default pero el usuario
+        // NO tecleó dígitos, descartamos — sino guardaríamos un teléfono
+        // inválido tipo "+52" sin número real. Regex: + + 1-4 dígitos = solo dial code.
+        guestPhone: data.guestPhone && !/^\+\d{1,4}$/.test(data.guestPhone.trim())
+          ? data.guestPhone
+          : undefined,
         checkIn:  new Date(data.checkIn).toISOString(),
         checkOut: new Date(data.checkOut).toISOString(),
       })
@@ -119,6 +124,12 @@ export function useCreateGuestStay(propertyId: string) {
       )
       const ota = OTA_OPTIONS.find((o) => o.value === data.source)
 
+      // Optimistic insert — incluir TODOS los campos del huésped (no solo
+      // los del bloque visual del calendario). Sin esto, si el usuario abre
+      // el detalle de la reserva recién creada antes del refetch del server,
+      // el sheet muestra Phone/Email/Nationality vacíos (bug reportado
+      // 2026-05-17). Cuando llega el refetch, el temp- es reemplazado por la
+      // versión real con el mismo dataset → continuidad visual transparente.
       const optimisticStay: GuestStayBlock = {
         id: 'temp-' + Date.now(),
         roomId: data.roomId,
@@ -136,6 +147,11 @@ export function useCreateGuestStay(propertyId: string) {
         paxCount: (data.adults ?? 1) + (data.children ?? 0),
         isLocked: false,
         bookingRef: undefined,
+        // Campos del huésped — antes faltaban, generaban detalle "vacío"
+        guestEmail:     data.guestEmail || undefined,
+        guestPhone:     data.guestPhone || undefined,
+        nationality:    data.nationality || undefined,
+        documentType:   data.documentType || undefined,
       }
 
       // Insertar en cada cache activo de guest-stays
@@ -183,18 +199,32 @@ export function useCheckout(propertyId: string) {
 
   return useMutation({
     mutationFn: (stayId: string) => guestStaysApi.checkout(stayId),
+    // 2026-05-17 — Fix bug recurrente "el bloque del huésped NO se actualiza
+    // tras checkout (Pedro & Carmen Vega, observado múltiples sprints)".
+    // Mismo bug que `useEarlyCheckout` ya tenía documentado (líneas 212-218):
+    // invalidateQueries con refetchType:'active' NO garantiza re-fetch
+    // sincrónico cuando el dialog modal estaba abierto — la query queda en
+    // estado suspendido y el UI re-renderiza con la data stale del journey
+    // (color "IN_HOUSE" persiste aunque GuestStay.actualCheckout ya existe).
+    //
+    // Fix: `await refetchQueries` para AMBAS queries antes de mostrar el
+    // toast. El dialog ya se cerró desde TimelineScheduler (línea 1257)
+    // sincrónicamente — necesitamos garantizar que cuando vuelve el control
+    // al render del calendar, ya tenga ambas fuentes refrescadas.
     onSuccess: async () => {
       await qc.refetchQueries({
         queryKey: ['guest-stays', propertyId],
         exact: false,
         type: 'active',
       })
-      qc.invalidateQueries({ queryKey: ['rooms', propertyId], exact: false })
       // El calendario PMS deriva el color del bloque del estado del journey
-      // (DEPARTED vs IN_HOUSE). Sin invalidar stay-journeys-timeline, el bloque
-      // sigue pintado en su color previo aunque la GuestStay ya tiene
-      // actualCheckout — bug recurrente reportado por el usuario.
-      qc.invalidateQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false, refetchType: 'active' })
+      // (DEPARTED vs IN_HOUSE). Refetch awaited explícito — NO invalidate.
+      await qc.refetchQueries({
+        queryKey: ['stay-journeys-timeline', propertyId],
+        exact: false,
+        type: 'active',
+      })
+      qc.invalidateQueries({ queryKey: ['rooms', propertyId], exact: false })
       toast.success('Checkout registrado — habitación liberada')
     },
     onError: (err: Error) => {
@@ -471,6 +501,45 @@ export function useMoveExtensionRoom(propertyId: string) {
   })
 }
 
+/**
+ * Cancela un segmento FUTURO (extensión) de un journey activo. El guest sigue
+ * checked-in en su segmento actual; solo se revoca la prolongación planeada.
+ * Distinto de cancelStay (requiere no-checkin) y de earlyCheckout (sale HOY).
+ * Justificación + comparación cross-PMS: ver service.cancelFutureSegment().
+ */
+export function useCancelExtensionSegment(propertyId: string) {
+  const qc = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ segmentId, reason }: { segmentId: string; reason?: string }) =>
+      guestStaysApi.cancelExtensionSegment(segmentId, reason),
+    onSuccess: async () => {
+      // Pattern §useCheckout fix: await refetch para garantizar UI fresca
+      // ANTES de cerrar el dialog.
+      await qc.refetchQueries({
+        queryKey: ['stay-journeys-timeline', propertyId],
+        exact: false,
+        type: 'active',
+      })
+      await qc.refetchQueries({
+        queryKey: ['guest-stays', propertyId],
+        exact: false,
+        type: 'active',
+      })
+      qc.invalidateQueries({ queryKey: ['rooms', propertyId], exact: false })
+      // El backend incluye extension cancellations en listCancelled +
+      // countCancelledToday — invalidar ambos para que el badge y el drawer
+      // reflejen la nueva cancelación inmediatamente.
+      await qc.refetchQueries({ queryKey: ['cancelled-today-count', propertyId], exact: false })
+      await qc.refetchQueries({ queryKey: ['cancelled-stays', propertyId], exact: false })
+      toast.success('Extensión cancelada — fecha de salida revertida')
+    },
+    onError: (err: Error) => {
+      toast.error(err.message ?? 'No se pudo cancelar la extensión')
+    },
+  })
+}
+
 /** Split N-way: reemplaza los segmentos ACTIVE del journey con N tramos nuevos.
  *  Soporta ARRIVING (toda la reserva en N cuartos) e IN_HOUSE (primer tramo
  *  = cuarto actual hasta hoy, resto en otros cuartos). Invalida ambos caches
@@ -515,6 +584,16 @@ export function useConfirmCheckin(propertyId: string) {
       toast.success('Check-in confirmado — el huésped está en casa')
     },
     onError: (err: Error) => {
+      // Sprint CHECK-IN-α §110 — códigos machine-readable. Idempotency
+      // (otra sesión confirmó este check-in) NO es un error duro: refrescamos
+      // y mostramos info, no toast.error rojo.
+      const code = err instanceof ApiError ? err.code : undefined
+      if (code === 'CHECKIN_ALREADY_CONFIRMED') {
+        toast('Este check-in ya fue confirmado por otra sesión', { icon: 'ℹ️' })
+        qc.invalidateQueries({ queryKey: ['guest-stays', propertyId], exact: false, refetchType: 'active' })
+        qc.invalidateQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false, refetchType: 'active' })
+        return
+      }
       toast.error(err.message ?? 'No se pudo confirmar el check-in')
     },
   })
@@ -571,5 +650,150 @@ export function useRoomReadinessTasks(propertyId: string) {
       ),
     staleTime: 15_000,
     enabled: !!propertyId,
+  })
+}
+
+// ─── Sprint EDIT-RESERVATION — update + notes ────────────────────────────
+
+/**
+ * PATCH guest stay con guards per-phase server-side. Invalida calendar +
+ * detail caches al success. Surface code machine-readable para que la UI
+ * muestre feedback informativo (Apple HIG: explain what happened).
+ */
+export function useUpdateGuestStay(propertyId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      stayId,
+      patch,
+    }: {
+      stayId: string
+      patch: Parameters<typeof guestStaysApi.updateStay>[1]
+    }) => guestStaysApi.updateStay(stayId, patch),
+    onSuccess: (result, vars) => {
+      // Si server short-circuiteó (sin cambios reales), evitamos toast ruidoso.
+      if (!result.changed) return
+      qc.invalidateQueries({ queryKey: ['guest-stays', propertyId], exact: false, refetchType: 'active' })
+      qc.invalidateQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false, refetchType: 'active' })
+      qc.invalidateQueries({ queryKey: ['checkin-context', vars.stayId], refetchType: 'active' })
+      toast.success('Reserva actualizada')
+    },
+    onError: (err: Error) => {
+      // Códigos machine-readable a UX amistoso. Apple HIG: explain why.
+      const code = err instanceof ApiError ? err.code : undefined
+      const map: Record<string, string> = {
+        STAY_CANCELLED:                     'Esta reserva está cancelada — solo notas internas son editables',
+        STAY_NOSHOW:                        'Esta reserva está en flujo no-show — campos congelados',
+        STAY_CHECKED_OUT_IMMUTABLE_FIELD:   'Reserva ya cerrada — usar nota de crédito para correcciones monetarias',
+        RATE_CHANGE_REQUIRES_APPROVAL:      'Cambio post-checkin requiere código + razón del manager',
+        CFDI_LOCKED:                        'CFDI emitida — emitir nota de crédito desde el módulo fiscal',
+      }
+      toast.error(code && map[code] ? map[code] : err.message ?? 'No se pudo actualizar')
+    },
+  })
+}
+
+/** GET lista de notas — refresca via SSE stay.note.created. */
+export function useGuestStayNotes(stayId: string | null) {
+  return useQuery({
+    queryKey: ['guest-stay-notes', stayId],
+    queryFn:  () => guestStaysApi.listNotes(stayId!),
+    enabled:  !!stayId,
+    staleTime: 30_000,
+  })
+}
+
+export function useCreateGuestStayNote(stayId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: Parameters<typeof guestStaysApi.createNote>[1]) =>
+      guestStaysApi.createNote(stayId, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['guest-stay-notes', stayId], refetchType: 'active' })
+    },
+    onError: (err: Error) => {
+      toast.error(err.message ?? 'No se pudo guardar la nota')
+    },
+  })
+}
+
+/**
+ * Sprint EDIT-RESERVATION iter 4 — hook para el contexto del stay
+ * reutilizado por BookingDetailSheet (Pago tab necesita propertyCurrency +
+ * secondaryRates + paymentModel). Comparte queryKey con el del check-in
+ * dialog para que el cache se aproveche.
+ */
+export function useStayContext(stayId: string | null) {
+  return useQuery({
+    queryKey: ['checkin-context', stayId],
+    queryFn:  () => guestStaysApi.getCheckinContext(stayId!),
+    enabled:  !!stayId,
+    staleTime: 30_000,
+  })
+}
+
+/** Lista PaymentLogs de una reserva. */
+export function useStayPayments(stayId: string | null) {
+  return useQuery({
+    queryKey: ['stay-payments', stayId],
+    queryFn:  () => guestStaysApi.listPayments(stayId!),
+    enabled:  !!stayId,
+    staleTime: 15_000,
+  })
+}
+
+/** Registra un pago adicional sobre la stay. */
+export function useRegisterPayment(stayId: string, propertyId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: Parameters<typeof guestStaysApi.registerPayment>[1]) =>
+      guestStaysApi.registerPayment(stayId, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['stay-payments', stayId], refetchType: 'active' })
+      qc.invalidateQueries({ queryKey: ['guest-stays', propertyId], exact: false, refetchType: 'active' })
+      qc.invalidateQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false, refetchType: 'active' })
+      qc.invalidateQueries({ queryKey: ['checkin-context', stayId], refetchType: 'active' })
+      toast.success('Pago registrado')
+    },
+    onError: (err: Error) => {
+      toast.error(err.message ?? 'No se pudo registrar el pago')
+    },
+  })
+}
+
+/** Anula un PaymentLog (crea entrada negativa append-only). */
+export function useVoidPayment(stayId: string, propertyId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ paymentLogId, voidReason }: { paymentLogId: string; voidReason: string }) =>
+      guestStaysApi.voidPayment(paymentLogId, voidReason),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['stay-payments', stayId], refetchType: 'active' })
+      qc.invalidateQueries({ queryKey: ['guest-stays', propertyId], exact: false, refetchType: 'active' })
+      qc.invalidateQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false, refetchType: 'active' })
+      toast.success('Pago anulado — entrada negativa registrada')
+    },
+    onError: (err: Error) => {
+      toast.error(err.message ?? 'No se pudo anular el pago')
+    },
+  })
+}
+
+export function useEditGuestStayNote(stayId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ noteId, content }: { noteId: string; content: string }) =>
+      guestStaysApi.editNote(noteId, { content }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['guest-stay-notes', stayId], refetchType: 'active' })
+    },
+    onError: (err: Error) => {
+      const code = err instanceof ApiError ? err.code : undefined
+      const map: Record<string, string> = {
+        NOTE_NOT_OWNER:            'Solo el autor original puede editar la nota',
+        NOTE_EDIT_WINDOW_EXPIRED:  'Ventana de edición expirada (5 min). Agrega una nueva nota corrigiendo.',
+      }
+      toast.error(code && map[code] ? map[code] : err.message ?? 'No se pudo editar')
+    },
   })
 }

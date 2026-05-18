@@ -3,7 +3,8 @@ import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useState, useEffect } from 'react'
-import PhoneInput, { isValidPhoneNumber } from 'react-phone-number-input'
+import { isValidPhoneNumber } from 'react-phone-number-input'
+import { PhoneFieldWithCountry } from '../shared/PhoneFieldWithCountry'
 import 'react-phone-number-input/style.css'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel,
@@ -13,6 +14,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel,
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { CountryCombobox } from '../shared/CountryCombobox'
 import { Select, SelectContent, SelectItem,
          SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
@@ -165,7 +167,10 @@ export function CheckInDialog({
     resolver: zodResolver(step1Schema),
     defaultValues: {
       firstName: '', lastName: '', guestEmail: '',
-      guestPhone: '', nationality: '',
+      // Pre-fill +52 (MX = defaultCountry del PhoneInput). El usuario ve
+      // el dial code listo y solo teclea los dígitos. Si cambia el flag,
+      // onCountryChange reescribe a la lada del nuevo país.
+      guestPhone: '+52', nationality: '',
       adults: 1, children: 0,
     },
   })
@@ -192,7 +197,10 @@ export function CheckInDialog({
     if (!open) return
     f1.reset({
       firstName: '', lastName: '', guestEmail: '',
-      guestPhone: '', nationality: '',
+      // Pre-fill +52 (MX = defaultCountry del PhoneInput). El usuario ve
+      // el dial code listo y solo teclea los dígitos. Si cambia el flag,
+      // onCountryChange reescribe a la lada del nuevo país.
+      guestPhone: '+52', nationality: '',
       adults: 1, children: 0,
     })
     f2.reset({
@@ -417,17 +425,11 @@ export function CheckInDialog({
                     <Controller
                       name="guestPhone" control={f1.control}
                       render={({ field }) => (
-                        <PhoneInput
-                          {...field}
+                        <PhoneFieldWithCountry
+                          value={field.value ?? ''}
+                          onChange={field.onChange}
                           defaultCountry="MX"
-                          placeholder="+52 999 000 0000"
-                          className={cn(
-                            'flex h-9 w-full rounded-md border border-input',
-                            'bg-white px-3 py-1 text-sm',
-                            '[&_.PhoneInputInput]:bg-transparent',
-                            '[&_.PhoneInputInput]:outline-none',
-                            '[&_.PhoneInputInput]:text-sm [&_.PhoneInputInput]:flex-1',
-                          )}
+                          placeholder="999 000 0000"
                         />
                       )}
                     />
@@ -440,11 +442,19 @@ export function CheckInDialog({
                     <Label className="text-xs font-semibold text-slate-600">
                       Nacionalidad <span className="text-red-500">*</span>
                     </Label>
-                    <Input
-                      {...f1.register('nationality')}
-                      placeholder="Ej. México"
-                      className={cn('h-9 text-sm bg-white',
-                        f1.formState.errors.nationality && 'border-red-400')}
+                    {/* Searchable combobox — reemplaza input texto libre.
+                        Resuelve pain-point real reportado por recepcionista
+                        ex-Cloudbeds (que se saltaba el paso por dificultad). */}
+                    <Controller
+                      name="nationality"
+                      control={f1.control}
+                      render={({ field }) => (
+                        <CountryCombobox
+                          value={field.value ?? ''}
+                          onChange={field.onChange}
+                          hasError={!!f1.formState.errors.nationality}
+                        />
+                      )}
                     />
                     {f1.formState.errors.nationality && (
                       <div data-field-error>

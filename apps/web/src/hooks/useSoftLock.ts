@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { api } from '@/api/client'
 import { useAuthStore } from '@/store/auth'
-import type { SseEvent } from '@zenix/shared'
+import { subscribeSse } from '@/lib/sseClient'
 
 const HEARTBEAT_INTERVAL_MS = 30_000
 
@@ -57,55 +57,47 @@ export function useSoftLock(roomId: string | null, propertyId: string | null) {
  * of currently locked rooms. Used by TimelineScheduler to pass lock state
  * down to RoomColumn for badge rendering.
  *
+ * Sprint SSE-RESILIENCE (2026-05-17): refactor a singleton subscriber.
+ * Ya NO crea su propia EventSource — usa el sseClient singleton compartido
+ * con useSSE y useRoomSSE. Filtra los events `soft:lock:*` que le interesan.
+ *
  * Design rationale:
- * - Reuses the existing /api/events SSE connection (no extra socket).
+ * - 1 EventSource por tab total (no por hook). Cero acumulación con HMR.
  * - Setter uses functional update to avoid stale closure over the Map.
  * - On `soft:lock:acquired`: add entry. On `soft:lock:released`: remove entry.
- * - TTL safety: the backend sweeps expired locks every minute and emits
- *   'soft:lock:released' — so the Map self-heals even after client crashes.
+ * - TTL safety: el backend sweeps expired locks cada minuto y emite
+ *   'soft:lock:released' → el Map self-healing incluso tras client crash.
  */
 export function useSoftLockSSE(
   setLockedRooms: (updater: (prev: Map<string, string>) => Map<string, string>) => void,
 ) {
-  useEffect(() => {
-    const token = localStorage.getItem('hk_token') ?? ''
-    const base = import.meta.env.VITE_API_URL ?? ''
-    const url = `${base}/api/events?token=${encodeURIComponent(token)}`
-    const es = new EventSource(url)
+  // Ref para que callback inline pase sin re-subscribe constante.
+  const setterRef = useRef(setLockedRooms)
+  setterRef.current = setLockedRooms
 
-    const onAcquired = (e: MessageEvent) => {
-      try {
-        const event = JSON.parse(e.data) as SseEvent<{ roomId: string; lockedByName: string }>
-        const { roomId, lockedByName } = event.data
-        if (!roomId || !lockedByName) return
-        setLockedRooms((prev) => {
+  useEffect(() => {
+    const unsub = subscribeSse((event) => {
+      if (event.type === 'soft:lock:acquired') {
+        const data = event.data as { roomId?: string; lockedByName?: string }
+        if (!data.roomId || !data.lockedByName) return
+        const roomId = data.roomId
+        const lockedByName = data.lockedByName
+        setterRef.current((prev) => {
           const next = new Map(prev)
           next.set(roomId, lockedByName)
           return next
         })
-      } catch { /* ignore */ }
-    }
-
-    const onReleased = (e: MessageEvent) => {
-      try {
-        const event = JSON.parse(e.data) as SseEvent<{ roomId: string }>
-        const { roomId } = event.data
-        if (!roomId) return
-        setLockedRooms((prev) => {
+      } else if (event.type === 'soft:lock:released') {
+        const data = event.data as { roomId?: string }
+        if (!data.roomId) return
+        const roomId = data.roomId
+        setterRef.current((prev) => {
           const next = new Map(prev)
           next.delete(roomId)
           return next
         })
-      } catch { /* ignore */ }
-    }
-
-    es.addEventListener('soft:lock:acquired', onAcquired)
-    es.addEventListener('soft:lock:released', onReleased)
-
-    return () => {
-      es.removeEventListener('soft:lock:acquired', onAcquired)
-      es.removeEventListener('soft:lock:released', onReleased)
-      es.close()
-    }
-  }, [setLockedRooms])
+      }
+    })
+    return unsub
+  }, [])
 }

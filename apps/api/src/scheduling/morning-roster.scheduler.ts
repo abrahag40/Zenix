@@ -367,8 +367,31 @@ export class MorningRosterScheduler {
   }
 
   /**
-   * Predice checkouts del día basado en GuestStay.scheduledCheckout y crea tareas PENDING.
-   * Idempotente: si ya existe una CleaningTask con scheduledFor=today + unitId, no duplica.
+   * Predice checkouts del día basado en GuestStay.scheduledCheckout Y mid-stay
+   * room moves (segment-level). Crea CleaningTask(PENDING) idempotentes.
+   *
+   * Sprint 2026-05-17 — fix B2/B3 (caso reportado por usuario "guest extiende
+   * a otra habitación + Room destino tiene checkout same-day"):
+   *
+   *   - ANTES: solo consideraba GuestStay.scheduledCheckout (stay-level).
+   *     Mid-stay room moves (segments con checkOut=today + reason in
+   *     [EXTENSION_NEW_ROOM, ROOM_MOVE]) NO disparaban task → la habitación
+   *     vacated quedaba sin limpieza programada el día del move.
+   *
+   *   - ANTES: `hasSameDayCheckIn` solo detectaba GuestStay-level checkins.
+   *     Si un guest se movía A una habitación que tenía otro checkout
+   *     same-day, esa habitación NO se marcaba URGENT → la recamarista no
+   *     priorizaba el cuarto donde llegaría el guest. Resultado operativo:
+   *     guest esperaba 30+ min con sus maletas en recepción.
+   *
+   *   - AHORA: unifica fuentes en TODA dirección:
+   *     · Rooms vacated today  = stay scheduledCheckout + segment moveOut
+   *     · Rooms guest-arriving = stay checkinAt + segment moveIn (extension/move)
+   *     Si vacated ∩ guest-arriving → URGENT. Sin intersección → MEDIUM.
+   *
+   * Idempotente: si ya existe CleaningTask con scheduledFor=today + unitId,
+   * no duplica. Si existe pero ahora detectamos un nuevo same-day arrival,
+   * eleva priority a URGENT (upgrade in place).
    */
   private async processPredictedCheckouts(
     propertyId: string,
@@ -377,6 +400,7 @@ export class MorningRosterScheduler {
   ): Promise<{ newTasks: number; reusedTasks: number }> {
     const dayEnd = new Date(localDateMidnightUtc.getTime() + 24 * 60 * 60 * 1000 - 1)
 
+    // ── Stay-level checkouts (path histórico) ─────────────────────────────
     const stays = await this.prisma.guestStay.findMany({
       where: {
         organizationId: orgId ?? undefined,
@@ -399,10 +423,30 @@ export class MorningRosterScheduler {
       },
     })
 
-    let newTasks = 0
-    let reusedTasks = 0
+    // ── Segment-level move-outs (Sprint 2026-05-17 fix B2) ────────────────
+    // Segmentos ACTIVE que terminan hoy con razón de room change = guest se
+    // mueve a otra room. La room ORIGINAL queda libre y necesita limpieza.
+    const moveOutSegments = await this.prisma.staySegment.findMany({
+      where: {
+        status: 'ACTIVE',
+        checkOut: { gte: localDateMidnightUtc, lte: dayEnd },
+        reason: { in: ['EXTENSION_NEW_ROOM', 'ROOM_MOVE'] },
+        room: { propertyId },
+      },
+      select: {
+        id: true,
+        roomId: true,
+        room: {
+          select: {
+            id: true,
+            number: true,
+            units: { select: { id: true } },
+          },
+        },
+      },
+    })
 
-    // Detectar same-day check-ins (otras estadías que comienzan hoy en esa room)
+    // ── Same-day check-ins (stay-level) ───────────────────────────────────
     const sameDayCheckIns = await this.prisma.guestStay.findMany({
       where: {
         organizationId: orgId ?? undefined,
@@ -410,17 +454,53 @@ export class MorningRosterScheduler {
         deletedAt: null,
         noShowAt: null,
         checkinAt: { gte: localDateMidnightUtc, lte: dayEnd },
-        roomId: { in: stays.map(s => s.roomId) },
       },
       select: { roomId: true },
     })
-    const checkInRooms = new Set(sameDayCheckIns.map(s => s.roomId))
 
-    for (const stay of stays) {
-      const hasSameDayCheckIn = checkInRooms.has(stay.roomId)
+    // ── Same-day move-ins (Sprint 2026-05-17 fix B3) ──────────────────────
+    // Segmentos ACTIVE que arrancan hoy con razón de room change = guest
+    // llega A esa habitación hoy. Esa habitación debe ser URGENT si hay
+    // checkout/move-out previo el mismo día (guest esperando físicamente).
+    const sameDayMoveIns = await this.prisma.staySegment.findMany({
+      where: {
+        status: 'ACTIVE',
+        checkIn: { gte: localDateMidnightUtc, lte: dayEnd },
+        reason: { in: ['EXTENSION_NEW_ROOM', 'ROOM_MOVE'] },
+        room: { propertyId },
+      },
+      select: { roomId: true },
+    })
+
+    // Union — habitaciones donde HOY hay guest esperando llegar.
+    const checkInRooms = new Set<string>([
+      ...sameDayCheckIns.map((s) => s.roomId),
+      ...sameDayMoveIns.map((s) => s.roomId),
+    ])
+
+    // ── Unificar fuentes de "rooms vacated today" — dedup por roomId ──────
+    // Si la misma room aparece via stay-checkout Y segment-moveout (raro pero
+    // defensivo), solo creamos task una vez por unit.
+    const vacatedRooms = new Map<string, { units: { id: string }[]; number?: string }>()
+    for (const s of stays) {
+      if (s.room?.units) {
+        vacatedRooms.set(s.roomId, { units: s.room.units, number: s.room.number })
+      }
+    }
+    for (const seg of moveOutSegments) {
+      if (!vacatedRooms.has(seg.roomId) && seg.room?.units) {
+        vacatedRooms.set(seg.roomId, { units: seg.room.units, number: seg.room.number })
+      }
+    }
+
+    let newTasks = 0
+    let reusedTasks = 0
+
+    for (const [roomId, { units }] of vacatedRooms) {
+      const hasSameDayCheckIn = checkInRooms.has(roomId)
       const priority = hasSameDayCheckIn ? Priority.URGENT : Priority.MEDIUM
 
-      for (const unit of stay.room.units) {
+      for (const unit of units) {
         // Idempotencia: si ya existe una tarea para esta unit con scheduledFor=today
         const existing = await this.prisma.cleaningTask.findFirst({
           where: {
@@ -428,9 +508,22 @@ export class MorningRosterScheduler {
             scheduledFor: localDateMidnightUtc,
             status: { notIn: [CleaningStatus.CANCELLED] },
           },
-          select: { id: true },
+          select: { id: true, priority: true, hasSameDayCheckIn: true },
         })
         if (existing) {
+          // Upgrade-in-place: si la task existía con prioridad menor y AHORA
+          // detectamos un same-day arrival (ej. extension confirmada después
+          // de que extendNewRoom creó eagerly la task), elevamos a URGENT.
+          // Sin esto la señal "guest llegando hoy" se perdía.
+          if (
+            hasSameDayCheckIn &&
+            (existing.priority !== Priority.URGENT || !existing.hasSameDayCheckIn)
+          ) {
+            await this.prisma.cleaningTask.update({
+              where: { id: existing.id },
+              data: { priority: Priority.URGENT, hasSameDayCheckIn: true },
+            })
+          }
           reusedTasks++
           continue
         }
@@ -452,7 +545,7 @@ export class MorningRosterScheduler {
             taskId: newTask.id,
             staffId: null,
             event: TaskLogEvent.CREATED,
-            note: 'morning roster (predicted checkout)',
+            note: 'morning roster (predicted checkout/move-out)',
           },
         })
         newTasks++

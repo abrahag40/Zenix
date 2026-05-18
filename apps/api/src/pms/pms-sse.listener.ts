@@ -122,4 +122,51 @@ export class PmsSseListener {
       roomId: payload.roomId,
     })
   }
+
+  // Sprint EDIT-RESERVATION — concurrent edit awareness.
+  // Cualquier cliente con BookingDetailSheet abierto en la misma stay debe
+  // recibir un banner "datos cambiaron" cuando otra sesión escribe.
+  // El listener client-side filtra por stayId + ignora propio actorId.
+  @OnEvent('stay.updated')
+  onStayUpdated(payload: {
+    stayId: string
+    propertyId: string
+    orgId: string
+    changedFields: string[]
+    actorId: string
+  }) {
+    this.notifications.emit(payload.propertyId, 'stay:updated', {
+      stayId:        payload.stayId,
+      changedFields: payload.changedFields,
+      actorId:       payload.actorId,
+    })
+  }
+
+  @OnEvent('stay.note.created')
+  onStayNoteCreated(payload: {
+    stayId: string
+    propertyId: string
+    noteId: string
+    actorId: string
+  }) {
+    this.notifications.emit(payload.propertyId, 'stay:note:created', {
+      stayId:  payload.stayId,
+      noteId:  payload.noteId,
+      actorId: payload.actorId,
+    })
+  }
+
+  @OnEvent('stay.note.updated')
+  onStayNoteUpdated(payload: {
+    stayId: string
+    propertyId: string
+    noteId: string
+    actorId: string
+  }) {
+    this.notifications.emit(payload.propertyId, 'stay:note:updated', {
+      stayId:  payload.stayId,
+      noteId:  payload.noteId,
+      actorId: payload.actorId,
+    })
+  }
 }

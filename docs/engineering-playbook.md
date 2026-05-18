@@ -419,11 +419,22 @@ Para apps multi-rol/multi-área, mantener UN shell común (navegación, dashboar
 ### 7.4 API client robusto (Stripe pattern)
 
 ```ts
-- AbortController + timeout (default 12s)
-- Exponential backoff retry (250/500/1000ms)
-- Typed errors: NetworkError vs ApiError (discriminated union)
-- Solo retry idempotent requests (GET) por default
+- AbortSignal.timeout() — defaults por verbo (GET 30s, POST/PATCH 20s, DELETE 15s)
+- Typed errors: ApiError con .status / .code machine-readable / .body raw
+- 401 → logout + redirect /login con returnTo
+- Estado terminal garantizado para mutations (no isPending eterno)
+- Exponential backoff retry — TODO sprint posterior (solo GET idempotente)
 ```
+
+**Implementación de referencia Zenix**:
+- Código: `apps/web/src/api/client.ts`
+- Spec formal: [docs/engineering/http-client.md](engineering/http-client.md) — contrato completo,
+  anti-patterns, migración de código legacy, tabla de códigos machine-readable.
+- Anchor en project rules: `CLAUDE.md §122`.
+
+**Anti-pattern explícito**: si un modal queda "cargando…" sin error visible, NO es problema del modal
+— es que el `fetch` subyacente no tiene timeout. La cura es agregar timeout, NO habilitar "Cancelar"
+durante `isPending` (band-aid que deja al usuario sin saber si la operación se completó server-side).
 
 ### 7.5 Time-aware adaptive UI (§37 Zenix)
 

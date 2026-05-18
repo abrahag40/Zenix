@@ -32,6 +32,8 @@ export interface GuestStayBlock {
   currency: string
   paxCount: number
   notes?: string
+  // Sprint EDIT-RESERVATION — campos editables vía bulk-edit en BookingDetailSheet
+  arrivalNotes?: string | null
   isLocked?: boolean
   actualCheckin?: Date
   actualCheckout?: Date

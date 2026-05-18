@@ -360,6 +360,12 @@ export interface ConfirmCheckinInput {
   documentVerified: boolean
   documentType?: string
   documentNumber?: string
+  /**
+   * Sprint CHECK-IN-α — data URI base64 de la foto del documento.
+   * Sustituye al input manual del número en la UI (más práctico para
+   * recepción). Visa CRR 13.1/13.7 chargeback evidence.
+   */
+  documentPhotoUrl?: string
   arrivalNotes?: string
   keyType?: KeyDeliveryType
   payments: PaymentEntryInput[]
@@ -719,6 +725,10 @@ export type SseEventType =
   | 'notification:new'
   // Check-in confirmation
   | 'checkin:confirmed'
+  // Sprint EDIT-RESERVATION — concurrent edit awareness
+  | 'stay:updated'
+  | 'stay:note:created'
+  | 'stay:note:updated'
   // Sprint 8H — Housekeeping scheduling
   | 'task:carryover'           // tarea movida del día anterior
   | 'task:auto-assigned'       // auto-asignación visible en tiempo real al supervisor

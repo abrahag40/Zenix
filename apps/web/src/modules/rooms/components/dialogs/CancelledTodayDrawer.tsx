@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { X, RotateCcw, User, Building2, Globe, AlertCircle, Search } from 'lucide-react'
+import { X, RotateCcw, User, Building2, Globe, AlertCircle, Search, CalendarMinus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useCancelledStays, useRestoreStay } from '../../hooks/useGuestStays'
 import { useModalDismiss } from '../../hooks/useModalDismiss'
@@ -35,18 +35,30 @@ export function CancelledTodayDrawer({ open, propertyId, onClose }: CancelledTod
   const { data, isLoading } = useCancelledStays(propertyId, { since: todayISO.toISOString(), limit: 100 })
   const restoreMut = useRestoreStay(propertyId)
 
+  // Unified shape — backend devuelve STAY-level y EXTENSION_SEGMENT mezclados.
+  // STAY tiene los campos del folio completo; EXTENSION_SEGMENT tiene previous/new
+  // checkOut (lo que cambió por la cancelación de la extensión).
   type Row = {
     id: string
+    type?: 'STAY' | 'EXTENSION_SEGMENT'  // opcional para back-compat con backend viejo
+    guestStayId?: string
     guestName: string
-    checkinAt: string
-    scheduledCheckout: string
+    bookingRef?: string | null
+    roomNumber?: string | null
     cancelledAt: string
     cancelInitiator?: string
-    cancelReason?: string
+    cancelReason?: string | null
     cancelReasonCode?: string
-    totalAmount: string | number
-    currency: string
-    room: { number: string }
+    // STAY-only:
+    checkinAt?: string
+    scheduledCheckout?: string
+    totalAmount?: string | number
+    currency?: string
+    room?: { number: string }
+    // EXTENSION_SEGMENT-only:
+    segmentId?: string
+    previousCheckOut?: string
+    newJourneyCheckOut?: string
   }
 
   const rawRows = (data?.rows ?? []) as Row[]
@@ -67,7 +79,7 @@ export function CancelledTodayDrawer({ open, propertyId, onClose }: CancelledTod
     const q = search.trim().toLowerCase()
     if (q) list = list.filter((r) =>
       r.guestName.toLowerCase().includes(q) ||
-      r.room.number.toLowerCase().includes(q) ||
+      (r.roomNumber ?? r.room?.number ?? '').toLowerCase().includes(q) ||
       (r.cancelReason ?? '').toLowerCase().includes(q),
     )
     return list
@@ -178,46 +190,87 @@ export function CancelledTodayDrawer({ open, propertyId, onClose }: CancelledTod
               const meta = INITIATOR_META[initiator] ?? INITIATOR_META.GUEST
               const cancelledAt = new Date(row.cancelledAt)
               const elapsedDays = (Date.now() - cancelledAt.getTime()) / 86_400_000
-              const canRestore = (initiator === 'HOTEL' || initiator === 'ADMIN_ERROR') && elapsedDays <= RESTORE_WINDOW_DAYS
+              const isExtension = row.type === 'EXTENSION_SEGMENT'
+              // Restore solo aplica a STAY-level (extension cancel = simplemente
+              // re-extender si cambia plan; restore no tiene sentido semántico).
+              const canRestore = !isExtension
+                && (initiator === 'HOTEL' || initiator === 'ADMIN_ERROR')
+                && elapsedDays <= RESTORE_WINDOW_DAYS
 
-              // Notas: el reasonCode (dropdown) viaja en la línea 2 inline.
-              // Las notas libres (reason) — si difieren del code — van en línea 3
-              // opcional, con truncate. Char limit del input = 140 chars (Twitter
-              // pattern, suficiente para "guest llamó al cel +52..., recolocado
-              // a hotel hermano") — enforced en el dialog de cancel.
               const inlineReason = row.cancelReasonCode || ''
               const freeNote = (row.cancelReason && row.cancelReason !== row.cancelReasonCode)
                 ? row.cancelReason
                 : ''
+              const roomNum = row.roomNumber ?? row.room?.number
 
               return (
                 <li
                   key={row.id}
                   className="px-6 py-3 hover:bg-slate-50 flex items-center gap-4 transition-colors"
                 >
-                  {/* Dot + content cluster — gap-3 (12px) interno */}
                   <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <span
-                      className={`w-2 h-2 rounded-full flex-shrink-0 ${meta.dotClass}`}
-                      title={meta.label}
-                    />
+                    {/* Dot + tipo badge (extension differs visually del stay) */}
+                    {isExtension ? (
+                      <span
+                        className="w-5 h-5 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center flex-shrink-0"
+                        title="Extensión cancelada"
+                      >
+                        <CalendarMinus className="h-3 w-3" />
+                      </span>
+                    ) : (
+                      <span
+                        className={`w-2 h-2 rounded-full flex-shrink-0 ${meta.dotClass}`}
+                        title={meta.label}
+                      />
+                    )}
                     <div className="flex-1 min-w-0 space-y-0.5">
-                      {/* Línea 1: nombre */}
-                      <div className="text-sm font-medium text-slate-800 leading-tight truncate">
+                      {/* Línea 1: nombre + badge tipo */}
+                      <div className="text-sm font-medium text-slate-800 leading-tight truncate flex items-center gap-1.5">
                         {row.guestName}
-                      </div>
-                      {/* Línea 2: meta con interpunctos — hora inline al final (Apple Mail) */}
-                      <div className="text-xs text-slate-500 tabular-nums leading-tight truncate">
-                        Hab {row.room.number}
-                        {' · '}
-                        {format(new Date(row.checkinAt), 'd MMM', { locale: es })}–{format(new Date(row.scheduledCheckout), 'd MMM', { locale: es })}
-                        {' · '}
-                        {row.currency} {Number(row.totalAmount).toLocaleString()}
-                        {inlineReason && (
-                          <> {' · '} <span className="italic text-slate-400">{inlineReason}</span></>
+                        {isExtension && (
+                          <span className="text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0 rounded">
+                            Extensión
+                          </span>
                         )}
-                        <span className="text-slate-400"> · {format(cancelledAt, 'HH:mm')}</span>
                       </div>
+                      {/* Línea 2: meta según tipo */}
+                      {isExtension ? (
+                        <div className="text-xs text-slate-500 tabular-nums leading-tight truncate">
+                          {row.previousCheckOut && row.newJourneyCheckOut ? (
+                            <>
+                              Salida: {format(new Date(row.previousCheckOut), 'd MMM', { locale: es })}
+                              {' → '}
+                              <span className="font-medium text-slate-700">
+                                {format(new Date(row.newJourneyCheckOut), 'd MMM', { locale: es })}
+                              </span>
+                            </>
+                          ) : (
+                            'Extensión revocada'
+                          )}
+                          {inlineReason && (
+                            <> {' · '} <span className="italic text-slate-400">{inlineReason}</span></>
+                          )}
+                          <span className="text-slate-400"> · {format(cancelledAt, 'HH:mm')}</span>
+                        </div>
+                      ) : (
+                        <div className="text-xs text-slate-500 tabular-nums leading-tight truncate">
+                          {roomNum && <>Hab {roomNum}{' · '}</>}
+                          {row.checkinAt && row.scheduledCheckout && (
+                            <>
+                              {format(new Date(row.checkinAt), 'd MMM', { locale: es })}
+                              –{format(new Date(row.scheduledCheckout), 'd MMM', { locale: es })}
+                              {' · '}
+                            </>
+                          )}
+                          {row.currency && row.totalAmount != null && (
+                            <>{row.currency} {Number(row.totalAmount).toLocaleString()}</>
+                          )}
+                          {inlineReason && (
+                            <> {' · '} <span className="italic text-slate-400">{inlineReason}</span></>
+                          )}
+                          <span className="text-slate-400"> · {format(cancelledAt, 'HH:mm')}</span>
+                        </div>
+                      )}
                       {freeNote && (
                         <div
                           className="text-xs text-slate-400 italic leading-tight truncate pt-0.5"
@@ -229,13 +282,12 @@ export function CancelledTodayDrawer({ open, propertyId, onClose }: CancelledTod
                     </div>
                   </div>
 
-                  {/* Acción a la derecha — gap-4 (16px) del cluster, sin floating */}
-                  {canRestore && (
+                  {canRestore && row.guestStayId && (
                     <Button
                       size="sm"
                       variant="outline"
                       className="text-xs h-8 px-3 border-emerald-200 text-emerald-700 hover:bg-emerald-50 flex-shrink-0"
-                      onClick={() => restoreMut.mutate(row.id)}
+                      onClick={() => restoreMut.mutate(row.guestStayId!)}
                       disabled={restoreMut.isPending}
                     >
                       <RotateCcw className="h-3.5 w-3.5 mr-1.5" />

@@ -136,6 +136,35 @@ Tech stack idéntico al `apps/web` (React + Vite + Tailwind + Radix UI) para reu
 
 **Tiempo estimado:** 10-30 minutos per país (depende de qué tan rápido el cliente envíe credenciales PAC).
 
+#### FX integration (Sprint FX-LATAM v1.0.4)
+
+> Configuración del adapter de tipo de cambio per-LegalEntity. Análoga a PAC integration — paralela en arquitectura (`IFxAdapter` Strategy §111).
+> Ver [docs/sprints/FX-LATAM-plan.md](../sprints/FX-LATAM-plan.md) para detalle del catálogo de adapters.
+
+- Adapter FX auto-seleccionado según `countryCode`:
+  - MX → `BanxicoMxAdapter` (SF43718 FIX, requiere `BANXICO_TOKEN` gratuito)
+  - CO → `BancoRepublicaCoAdapter` (TRM Datos Abiertos, sin auth)
+  - CR → `BccrCrAdapter` (webservice SOAP, requiere `BCCR_API_TOKEN` gratuito)
+  - PE → `SbsPeAdapter` (REST sin auth)
+  - PA, SV → ninguno (USD nativo, no aplica)
+  - AR, BR, GT, HN → fuera de first batch (ver §114-§115 + plan FX-LATAM §8)
+- Token credentials del banco central (si aplica) — encriptado al guardar.
+- **Test fetch sandbox** → dispara `adapter.fetchOfficial()` una vez al activar. Si responde con al menos 1 rate USD↔baseCurrency, ✅. Si ❌, muestra error específico (token inválido, endpoint caído, timezone wrong).
+- **Set inicial de monedas secundarias** (`PropertySettings.secondaryDisplayCurrencies` — pero per-LegalEntity para el bootstrap, propagado a properties):
+  - Default sugerido por país: MX/CO/CR/PE → `['USD', 'EUR']`; AR → `['USD']`; PA/SV → `['EUR']` (USD ya es primary).
+  - Manager puede editar al activar o después.
+- **Override inicial opcional** — si el cliente quiere lanzar con un spread comercial sobre el rate oficial (ej. +3% para márgen), el consultor lo configura aquí. Se persiste como primera row `PropertyFxRate` con `spreadFromOfficial` poblado.
+
+**Health check pre-activación FX:**
+- Confirma que `ExchangeRate` tiene al menos 1 row USD↔baseCurrency para el `organizationId`. Si no, bloqueante (warning explícito al consultor).
+- Confirma que el cron del adapter está registrado en `SchedulerRegistry` con el huso correcto.
+
+**Validaciones críticas:**
+- Si el adapter FX falla 3× en el test, opción "Skip — configurar después en Dashboard". Deja `LegalEntity.active = true` pero marca flag `fxSetupPending`. Banner persistente en el dashboard del manager hasta resolver.
+- Países sin adapter (AR, BR, etc.): wizard registra `LegalEntity` sin cron automático. Manager debe setear `PropertyFxRate` manualmente en Settings. Banner explicativo en el wizard.
+
+**Tiempo estimado:** 2-5 minutos per país (depende de obtener tokens si aplica — BCCR/Banxico son self-service 2 min).
+
 ---
 
 ### Etapa 4 — Properties

@@ -16,6 +16,7 @@ import {
 import { Popover } from 'radix-ui'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { DialogActions } from '../shared/DialogActions'
 import type { GuestStayBlock, FlatRow, RoomTypeGroup } from '../../types/timeline.types'
 import { useTodayTick } from '../../hooks/useTodayTick'
 
@@ -630,25 +631,16 @@ export function MoveRoomDialog({
         )}
 
         {/* Footer */}
-        <div className="px-5 py-4 border-t border-slate-100 flex gap-2.5 shrink-0">
-          <Button variant="outline" className="flex-1" onClick={onClose} disabled={isPending}>
-            Cancelar
-          </Button>
-          <Button
-            className="flex-1 bg-slate-800 hover:bg-slate-700 text-white"
-            disabled={
-              isPending ||
-              (splitMode ? !validation.ok : !selectedRoomId)
-            }
-            onClick={handleConfirm}
-          >
-            {isPending
-              ? (splitMode ? 'Dividiendo…' : 'Moviendo…')
-              : splitMode
-              ? `Dividir en ${splitParts.length} habitaciones`
-              : 'Confirmar cambio'}
-          </Button>
-        </div>
+        <DialogActions
+          onCancel={onClose}
+          onConfirm={handleConfirm}
+          confirmLabel={splitMode ? `Dividir en ${splitParts.length} habitaciones` : 'Confirmar cambio'}
+          confirmPendingLabel={splitMode ? 'Dividiendo…' : 'Moviendo…'}
+          tone="info"
+          isPending={isPending}
+          confirmDisabled={splitMode ? !validation.ok : !selectedRoomId}
+          className="px-5 py-4 border-t border-slate-100 shrink-0"
+        />
       </div>
     </div>
   )

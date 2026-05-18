@@ -126,6 +126,11 @@ export function TimelineGrid({
                     className="absolute top-0 flex items-end justify-center pb-1.5"
                     style={{ left: vc.start, width: vc.size, height: h, pointerEvents: 'none' }}
                   >
+                    {/* El chip ya no necesita bg + z-index defensive:
+                        el today line ahora se renderiza como segmentos que
+                        saltan los rows de grupo (ver bloque "Today line" abajo).
+                        El span queda transparente para que se integre
+                        visualmente con el bg-slate-50/80 del row. */}
                     <span
                       className="font-mono tabular-nums"
                       style={{
@@ -201,19 +206,55 @@ export function TimelineGrid({
         )
       })}
 
-      {/* Today line — thin, subtle */}
-      {todayCol && (
-        <div
-          className="absolute top-0 animate-today pointer-events-none"
-          style={{
-            left: todayCol.start + todayCol.size / 2,
-            width: 1,
-            height: totalHeight,
-            backgroundColor: 'rgba(16, 185, 129, 0.35)',
-            zIndex: 2,
-          }}
-        />
-      )}
+      {/*
+       * Today line — renderizada como SEGMENTOS que saltan los rows de
+       * grupo. Esto resuelve el bug visual donde la línea verde atravesaba
+       * los chips de tarifa ($180, $280) en los headers de grupo.
+       *
+       * Por qué segmentos en lugar de z-index: los rows tienen bg-slate-50/80
+       * translúcido + el wrapper del chip está en stacking contexts anidados
+       * (absolute>absolute>relative). Aunque el span del chip declare z=3,
+       * CSS stacking context resolution lo deja por debajo del today line
+       * que vive en el contenedor padre con z=2. La única solución pixel-
+       * perfect garantizada: simplemente NO dibujar la línea en los rangos
+       * de los group rows. Patrón usado por Apple Calendar, Notion Calendar.
+       *
+       * Apple HIG: "Content informativo (precios) nunca debe ser
+       * sobrescrito por indicators decorativos (today line)".
+       */}
+      {todayCol && (() => {
+        const lineX = todayCol.start + todayCol.size / 2
+        const segments: Array<{ y: number; height: number }> = []
+        let segStart = 0
+        let y = 0
+        for (let i = 0; i < flatRows.length; i++) {
+          const row = flatRows[i]
+          const rowH = row.type === 'group' ? TIMELINE.GROUP_HEADER_HEIGHT : TIMELINE.ROW_HEIGHT
+          if (row.type === 'group') {
+            // Cerrar segmento previo (si existe) antes del group
+            if (y > segStart) segments.push({ y: segStart, height: y - segStart })
+            segStart = y + rowH // próximo segmento empieza después del group
+          }
+          y += rowH
+        }
+        // Segmento final (después del último group, hasta el fin)
+        if (y > segStart) segments.push({ y: segStart, height: y - segStart })
+
+        return segments.map((seg, idx) => (
+          <div
+            key={`today-line-${idx}`}
+            className="absolute pointer-events-none"
+            style={{
+              left: lineX,
+              top: seg.y,
+              width: 1,
+              height: seg.height,
+              backgroundColor: 'rgba(16, 185, 129, 0.35)',
+              zIndex: 2,
+            }}
+          />
+        ))
+      })()}
 
       {/* Ghost block — empty-cell hover pattern (Apple Calendar/Google Calendar).
           Sprint Rates 2026-05-16: rediseño basado en research industria.
