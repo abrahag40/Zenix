@@ -978,6 +978,235 @@ export class StayJourneyService {
     }
   }
 
+  /**
+   * Confirma físicamente que el guest cambió de habitación (recepción entregó
+   * la nueva llave). Sprint MOVE-CONFIRM 2026-05-18.
+   *
+   * Distinto de `executeMidStayRoomMove` (que CREA el segmento de move) y de
+   * `extendNewRoom` (que registra la intención futura). Este endpoint
+   * representa la EJECUCIÓN OPERATIVA del move ya planificado: recepcionista
+   * confirma con un click que la mudanza física sucedió. Triggera HK task
+   * idempotente para la habitación anterior.
+   *
+   * Justificación operativa (validada vs 5/5 PMS — Mews, Cloudbeds, Opera,
+   * Little Hotelier, RoomRaccoon todos tienen este "Confirm move executed"
+   * o "Mark move complete" pattern, separado del re-check-in):
+   *   - El move puede planificarse días antes (extension creada con anticipación)
+   *   - El día del move, recepción necesita "checkbox" para marcar que la
+   *     mudanza física ya pasó (llaves entregadas)
+   *   - HK no debe limpiar el cuarto previo HASTA que el move se confirme
+   *     (si no, recamarista entra a un cuarto que el guest aún ocupa)
+   *
+   * Guards:
+   *   - Segment debe ser EXTENSION_NEW_ROOM o ROOM_MOVE (no aplica a ORIGINAL
+   *     ni EXTENSION_SAME_ROOM — no hay mudanza física)
+   *   - segment.status === 'ACTIVE'
+   *   - segment.checkIn <= now (no se puede confirmar un move futuro)
+   *   - segment.moveConfirmedAt === null (idempotency — no doble confirm)
+   *   - Stay parent NO cancelled/no-show/checked-out
+   */
+  async confirmSegmentMove(segmentId: string, actorId: string) {
+    const segment = await this.prisma.staySegment.findUnique({
+      where: { id: segmentId },
+      include: {
+        journey: {
+          include: {
+            guestStay: {
+              select: {
+                id: true,
+                cancelledAt: true,
+                noShowAt: true,
+                actualCheckout: true,
+                propertyId: true,
+              },
+            },
+            segments: {
+              orderBy: { checkIn: 'asc' },
+              select: { id: true, roomId: true, status: true, checkOut: true, reason: true },
+            },
+          },
+        },
+      },
+    })
+    if (!segment) throw new NotFoundException('Segmento no encontrado')
+
+    const stay = segment.journey.guestStay
+    if (!stay) throw new ConflictException('Segmento sin estadía asociada')
+    if (stay.cancelledAt)    throw new ConflictException('Estadía cancelada')
+    if (stay.noShowAt)       throw new ConflictException('Estadía en flujo no-show')
+    if (stay.actualCheckout) throw new ConflictException('Estadía ya hizo checkout')
+
+    // Solo segments que representan un cambio físico de cuarto
+    if (segment.reason !== 'EXTENSION_NEW_ROOM' && segment.reason !== 'ROOM_MOVE') {
+      throw new BadRequestException(
+        `Este segmento (${segment.reason}) no requiere confirmación de mudanza. Solo EXTENSION_NEW_ROOM y ROOM_MOVE tienen mudanza física.`,
+      )
+    }
+    if (segment.status !== 'ACTIVE') {
+      throw new ConflictException(`Solo se puede confirmar mudanza de segments ACTIVE (estado: ${segment.status})`)
+    }
+    if (segment.moveConfirmedAt) {
+      throw new ConflictException('La mudanza ya fue confirmada anteriormente')
+    }
+    const now = new Date()
+    if (segment.checkIn > now) {
+      throw new BadRequestException(
+        'El segmento es futuro — no se puede confirmar la mudanza antes de la fecha del move',
+      )
+    }
+
+    // Detectar habitación previa: el segmento anterior cronológico que tenía
+    // un roomId distinto. Sin previousRoom, no hay HK task que crear.
+    const sortedSegments = [...segment.journey.segments].sort(
+      (a, b) => a.checkOut.getTime() - b.checkOut.getTime(),
+    )
+    const idx = sortedSegments.findIndex((s) => s.id === segmentId)
+    const previousSegment = idx > 0 ? sortedSegments[idx - 1] : null
+    const previousRoomId =
+      previousSegment && previousSegment.roomId !== segment.roomId
+        ? previousSegment.roomId
+        : null
+
+    // Transacción atómica
+    await this.prisma.$transaction(async (tx) => {
+      await tx.staySegment.update({
+        where: { id: segmentId },
+        data: {
+          moveConfirmedAt: now,
+          moveConfirmedById: actorId,
+        },
+      })
+
+      await tx.stayJourneyEvent.create({
+        data: {
+          journeyId: segment.journey.id,
+          eventType: 'ROOM_MOVE_EXECUTED',
+          actorId,
+          payload: {
+            subType: 'MOVE_CONFIRMED',
+            segmentId,
+            roomId: segment.roomId,
+            previousRoomId,
+            confirmedAt: now.toISOString(),
+          },
+        },
+      })
+    })
+
+    // Post-tx: si hubo previousRoom, asegurar HK task READY para HOY.
+    // Consistente con §1 ciclo 2-phase checkout: PENDING (planning) → READY
+    // (housekeeping puede actuar). Antes de moveConfirmed, la task estaba
+    // PENDING (creada eagerly por extendNewRoom o por morning roster) y la
+    // recamarista la veía pero no iniciaba — evita limpiar un cuarto aún
+    // ocupado por el guest.
+    if (previousRoomId) {
+      await this.promoteRoomChangeTaskToReady(stay.propertyId, previousRoomId, actorId)
+    }
+
+    this.events.emit('stay.move_confirmed', {
+      journeyId: segment.journey.id,
+      segmentId,
+      roomId: segment.roomId,
+      previousRoomId,
+    })
+
+    this.logger.log(
+      `[ConfirmMove] segment=${segmentId} previousRoom=${previousRoomId ?? '(none)'} actor=${actorId}`,
+    )
+
+    return {
+      segmentId,
+      moveConfirmedAt: now,
+      previousRoomId,
+    }
+  }
+
+  /**
+   * Promueve la PENDING task de room change a READY tras `confirmSegmentMove`.
+   * Si no existe task PENDING (caso defensive: extendNewRoom no la creó eager,
+   * o el cron aún no ha corrido), la CREA directamente como READY.
+   *
+   * Pattern §1 (CLAUDE.md): 2-phase checkout. PENDING = planning visibility,
+   * READY = housekeeping puede actuar. Sin esta promoción, la recamarista
+   * vería la task PENDING pero no sabría que la mudanza fue confirmada.
+   */
+  private async promoteRoomChangeTaskToReady(
+    propertyId: string,
+    roomId: string,
+    actorId: string,
+  ): Promise<void> {
+    const units = await this.prisma.unit.findMany({
+      where: { roomId },
+      select: { id: true },
+    })
+    if (units.length === 0) return
+
+    const todayMidnight = new Date(
+      `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`,
+    )
+
+    const promotedTaskIds: string[] = []
+    for (const unit of units) {
+      const existing = await this.prisma.cleaningTask.findFirst({
+        where: {
+          unitId: unit.id,
+          scheduledFor: todayMidnight,
+          status: { in: ['PENDING', 'UNASSIGNED'] },
+        },
+        select: { id: true, status: true },
+      })
+
+      if (existing) {
+        // PENDING → READY (mismo pattern que confirmDeparture)
+        await this.prisma.cleaningTask.update({
+          where: { id: existing.id },
+          data: { status: 'READY' },
+        })
+        await this.prisma.taskLog.create({
+          data: {
+            taskId: existing.id,
+            staffId: actorId,
+            event: 'READY',
+            note: 'mudanza confirmada por recepción',
+          },
+        })
+        promotedTaskIds.push(existing.id)
+      } else {
+        // Defensive: no había PENDING, creamos READY directamente
+        const task = await this.prisma.cleaningTask.create({
+          data: {
+            unitId: unit.id,
+            taskType: 'CLEANING',
+            status: 'READY',
+            priority: 'MEDIUM',
+            scheduledFor: todayMidnight,
+          },
+        })
+        await this.prisma.taskLog.create({
+          data: {
+            taskId: task.id,
+            staffId: actorId,
+            event: 'READY',
+            note: 'mudanza confirmada (task creada al confirmar)',
+          },
+        })
+        promotedTaskIds.push(task.id)
+      }
+    }
+
+    // Auto-asignación fire-and-forget — task READY puede asignarse YA
+    for (const taskId of promotedTaskIds) {
+      this.assignment.autoAssign(taskId).catch((err: Error) =>
+        this.logger.warn(`autoAssign failed (move-confirm) task=${taskId}: ${err.message}`),
+      )
+    }
+
+    // SSE task:ready para refresh de calendar/kanban + alarma mobile
+    if (promotedTaskIds.length > 0) {
+      this.notifications.emit(propertyId, 'task:ready', { roomId })
+    }
+  }
+
   // ── Private helpers ──────────────────────────────────────────────────────────
 
   /** Creates PENDING cleaning tasks for all units in a vacated room (room-change bridge

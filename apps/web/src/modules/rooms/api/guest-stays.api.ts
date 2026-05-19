@@ -170,6 +170,15 @@ export const guestStaysApi = {
   cancelExtensionSegment: (segmentId: string, reason?: string) =>
     api.post(`/v1/stay-journeys/segments/${segmentId}/cancel`, { reason }),
 
+  /**
+   * Confirma físicamente que el guest cambió de habitación (recepción entregó
+   * la nueva llave). Aplica solo a segments con reason EXTENSION_NEW_ROOM o
+   * ROOM_MOVE, en el día del move. Triggera HK task READY para el cuarto
+   * previo (promueve PENDING existente o crea READY si no había).
+   */
+  confirmSegmentMove: (segmentId: string) =>
+    api.post(`/v1/stay-journeys/segments/${segmentId}/confirm-move`, {}),
+
   splitReservation: (
     journeyId: string,
     parts: Array<{ roomId: string; checkIn: Date; checkOut: Date }>,

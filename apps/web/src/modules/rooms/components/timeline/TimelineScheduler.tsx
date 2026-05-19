@@ -6,7 +6,7 @@ import { useTimelineStore } from '../../stores/timeline.store'
 import { TIMELINE } from '../../utils/timeline.constants'
 import { getStayStatus } from '../../utils/timeline.utils'
 import { useDragDrop } from '../../hooks/useDragDrop'
-import { useGuestStays, useCreateGuestStay, useCheckout, useMoveRoom, useSplitMidStay, useSplitReservation, useMarkNoShow, useRevertNoShow, useRoomReadinessTasks, useExtendStay, useExtendSameRoom, useExtendNewRoom, useMoveExtensionRoom, useConfirmCheckin, useCancelStay, useCancelExtensionSegment, useCancelledTodayCount } from '../../hooks/useGuestStays'
+import { useGuestStays, useCreateGuestStay, useCheckout, useMoveRoom, useSplitMidStay, useSplitReservation, useMarkNoShow, useRevertNoShow, useRoomReadinessTasks, useExtendStay, useExtendSameRoom, useExtendNewRoom, useMoveExtensionRoom, useConfirmCheckin, useCancelStay, useCancelExtensionSegment, useConfirmSegmentMove, useCancelledTodayCount } from '../../hooks/useGuestStays'
 import { guestStaysApi } from '../../api/guest-stays.api'
 import { useStayJourneys } from '../../hooks/useStayJourneys'
 import { useBlocks, useCreateBlock, useReleaseBlock, useCancelBlock } from '../../hooks/useBlocks'
@@ -254,6 +254,7 @@ export function TimelineScheduler() {
   const revertNoShowMut = useRevertNoShow(PROPERTY_ID)
   const cancelStayMut   = useCancelStay(PROPERTY_ID)
   const cancelExtMut    = useCancelExtensionSegment(PROPERTY_ID)
+  const confirmMoveMut  = useConfirmSegmentMove(PROPERTY_ID)
   const { potentialNoShowWarningHour, noShowCutoffHour } = usePropertySettings()
 
   const { journeyBlocks: rawJourneyBlocks } = useStayJourneys(PROPERTY_ID, dataWindow.from, dataWindow.to)
@@ -1174,6 +1175,10 @@ export function TimelineScheduler() {
           setActiveJourneyId(null)
           setCancelDialog({ stayId })
         }}
+        onConfirmSegmentMove={(segmentId) => {
+          confirmMoveMut.mutate({ segmentId })
+        }}
+        confirmMovePending={confirmMoveMut.isPending}
         onOpenMaintenanceTicket={(id) => openMaintenanceDrawer(id)}
         propertyId={PROPERTY_ID}
       />

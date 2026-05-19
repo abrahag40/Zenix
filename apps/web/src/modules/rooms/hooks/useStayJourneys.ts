@@ -13,6 +13,8 @@ interface ApiSegment {
   locked: boolean
   reason: SegmentReason
   rateSnapshot: number | null
+  /** Sprint MOVE-CONFIRM 2026-05-18 — null hasta que recepción confirma el move. */
+  moveConfirmedAt?: string | null
   room: { id: string; number: string }
 }
 
@@ -134,6 +136,11 @@ function adaptJourneys(journeys: ApiJourney[]): GuestStayBlock[] {
         // CHECKED-IN propagation — heredado del parent GuestStay para que
         // las extensiones NO muestren "Confirmar check-in" duplicado.
         actualCheckin: actualCheckinDate,
+        // MOVE-CONFIRM (Sprint 2026-05-18) — alimenta la acción "Confirmar
+        // mudanza" en el bloque del segmento (solo se renderiza cuando
+        // segment.checkIn ≤ today + reason in [EXT_NEW_ROOM, ROOM_MOVE]
+        // + moveConfirmedAt == null).
+        moveConfirmedAt: seg.moveConfirmedAt ? new Date(seg.moveConfirmedAt) : undefined,
       })
     }
   }

@@ -112,4 +112,21 @@ export class StayJourneyController {
   ) {
     return this.service.cancelFutureSegment(segmentId, actor.sub, body?.reason)
   }
+
+  /**
+   * POST /v1/stay-journeys/segments/:segmentId/confirm-move
+   *
+   * Confirma físicamente que el guest cambió de habitación (recepción entregó
+   * la nueva llave). Acción de 1-click que se muestra en el bloque del
+   * segmento solo el día del move (segment.checkIn ≤ today + reason in
+   * [EXTENSION_NEW_ROOM, ROOM_MOVE] + !moveConfirmedAt). Triggera HK task
+   * idempotente para la habitación previa.
+   */
+  @Post('segments/:segmentId/confirm-move')
+  confirmSegmentMove(
+    @Param('segmentId') segmentId: string,
+    @CurrentUser() actor: JwtPayload,
+  ) {
+    return this.service.confirmSegmentMove(segmentId, actor.sub)
+  }
 }
