@@ -1765,6 +1765,52 @@ Lo que competidores tienen y Zenix NO tiene aún — decisiones explícitas, no 
 
 ---
 
+## 🎯 Zenix Booking Engine — el pitch killer (post-v1.0.0)
+
+> **"En Cloudbeds pagas $400 USD/mes y tú haces todo el marketing. En Booking.com no pagas SaaS pero pierdes 25% de cada venta. Con Zenix pagas el SaaS más bajo del mercado, y solo cuando QUIERES, te listas en nuestro marketplace por 3% — 8x menos que Booking. Sin lock-in. Sin sorpresas. Te ahorras 70-90% en comisiones OTAs al final del año."**
+
+### Modelo de monetización dual — único en el mercado LATAM
+
+| Tier | Para quién | Comisión | Quién atrae el lead |
+|------|-----------|----------|---------------------|
+| **Zenix Booking Standard** (incluido en PMS) | Hotel con sitio web propio que genera tráfico | **$0** | Hotel (idéntico a Cloudbeds/Mews) |
+| **Zenix Marketplace** (opt-in) | Hotel que quiere visibilidad extra LATAM | **3-5%** | Zenix (SEO + Google Ads + Meta Ads + newsletter) |
+
+### Variantes del pitch según el buyer
+
+**Para el dueño contador (foco precio):**
+> *"Pasaste de $45k/año en comisiones a $5k. Eso paga 3 años de Zenix."*
+
+**Para el operador (foco operación):**
+> *"Sin lock-in. Si en 6 meses no funciona el marketplace, lo apagas con un toggle. Sigues con tu SaaS PMS."*
+
+**Para el manager joven (foco growth):**
+> *"Tu sitio web ya genera bookings directos. Zenix amplifica con marketplace + ads pagados. Tú decides cuánto delegar."*
+
+### Ejemplo real — hotel boutique 30 cuartos, $300k USD revenue/año
+
+| Escenario | Comisiones pagadas/año |
+|-----------|------------------------|
+| Hoy (60% via OTAs al 25%) | **$45,000 USD** |
+| Migra 30% del volumen a Zenix Marketplace (3%) | $32,250 → ahorra **$12,750** |
+| Migra 50% del volumen a Zenix Marketplace | $24,000 → ahorra **$21,000** |
+
+### Detrás del modelo — Stripe Connect split payment
+
+Cuando un guest paga via Zenix Marketplace, **Stripe automáticamente divide el cobro**:
+- 97% al hotel
+- 3% a Zenix
+
+Cero reconciliación manual. Mismo patrón que Uber, Airbnb, Shopify usan. Cuando el guest viene del sitio del hotel directo (tier 1), Stripe deposita 100% al hotel sin commission.
+
+### Attribution transparente
+
+Sistema registra `referralSource` en cada booking (`hotel_website` vs `zenix_marketplace` vs `zenix_email` etc). Dashboard del hotel muestra comparativa en tiempo real: "Si esos bookings hubieran sido via Booking.com (25%), habrías pagado $X. Ahorraste $Y."
+
+Ver detalle técnico en `docs/sprints/COMMISSION-MODEL-plan.md`.
+
+---
+
 ## 💰 Estudio comparativo de precios (mayo 2026)
 
 > **Para el equipo comercial:** estos son los números duros de la competencia. Úsalos para fijar precio, negociar y justificar valor con datos verificables.

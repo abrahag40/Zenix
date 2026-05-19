@@ -372,7 +372,99 @@ Si Fase 1 muestra demanda de WordPress específicamente:
 
 ---
 
-## 6. Riesgos + mitigaciones
+## 6. Modelo de monetización — DUAL TIER
+
+Sprint extiende su scope para incluir monetización del booking engine. Modelo **diferente a Cloudbeds/Mews** (que son 100% SaaS sin comisión), híbrido entre PMS y low-cost OTA marketplace.
+
+### Tier 1 — Zenix Booking Standard (incluido en plan PMS)
+- Acceso completo al motor de reservas
+- URL hosted `book.zenix.com/{slug}` + widget embebido + API REST
+- **Comisión: $0** cuando el guest llega via referral del sitio del hotel
+- Atribución técnica: header `Referer` del hotel O UTM `utm_source=hotel_website` O API key directa
+- Equivalente operativo a Cloudbeds/Mews commission-free model
+
+### Tier 2 — Zenix Marketplace (opt-in, commission-based)
+- Hotel aparece **listado en `book.zenix.com` homepage marketplace**
+- Zenix invierte en SEO orgánico + Google Ads + Meta Ads + email newsletter
+- Featured spots opcionales (sponsored) para premium positioning
+- Cross-promotion en cadenas (Brand → ver otras properties)
+- **Comisión: 3-5%** del booking value cuando el lead provino de Zenix
+- Atribución: UTM `utm_source=zenix_marketplace` + cookie 30d para multi-touch attribution
+- **Posicionamiento:** 8x más barato que Booking.com (25%) vs 3% Zenix
+
+### Hotel opt-in/opt-out por property
+
+`PropertySettings.marketplaceListingEnabled: Boolean @default(false)` — cada property decide individualmente.
+
+### Modelo financiero del hotel comparativo
+
+Hotel 30 cuartos, $300k USD revenue/año, mix actual 60% OTAs (25% comisión):
+
+| Escenario | Comisiones pagadas/año | Saving |
+|-----------|------------------------|--------|
+| Hoy (60% OTAs) | $45,000 | — |
+| Migra 30% del volumen a Zenix Marketplace (3%) | $32,250 | **$12,750/año** |
+| Migra 50% del volumen a Zenix Marketplace | $24,000 | **$21,000/año** |
+
+### Attribution matrix — cuándo se cobra commission
+
+| Origen del booking | Atribución técnica | Comisión Zenix |
+|-------------------|-------------------|----------------|
+| Click directo desde sitio del hotel | `utm_source=hotel_website` o referrer matches | $0 |
+| Widget embebido en sitio hotel | `utm_source=hotel_widget` | $0 |
+| Direct API call con hotel API key | sin UTM, API key origin | $0 |
+| Click en book.zenix.com homepage | `utm_source=zenix_marketplace` | 3% |
+| Click en email Zenix newsletter | `utm_source=zenix_email` | 3% |
+| Click en Google Ads de Zenix | `utm_source=zenix_gads` | 5% (premium acquisition) |
+| Click en Meta Ads de Zenix | `utm_source=zenix_meta` | 5% |
+
+El sistema guarda `referralSource` en `GuestStay` al momento de crear la reservación. Al cierre del mes, `CommissionLog` calcula total comisionable per property → Zenix factura al hotel.
+
+### Implementación técnica — Stripe Connect
+
+Stripe **Connect** (no Stripe estándar) permite **split payments nativos**. Guest paga $1,580 USD → Stripe automáticamente:
+- $1,533 deposita al hotel (97%)
+- $47 deposita a Zenix (3% commission)
+
+Cero reconciliación manual. Mismo pattern que usan Uber, Airbnb, Shopify Payments.
+
+Cuando attribution es Tier 1 ($0 commission) → Stripe deposita 100% al hotel.
+
+Ver detalle completo en [`COMMISSION-MODEL-plan.md`](COMMISSION-MODEL-plan.md).
+
+### Schema additions
+
+```prisma
+model CommissionLog {
+  id              String   @id @default(uuid())
+  organizationId  String
+  propertyId      String
+  guestStayId     String
+  referralSource  String   // 'zenix_marketplace' | 'zenix_email' | 'zenix_gads' | etc.
+  bookingAmount   Decimal  @db.Decimal(10, 2)
+  commissionRate  Decimal  @db.Decimal(5, 4)  // 0.0300 = 3%
+  commissionAmount Decimal @db.Decimal(10, 2)
+  currency        String
+  stripeTransferId String? // ID del transfer en Stripe Connect
+  status          CommissionStatus @default(PENDING) // PENDING | CHARGED | REFUNDED | DISPUTED
+  createdAt       DateTime @default(now())
+  chargedAt       DateTime?
+
+  guestStay       GuestStay @relation(...)
+  property        Property  @relation(...)
+}
+
+// Y en GuestStay:
+referralSource    String?  // capturado al crear via booking engine
+```
+
+### Posicionamiento comercial (one-liner para sales)
+
+> En Cloudbeds pagas $400 USD/mes y tú haces todo el marketing. En Booking.com no pagas SaaS pero pierdes 25% de cada venta. Con Zenix pagas el SaaS más bajo del mercado, y solo cuando QUIERES, te listas en nuestro marketplace por 3% — **8x menos que Booking**. Sin lock-in. Sin sorpresas.
+
+---
+
+## 7. Riesgos + mitigaciones
 
 | # | Riesgo | Probabilidad | Impacto | Mitigación |
 |---|--------|--------------|---------|------------|
@@ -387,7 +479,7 @@ Si Fase 1 muestra demanda de WordPress específicamente:
 
 ---
 
-## 7. Decisiones pendientes antes de iniciar
+## 8. Decisiones pendientes antes de iniciar
 
 | # | Decisión | Quién decide |
 |---|----------|--------------|
@@ -401,7 +493,7 @@ Si Fase 1 muestra demanda de WordPress específicamente:
 
 ---
 
-## 8. Métricas de éxito post-launch
+## 9. Métricas de éxito post-launch
 
 | Métrica | Target Fase 1 (3 meses) | Target Fase 1+2 (6 meses) |
 |---------|--------------------------|----------------------------|
@@ -416,7 +508,7 @@ Si Fase 1 muestra demanda de WordPress específicamente:
 
 ---
 
-## 9. Cómo se ve el end-state
+## 10. Cómo se ve el end-state
 
 ### Customer "fácil" (80% del mercado — sin dev team)
 ```html
