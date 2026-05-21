@@ -37,6 +37,8 @@ Tres razones objetivas (no marketing):
 | [14-dlc-architecture.md](14-dlc-architecture.md) | Plugin/DLC lifecycle: ACTIVE→SUSPENDED→ARCHIVED + preservación data + reactivación. TenantDLC genérico para Learning + futuros DLCs | Ingeniería, producto |
 | [15-hostelsphere-lessons-social-learning.md](15-hostelsphere-lessons-social-learning.md) | Qué TOMAR del modelo HostelSphere + SAP JAM lessons learned + Social Learning Hooks ancladas a curso | Producto, ingeniería |
 | [16-standards-utilization-commitment.md](16-standards-utilization-commitment.md) | Compromisos ejecutables de alineamiento a estándares LMS sin certificación formal (Fase 1) — checklist por fase | Ingeniería, producto |
+| [17-activate-dlc-partner-alignment.md](17-activate-dlc-partner-alignment.md) | Activate wizard ↔ DLC ↔ Partner network alignment + estado honesto + Etapa 7.5 propuesta + Partner roadmap v1.2+ | Producto, comercial, ingeniería |
+| [18-pricing-billing-detail.md](18-pricing-billing-detail.md) | Cómo se cobra exactamente — per-active-staff + casos concretos + comparativa competencia + edge cases pendientes Fase 1.4 | Comercial, producto |
 
 ---
 

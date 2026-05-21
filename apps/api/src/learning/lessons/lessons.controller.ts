@@ -24,4 +24,16 @@ export class LessonsController {
   ) {
     return this.service.upsertProgress({ ...dto, lessonId }, actor)
   }
+
+  /**
+   * Lista lesson progress de un enrollment del actor.
+   * Mounted at /v1/learning/enrollments/:id/progress (más natural para REST).
+   */
+  @Get('v1/learning/enrollments/:enrollmentId/progress')
+  listEnrollmentProgress(
+    @Param('enrollmentId') enrollmentId: string,
+    @CurrentUser() actor: JwtPayload,
+  ) {
+    return this.service.listProgressForEnrollment(enrollmentId, actor)
+  }
 }

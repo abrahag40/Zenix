@@ -21,6 +21,7 @@ import { ReservationDetailPage } from './pages/ReservationDetailPage'
 // Sprint LEARNING-CORE Fase 1.1 — Zenix Learning frontend
 import { LearningPage } from './pages/LearningPage'
 import { LearningCoursePage } from './pages/LearningCoursePage'
+import { LearningLessonPage } from './pages/LearningLessonPage'
 import { SettingsDLCPage } from './pages/SettingsDLCPage'
 import { GlobalMaintenanceDrawer } from './components/GlobalMaintenanceDrawer'
 import { useNotificationAlerts } from './hooks/useNotificationAlerts'
@@ -97,6 +98,7 @@ export default function App() {
           <Route path="/settings/:section?" element={<ProtectedLayout><SettingsPage /></ProtectedLayout>} />
           <Route path="/learning"           element={<ProtectedLayout><LearningPage /></ProtectedLayout>} />
           <Route path="/learning/courses/:slug" element={<ProtectedLayout><LearningCoursePage /></ProtectedLayout>} />
+          <Route path="/learning/lessons/:id"   element={<ProtectedLayout><LearningLessonPage /></ProtectedLayout>} />
           <Route path="/reservations/:id"  element={<ProtectedLayout><ReservationDetailPage /></ProtectedLayout>} />
           <Route path="*"                element={<Navigate to="/dashboard" replace />} />
         </Routes>

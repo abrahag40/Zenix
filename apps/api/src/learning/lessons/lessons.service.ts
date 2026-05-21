@@ -120,4 +120,32 @@ export class LessonsService {
 
     return result
   }
+
+  /**
+   * Lista todos los LearningLessonProgress de un enrollment.
+   * Útil para el sidebar del LessonPlayer (web Fase 1.1) — mostrar ✓ en
+   * lessons completadas y bookmark en in-progress.
+   */
+  async listProgressForEnrollment(enrollmentId: string, actor: JwtPayload) {
+    const enrollment = await this.prisma.learningEnrollment.findUnique({
+      where: { id: enrollmentId },
+      select: { id: true, staffId: true, courseId: true },
+    })
+    if (!enrollment) throw new NotFoundException(`Enrollment not found: ${enrollmentId}`)
+    if (enrollment.staffId !== actor.sub) {
+      throw new ForbiddenException('No autorizado para leer progreso de otro staff')
+    }
+
+    return this.prisma.learningLessonProgress.findMany({
+      where: { enrollmentId },
+      select: {
+        id: true,
+        lessonId: true,
+        startedAt: true,
+        completedAt: true,
+        timeSpentSeconds: true,
+        bookmarkPosition: true,
+      },
+    })
+  }
 }
