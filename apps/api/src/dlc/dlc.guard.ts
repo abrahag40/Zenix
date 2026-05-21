@@ -67,7 +67,28 @@ export class DLCGuard implements CanActivate {
       )
     }
 
-    if (dlc.status === 'ACTIVE') return true
+    if (dlc.status === 'ACTIVE') {
+      // §147 scope selectivo per-property: caso B/C del usuario "no quiero
+      // que aparezca en hotel 3" / "solo pago por 1 de 4 hoteles".
+      if (dlc.scopedPropertyIds.length > 0 && actor.propertyId) {
+        if (!dlc.scopedPropertyIds.includes(actor.propertyId)) {
+          throw new HttpException(
+            {
+              code: 'DLC_NOT_ENABLED_FOR_PROPERTY',
+              dlcCode,
+              status: 'ACTIVE',
+              propertyId: actor.propertyId,
+              scopedPropertyIds: dlc.scopedPropertyIds,
+              message: `El add-on ${dlcCode} está activo en tu organización pero NO en esta sucursal. Tu admin puede habilitarlo desde Settings > Add-Ons > Scope per-property.`,
+              activateUrl: `/settings/dlc/scope/${dlcCode}`,
+              dataPreserved: true,
+            },
+            HttpStatus.PAYMENT_REQUIRED,
+          )
+        }
+      }
+      return true
+    }
 
     // SUSPENDED / GRACE_PERIOD / ARCHIVED / PURGED → bloqueo con detalle
     const isReactivable = dlc.status !== 'PURGED'

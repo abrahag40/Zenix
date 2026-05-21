@@ -3527,6 +3527,17 @@ model TenantDLC {
   // DLC-specific config (e.g. para LEARNING_CORE: { giftCourseSlug: 'distintivo-h' })
   metadata Json?
 
+  // Scope selectivo per-property (2026-05-21 — pregunta multi-hotelero).
+  // null = DLC activo para TODAS las properties de la org (caso default).
+  // Array poblado = SOLO esas properties tienen acceso. Útil para:
+  //   - Caso B: cliente con 4 hoteles compra Learning pero NO quiere que
+  //     aparezca en hotel 3 (filtro UI + DLCGuard bloqueo).
+  //   - Caso C: cliente compra Learning solo para 1 de sus 4 hoteles
+  //     (billing impacto: per-staff-active §137 se restringe a esos propertyIds).
+  // Decisión §147 reservada: si el array contiene propertyIds que NO pertenecen
+  // a la organizationId, DLCService.activate() lanza ConflictException.
+  scopedPropertyIds String[] @default([]) @map("scoped_property_ids")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 

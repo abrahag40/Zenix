@@ -69,10 +69,26 @@ export class DLCService {
   /**
    * ¿La org tiene este DLC en estado ACTIVE?
    * Single fast check usado por DLCGuard antes de cada request.
+   *
+   * Si `propertyId` viene + `dlc.scopedPropertyIds` está poblado, verifica
+   * también que el property esté en el scope. Caso B/C del usuario:
+   *   - scopedPropertyIds = [] → DLC activo para TODA la org (default)
+   *   - scopedPropertyIds = ['propA','propB'] → solo activo en esas properties
    */
-  async isActive(organizationId: string, dlcCode: DLCCode): Promise<boolean> {
+  async isActive(
+    organizationId: string,
+    dlcCode: DLCCode,
+    propertyId?: string,
+  ): Promise<boolean> {
     const dlc = await this.getStatus(organizationId, dlcCode)
-    return dlc?.status === DLCStatus.ACTIVE
+    if (dlc?.status !== DLCStatus.ACTIVE) return false
+    // §147 — scope selectivo: si hay scopedPropertyIds y propertyId proveído,
+    // verificar match. Sin propertyId → asumimos cross-property (admin scope)
+    // y permitimos.
+    if (propertyId && dlc.scopedPropertyIds.length > 0) {
+      return dlc.scopedPropertyIds.includes(propertyId)
+    }
+    return true
   }
 
   /**
