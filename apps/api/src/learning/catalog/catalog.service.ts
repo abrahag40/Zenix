@@ -3,6 +3,7 @@ import { Prisma, LearningCourseStatus, LearningCourseTier } from '@prisma/client
 import { JwtPayload } from '@zenix/shared'
 import { PrismaService } from '../../prisma/prisma.service'
 import { TenantContextService } from '../../common/tenant-context.service'
+import { LearningScopeService } from '../scope/learning-scope.service'
 
 /**
  * CatalogService — listing + fuzzy search del catálogo.
@@ -25,24 +26,47 @@ export class CatalogService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
+    private readonly scope: LearningScopeService,
   ) {}
 
   /**
    * Lista catálogo con filtros + fuzzy search.
-   * TODO Fase 1.1: agregar query param `dueSoon=true` que cruce con
-   * LearningEnrollment del actor para resaltar lo que vence en 30 días.
+   *
+   * §multi-tenant 2026-05-21 — visibility se calcula como:
+   *   - Catálogo global Zenix (organizationId IS NULL) → siempre visible
+   *   - Cursos del cliente (organizationId = actor.organizationId)
+   *     filtrados además por propertyId/legalEntityId si el curso está
+   *     scoped a una sub-unidad (un curso de "Sucursal Norte" NO debe
+   *     aparecer en el catálogo de "Sucursal Sur" — eso era un leak)
+   *
+   * Reglas:
+   *   - Si course.propertyId != null → solo visible si actor tiene acceso
+   *     a esa property (vía LearningScopeService.accessiblePropertyIds)
+   *   - Si course.legalEntityId != null → solo si actor tiene acceso a esa
+   *     LegalEntity (BRAND/LEGAL_ENTITY scope; PROPERTY scope debe matchear
+   *     vía property.legalEntityId)
+   *   - Si solo organizationId está set → visible para toda la org
    */
-  async list(filters: {
-    category?: string
-    tier?: LearningCourseTier
-    language?: string
-    search?: string
-  }) {
+  async list(
+    filters: {
+      category?: string
+      tier?: LearningCourseTier
+      language?: string
+      search?: string
+    },
+    actor: JwtPayload,
+  ) {
     const orgId = this.tenant.getOrganizationId()
+    const propertyIds = await this.scope.accessiblePropertyIds(actor)
+    const legalEntityIds = await this.scope.accessibleLegalEntityIds(actor)
+    const propertyIdArray = [...propertyIds]
+    const legalEntityIdArray = [...legalEntityIds]
 
-    // Si hay búsqueda fuzzy, usar raw query con similarity ranking
+    // Si hay búsqueda fuzzy, raw query con similarity ranking + scope filter
     if (filters.search && filters.search.trim().length >= 2) {
       const q = filters.search.trim()
+      // Postgres array empty literal handling: si arrays vacíos, usa fallback
+      // (catálogo global solo) — defensa para actores sin scope efectivo.
       return this.prisma.$queryRaw<Array<unknown>>`
         SELECT
           id, slug, title, short_description as "shortDescription",
@@ -53,8 +77,18 @@ export class CatalogService {
           similarity(short_description, ${q})::float AS rank_desc
         FROM learning_courses
         WHERE status = 'PUBLISHED'
-          AND (organization_id IS NULL OR organization_id = ${orgId})
           AND (title % ${q} OR short_description % ${q})
+          AND (
+            organization_id IS NULL
+            OR (
+              organization_id = ${orgId}
+              AND (
+                (property_id IS NULL AND legal_entity_id IS NULL)
+                OR property_id = ANY (${propertyIdArray}::text[])
+                OR legal_entity_id = ANY (${legalEntityIdArray}::text[])
+              )
+            )
+          )
         ORDER BY rank_title DESC, rank_desc DESC
         LIMIT 20
       `
@@ -64,12 +98,25 @@ export class CatalogService {
       status: LearningCourseStatus.PUBLISHED,
       OR: [
         { organizationId: null }, // catálogo global Zenix
-        { organizationId: orgId }, // cursos del cliente
+        {
+          organizationId: orgId,
+          AND: [
+            {
+              OR: [
+                { propertyId: null, legalEntityId: null }, // org-wide
+                { propertyId: { in: propertyIdArray } }, // property-scoped
+                { legalEntityId: { in: legalEntityIdArray } }, // legalEntity-scoped
+              ],
+            },
+          ],
+        },
       ],
     }
-    if (filters.category) where.category = filters.category as Prisma.LearningCourseWhereInput['category']
+    if (filters.category)
+      where.category = filters.category as Prisma.LearningCourseWhereInput['category']
     if (filters.tier) where.tier = filters.tier
-    if (filters.language) where.language = filters.language as Prisma.LearningCourseWhereInput['language']
+    if (filters.language)
+      where.language = filters.language as Prisma.LearningCourseWhereInput['language']
 
     return this.prisma.learningCourse.findMany({
       where,

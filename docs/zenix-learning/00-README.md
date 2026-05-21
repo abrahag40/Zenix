@@ -32,6 +32,8 @@ Tres razones objetivas (no marketing):
 | [09-mobile-integration.md](09-mobile-integration.md) | Cómo se integra con `apps/mobile` (Expo) — offline-first, sync queue, push reminders, audio-first para HK | Ingeniería mobile |
 | [10-implementation-plan.md](10-implementation-plan.md) | Sprint LEARNING-CORE: fases, días, dependencias, riesgos, decisión de rebase a v1.0.0 vs v1.1.0 | Ingeniería, producto |
 | [11-pricing-bundling.md](11-pricing-bundling.md) | Pricing DLC, bundling con Zenix Activate, modelo de "curso regalo", marketplace cursos externos (Fase 2) | Comercial, producto |
+| [12-standards-alignment.md](12-standards-alignment.md) | Honestidad arquitectónica: mapping Caliper/SCORM/xAPI/LTI/OBv3 + gaps por fase + roadmap certificación | Ingeniería, producto |
+| [13-competitive-positioning-hostelsphere.md](13-competitive-positioning-hostelsphere.md) | Investigación HostelSphere + competidores hosteleros + recomendación "categoría nueva Operational Learning" | Comercial, producto |
 
 ---
 

@@ -14,12 +14,13 @@ export class CatalogController {
 
   @Get('v1/learning/courses')
   list(
+    @CurrentUser() actor: JwtPayload,
     @Query('category') category?: string,
     @Query('tier') tier?: LearningCourseTier,
     @Query('language') language?: string,
     @Query('search') search?: string,
   ) {
-    return this.service.list({ category, tier, language, search })
+    return this.service.list({ category, tier, language, search }, actor)
   }
 
   @Get('v1/learning/courses/:slug')

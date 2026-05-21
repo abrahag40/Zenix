@@ -21,4 +21,20 @@ export class EnrollmentsController {
   listMine(@Query('staffId') staffId: string | undefined, @CurrentUser() actor: JwtPayload) {
     return this.service.listForStaff(staffId ?? actor.sub, actor)
   }
+
+  /**
+   * Manager dashboard — todos los enrollments del scope del actor.
+   * §multi-tenant: respeta scope BRAND/LEGAL_ENTITY/PROPERTY del JWT.
+   */
+  @Get('v1/learning/manager/enrollments')
+  listForManagerScope(
+    @CurrentUser() actor: JwtPayload,
+    @Query('courseId') courseId?: string,
+    @Query('overdue') overdue?: string,
+  ) {
+    return this.service.listForActorScope(actor, {
+      courseId,
+      overdue: overdue === 'true',
+    })
+  }
 }

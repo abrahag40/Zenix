@@ -582,6 +582,34 @@ No usar Elasticsearch — overkill para SMB target.
 
 ---
 
+## 4.5. Multi-tenant scope service (audit 2026-05-21)
+
+Tras auditoría detectada en sesión 2026-05-21 contra el modelo 4-level (§63-§72) + `JwtPayload.scope` ('BRAND' | 'LEGAL_ENTITY' | 'PROPERTY'):
+
+**Gaps cerrados con `LearningScopeService` (`apps/api/src/learning/scope/`):**
+
+1. `enrollments.create()` ahora valida `actor.scope` cubre el `propertyId` del target staff. Antes: solo cross-org. Bug: SUPERVISOR scope=PROPERTY podía enrollar staff de OTRA property de la misma org.
+2. `catalog.list()` ahora filtra por accessible properties + legal entities, no solo organizationId. Antes: cursos scoped a una property leakeaban al catálogo de otras.
+3. Nuevo endpoint `GET /v1/learning/manager/enrollments` respeta scope completo para el "Manager Dashboard" del Fase 1.1 frontend. PROPERTY scope ve sólo su property; LEGAL_ENTITY ve todas las properties bajo su LegalEntity; BRAND ve todas las orgs bajo su Brand.
+4. `enrollments` ahora poblan `legalEntityId` al crearse — clave para reporting compliance STPS per razón social (§64).
+
+**Patrón de uso (todos los servicios que toquen datos cross-staff):**
+
+```typescript
+constructor(private readonly scope: LearningScopeService) {}
+
+async someAction(actor: JwtPayload, targetStaffId: string) {
+  await this.scope.assertActorCanEnrollStaff(actor, targetStaffId) // throw 403 si no
+  // ... resto de la lógica
+}
+```
+
+`LearningScopeService` delega a `AccessControlService` (@Global) para las queries cross-property (UNION ALL de los 3 niveles). No duplica lógica — solo aplica la decisión Learning-específica encima.
+
+Ver doc 12 §3.2 para justificación arquitectónica completa.
+
+---
+
 ## 5. Authorization matrix
 
 | Acción | RECEPTIONIST | HOUSEKEEPER | SUPERVISOR | ZENIX_ADMIN |

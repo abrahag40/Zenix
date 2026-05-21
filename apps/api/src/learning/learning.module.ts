@@ -13,6 +13,7 @@ import { AttemptsController } from './attempts/attempts.controller'
 import { AttemptsService } from './attempts/attempts.service'
 import { CertificatesController } from './certificates/certificates.controller'
 import { CertificatesService } from './certificates/certificates.service'
+import { LearningScopeService } from './scope/learning-scope.service'
 
 /**
  * Sprint LEARNING-CORE — Zenix Learning (LMS Add-On/DLC)
@@ -53,12 +54,17 @@ import { CertificatesService } from './certificates/certificates.service'
     LessonsService,
     AttemptsService,
     CertificatesService,
+    // §multi-tenant — single source of truth para auth Learning-específica.
+    // Inyecta AccessControlService (@Global) y resuelve scope BRAND/
+    // LEGAL_ENTITY/PROPERTY antes de mutaciones cross-property.
+    LearningScopeService,
     TenantContextService,
   ],
   exports: [
     CatalogService,
     EnrollmentsService,
     CertificatesService,
+    LearningScopeService,
   ],
 })
 export class LearningModule {}

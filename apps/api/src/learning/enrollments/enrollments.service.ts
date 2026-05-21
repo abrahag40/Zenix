@@ -10,6 +10,7 @@ import { Prisma, LearningEnrollmentStatus } from '@prisma/client'
 import { JwtPayload, StaffRole } from '@zenix/shared'
 import { PrismaService } from '../../prisma/prisma.service'
 import { TenantContextService } from '../../common/tenant-context.service'
+import { LearningScopeService } from '../scope/learning-scope.service'
 
 export interface CreateEnrollmentDto {
   courseId: string
@@ -45,20 +46,21 @@ export class EnrollmentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
+    private readonly scope: LearningScopeService,
   ) {}
 
   async create(dto: CreateEnrollmentDto, actor: JwtPayload) {
     const orgId = this.tenant.getOrganizationId()
-    const propertyId = this.tenant.getPropertyId()
 
     // Resolver staffId — self-enroll vs admin-assign
     const targetStaffId = dto.staffId ?? actor.sub
     const isSelfEnroll = targetStaffId === actor.sub
     const reason = dto.enrollmentReason ?? (isSelfEnroll ? 'SELF_ENROLL' : 'ASSIGNED_BY_MANAGER')
 
-    if (!isSelfEnroll && actor.role !== StaffRole.SUPERVISOR) {
-      throw new ForbiddenException('Solo supervisor puede asignar cursos a otro staff')
-    }
+    // §multi-tenant 2026-05-21 — auth via LearningScopeService respeta scope
+    // del JWT (BRAND/LEGAL_ENTITY/PROPERTY). Lanza Forbidden con mensaje claro
+    // si actor no tiene jurisdicción sobre el target staff.
+    await this.scope.assertActorCanEnrollStaff(actor, targetStaffId)
 
     const course = await this.prisma.learningCourse.findUnique({
       where: { id: dto.courseId },
@@ -88,14 +90,20 @@ export class EnrollmentsService {
       )
     }
 
-    // Verificar que el staff target pertenezca a org/property del actor
+    // §multi-tenant: scope ya validó org-level + property-level. Aquí solo
+    // necesitamos los datos del staff para enrollment + audit (legalEntity).
     const staff = await this.prisma.staff.findUnique({
       where: { id: targetStaffId },
-      select: { id: true, organizationId: true, propertyId: true, active: true },
+      select: {
+        id: true,
+        organizationId: true,
+        propertyId: true,
+        active: true,
+        property: { select: { legalEntityId: true } },
+      },
     })
     if (!staff) throw new NotFoundException(`Staff not found: ${targetStaffId}`)
     if (!staff.active) throw new ConflictException('Cannot enroll inactive staff')
-    if (staff.organizationId !== orgId) throw new ForbiddenException('Cross-org staff enrollment')
 
     // §129: snapshot version
     const contentVersionPin = course.contentVersion
@@ -132,6 +140,9 @@ export class EnrollmentsService {
           staffId: targetStaffId,
           courseId: course.id,
           organizationId: orgId,
+          // §multi-tenant: legalEntityId habilita el reporting STPS per
+          // razón social (la auditoría agrupa por LegalEntity, §64).
+          legalEntityId: staff.property.legalEntityId,
           propertyId: staff.propertyId,
           status: LearningEnrollmentStatus.NOT_STARTED,
           enrolledById: isSelfEnroll ? null : actor.sub,
@@ -196,9 +207,67 @@ export class EnrollmentsService {
     return enrollment
   }
 
+  /**
+   * Manager view — todos los enrollments dentro del scope del actor.
+   * Returns: enrollments agrupados por property + status overdue/upcoming.
+   *
+   * §multi-tenant 2026-05-21: cubre el caso "admin regional de 2 sucursales
+   * ve avances de ambas, admin de cada sucursal solo ve la suya".
+   *
+   * Scope effective rules:
+   *   - PROPERTY scope → solo enrollments con propertyId = actor.propertyId
+   *   - LEGAL_ENTITY scope → enrollments con propertyId ∈ properties bajo
+   *     actor.legalEntityId (vía AccessControlService.listAccessiblePropertyIds)
+   *   - BRAND scope → todas las properties accesibles
+   */
+  async listForActorScope(
+    actor: JwtPayload,
+    filters?: { courseId?: string; status?: LearningEnrollmentStatus; overdue?: boolean },
+  ) {
+    if (actor.role !== StaffRole.SUPERVISOR && actor.level !== 'LEAD') {
+      throw new ForbiddenException('Solo supervisor/lead puede ver enrollments del equipo')
+    }
+
+    const propertyIds = await this.scope.accessiblePropertyIds(actor)
+    if (propertyIds.size === 0) return []
+
+    const where: Prisma.LearningEnrollmentWhereInput = {
+      propertyId: { in: [...propertyIds] },
+    }
+    if (filters?.courseId) where.courseId = filters.courseId
+    if (filters?.status) where.status = filters.status
+    if (filters?.overdue) {
+      where.AND = [
+        { status: { in: ['NOT_STARTED', 'IN_PROGRESS'] } },
+        { expiresAt: { lt: new Date() } },
+      ]
+    }
+
+    return this.prisma.learningEnrollment.findMany({
+      where,
+      include: {
+        course: { select: { id: true, slug: true, title: true } },
+        staff: { select: { id: true, name: true, email: true } },
+        property: { select: { id: true, name: true } },
+        certificate: { select: { id: true, serialNumber: true } },
+      },
+      orderBy: [{ expiresAt: 'asc' }, { status: 'asc' }, { enrolledAt: 'desc' }],
+      take: 500,
+    })
+  }
+
   async listForStaff(staffId: string, actor: JwtPayload) {
-    if (staffId !== actor.sub && actor.role !== StaffRole.SUPERVISOR) {
-      throw new ForbiddenException('No autorizado para ver enrollments de otro staff')
+    // §multi-tenant: si es otro staff, validar scope completo (no solo role).
+    if (staffId !== actor.sub) {
+      const targetStaff = await this.prisma.staff.findUnique({
+        where: { id: staffId },
+        select: { propertyId: true },
+      })
+      if (!targetStaff) throw new NotFoundException(`Staff not found: ${staffId}`)
+      await this.scope.assertActorCanReadEnrollment(actor, {
+        staffId,
+        propertyId: targetStaff.propertyId,
+      })
     }
     return this.prisma.learningEnrollment.findMany({
       where: { staffId },
