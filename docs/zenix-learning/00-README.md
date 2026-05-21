@@ -34,6 +34,9 @@ Tres razones objetivas (no marketing):
 | [11-pricing-bundling.md](11-pricing-bundling.md) | Pricing DLC, bundling con Zenix Activate, modelo de "curso regalo", marketplace cursos externos (Fase 2) | Comercial, producto |
 | [12-standards-alignment.md](12-standards-alignment.md) | Honestidad arquitectónica: mapping Caliper/SCORM/xAPI/LTI/OBv3 + gaps por fase + roadmap certificación | Ingeniería, producto |
 | [13-competitive-positioning-hostelsphere.md](13-competitive-positioning-hostelsphere.md) | Investigación HostelSphere + competidores hosteleros + recomendación "categoría nueva Operational Learning" | Comercial, producto |
+| [14-dlc-architecture.md](14-dlc-architecture.md) | Plugin/DLC lifecycle: ACTIVE→SUSPENDED→ARCHIVED + preservación data + reactivación. TenantDLC genérico para Learning + futuros DLCs | Ingeniería, producto |
+| [15-hostelsphere-lessons-social-learning.md](15-hostelsphere-lessons-social-learning.md) | Qué TOMAR del modelo HostelSphere + SAP JAM lessons learned + Social Learning Hooks ancladas a curso | Producto, ingeniería |
+| [16-standards-utilization-commitment.md](16-standards-utilization-commitment.md) | Compromisos ejecutables de alineamiento a estándares LMS sin certificación formal (Fase 1) — checklist por fase | Ingeniería, producto |
 
 ---
 

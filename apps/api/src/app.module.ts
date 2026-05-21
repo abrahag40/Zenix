@@ -43,6 +43,8 @@ import { AssignmentModule } from './assignment/assignment.module'
 import { StaffPreferencesModule } from './staff-preferences/staff-preferences.module'
 import { FeatureFlagsModule } from './feature-flags/feature-flags.module'
 import { UploadsModule } from './uploads/uploads.module'
+// DLC Subscription model — genérico para Add-Ons (Learning, Booking, POS, etc.)
+import { DLCModule } from './dlc/dlc.module'
 // Sprint LEARNING-CORE — Zenix Learning LMS (Add-On/DLC)
 import { LearningModule } from './learning/learning.module'
 import { TenantContextMiddleware } from './common/tenant-context.middleware'
@@ -100,6 +102,9 @@ import { PropertyScopeGuard } from './common/guards/property-scope.guard'
     // Server-side feature toggles (testing envs + future feature flags)
     FeatureFlagsModule,
     UploadsModule, // Mx-1B-W2 — image upload + static serve (foundation for Mx-1C)
+    // DLC Subscription model — registry de Add-Ons por tenant + DLCGuard
+    // (doc en docs/zenix-learning/14-dlc-architecture.md)
+    DLCModule,
     // Sprint LEARNING-CORE — Zenix Learning LMS (Add-On/DLC, doc en docs/zenix-learning/)
     LearningModule,
   ],

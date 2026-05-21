@@ -1,8 +1,12 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common'
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common'
 import { JwtPayload } from '@zenix/shared'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
+import { DLCGuard } from '../../dlc/dlc.guard'
+import { RequiresDLC } from '../../dlc/requires-dlc.decorator'
 import { EnrollmentsService, CreateEnrollmentDto } from './enrollments.service'
 
+@UseGuards(DLCGuard)
+@RequiresDLC('LEARNING_CORE')
 @Controller()
 export class EnrollmentsController {
   constructor(private readonly service: EnrollmentsService) {}

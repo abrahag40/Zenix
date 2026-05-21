@@ -1,8 +1,12 @@
-import { Body, Controller, Param, Post } from '@nestjs/common'
+import { Body, Controller, Param, Post, UseGuards } from '@nestjs/common'
 import { JwtPayload } from '@zenix/shared'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
+import { DLCGuard } from '../../dlc/dlc.guard'
+import { RequiresDLC } from '../../dlc/requires-dlc.decorator'
 import { AttemptsService, StartAttemptDto, SubmitAttemptDto } from './attempts.service'
 
+@UseGuards(DLCGuard)
+@RequiresDLC('LEARNING_CORE')
 @Controller()
 export class AttemptsController {
   constructor(private readonly service: AttemptsService) {}

@@ -1,8 +1,12 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common'
+import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common'
 import { JwtPayload } from '@zenix/shared'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
+import { DLCGuard } from '../../dlc/dlc.guard'
+import { RequiresDLC } from '../../dlc/requires-dlc.decorator'
 import { LessonsService, UpsertProgressDto } from './lessons.service'
 
+@UseGuards(DLCGuard)
+@RequiresDLC('LEARNING_CORE')
 @Controller()
 export class LessonsController {
   constructor(private readonly service: LessonsService) {}

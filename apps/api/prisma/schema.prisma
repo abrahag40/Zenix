@@ -477,6 +477,8 @@ model Organization {
   learningCourses         LearningCourse[]
   learningEnrollments     LearningEnrollment[]
   learningAssignmentRules LearningAssignmentRule[]
+  // ── DLC subscription model (2026-05-21) ───────────────────────────────
+  tenantDlcs              TenantDLC[]
 
   @@map("organizations")
 }
@@ -879,6 +881,9 @@ model Staff {
   learningPreferences       LearningPreferences?       @relation("LearningPreferencesStaff")
   learningCoursesCreated    LearningCourse[]           @relation("LearningCoursesCreated")
   learningAssignmentRulesBy LearningAssignmentRule[]   @relation("LearningAssignmentRulesCreated")
+  // ── DLC subscription model (2026-05-21) ─────────────────────────────────
+  tenantDlcsActivated       TenantDLC[]                @relation("TenantDlcActivatedBy")
+  tenantDlcLogsBy           TenantDLCLog[]             @relation("TenantDlcLogActor")
 
   @@index([organizationId])
   @@index([organizationId, propertyId])
@@ -3438,4 +3443,118 @@ model LearningPreferences {
   staff Staff @relation("LearningPreferencesStaff", fields: [staffId], references: [id])
 
   @@map("learning_preferences")
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// ── DLC Subscription model (2026-05-21) — genérico para Learning + futuros ─
+// ═════════════════════════════════════════════════════════════════════════
+//
+// Justificación del modelo (doc 14):
+//   - Cada cliente puede tener N DLCs activos (LEARNING_CORE, BOOKING_ENGINE,
+//     POS, PROCURE, etc.). Cada uno con su lifecycle independiente.
+//   - Lifecycle: ACTIVE → SUSPENDED → GRACE_PERIOD → ARCHIVED.
+//     Data preservada en GRACE_PERIOD (30d) y ARCHIVED (5 años LFT compliance).
+//   - Activación: manual (Zenix Activate wizard) o Stripe webhook
+//     (Fase 1.4 + v1.0.1 PAY-CORE).
+//   - Reactivación: cliente cancela y luego vuelve → su data está intacta.
+//   - DLCGuard valida @RequiresDLC('LEARNING_CORE') en endpoints. Excepción
+//     a los Public (e.g. certificate verify §131 sigue accesible sin DLC).
+//
+// Decisiones §138-§144 reservadas (doc 14):
+//   §138 TenantDLC.status determina autorización runtime (no Stripe directo)
+//   §139 GRACE_PERIOD default 30 días configurable per-DLC
+//   §140 ARCHIVED preserva data ≥5 años (LFT Art. 30 CFF)
+//   §141 Reactivación post-ARCHIVED crea NUEVO row preservando histórico
+//   §142 DLCGuard fail-soft con 402 Payment Required + mensaje accionable
+//   §143 Stripe webhook → DLCService.syncFromStripe (idempotency-key)
+//   §144 Curso GIFT crea TenantDLC tier=LEARNING_GIFT auto en Activate
+// ═════════════════════════════════════════════════════════════════════════
+
+enum DLCCode {
+  LEARNING_CORE // L1 — Zenix Learning DLC base (3 cursos MVP)
+  LEARNING_PRO  // L2 — + SCORM/xAPI + course authoring (Fase 2 v1.1.x)
+  LEARNING_GIFT // L0 — curso de regalo al cierre PMS (no recurrente)
+  BOOKING_ENGINE // Direct Booking Engine (v1.x BOOKING-ENGINE sprint)
+  POS         // Punto de venta hotelero (v1.3+)
+  PROCURE     // Compras + inventario (v1.4+)
+  STAY_ACCESS // Guest App + NFC keys (v1.5+)
+  PEOPLE      // HR módulo (v1.7+)
+  BOOKS       // Contabilidad (v1.8+)
+}
+
+enum DLCStatus {
+  ACTIVE       // funcionando, billing al día, endpoints disponibles
+  SUSPENDED    // pago fallido / admin suspendió. Endpoints 402. Data preserved.
+  GRACE_PERIOD // tras suspensión / cancelación cliente. 30d default antes de ARCHIVED.
+  ARCHIVED     // off por >30d. Data preservada en BD por compliance. Endpoints 404+UI link "Reactivar".
+  PURGED       // hard-deleted post 5 años. Solo se llega aquí via cron retention policy.
+}
+
+enum DLCBillingMode {
+  ONE_TIME_GIFT    // curso regalo, sin recurrencia
+  FLAT_MONTHLY     // tarifa fija mensual
+  PER_STAFF_ACTIVE // §137 — billing per staff con login últimos 30d (Learning, People)
+  PER_TRANSACTION  // futuro POS / Booking Engine
+}
+
+// TenantDLC — UNA fila por (organizationId, dlcCode). Si cliente cancela y
+// reactiva, se UPSERTea cambiando status. El histórico vive en TenantDLCLog.
+model TenantDLC {
+  id             String         @id @default(uuid())
+  organizationId String         @map("organization_id")
+  dlcCode        DLCCode        @map("dlc_code")
+  status         DLCStatus      @default(ACTIVE)
+  billingMode    DLCBillingMode @map("billing_mode")
+  pricePerUnit   Decimal?       @map("price_per_unit") @db.Decimal(10, 2)
+
+  // Lifecycle timestamps (§139, §140)
+  activatedAt       DateTime  @default(now()) @map("activated_at")
+  suspendedAt       DateTime? @map("suspended_at")
+  gracePeriodEndsAt DateTime? @map("grace_period_ends_at")
+  archivedAt        DateTime? @map("archived_at")
+  reactivatedAt     DateTime? @map("reactivated_at")
+
+  // Audit
+  activatedById      String? @map("activated_by_id")
+  cancellationReason String? @map("cancellation_reason") @db.Text
+  suspensionReason   String? @map("suspension_reason")
+
+  // Stripe integration (§143) — pobladas en Fase 1.4 PAY-CORE
+  stripeSubscriptionId     String? @map("stripe_subscription_id")
+  stripeSubscriptionItemId String? @map("stripe_subscription_item_id")
+  stripeCustomerId         String? @map("stripe_customer_id")
+
+  // DLC-specific config (e.g. para LEARNING_CORE: { giftCourseSlug: 'distintivo-h' })
+  metadata Json?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization Organization   @relation(fields: [organizationId], references: [id])
+  activatedBy  Staff?         @relation("TenantDlcActivatedBy", fields: [activatedById], references: [id])
+  logs         TenantDLCLog[]
+
+  @@unique([organizationId, dlcCode])
+  @@index([organizationId, status])
+  @@index([status, gracePeriodEndsAt]) // scheduler para auto-archive
+  @@index([dlcCode, status])
+  @@map("tenant_dlcs")
+}
+
+// TenantDLCLog — append-only audit (§128 paridad).
+// Eventos: ACTIVATED | SUSPENDED | GRACE_PERIOD_STARTED | REACTIVATED |
+//          TIER_CHANGED | ARCHIVED | STRIPE_SYNC | METADATA_UPDATED
+model TenantDLCLog {
+  id          String   @id @default(uuid())
+  tenantDlcId String   @map("tenant_dlc_id")
+  event       String
+  metadata    Json?
+  actorId     String?  @map("actor_id")
+  occurredAt  DateTime @default(now()) @map("occurred_at")
+
+  tenantDlc TenantDLC @relation(fields: [tenantDlcId], references: [id], onDelete: Cascade)
+  actor     Staff?    @relation("TenantDlcLogActor", fields: [actorId], references: [id])
+
+  @@index([tenantDlcId, occurredAt])
+  @@map("tenant_dlc_logs")
 }
