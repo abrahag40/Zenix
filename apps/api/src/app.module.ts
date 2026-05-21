@@ -43,6 +43,8 @@ import { AssignmentModule } from './assignment/assignment.module'
 import { StaffPreferencesModule } from './staff-preferences/staff-preferences.module'
 import { FeatureFlagsModule } from './feature-flags/feature-flags.module'
 import { UploadsModule } from './uploads/uploads.module'
+// Sprint LEARNING-CORE — Zenix Learning LMS (Add-On/DLC)
+import { LearningModule } from './learning/learning.module'
 import { TenantContextMiddleware } from './common/tenant-context.middleware'
 import { TenantContextService } from './common/tenant-context.service'
 import { TenantGuard } from './common/guards/tenant.guard'
@@ -98,6 +100,8 @@ import { PropertyScopeGuard } from './common/guards/property-scope.guard'
     // Server-side feature toggles (testing envs + future feature flags)
     FeatureFlagsModule,
     UploadsModule, // Mx-1B-W2 — image upload + static serve (foundation for Mx-1C)
+    // Sprint LEARNING-CORE — Zenix Learning LMS (Add-On/DLC, doc en docs/zenix-learning/)
+    LearningModule,
   ],
   providers: [
     TenantContextService,
