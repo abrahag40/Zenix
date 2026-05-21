@@ -1,0 +1,76 @@
+# Zenix Learning (LMS) — Carpeta master
+
+> Documentación estratégica + técnica del módulo Zenix Learning (LMS embebido al PMS).
+> **Versión target:** v1.0.0 (rama `claude/zenix-learning-lms-v1-2qz8l`) o v1.1.0 fallback.
+> **Modelo comercial:** Add-On / DLC pago. Curso de regalo como hook de cierre comercial.
+> **Última actualización:** 2026-05-21
+
+---
+
+## Por qué existe Zenix Learning
+
+Tres razones objetivas (no marketing):
+
+1. **Compliance legal real LATAM.** La LFT mexicana (Art. 153-A a 153-X) obliga al patrón a capacitar y conservar evidencia auditable por STPS. NOM-035-STPS-2018 lo extiende a riesgos psicosociales. Equivalentes en Colombia (SENA), Costa Rica (INA), Perú (SUNAFIL), etc. Sin LMS el hotel resuelve esto a punta de Excel + carpetas físicas → vulnerable en auditoría.
+2. **Combo PMS+LMS es diferenciador real.** Cloudbeds, Mews, Opera, RoomRaccoon, Little Hotelier NO traen LMS. Los hoteles compran TalentLMS / iSpring / Moodle por fuera y duplican rosters de staff. Zenix entrega un solo punto de verdad: `Staff` del PMS = `Learner` del LMS.
+3. **Hook comercial blando.** "Te regalo el curso Distintivo H si firmas" cierra prospectos indecisos (Cialdini 1984 — reciprocidad). El costo marginal de regalar un curso ya producido es ~$0; el costo de perder el prospecto es ~$2-5k/año MRR.
+
+---
+
+## Índice
+
+| Doc | Contenido | Audiencia |
+|-----|-----------|-----------|
+| [01-vision-zenix-learning.md](01-vision-zenix-learning.md) | Visión estratégica, posicionamiento, tiers, modelo de negocio | Founder, comercial, partners |
+| [02-legal-compliance-research.md](02-legal-compliance-research.md) | LFT México + NOM-035 + STPS DC-3/DC-4 + equivalentes LATAM (Colombia/CR/PE/etc.) | Producto, legal, comercial |
+| [03-competitor-analysis.md](03-competitor-analysis.md) | SuccessFactors deep dive + TalentLMS/iSpring/Docebo/Moodle + LMS hotelería (AHLEI/eHotelier) — lo que aman, odian, piden | Producto, ingeniería, UX |
+| [04-architecture-plan.md](04-architecture-plan.md) | Schema Prisma + endpoints API + módulos NestJS + multi-tenant (4-level §63-§72) + integraciones | Ingeniería |
+| [05-ui-ux-patterns.md](05-ui-ux-patterns.md) | Learner / Manager / Admin flows + wireframes texto + accesibilidad WCAG 2.1 AA | Producto, UX |
+| [06-courses-catalog-mvp.md](06-courses-catalog-mvp.md) | Los 3 cursos MVP: "Distintivo H + NOM-035", "Front Office Excellence (AHLEI)", "Housekeeping Standards" — syllabi + evaluación + bibliografía | Producto, contenido, comercial |
+| [07-psychopedagogy-foundation.md](07-psychopedagogy-foundation.md) | Andragogía Knowles + Bloom revisada + Microlearning Kapp + Spaced Repetition + Cognitive Load Sweller + SDT Deci&Ryan | Producto, contenido |
+| [08-gamification-roadmap.md](08-gamification-roadmap.md) | Fase 1 ligera → Fase 2 media → Fase 3 profunda. Ética anti-crowding-out. 8 drives Octalysis. Métricas para gatillar fases. | Producto, ingeniería |
+| [09-mobile-integration.md](09-mobile-integration.md) | Cómo se integra con `apps/mobile` (Expo) — offline-first, sync queue, push reminders, audio-first para HK | Ingeniería mobile |
+| [10-implementation-plan.md](10-implementation-plan.md) | Sprint LEARNING-CORE: fases, días, dependencias, riesgos, decisión de rebase a v1.0.0 vs v1.1.0 | Ingeniería, producto |
+| [11-pricing-bundling.md](11-pricing-bundling.md) | Pricing DLC, bundling con Zenix Activate, modelo de "curso regalo", marketplace cursos externos (Fase 2) | Comercial, producto |
+
+---
+
+## Reglas de uso
+
+1. **Rama de trabajo:** `claude/zenix-learning-lms-v1-2qz8l`. Toda PR del módulo Learning sale de aquí. Mergea a `main` cuando el módulo esté listo (target v1.0.0, fallback v1.1.0).
+
+2. **CLAUDE.md NO duplica este detalle.** Solo registra las decisiones no-negociables (§128+ reservado para Learning) y agrega el sprint al Pending.
+
+3. **`docs/vision/02-product-family.md` y `docs/zenix-sales-master.md` deben actualizarse** cuando el módulo se mueva de "research" a "in dev" — el equipo comercial necesita el SKU.
+
+4. **Decisiones legales por país viven aquí en `02-legal-compliance-research.md`**, no en cada módulo afectado (a diferencia de Books/People que sí distribuyen). Razón: la justificación legal es transversal al producto Learning, no por sub-módulo.
+
+5. **No introducir formatos de curso fuera de los listados en `04-architecture-plan.md`.** Cualquier formato nuevo (SCORM, xAPI, AICC, cmi5) requiere update simultáneo del schema + tests + este doc.
+
+---
+
+## Estado actual (2026-05-21)
+
+| Sección | Status |
+|---------|--------|
+| Vision + posicionamiento | 🟢 Doc 01 escrito |
+| Research legal LFT/STPS | 🟡 Agent corriendo |
+| Research competencia LMS | 🟡 Agent corriendo |
+| Research contenido 3 cursos | 🟡 Agent corriendo |
+| Research psicopedagogía | 🟡 Agent corriendo |
+| Architecture plan | ⏳ Pendiente (depende de research) |
+| UI/UX patterns | ⏳ Pendiente |
+| Gamification roadmap | ⏳ Pendiente (depende de Agent D) |
+| Mobile integration | ⏳ Pendiente |
+| Implementation plan / Sprint LEARNING-CORE | 🟡 Skeleton creado |
+| Pricing & bundling | ⏳ Pendiente |
+
+---
+
+## Documentos hermanos
+
+- **CLAUDE.md** (raíz) — sección Pending registra Sprint LEARNING-CORE y decisiones §128+ no-negociables del módulo
+- **docs/vision/02-product-family.md** — debe agregar "Zenix Learning" al naming framework cuando salga de research
+- **docs/vision/03-roadmap-v1-v2.md** — debe ubicar el módulo en la ladder (v1.0.0 ideal / v1.1.0 fallback)
+- **docs/zenix-sales-master.md** — debe registrar el SKU + pitch + curso-regalo como hook
+- **docs/prices-packages.md** — debe registrar pricing DLC Learning
