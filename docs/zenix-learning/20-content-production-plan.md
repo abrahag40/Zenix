@@ -301,18 +301,77 @@ Cada curso publica (`status: PUBLISHED`) cuando pasa este checklist:
 5. **Curso Zenix Sistema separado del catálogo hospitality** — gratis vía Activate wizard, producido DESPUÉS de Fase 1.3.
 6. **Roadmap a certificación gubernamental oficial** — Zenix como ACE STPS post primer cliente piloto cerrado (v1.0.5+). DC-3 oficial añadido a v1.1.x. Antes, comprobante interno alineado a estándar oficial citado es totalmente válido para uso comercial.
 
-**Plan de producción Fase 1.3 (12 días enfocados):**
+7. **Games HTML5 como diferenciador comercial** — decisión aprobada 2026-05-22 PM tras debate epistémico. Phaser 3 simulators-based + PixiJS microinteracciones como stack canónico. 7 conceptos de game (A-G) documentados en [doc 23](23-games-interactive-learning-strategy.md). Fase 1.3 (sprint actual) **SIN games**; Fase 1.4-INTERLUDIO desarrolla Game A "Auditoría Sorpresa Distintivo H Simulator" como demo killer del vendedor; Fase 1.5 mide conversion lift + expansion decision.
 
-| Día | Trabajo | Entregable |
-|-----|---------|------------|
-| 1-4 | **Curso 1: Distintivo H + NOM-035** (combo compliance MX) | ~28 lessons + 60 preguntas |
-| 5-8 | **Curso 2: Front Office Excellence** (AHLEI CFDR-aligned, sin terminología Zenix) | ~25 lessons + 40 preguntas |
-| 9-12 | **Curso 3: Housekeeping Standards Premium** (AHLEI CHHE-aligned, sin terminología Zenix) | ~27 lessons + 50 preguntas |
-| 13 | **Generador certificados co-branded** + endpoint público `/verify/cert/:id` + cleanup | Producción-ready |
+**Plan de producción Fase 1.3 (12 días enfocados — SIN GAMES):**
 
-**Total entregable Fase 1.3:** ~80 lessons + 150 preguntas + sistema de certificación + 22 docs en `docs/zenix-learning/`.
+| Día | Trabajo | Entregable | Estado |
+|-----|---------|------------|--------|
+| 1 | Outline Curso 1 + Módulo 1 "Marco normativo Distintivo H" (3 lessons) | 3 lessons + outline | ✅ Completado 2026-05-22 AM |
+| 2 | Módulo 2 "Zona de peligro + 5 ETAs + 4 casos LATAM" (4 lessons) | 4 lessons + bibliografía | ✅ Completado 2026-05-22 PM |
+| 3-4 | Módulos 3-5 Curso 1 (11 áreas + higiene manipulador + limpieza vs desinfección) | ~12 lessons | ⏳ |
+| 4 final | Módulos 6-8 Curso 1 (NOM-035 + Guías + Política) | ~9 lessons + question bank 60 preguntas | ⏳ |
+| 5-8 | **Curso 2: Front Office Excellence** (AHLEI CFDR-aligned, sin terminología Zenix) | ~25 lessons + 40 preguntas | ⏳ |
+| 9-12 | **Curso 3: Housekeeping Standards Premium** (AHLEI CHHE-aligned, sin terminología Zenix) | ~27 lessons + 50 preguntas | ⏳ |
+| 13 | **Generador certificados co-branded** + endpoint público `/verify/cert/:id` + cleanup | Producción-ready | ⏳ |
 
-**Día 1 — arrancamos AHORA:** outline detallado Curso 1 Distintivo H + redacción Módulo 1 "Marco normativo Distintivo H" (~3 lessons). Ubicación: `docs/zenix-learning/courses/01-distintivo-h-haccp/`.
+**Total entregable Fase 1.3:** ~80 lessons + 150 preguntas + sistema de certificación + 23 docs en `docs/zenix-learning/`.
+
+**Ubicación cursos producidos:** `docs/zenix-learning/courses/01-distintivo-h-nom-035/` (Curso 1, slug confirmado).
+
+---
+
+## 8. Fase 1.4-INTERLUDIO — Game-pilot Phaser 3 (3 semanas dedicadas post Fase 1.3)
+
+> **Decisión aprobada usuario 2026-05-22 PM.** Documentación canónica completa en [doc 23 — Games & Interactive Learning Strategy](23-games-interactive-learning-strategy.md).
+
+**Objetivo:** desarrollar **Game A "Auditoría Sorpresa: Distintivo H Simulator"** como capstone del Módulo 3 del Curso 1 + demo killer del vendedor para cerrar prospectos enterprise.
+
+**Cronograma 15-21 días hábiles (~3 semanas calendario):**
+
+| Día | Trabajo | Owner |
+|-----|---------|--------|
+| 1-2 | Game design document + wireframes 3 escenarios + reviewer SECTUR signature | Game Designer |
+| 3-7 | Producción assets escenario 1 (cocina hostal 10 ítems) + implementación Phaser 3 jugable | Pixel Artist + Phaser Dev |
+| 8-9 | Bridge postMessage + integración engine + telemetry PostHog | Phaser Dev + Backend Dev |
+| 10-12 | Assets + implementación escenario 2 (restaurant hotel 18 ítems) | Pixel Artist + Phaser Dev |
+| 13-17 | Assets + implementación escenario 3 (resort 28 ítems críticos completos) + balance flow | Pixel Artist + Phaser Dev |
+| 18 | QA testing + accessibility WCAG 2.1 A audit | QA + a11y reviewer |
+| 19-20 | Bug fixes + a11y fixes | Phaser Dev |
+| 21 | Reviewer SECTUR final + sign-off pedagógico → publicación | Reviewer SECTUR |
+
+**Cost estimate:** **$8-12k USD** (game designer 40h + Phaser dev 100h + pixel artist 60h + reviewer SECTUR 16h + QA 40h).
+
+**Hito de cierre:** Game A publicado en CourseVersion `2026.07.1` del Curso 1. Demo del vendedor LISTO.
+
+---
+
+## 9. Fase 1.5 (post primer cliente piloto, Q4 2026) — Medir + decidir expansión games
+
+**Métricas críticas 90 días post-launch Game A:**
+
+| Métrica | Target | Acción si NO se alcanza |
+|---------|--------|--------------------------|
+| Completion rate Game A vs lessons-only | ≥75% | Re-balance dificultad |
+| **Conversion lift comercial** (demo Game A vs sin) | **≥20%** | Reevaluar inversión games adicionales |
+| NPS post-game | ≥50 (excellent) | Iterar mecánica basado en feedback |
+| Knowledge retention SRS 30/60/90 días post-game | +20% vs lessons-only | Más casos prácticos en lessons complementarias |
+
+**Decisión basada en métricas:**
+- ✅ Si conversion >20% Y completion >75% → desarrollar **Games D (Front Desk Rush) + F (Room Inspector)** (+$17-25k USD)
+- ⚠️ Si conversion 10-20% / completion 60-75% → desarrollar SOLO Game F (más simple)
+- ❌ Si conversion <10% O completion <60% → pausar inversión games, reinvertir en otros features
+
+---
+
+## 10. Fase 2 (v1.1+) — Marketplace + Custom Games
+
+- Games B, C, E, G del Pool MVP completados (+$19-30k USD)
+- Marketplace abierto a creadores externos (revenue share 70/30)
+- Custom games per-cliente enterprise ($5-20k USD desarrollo + license recurrente)
+- Babylon.js 3D para NOM-017 EPP / NOM-029 mantenimiento eléctrico (demanda enterprise verificada)
+
+**ROI estimado total Pool games:** ROI 4.5×-14.5× en 12 meses solo del Game A (ver doc 23 §10).
 
 ---
 
@@ -320,3 +379,5 @@ Cada curso publica (`status: PUBLISHED`) cuando pasa este checklist:
 
 - **2026-05-22** (AM) — Doc creado tras decisiones del usuario (sin consultor pago, base = temarios oficiales públicos, audio placeholders, stock photos quirúrgicas). Insight JTBD "operación desde la ignorancia" incorporado a la plantilla editorial.
 - **2026-05-22** (PM) — Decisiones finales del usuario registradas (Cialdini+SDT modelo comercial, Pool completo cursos, arquitectura engine/content, Inglés segmentado a Tier 2, Curso Zenix Sistema separado, roadmap ACE STPS). Cross-references añadidas a docs 21 y 22. Arrancamos Día 1 redacción Curso 1.
+- **2026-05-22** (PM tardía) — Games HTML5 aprobados como diferenciador comercial. Doc 23 creado con 7 conceptos de game (A-G) + Fase 1.4-INTERLUDIO Game A "Auditoría Sorpresa Distintivo H Simulator" como demo killer + roadmap Fase 1.5 medición + Fase 2 marketplace/custom. Stack Phaser 3 + PixiJS + Babylon (futuro) + Tiled + Aseprite + PostHog. Variante G "Hook Killer Demo Game" añadida al modelo comercial doc 22. Decisiones §128-§133 reservadas en CLAUDE.md.
+- **2026-05-22** (Día 2 producción) — Módulo 2 Curso 1 redactado completo (4 lessons): zona de peligro 4-60°C + 5 patógenos prioritarios + 4 brotes documentados LATAM 2020-2024. Plantilla canónica aplicada en las 4. Bibliografía: NMX-F-605 + CDC + WHO + OPS + USDA + James Reason 1990 Modelo Queso Suizo.

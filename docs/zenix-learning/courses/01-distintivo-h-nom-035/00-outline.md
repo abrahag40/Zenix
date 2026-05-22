@@ -35,7 +35,10 @@
 - **L2.3** Los 5 patógenos principales en hotelería: Salmonella, E. coli, Listeria, Campylobacter, Staph aureus *(50 min)*
 - **L2.4** Caso documentado: brotes en hoteles LATAM 2020-2024 *(50 min)*
 
-### Módulo 3 — Las 11 áreas evaluadas + 28 puntos críticos (5 h · 5 lessons)
+### Módulo 3 — Las 11 áreas evaluadas + 28 puntos críticos (5 h · 5 lessons + 🎮 Game A capstone)
+
+> **Capstone del Módulo 3 (Fase 1.4-INTERLUDIO):** 🎮 Game A *"Auditoría Sorpresa: Distintivo H Simulator"* — Phaser 3 simulator con 3 escenarios (cocina hostal pequeño 10 ítems / restaurant hotel medio 18 ítems / kitchen central resort 28 ítems críticos completos). Capstone integrado del Módulo 3. Ver [doc 23 §6](../../23-games-interactive-learning-strategy.md).
+
 - **L3.1** El error común: limpiar para auditoría, no como rutina *(30 min)*
 - **L3.2** Áreas 1-3: Recepción / Almacenamiento / Sustancias químicas *(60 min)*
 - **L3.3** Áreas 4-6: Refrigeración / Cocina / Agua y hielo *(75 min)*
@@ -235,4 +238,6 @@ Cada respuesta tiene `explain` con cita a documento oficial.)
 
 ## Bitácora
 
-- **2026-05-22** — Outline creado. Estructura definitiva 8 módulos · ~28 lessons · ~24 h. Bibliografía oficial completa con 18 fuentes verificables públicas. Plantilla canónica de lesson definida. Producción Día 1 arranca con Módulo 1.
+- **2026-05-22** (Día 1) — Outline creado. Estructura definitiva 8 módulos · ~28 lessons · ~24 h. Bibliografía oficial completa con 18 fuentes verificables públicas. Plantilla canónica de lesson definida. **Módulo 1 redactado completo** (3 lessons): confundir DH con licencia COFEPRIS / NMX-F-605 qué dice la norma / ecosistema SECTUR-EMA-UV.
+- **2026-05-22** (Día 2 PM) — **Módulo 2 redactado completo** (4 lessons): el pescado huele bien (error común) / zona de peligro 4-60°C / 5 patógenos prioritarios (Salmonella, E. coli O157:H7, Listeria, Campylobacter, S. aureus) / 4 brotes documentados LATAM 2020-2024. Bibliografía expandida: CDC + WHO + OPS + USDA Pathogen Modeling + James Reason 1990 Modelo Queso Suizo + Sharot 2011 optimism bias.
+- **2026-05-22** (PM tardía) — Módulo 3 marcado con 🎮 **Game A capstone** "Auditoría Sorpresa: Distintivo H Simulator" en Fase 1.4-INTERLUDIO post Fase 1.3. Ver doc 23.

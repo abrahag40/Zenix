@@ -2025,6 +2025,7 @@ Los 3 cursos hospitality del catálogo MVP **NO son sobre cómo usar el sistema 
 | **D — Doble hook revenue** | Hotel medio/grande, owner financiero | "+ activamos módulo upsell con técnicas LEARN + scarcity" |
 | **E — Triple hook estratégico** | Cadenas 3+ properties, C-suite | "+ DLC anual + Curso Zenix Sistema gratis para todo staff" |
 | **F — Hook educativo (reverse psychology)** | Prospecto experimentado, escéptico de "trucos de venta" | "Si tu staff no aprende, no me debes nada del curso" |
+| **G — Hook Killer Demo Game** (post Fase 1.4) | Cadenas, prospectos que ya vieron Cloudbeds Academy/Mews, founders younger | Demo en vivo 3 min del Game A "Auditoría Sorpresa Distintivo H Simulator" antes del cierre |
 
 **Anti-variantes prohibidas** (manipulación):
 - ❌ "Te regalo si cierras hoy" (escasez forzada)
@@ -2055,6 +2056,63 @@ Pricing y detalle por tier en [docs/zenix-learning/22-sales-negotiation-model.md
 ### Curso Zenix Sistema — producto separado (NO está en el catálogo hospitality)
 
 > Curso técnico de cómo operar el PMS Zenix por rol (RECEPTIONIST / HOUSEKEEPER / SUPERVISOR / GM). **Gratis**, incluido en Activate wizard onboarding. Producido **después** del Tier 1 MVP. Un cliente que cancela su DLC Zenix Learning **sigue teniendo este curso** para nuevos contratados — es operacional del PMS, no opcional.
+
+### Games HTML5 como diferenciador comercial (decisión aprobada 2026-05-22)
+
+> Documentación canónica: [docs/zenix-learning/23-games-interactive-learning-strategy.md](../zenix-learning/23-games-interactive-learning-strategy.md).
+
+**Stack técnico:**
+- **Phaser 3** (MIT, free) → simulation-based games en el catálogo MVP
+- **PixiJS** (MIT, free) → microinteracciones gamificadas (confetti, level-up, certificate reveal)
+- **Babylon.js** (Apache 2.0) → reservado 3D futuro (NOM-017 EPP / NOM-029 mantenimiento, v1.2+)
+- **Tiled + Aseprite** → pipeline assets pixel-art
+- **PostHog/Mixpanel** → telemetría del game
+
+**Fundamento académico (no es vanity feature):**
+- **Sailer & Homner 2019** (*Educational Psychology Review*, meta-análisis n=14k) — gamificación cognitivo d=0.49 / motivacional d=0.36 / conductual d=0.25
+- **Hamari et al. 2014** — gamificación funciona contextualmente, solo simulation-based con consecuencias significativas
+- **Connor et al. 2003** — games simulation-based mejoran Kirkpatrick L3 transfer al trabajo real
+- **OSHA Serious Games** — completion 87% vs 54% lessons-only, scores +23%, incident reduction -34%
+
+**Pool de 7 conceptos de game (A-G) mapeados al catálogo MVP:**
+
+| # | Curso | Game concept | Cost | Fase |
+|---|-------|---------------|------|------|
+| A | Distintivo H + NOM-035 | **"Auditoría Sorpresa Distintivo H Simulator"** (top-down 2D Phaser, 3 escenarios, 28 puntos críticos NMX-F-605) | $8-12k | **1.4-INTERLUDIO (pilot)** |
+| B | Distintivo H | Mini "Zona Peligro 4-60°C" (arcade rápido) | $3-5k | 2.0 |
+| C | Distintivo H NOM-035 | "Diálogos Difíciles NOM-035" (branching narrative) | $6-10k | 2.0 |
+| D | Front Office | **"Front Desk Rush"** (Diner Dash simulator de recepción) | $10-15k | 1.5 (si conversion >20%) |
+| E | Front Office | "Document Detective" (fraud detection Papers Please-style) | $6-9k | 2.0 |
+| F | Housekeeping | **"Room Inspector"** (Where's Waldo 12-15 errores ocultos) | $7-10k | 1.5 (si conversion >20%) |
+| G | Housekeeping | "Chemical Safety: Mezcla Peligrosa" (drag-drop educational) | $4-6k | 2.0 |
+
+**Modelo comercial con games — el upsell goldmine:**
+
+1. Vendedor demo Game A en laptop del prospecto (3 min) → wow-factor brutal
+2. Prospecto firma PMS + DLC Learning con Variante G
+3. 6 meses después, vendedor regresa con métricas reales
+4. Upsell custom game: layout REAL del cliente + sus puntos críticos específicos
+5. **Pricing custom: $5-20k USD desarrollo + $200-500/mes license recurrente**
+6. **Lock-in real:** custom game vive en Zenix, migrar a otro PMS = perder el asset
+
+**ROI estimado Game A únicamente (Fase 1.4):**
+- Inversión: $8-12k USD
+- Revenue Year 1 estimado: $54-117k USD (3-5 prospectos enterprise extra cierran por demo)
+- **ROI: 4.5× – 14.5× en 12 meses** + posicionamiento "único PMS con games educativos LATAM"
+
+**Roadmap fases:**
+- **Fase 1.3 (sprint actual):** SIN games — los 3 cursos MVP se completan lessons-only
+- **Fase 1.4-INTERLUDIO (post Fase 1.3, 3 semanas):** Game A "Auditoría Sorpresa" como demo killer
+- **Fase 1.5 (post primer cliente piloto):** medir conversion lift ≥20% → expandir a Games D y F
+- **Fase 2 (v1.1+):** marketplace games (revenue share 70/30) + custom games per-cliente enterprise
+
+**Anti-patrones prohibidos en games Zenix Learning:**
+- ❌ Trivia gamificada (sin simulator real)
+- ❌ Leaderboard público entre staff (viola privacy peer-to-peer)
+- ❌ Game obligatorio para aprobar curso (viola autonomía SDT)
+- ❌ Microtransactions / pay-to-win / pay-to-skip
+- ❌ Dark patterns (loss aversion forzada, streaks que crean ansiedad)
+- ❌ Webcam tracking sin consentimiento explícito GDPR/LFPDPPP
 
 ### Arquitectura LMS — engine vs content separation (no negociable)
 
@@ -2101,4 +2159,5 @@ Pricing y detalle por tier en [docs/zenix-learning/22-sales-negotiation-model.md
 *Última actualización arquitectura: 2026-05-15 — Agregada sección Módulo 5 (Configuración Multi-Propiedad + Multi-País) con modelo 4-level Brand→Organization→LegalEntity→Property. Agregada sección "Implementación Zenix — wizard Activate" inspirado en SAP Activate. Agregada sección "Infraestructura enterprise-grade" con 4 fases sin lock-in. 10 países LATAM modelados desde día 1 (MX/CO/CR/PE/PA/GT/SV/HN/BR/AR). Ver docs/vision/11-multi-tenant-architecture.md, 12-infrastructure-devops.md, 13-consultant-setup-wizard.md.*
 *Última actualización PAY/CFDI: 2026-05-15 (PM) — Agregado Módulo 7 (Cobros, divisas e impuestos) tras investigación competitiva de 5 PMS premium (Mews, Cloudbeds, Opera Cloud, Roomraccoon, Little Hotelier). 9 sub-módulos consolidados: multi-currency con FX lock inmutable, OTA-collect detection, cash drawer multi-divisa, Banxico SF43718 integration, GuestCredit con CFDI E (FormaPago=15 Condonación), tax engine multi-impuesto (IVA + ISH 6% QR 2026 + DSA UMA-based), tax transparency INCLUSIVE para resolver fricción Hostelworld, FxAdvisor como DLC tier Pro. Decisiones §81-§90 en CLAUDE.md. Ver docs/vision/14-payment-currency-tax-architecture.md.*
 *Última actualización Tax Catalog: 2026-05-15 (PM late) — Agregada subsección "Tax Catalog curado por Zenix" como diferenciador estructural. Matriz completa MX 32 estados ISH 2026 confirmada (El Contribuyente × JA Del Río × Airbnb Help). Tabla granularidad LATAM 10 países (Brasil EXCLUIDO v1.0, entrar v1.2 con Sovos). DSA Tulum marcado como AMBIGUOUS (per-room vs per-person tiered se contradicen entre fuente oficial Riviera Maya y Reporte QR — Decreto 191 texto literal no accesible). Decisiones §91-§94 en CLAUDE.md: catálogo nativo, override en dos capas, Brasil exclusión, status AMBIGUOUS. Wizard objetivo: 6-8 clicks vs ~30 Cloudbeds.*
-*Última actualización Zenix Learning: 2026-05-22 — Agregado Módulo 8 (Zenix Learning LMS Add-On/DLC) tras decisiones del usuario sobre modelo comercial (Cialdini Reciprocity + SDT Autonomy + variantes del doble hook + Pool completo de cursos candidatos como roadmap a 24 meses) y arquitectura técnica (engine vs content separation no negociable). Catálogo MVP confirmado: Distintivo H + NOM-035 (combo MX) + Front Office Excellence (AHLEI CFDR-aligned) + Housekeeping Standards Premium (AHLEI CHHE-aligned). Cursos NO usan terminología Zenix interna — son estándares portables certificables externamente. Curso Zenix Sistema (cómo operar el PMS) es producto separado, gratis vía Activate wizard. Roadmap a certificación gubernamental oficial: Zenix como ACE STPS post primer cliente piloto (v1.0.5+) → DC-3 oficial (v1.1.x) → alianzas LATAM CONOCER/SENA/INA/SUNAFIL/etc (v1.2+). Pool de cursos candidatos Tier 1-5 documentado en docs/zenix-learning/22-sales-negotiation-model.md. Decisiones §128+ reservadas en CLAUDE.md al cerrar sprint LEARNING-CORE.*
+*Última actualización Zenix Learning: 2026-05-22 (AM) — Agregado Módulo 8 (Zenix Learning LMS Add-On/DLC) tras decisiones del usuario sobre modelo comercial (Cialdini Reciprocity + SDT Autonomy + variantes del doble hook + Pool completo de cursos candidatos como roadmap a 24 meses) y arquitectura técnica (engine vs content separation no negociable). Catálogo MVP confirmado: Distintivo H + NOM-035 (combo MX) + Front Office Excellence (AHLEI CFDR-aligned) + Housekeeping Standards Premium (AHLEI CHHE-aligned). Cursos NO usan terminología Zenix interna — son estándares portables certificables externamente. Curso Zenix Sistema (cómo operar el PMS) es producto separado, gratis vía Activate wizard. Roadmap a certificación gubernamental oficial: Zenix como ACE STPS post primer cliente piloto (v1.0.5+) → DC-3 oficial (v1.1.x) → alianzas LATAM CONOCER/SENA/INA/SUNAFIL/etc (v1.2+). Pool de cursos candidatos Tier 1-5 documentado en docs/zenix-learning/22-sales-negotiation-model.md. Decisiones §128+ reservadas en CLAUDE.md al cerrar sprint LEARNING-CORE.*
+*Última actualización Games Strategy: 2026-05-22 (PM tardía) — Agregada subsección "Games HTML5 como diferenciador comercial" en Módulo 8 tras decisión aprobada del usuario. Pool de 7 conceptos de game (A-G) mapeados al catálogo MVP. Game-pilot Fase 1.4-INTERLUDIO confirmado: Game A "Auditoría Sorpresa Distintivo H Simulator" Phaser 3 con 3 escenarios. Stack: Phaser 3 + PixiJS + Babylon (futuro) + Tiled + Aseprite + PostHog. Fundamento académico citado (Sailer & Homner 2019 d=0.49, Hamari 2014, Connor 2003, OSHA Serious Games). Variante G "Hook Killer Demo Game" añadida al catálogo de variantes del doble hook. Modelo upsell: custom games per-cliente enterprise ($5-20k USD desarrollo + license recurrente). ROI estimado 4.5×-14.5× en 12 meses solo Game A. Doc canónico: docs/zenix-learning/23-games-interactive-learning-strategy.md (28 fuentes verificables + 10 anti-patrones prohibidos + Kirkpatrick L1-L4 métricas).*

@@ -144,6 +144,49 @@ propios méritos."
 
 **Cuándo usar:** prospecto experimentado, cansado de tácticas de venta. Reverse psychology Cialdini. Apela a profesionalismo.
 
+### Variante G — Hook Killer Demo Game (post Fase 1.4-INTERLUDIO, máximo wow-factor)
+
+> **Disponible cuando Game A "Auditoría Sorpresa: Distintivo H Simulator" esté publicado (post Fase 1.4-INTERLUDIO, ~Q4 2026).** Ver doc 23.
+
+```
+Vendedor: "Para que decidas probar Zenix, te muestro 3 minutos
+de algo que NO va a tener ningún otro PMS que estés evaluando."
+
+[Demo del Game A "Auditoría Sorpresa" en laptop del prospecto, 3 min]
+
+Vendedor: "Esto es el curso Distintivo H + NOM-035 con simulator
+incluido — uno de los 3 cursos disponibles. Te lo regalo si firmas
+hoy. Los otros 2 cursos están en mi DLC mensual a $7-9 USD/staff/mes.
+
+Tu staff aprende JUGANDO, y al final reciben comprobante
+certificado alineado a NMX-F-605 + NOM-035. Cuando vea métricas
+de cómo engancha a tu personal, podemos hablar de un game CUSTOM
+con el layout REAL de tu cocina + tus puntos críticos específicos."
+```
+
+**Cuándo usar:**
+- Prospecto enterprise (3+ properties) o cadena
+- Prospecto que ya vio demos de competidores (Cloudbeds Academy, TalentLMS, Mews) y necesita diferenciación contundente
+- Prospecto que valora "innovación tecnológica" como criterio de decisión (founder/CEO younger demografía)
+
+**Por qué funciona psicológicamente:**
+- **Cialdini Prueba social diferenciada** — el prospecto ve algo único que nadie más tiene
+- **Loss aversion Kahneman amplificada** — "si no firmas, pierdes este simulator + lo verás en hoteles competidores en 6 meses"
+- **Compromiso por experiencia directa** — el prospecto JUGÓ el game (no solo le contaron), creando ownership cognitivo
+- **Anclaje de valor premium** — el wow-factor del game justifica pricing premium del PMS sobre alternativas baratas
+
+**Upsell secuencia post-cierre (6 meses después):**
+
+```
+Vendedor regresa con métricas: "Tu staff completó al 92% (vs 60% benchmark
+industry) — el game está enganchándolos. Pero veo que fallaron en cocina
+central porque tu layout es único. ¿Te interesa un game CUSTOM con tu
+cocina exacta + tus 47 puntos críticos específicos? $12k USD desarrollo
++ $300/mes license. Lo entregamos en 6 semanas."
+```
+
+Esta es la **vena de revenue significativo + lock-in real** que el modelo del usuario propone.
+
 ### Anti-variantes (PROHIBIDAS)
 
 ❌ **NO**: "Te regalo el curso si cierras hoy" — escasez forzada, manipulación. Viola principio de venta ética.  
@@ -347,4 +390,5 @@ Zenix Learning convierte cada empleado capacitado en embajador del hotel **Y** e
 
 ## Bitácora
 
-- **2026-05-22** — Doc creado tras decisión del usuario de adoptar Cialdini Reciprocity + SDT Autonomy como marco comercial, segmentar Inglés Hotelero en Esencial/Intermedio/Avanzado, documentar Pool completo de cursos candidatos como roadmap, y formalizar roadmap a certificación gubernamental oficial (ACE STPS). Sirve de master reference para el equipo comercial al vender Zenix Learning como add-on/DLC del PMS.
+- **2026-05-22** (AM) — Doc creado tras decisión del usuario de adoptar Cialdini Reciprocity + SDT Autonomy como marco comercial, segmentar Inglés Hotelero en Esencial/Intermedio/Avanzado, documentar Pool completo de cursos candidatos como roadmap, y formalizar roadmap a certificación gubernamental oficial (ACE STPS). Sirve de master reference para el equipo comercial al vender Zenix Learning como add-on/DLC del PMS.
+- **2026-05-22** (PM) — Añadida Variante G "Hook Killer Demo Game" (post Fase 1.4-INTERLUDIO) — el vendedor muestra Game A "Auditoría Sorpresa Distintivo H Simulator" en vivo 3 min antes del cierre. Upsell secuencia post-cierre 6 meses después para custom games per-cliente ($5-20k USD desarrollo + license recurrente). Cross-reference a doc 23 (games strategy completa).
