@@ -55,6 +55,12 @@ enum AppNotificationCategory {
   // ADMIN_ERROR / HOTEL = HIGH (anómalos), OTA = MEDIUM, GUEST = LOW.
   STAY_CANCELLED
   STAY_RESTORED
+  // ── Sprint LEARNING-CORE Fase 1.2 — Push reminders learning (§136 max 2/día) ─
+  // Disparados por LearningReminderScheduler con timing pegado a Shift.startTime
+  // (10 min antes). Priority MEDIUM (compliance importante pero no urgente).
+  // Alert fatigue prevention: consolidados si >1 pendiente.
+  LEARNING_REMINDER       // staff con curso en progreso + turno próximo
+  LEARNING_EXPIRY_WARNING // staff con cert venciendo en 7d/3d/1d
 }
 
 enum AppNotificationPriority {

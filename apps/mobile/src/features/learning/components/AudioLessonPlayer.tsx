@@ -14,9 +14,11 @@
  * Tracking: cada 5s emite trackProgress via parent prop callback.
  * Cuando position >= 95% duration → onComplete callback.
  */
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { useAudioStore } from '../store/audioStore'
+import { mediaCache } from '../offline/mediaCache'
+import { prefetchNextLessons } from '../offline/lessonPrefetch'
 import { colors } from '../../../design/colors'
 import { typography } from '../../../design/typography'
 
@@ -26,6 +28,7 @@ export function AudioLessonPlayer(props: {
   audioUrl: string
   title: string
   courseTitle: string
+  courseSlug?: string
   transcriptText?: string | null
   initialBookmarkPosition?: number
   onProgressTick: (positionSec: number, isCompleted: boolean) => void
@@ -34,21 +37,57 @@ export function AudioLessonPlayer(props: {
     useAudioStore()
 
   const lastTickRef = useRef(0)
+  const [prefetching, setPrefetching] = useState(false)
+  const [prefetchResult, setPrefetchResult] = useState<string | null>(null)
 
   // Cargar el track si es nuevo. Si el mismo track ya está cargado en el
   // store, no recargamos (preserva el playhead — Spotify pattern).
+  // §150 — usa cache local si está disponible (offline-first).
   useEffect(() => {
     if (track?.lessonId === props.lessonId) return
-    void loadTrack({
-      lessonId: props.lessonId,
-      enrollmentId: props.enrollmentId,
-      url: props.audioUrl,
-      title: props.title,
-      courseTitle: props.courseTitle,
-      startAtSec: props.initialBookmarkPosition,
-    })
+
+    const loadWithCache = async () => {
+      // Intenta cache local primero. Si no, usa URL remota.
+      const localPath = await mediaCache.getLocalPath(props.audioUrl)
+      const urlToPlay = localPath ?? props.audioUrl
+      void loadTrack({
+        lessonId: props.lessonId,
+        enrollmentId: props.enrollmentId,
+        url: urlToPlay,
+        title: props.title,
+        courseTitle: props.courseTitle,
+        startAtSec: props.initialBookmarkPosition,
+      })
+    }
+    void loadWithCache()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.lessonId, props.audioUrl])
+
+  // Background prefetch al montar — descarga próximas lessons si wifi
+  useEffect(() => {
+    if (!props.courseSlug) return
+    void prefetchNextLessons(props.courseSlug, props.lessonId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.lessonId, props.courseSlug])
+
+  const handleManualPrefetch = useCallback(async () => {
+    if (!props.courseSlug) return
+    setPrefetching(true)
+    setPrefetchResult(null)
+    const result = await prefetchNextLessons(props.courseSlug, props.lessonId)
+    setPrefetching(false)
+    if (result.skipped === 'not_wifi') {
+      setPrefetchResult('Conecta a wifi para descargar')
+    } else if (result.skipped === 'error') {
+      setPrefetchResult('Error al descargar — intenta más tarde')
+    } else {
+      setPrefetchResult(
+        result.downloaded > 0
+          ? `✓ ${result.downloaded} lessons descargadas`
+          : 'Todo el contenido ya está disponible offline',
+      )
+    }
+  }, [props.courseSlug, props.lessonId])
 
   // Sync interval — actualiza positionSec desde el player cada 1s.
   // Cada 5s emite trackProgress al parent.
@@ -134,6 +173,21 @@ export function AudioLessonPlayer(props: {
         ))}
       </View>
 
+      {/* Prefetch button */}
+      {props.courseSlug && (
+        <Pressable
+          style={styles.prefetchBtn}
+          onPress={handleManualPrefetch}
+          disabled={prefetching}
+        >
+          <Text style={styles.prefetchText}>
+            {prefetching
+              ? 'Descargando…'
+              : prefetchResult ?? '⬇  Descargar próximas para offline'}
+          </Text>
+        </Pressable>
+      )}
+
       {/* Transcript */}
       {props.transcriptText && (
         <View style={styles.transcriptBox}>
@@ -215,6 +269,14 @@ const styles = StyleSheet.create({
   rateText: { color: colors.text.secondary, fontSize: 12, fontWeight: '500' },
   rateTextActive: { color: colors.text.inverse },
 
+  prefetchBtn: {
+    marginBottom: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: colors.canvas.tertiary,
+    borderRadius: 10,
+  },
+  prefetchText: { color: colors.text.secondary, fontSize: 12, textAlign: 'center' },
   transcriptBox: {
     backgroundColor: colors.canvas.secondary,
     borderRadius: 12,

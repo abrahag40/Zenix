@@ -183,7 +183,7 @@ function LessonContent(props: {
     pdfUrl: string | null
     transcriptText: string | null
     durationMinutes: number
-    module: { course: { title: string } }
+    module: { course: { title: string; slug: string } }
   }
   initialBookmarkPosition?: number
   onProgressTick: (positionSec: number, isCompleted: boolean) => void
@@ -206,6 +206,7 @@ function LessonContent(props: {
           audioUrl={lesson.audioUrl}
           title={lesson.title}
           courseTitle={lesson.module.course.title}
+          courseSlug={lesson.module.course.slug}
           transcriptText={lesson.transcriptText}
           initialBookmarkPosition={props.initialBookmarkPosition}
           onProgressTick={props.onProgressTick}

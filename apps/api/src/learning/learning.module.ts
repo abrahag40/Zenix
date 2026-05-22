@@ -14,6 +14,7 @@ import { AttemptsService } from './attempts/attempts.service'
 import { CertificatesController } from './certificates/certificates.controller'
 import { CertificatesService } from './certificates/certificates.service'
 import { LearningScopeService } from './scope/learning-scope.service'
+import { LearningReminderScheduler } from './schedulers/learning-reminder.scheduler'
 
 /**
  * Sprint LEARNING-CORE — Zenix Learning (LMS Add-On/DLC)
@@ -58,6 +59,8 @@ import { LearningScopeService } from './scope/learning-scope.service'
     // Inyecta AccessControlService (@Global) y resuelve scope BRAND/
     // LEGAL_ENTITY/PROPERTY antes de mutaciones cross-property.
     LearningScopeService,
+    // Sprint LEARNING-CORE Fase 1.2 Día 7 — push reminders cron 9 AM Mx
+    LearningReminderScheduler,
     TenantContextService,
   ],
   exports: [
