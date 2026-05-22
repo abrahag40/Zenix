@@ -53,8 +53,9 @@ import { useAuthStore } from '../../store/auth'
 import { colors } from '../../design/colors'
 import { typography } from '../../design/typography'
 import { MOTION } from '../../design/motion'
-import { IconHome, IconBed, IconBell, IconUser } from '../../design/icons'
+import { IconHome, IconBed, IconBell, IconUser, IconGraduation } from '../../design/icons'
 import { IconWrench } from '../maintenance/icons'
+import { useDLCActive } from '../learning/hooks/useDLCActive'
 import { IconWasher } from '../laundry/icons'
 import { IconBuilding } from '../public-areas/icons'
 import { IconTree } from '../gardening/icons'
@@ -87,6 +88,7 @@ function pickWorkIcon(department?: Department): IconComponent {
 
 const STATIC_TABS = {
   index:           { label: 'Inicio',    Icon: IconHome, routeName: 'index' as const },
+  aprende:         { label: 'Aprende',   Icon: IconGraduation, routeName: 'aprende' as const },
   notificaciones:  { label: 'Notif.',    Icon: IconBell, routeName: 'notificaciones' as const },
   yo:              { label: 'Yo',        Icon: IconUser, routeName: 'yo' as const },
 }
@@ -96,12 +98,21 @@ export function ZenixTabBar(props: BottomTabBarProps) {
   const insets = useSafeAreaInsets()
   const department = useAuthStore((s) => s.user?.department)
 
+  // Sprint LEARNING-CORE Fase 1.2 — tab "Aprende" condicional al DLC §147.
+  // Si LEARNING_CORE no activo (o property fuera del scope), el tab NO aparece.
+  // Cuando el admin activa el DLC, el tab aparece en el próximo render
+  // (staleTime 60s). Pattern Instagram/FB con 5 tabs cuando aplica.
+  const { isActive: learningActive } = useDLCActive('LEARNING_CORE')
+
   // Build the per-render config — "Mi día" icon depends on user.department.
   const TAB_CONFIG: Record<string, TabConfig> = {
     index:           STATIC_TABS.index,
     trabajo:         { label: 'Mi día', Icon: pickWorkIcon(department), routeName: 'trabajo' },
     notificaciones:  STATIC_TABS.notificaciones,
     yo:              STATIC_TABS.yo,
+  }
+  if (learningActive) {
+    TAB_CONFIG.aprende = STATIC_TABS.aprende
   }
 
   // Filter to only the routes we have configured (skip anything else

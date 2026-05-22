@@ -33,6 +33,8 @@ import { ZenixTabBar } from '../../src/features/navigation/TabBar'
 import { FocusBanner } from '../../src/features/housekeeping/gamification/FocusBanner'
 import { useFocusMode } from '../../src/features/housekeeping/gamification/useFocusMode'
 import { EdgeSwipeBack } from '../../src/features/navigation/EdgeSwipeBack'
+// Sprint LEARNING-CORE Fase 1.2 — Audio mini-player Spotify-style persistente
+import { AudioMiniPlayer } from '../../src/features/learning/components/AudioMiniPlayer'
 
 export default function AppTabsLayout() {
   // Focus-mode swap: when the staff has an active IN_PROGRESS task,
@@ -66,6 +68,11 @@ export default function AppTabsLayout() {
               additionalCount={Math.max(0, focus.activeCount - 1)}
             />
           )}
+          {/* Sprint LEARNING-CORE Fase 1.2 — audio mini-player Spotify-style.
+              Aparece sobre tab bar cuando hay audio activo. Null si no.
+              Posición: ABAJO del FocusBanner pero ARRIBA del TabBar (orden
+              visual top-down: focus tarea > audio > tabs). */}
+          <AudioMiniPlayer />
           <ZenixTabBar {...props} />
         </>
       )}
@@ -78,6 +85,11 @@ export default function AppTabsLayout() {
     >
       <Tabs.Screen name="index"          options={{ title: 'Inicio' }} />
       <Tabs.Screen name="trabajo"        options={{ title: 'Mi día' }} />
+      {/* Sprint LEARNING-CORE Fase 1.2 — "Aprende" condicional al DLC.
+          ZenixTabBar filtra: si LEARNING_CORE no ACTIVE, NO aparece en el
+          tab bar visible. Pero la ruta queda registrada para que push
+          notifications / deep links externos puedan navegar igual. */}
+      <Tabs.Screen name="aprende"        options={{ title: 'Aprende' }} />
       <Tabs.Screen name="notificaciones" options={{ title: 'Notif.' }} />
       <Tabs.Screen name="yo"             options={{ title: 'Yo' }} />
 
@@ -94,6 +106,12 @@ export default function AppTabsLayout() {
       <Tabs.Screen name="maintenance/report" options={{ href: null }} />
       <Tabs.Screen name="maintenance/ticket/[id]" options={{ href: null }} />
       <Tabs.Screen name="maintenance/history" options={{ href: null }} />
+      {/* Sprint LEARNING-CORE Fase 1.2 — sub-screens pushed desde tab "aprende".
+          No aparecen en tab bar (href:null), se navegan vía router.push(). */}
+      <Tabs.Screen name="aprende/catalog" options={{ href: null }} />
+      <Tabs.Screen name="aprende/course/[slug]" options={{ href: null }} />
+      <Tabs.Screen name="aprende/lesson/[id]" options={{ href: null }} />
+      <Tabs.Screen name="aprende/attempt/[enrollmentId]" options={{ href: null }} />
       <Tabs.Screen name="testing" options={{ href: null }} />
     </Tabs>
     </EdgeSwipeBack>

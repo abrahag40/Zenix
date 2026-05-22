@@ -76,6 +76,16 @@ export function IconUser({ size = 24, color = '#9CA3AF', active = false }: IconP
   )
 }
 
+// ─── Graduation cap — Aprende (Learning) ────────────────────────────────────
+export function IconGraduation({ size = 24, color = '#9CA3AF', active = false }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path d="M22 10v6M2 10l10-5 10 5-10 5z" {...pathProps(color, active)} />
+      <Path d="M6 12v5c0 1.66 2.69 3 6 3s6-1.34 6-3v-5" {...pathProps(color, active)} />
+    </Svg>
+  )
+}
+
 // ─── Chevron Right — for menu items ─────────────────────────────────────────
 export function IconChevronRight({ size = 20, color = '#9CA3AF' }: { size?: number; color?: string }) {
   return (
