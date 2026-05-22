@@ -100,6 +100,29 @@ Sin consultor pagado, la calidad se asegura por **trazabilidad cita-por-cita** a
 
 ## 2. Plantilla editorial canónica — cada lesson sigue este shape
 
+**Anclaje pedagógico oficial** (validado en doc 19 — solo invocamos Tier 1-2):
+
+| Componente de la lesson | Fundamento Tier oficial | Cita verificable |
+|--------------------------|--------------------------|-------------------|
+| Apertura "El error común" | SDT principio "competencia" (APA) | *"Identificar el error previo construye la zona de competencia próxima"* |
+| Quiz inline self-check | Cepeda et al. 2006 (Psychological Bulletin) — retrieval practice | *"Práctica distribuida con feedback inmediato — Cepeda 2006"* |
+| Max 5 elementos visuales por bloque | Sweller — Cognitive Load Theory (EPR 1998) | *"Reducción de carga extrínseca para optimizar working memory"* |
+| Cierre "Hoy mismo en tu turno" | SDT principios "autonomía + relación" (APA) | *"Transferencia inmediata aplicada al contexto laboral"* |
+| Spaced re-quiz 30/60/90d (Fase 1.2b) | Cepeda 2006 meta-analítico d=0.54 | *"Práctica distribuida en intervalos exponenciales"* |
+| Evaluación por niveles | Kirkpatrick 4 Levels (ATD published) | *"Marco evaluativo ATD oficial"* |
+| Estructura curricular Course/Module/Lesson | Anderson-Krathwohl Bloom revisada | *"Estándar internacional de diseño curricular"* |
+
+**Métodos del Tier 4 a invocar con honestidad** (no como ciencia comprobada):
+- Andragogía Knowles → "marco operativo UNESCO-UIL DELTA 2025" (NO "teoría comprobada")
+- Octalysis → "framework con 3700+ citas académicas, aplicado por Google/LEGO" (NO "validado peer-review")
+- Flow Csikszentmihalyi → "Positive Psychology field APA"
+
+**Métodos PROHIBIDOS en redacción** (§154 reservada — doc 19):
+- ❌ Learning Styles / VAK / "estilos visual-auditivo-kinestésico"
+- ❌ Brain-based learning como ciencia
+- ❌ "10% del cerebro" / left-right brain
+- ❌ Cualquier neuromito documentado en Frontiers 2021
+
 Cada `LearningLesson.contentJson` se redacta con este formato exacto:
 
 ```json

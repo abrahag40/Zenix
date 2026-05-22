@@ -39,6 +39,8 @@ Tres razones objetivas (no marketing):
 | [16-standards-utilization-commitment.md](16-standards-utilization-commitment.md) | Compromisos ejecutables de alineamiento a estándares LMS sin certificación formal (Fase 1) — checklist por fase | Ingeniería, producto |
 | [17-activate-dlc-partner-alignment.md](17-activate-dlc-partner-alignment.md) | Activate wizard ↔ DLC ↔ Partner network alignment + estado honesto + Etapa 7.5 propuesta + Partner roadmap v1.2+ | Producto, comercial, ingeniería |
 | [18-pricing-billing-detail.md](18-pricing-billing-detail.md) | Cómo se cobra exactamente — per-active-staff + casos concretos + comparativa competencia + edge cases pendientes Fase 1.4 | Comercial, producto |
+| [19-pedagogical-foundations-official-validation.md](19-pedagogical-foundations-official-validation.md) | Validación quirúrgica de fundamentos pedagógicos oficialmente reconocidos (APA/ATD/ISO/UNESCO/LATAM). Tabla Tier 1-4 + métodos PROHIBIDOS + frase comercial maestra | Producto, comercial, ingeniería |
+| [20-content-production-plan.md](20-content-production-plan.md) | Plan ejecutable Fase 1.3 redacción 3 cursos — 31 fuentes públicas + plantilla editorial canónica + cronograma 12 días + quality bar | Producto, contenido |
 
 ---
 
