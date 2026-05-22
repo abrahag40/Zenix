@@ -22,7 +22,21 @@
 
 ---
 
-## 1. Estructura curricular — 8 módulos · ~28 lessons
+## 1. Estructura curricular — 8 módulos · ~28 lessons · módulos-gating con quizzes
+
+> **Mecánica de progreso modular** (decisión 2026-05-22 Día 3): cada módulo cierra con su Module Quiz (8-12 preguntas, ≥75% aprobación). Al aprobar Module Quiz N, el aprendiz desbloquea Módulo N+1 + acumula 12.5% del progreso total del curso. Detalle completo en [doc 24 — Course Progress & Module-Gating Mechanics](../../24-course-progress-module-gating.md).
+
+| Módulo | Lessons | Horas | Module Quiz | % al aprobar |
+|--------|---------|-------|---------------|----------------|
+| 1. Marco normativo Distintivo H | 3 | 2 | 8 preguntas ≥75% | **12.5%** |
+| 2. Zona de peligro + ETAs | 4 | 3 | 10 preguntas ≥75% | 25.0% |
+| 3. 11 áreas + 28 puntos críticos (+ 🎮 Game A capstone) | 5 | 5 | 12 preguntas ≥75% | 37.5% |
+| 4. Higiene del manipulador | 3 | 2 | 8 preguntas ≥75% | 50.0% |
+| 5. Limpieza vs desinfección + códigos | 4 | 3 | 10 preguntas ≥75% | 62.5% |
+| 6. Marco NOM-035 + 5 factores psicosociales | 3 | 3 | 10 preguntas ≥75% | 75.0% |
+| 7. Guías Referencia I/II/III | 3 | 3 | 8 preguntas ≥75% | 87.5% |
+| 8. Política + evidencia + plan de acción | 3 | 3 | 8 preguntas ≥75% | 100% + unlock examen final |
+| **Examen Final** | — | 1 | 60 preguntas + 1 caso práctico ≥80% global + 100% críticos | Certificado emitido |
 
 ### Módulo 1 — Marco normativo Distintivo H (2 h · 3 lessons)
 - **L1.1** El error común: confundir Distintivo H con licencia sanitaria *(15 min)*
@@ -241,3 +255,4 @@ Cada respuesta tiene `explain` con cita a documento oficial.)
 - **2026-05-22** (Día 1) — Outline creado. Estructura definitiva 8 módulos · ~28 lessons · ~24 h. Bibliografía oficial completa con 18 fuentes verificables públicas. Plantilla canónica de lesson definida. **Módulo 1 redactado completo** (3 lessons): confundir DH con licencia COFEPRIS / NMX-F-605 qué dice la norma / ecosistema SECTUR-EMA-UV.
 - **2026-05-22** (Día 2 PM) — **Módulo 2 redactado completo** (4 lessons): el pescado huele bien (error común) / zona de peligro 4-60°C / 5 patógenos prioritarios (Salmonella, E. coli O157:H7, Listeria, Campylobacter, S. aureus) / 4 brotes documentados LATAM 2020-2024. Bibliografía expandida: CDC + WHO + OPS + USDA Pathogen Modeling + James Reason 1990 Modelo Queso Suizo + Sharot 2011 optimism bias.
 - **2026-05-22** (PM tardía) — Módulo 3 marcado con 🎮 **Game A capstone** "Auditoría Sorpresa: Distintivo H Simulator" en Fase 1.4-INTERLUDIO post Fase 1.3. Ver doc 23.
+- **2026-05-22** (Día 3) — **Módulo 3 redactado completo** (5 lessons): error común limpiar-para-auditoría + áreas 1-3 (Recepción/Almacenamiento/Químicos) + áreas 4-6 (Refrigeración/Cocina/Agua-Hielo) + áreas 7-9 (Sanitarios/Basura/Plagas con IPM) + áreas 10-11 (Personal/Bar completo con los 28 puntos críticos). 4 casos COFEPRIS/OPS 2022-2024. Bibliografía expandida: FDA Food Code + EPA IPM + ISO 22000 + Codex Alimentarius CAC/RCP 1-1969 + LFT Art. 487. **Tabla de % progreso por módulo añadida** + cross-reference a doc 24 (mecánica de progreso modular + module-gating).

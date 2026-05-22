@@ -3,7 +3,7 @@
 > Documentación estratégica + técnica del módulo Zenix Learning (LMS embebido al PMS).
 > **Versión target:** v1.0.0 (rama `claude/zenix-learning-lms-v1-2qz8l`) o v1.1.0 fallback.
 > **Modelo comercial:** Add-On / DLC pago. Curso de regalo como hook de cierre comercial.
-> **Última actualización:** 2026-05-22 (PM tardía) — añadidos docs 21 (arquitectura engine/content) + 22 (modelo comercial Cialdini+SDT + 7 variantes del doble hook incl. Variante G "Hook Killer Demo Game" + Pool completo Tier 1-5) + 23 (Games HTML5 como diferenciador comercial — Phaser 3 + 7 conceptos game + Fase 1.4-INTERLUDIO roadmap) + producción Día 1 Módulo 1 completo (3 lessons) + Día 2 Módulo 2 completo (4 lessons) Curso 1 Distintivo H+NOM-035.
+> **Última actualización:** 2026-05-22 (Día 3) — añadidos docs 21 (arquitectura engine/content) + 22 (modelo comercial Cialdini+SDT + 7 variantes del doble hook incl. Variante G "Hook Killer Demo Game" + Pool completo Tier 1-5) + 23 (Games HTML5 como diferenciador comercial — Phaser 3 + 7 conceptos game + Fase 1.4-INTERLUDIO roadmap) + **24 (Course Progress & Module-Gating Mechanics — segmentación por módulos + quizzes + % progreso + re-takes anti-frustración)** + producción Día 1 Módulo 1 (3 lessons) + Día 2 Módulo 2 (4 lessons) + Día 3 Módulo 3 (5 lessons capstone Game A) Curso 1 Distintivo H+NOM-035.
 
 ---
 
@@ -44,7 +44,8 @@ Tres razones objetivas (no marketing):
 | [21-lms-architecture-content-separation.md](21-lms-architecture-content-separation.md) | **Arquitectura no negociable Engine vs Content** — el LMS es motor estable, los cursos son contenido versionado. Patrón Moodle/Canvas/Articulate. Anti-patrones prohibidos. Roadmap evolutivo. | Ingeniería, producto |
 | [22-sales-negotiation-model.md](22-sales-negotiation-model.md) | **Modelo comercial Cialdini + SDT + 7 variantes del doble hook (A-G) + Pool completo Tier 1-5** — Variante G "Hook Killer Demo Game" post Fase 1.4. Master del equipo comercial. | Comercial, founder |
 | [23-games-interactive-learning-strategy.md](23-games-interactive-learning-strategy.md) | **Games HTML5 como diferenciador comercial** — Phaser 3 + PixiJS + Babylon (futuro) + Tiled + Aseprite. 7 conceptos de game (A-G). Game-pilot Fase 1.4: "Auditoría Sorpresa Distintivo H Simulator". Engine/content integration. ROI 4.5×-14.5×. 28 fuentes verificables. | Producto, ingeniería, comercial |
-| [courses/01-distintivo-h-nom-035/](courses/01-distintivo-h-nom-035/) | **Curso 1 en producción (2026-05-22)** — Outline + Módulo 1 (3 lessons) + Módulo 2 (4 lessons) redactados. Próximo: Módulos 3-8. | Contenido |
+| [24-course-progress-module-gating.md](24-course-progress-module-gating.md) | **Course Progress & Module-Gating Mechanics** — segmentación por módulos, Module Quiz por módulo, % progreso por módulo aprobado, política re-takes 3 intentos anti-frustración, examen final separado para certificado. UX wireframes + mapping schema Prisma + ProgressService recalcula automáticamente. | Producto, ingeniería |
+| [courses/01-distintivo-h-nom-035/](courses/01-distintivo-h-nom-035/) | **Curso 1 en producción (2026-05-22)** — Outline + Módulo 1 (3 lessons) + Módulo 2 (4 lessons) + Módulo 3 (5 lessons capstone Game A) redactados. Próximo: Módulos 4-8. | Contenido |
 
 ---
 
