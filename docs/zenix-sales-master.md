@@ -1958,6 +1958,142 @@ OpEx incluye: AWS S3 + RDS Postgres ($40-60), Channex API ($30-50/property), Str
 
 ---
 
+## Módulo 8 — Zenix Learning LMS (Add-On / DLC)
+
+> **Brazo educativo de Zenix PMS.** No es un add-on cosmético: es la herramienta que corrige la **ignorancia operativa heredada** en hostería LATAM. Cada curso vendido (o regalado en negociación) agrega valor al hotel a través de su personal usando estándares oficiales portables (NMX-F-605 / NOM-035 / AHLEI / CDC / OSHA).
+>
+> **Documentación canónica:** [docs/zenix-learning/](../zenix-learning/) (22 docs).
+
+### Por qué Zenix Learning existe
+
+> *"Hay hoteles que trabajan su operación desde la ignorancia. Para eso son los cursos."* — insight comercial fundacional del usuario.
+
+Los 3 cursos hospitality del catálogo MVP **NO son sobre cómo usar el sistema Zenix**. Son sobre **mejores prácticas hoteleras alineadas a estándares oficiales globales**. Esto los hace:
+
+1. **Portables** — el staff que se va a otro hotel se lleva el conocimiento (estándar global, no Zenix-specific).
+2. **Certificables externamente** — alineados a NMX-F-605 (SECTUR), NOM-035 (STPS), AHLEI CFDR, AHLEI CHHE, CDC HAI, OSHA, EPA List N.
+3. **Vendibles a hoteles que NO usan Zenix PMS** — base para marketplace Tier 5 futuro (modelo Coursera/Udemy para hostería LATAM).
+
+### Catálogo MVP — los 3 cursos confirmados (Fase 1.3, producción 2026-05-22)
+
+| # | Curso | Modelo de venta | Estándar alineado |
+|---|-------|------------------|---------------------|
+| 1 | **Distintivo H + NOM-035-STPS** (combo compliance MX) | Individual one-time ($99-149 USD/staff certificado) + hook regalo | NMX-F-605-NORMEX-2018 + NOM-035-STPS-2018 |
+| 2 | **Front Office Excellence** (AHLEI CFDR-aligned) | DLC mensual base ($7-9 USD/staff/mes) + hook regalo | AHLEI Certified Front Desk Representative + CONOCER EC0124 |
+| 3 | **Housekeeping Standards Premium** (AHLEI CHHE-aligned) | DLC mensual base (mismo bundle) + hook regalo | AHLEI Certified Hospitality Housekeeping Executive + CDC HAI + OSHA + EPA |
+
+### Modelo comercial — Cialdini Reciprocity + SDT Autonomy
+
+> Marco académico no negociable: **Cialdini 1984** *Influence* (Reciprocidad, Compromiso público, Prueba social, Autoridad, Escasez controlada, Simpatía) + **Deci & Ryan 1985/2000** Self-Determination Theory (Autonomía, Competencia, Relacionalidad).
+
+**Mecánica de cierre del PMS con hook de curso regalo:**
+
+```
+1. Vendedor Zenix vende PMS al prospecto
+2. Prospecto duda / objeta el módulo LMS
+3. Vendedor: "Para que decidas probar Zenix te regalo UN CURSO
+   de mi catálogo de 3 disponibles, totalmente gratis para tu
+   personal — tú eliges cuál. Al final tu staff recibe un
+   comprobante certificado oficial."
+4. Prospecto elige → Cialdini Reciprocity (recibe regalo) +
+                     SDT Autonomy (eligió libremente) +
+                     Cialdini Compromiso público (declaró
+                     qué tema valora más)
+5. Staff completa curso → comprobante co-branded Zenix+Hotel
+6. Hotel ve resultados tangibles → renueva PMS + considera
+   comprar los otros 2 cursos del catálogo (DLC mensual)
+```
+
+**Por qué este modelo funciona** (citaciones verificables):
+
+| Principio | Cita | Aplicación |
+|-----------|------|------------|
+| **Reciprocidad** | Cialdini 1984 cap. 2; free samples Costco +30-150% compra | Curso regalado tiene valor percibido $150-300 USD |
+| **Autonomía** | Deci & Ryan 2000, *Psychological Inquiry* 11(4) | El prospecto ELIGE qué curso recibir → no se le impone |
+| **Compromiso público** | Cialdini cap. 3 + Festinger 1957 | Al elegir DH vs FO vs HK, declara su Job To Be Done |
+| **Loss aversion** | Kahneman 2011, prospect theory; loss 2-2.5× más motivador que gain | "Te REGALO un curso" > "Te incluyo" o "Te descuento" |
+| **Autoridad** | Cialdini cap. 6; Milgram 1963 | Estándares oficiales (NMX/NOM/AHLEI) son fuente de autoridad |
+| **Motivación intrínseca** | Vallerand 1997 meta-análisis n=200+ | Curso elegido → completion 75-85%; curso impuesto → 40% |
+
+### Variantes del doble hook (vendedor elige según perfil del prospecto)
+
+| Variante | Cuándo usar | Hook adicional |
+|----------|-------------|-----------------|
+| **A — Hook simple** | Hostal pequeño, propietario directo | Solo curso regalo |
+| **B — Doble hook compliance MX** | Prospecto con miedo de auditoría STPS | "+ sistema te genera el comprobante para STPS automáticamente" |
+| **C — Doble hook reputación** | Boutique premium obsesionado con TripAdvisor | "+ implementamos checkout 2-fases que sube rating limpieza" |
+| **D — Doble hook revenue** | Hotel medio/grande, owner financiero | "+ activamos módulo upsell con técnicas LEARN + scarcity" |
+| **E — Triple hook estratégico** | Cadenas 3+ properties, C-suite | "+ DLC anual + Curso Zenix Sistema gratis para todo staff" |
+| **F — Hook educativo (reverse psychology)** | Prospecto experimentado, escéptico de "trucos de venta" | "Si tu staff no aprende, no me debes nada del curso" |
+
+**Anti-variantes prohibidas** (manipulación):
+- ❌ "Te regalo si cierras hoy" (escasez forzada)
+- ❌ "Sin el curso tu hotel está en riesgo" (fear-mongering)
+- ❌ "Sin LMS no tienes PMS completo" (disonancia)
+
+### Comprobante certificable — modelo evolutivo
+
+**Fase 1 (v1.0.0 release):** Comprobante **interno alineado** a estándar oficial citado. Co-branded Zenix+Hotel. Verificable público vía `/verify/cert/:id` con HMAC firmado. **Válido como evidencia documental ante auditoría STPS** (LFT Art. 153-S obliga al patrón a conservar registros).
+
+**Fase 2 (v1.0.5+):** Roadmap a **certificación gubernamental oficial**:
+1. Zenix se registra como **Agente Capacitador Externo (ACE)** ante STPS México (post primer cliente piloto cerrado, ~Q4 2026)
+2. Cursos pasan validación STPS → emisión de **DC-3 oficial** (LFT Art. 153-V)
+3. Alianzas LATAM: CONOCER MX, SENA CO, INA CR, SUNAFIL PE, INTECAP/INFOP/INSAFORP/INADEH CA (v1.2+)
+
+### Pool completo de cursos candidatos — roadmap del catálogo a 24 meses
+
+Pricing y detalle por tier en [docs/zenix-learning/22-sales-negotiation-model.md §3](../zenix-learning/22-sales-negotiation-model.md). Resumen ejecutivo:
+
+| Tier | Cuándo | Cursos |
+|------|--------|--------|
+| **Tier 1 — MVP** | Fase 1.3 (en producción ahora) | Distintivo H+NOM-035 / Front Office / Housekeeping |
+| **Tier 2 — Expansión cercana** | v1.0.5 – v1.1.x | Inglés Hotelero Esencial A1-A2 / Intermedio B1 / Avanzado B2-C1 (segmentado por CEFR) + Servicio al Huésped Premium CGSP + Bartending |
+| **Tier 3 — Expansión media** | v1.2 – v1.3 | F&B Service + Wine 101 LATAM + Revenue Management + Channel Management + Liderazgo Supervisor CHS + Seguridad y Emergencias |
+| **Tier 4 — Compliance LATAM por país** | v1.3 – v1.5 | NOM-251 + NOM-247 (MX) / NTSH (CO) / ICT (CR) / Mincetur (PE) / AHT (AR) / GDPR-LFPDPPP-HabeasData |
+| **Tier 5 — Marketplace** | v1.5+ | Cursos producidos por terceros (AHLEI partners, escuelas hoteleras) con revenue share 70/30 — modelo Coursera/Udemy para hostería LATAM |
+
+### Curso Zenix Sistema — producto separado (NO está en el catálogo hospitality)
+
+> Curso técnico de cómo operar el PMS Zenix por rol (RECEPTIONIST / HOUSEKEEPER / SUPERVISOR / GM). **Gratis**, incluido en Activate wizard onboarding. Producido **después** del Tier 1 MVP. Un cliente que cancela su DLC Zenix Learning **sigue teniendo este curso** para nuevos contratados — es operacional del PMS, no opcional.
+
+### Arquitectura LMS — engine vs content separation (no negociable)
+
+> El LMS Zenix es **motor estable** (apps/api + apps/web + apps/mobile); los cursos son **contenido versionado** (PostgreSQL + R2/S3 assets). Detalle técnico en [docs/zenix-learning/21-lms-architecture-content-separation.md](../zenix-learning/21-lms-architecture-content-separation.md).
+
+**Implicación comercial:**
+- Cursos nuevos NO requieren deploy del LMS — bajan al cliente automáticamente.
+- Multi-tenant content diferenciado — hotel A pagó 2 cursos, hotel B pagó 5; mismo engine.
+- Reviewer experto edita contenido SIN tocar código — escalable a un equipo curatorial pequeño.
+- Cursos comprados a terceros (Fase 2 marketplace) — engine reproduce SCORM/xAPI sin modificación.
+
+**Anti-patrón que Zenix Learning evita explícitamente:** course hard-coded en repo. Esto mata LMS boutique a largo plazo.
+
+### Métricas de éxito Year 1
+
+| Métrica | Target | Cómo medir |
+|---------|--------|-------------|
+| Curso-regalo conversion rate | ≥60% | Tracking CRM funnel commercial |
+| Course completion rate | ≥75% | LearningEnrollment status |
+| Upsell rate (otros 2 cursos en 6 meses) | ≥40% | DLC subscriptions |
+| Multas STPS evitadas por clientes Zenix Learning | ≥3 casos | Testimonios + case studies |
+| NPS Zenix Learning | ≥50 (excellent) | Post-completion survey |
+
+### Resumen para el equipo comercial
+
+**Lo que dices al prospecto:**
+
+1. *"Zenix PMS es el sistema operativo de tu hotel."*
+2. *"Zenix Learning es el brazo educativo. Capacitamos a tu staff en estándares oficiales globales — no en cómo usar mi sistema. Esto agrega valor a tu hotel y a tu gente, porte el conocimiento incluso si cambian de hotel."*
+3. *"Para que decidas probar Zenix, te regalo UN curso de mi catálogo de 3 — tú eliges cuál. Tu staff recibe comprobante certificado al final."*
+4. *"Después del primer curso, los otros 2 están disponibles en el DLC mensual. Y nuestro roadmap incluye certificación oficial STPS DC-3 vía ACE registro."*
+
+**Lo que NUNCA dices:**
+- ❌ "El LMS te enseña a usar Zenix" (confunde catálogo hospitality vs Curso Zenix Sistema)
+- ❌ "Sin el LMS tu PMS está incompleto" (disonancia — son productos separados)
+- ❌ "Te doy el curso con descuento" (Cialdini reciprocity ≠ Cialdini scarcity manipulativa)
+
+---
+
 *Documento basado en las funcionalidades implementadas y en roadmap de Zenix PMS. Actualizar con cada sprint completado.*
 *Última actualización pricing: 2026-05-11 — Sprint Mx-1 backend + W1 web + análisis comparativo competencia (10 PMS + 5 módulos especializados).*
 *Última actualización competencia: 2026-05-14 — Agregado estudio comparativo extendido LATAM (Zavia ERP + Syncro PMS) con fuentes verificables y honestidad sobre gaps actuales de Zenix vs IA tarifaria + mensajería OTA centralizada.*
@@ -1965,3 +2101,4 @@ OpEx incluye: AWS S3 + RDS Postgres ($40-60), Channex API ($30-50/property), Str
 *Última actualización arquitectura: 2026-05-15 — Agregada sección Módulo 5 (Configuración Multi-Propiedad + Multi-País) con modelo 4-level Brand→Organization→LegalEntity→Property. Agregada sección "Implementación Zenix — wizard Activate" inspirado en SAP Activate. Agregada sección "Infraestructura enterprise-grade" con 4 fases sin lock-in. 10 países LATAM modelados desde día 1 (MX/CO/CR/PE/PA/GT/SV/HN/BR/AR). Ver docs/vision/11-multi-tenant-architecture.md, 12-infrastructure-devops.md, 13-consultant-setup-wizard.md.*
 *Última actualización PAY/CFDI: 2026-05-15 (PM) — Agregado Módulo 7 (Cobros, divisas e impuestos) tras investigación competitiva de 5 PMS premium (Mews, Cloudbeds, Opera Cloud, Roomraccoon, Little Hotelier). 9 sub-módulos consolidados: multi-currency con FX lock inmutable, OTA-collect detection, cash drawer multi-divisa, Banxico SF43718 integration, GuestCredit con CFDI E (FormaPago=15 Condonación), tax engine multi-impuesto (IVA + ISH 6% QR 2026 + DSA UMA-based), tax transparency INCLUSIVE para resolver fricción Hostelworld, FxAdvisor como DLC tier Pro. Decisiones §81-§90 en CLAUDE.md. Ver docs/vision/14-payment-currency-tax-architecture.md.*
 *Última actualización Tax Catalog: 2026-05-15 (PM late) — Agregada subsección "Tax Catalog curado por Zenix" como diferenciador estructural. Matriz completa MX 32 estados ISH 2026 confirmada (El Contribuyente × JA Del Río × Airbnb Help). Tabla granularidad LATAM 10 países (Brasil EXCLUIDO v1.0, entrar v1.2 con Sovos). DSA Tulum marcado como AMBIGUOUS (per-room vs per-person tiered se contradicen entre fuente oficial Riviera Maya y Reporte QR — Decreto 191 texto literal no accesible). Decisiones §91-§94 en CLAUDE.md: catálogo nativo, override en dos capas, Brasil exclusión, status AMBIGUOUS. Wizard objetivo: 6-8 clicks vs ~30 Cloudbeds.*
+*Última actualización Zenix Learning: 2026-05-22 — Agregado Módulo 8 (Zenix Learning LMS Add-On/DLC) tras decisiones del usuario sobre modelo comercial (Cialdini Reciprocity + SDT Autonomy + variantes del doble hook + Pool completo de cursos candidatos como roadmap a 24 meses) y arquitectura técnica (engine vs content separation no negociable). Catálogo MVP confirmado: Distintivo H + NOM-035 (combo MX) + Front Office Excellence (AHLEI CFDR-aligned) + Housekeeping Standards Premium (AHLEI CHHE-aligned). Cursos NO usan terminología Zenix interna — son estándares portables certificables externamente. Curso Zenix Sistema (cómo operar el PMS) es producto separado, gratis vía Activate wizard. Roadmap a certificación gubernamental oficial: Zenix como ACE STPS post primer cliente piloto (v1.0.5+) → DC-3 oficial (v1.1.x) → alianzas LATAM CONOCER/SENA/INA/SUNAFIL/etc (v1.2+). Pool de cursos candidatos Tier 1-5 documentado en docs/zenix-learning/22-sales-negotiation-model.md. Decisiones §128+ reservadas en CLAUDE.md al cerrar sprint LEARNING-CORE.*

@@ -290,14 +290,33 @@ Cada curso publica (`status: PUBLISHED`) cuando pasa este checklist:
 
 ---
 
-## 7. Próximo paso
+## 7. Estado actual del sprint Fase 1.3 (2026-05-22)
 
-Esperando resultado del agent de investigación sobre **fundamentos psicopedagógicos aprobados oficialmente** (UNESCO/OECD/ISO/SEP/CONOCER) → consolidaré en `docs/zenix-learning/19-pedagogical-foundations-official-validation.md`.
+**Decisiones finales del usuario tomadas 2026-05-22:**
 
-Después de ese doc + tu confirmación, arranco Día 1 de redacción Curso 1.
+1. **Catálogo MVP = 3 cursos hospitality confirmados** — Distintivo H + NOM-035 (combo MX) + Front Office Excellence + Housekeeping Standards Premium. Sin terminología Zenix interna en los cursos hospitality (corrección arquitectónica registrada en doc 06 + 22).
+2. **Modelo comercial Cialdini Reciprocity + SDT Autonomy** — vendedor regala UN curso del catálogo de 3 (prospecto elige) como hook de cierre PMS. Pool completo de cursos candidatos + variantes del doble hook documentados en doc 22.
+3. **Arquitectura LMS engine/content separation confirmada** — doc 21 documenta por qué los cursos son contenido versionado independiente del motor LMS. Aplica el principio "el engine evoluciona en su cadencia, los cursos en la suya".
+4. **Inglés Hotelero segmentado A1-A2 / B1 / B2-C1** — entra en Tier 2 expansión (post v1.0.5), no en MVP Fase 1.3.
+5. **Curso Zenix Sistema separado del catálogo hospitality** — gratis vía Activate wizard, producido DESPUÉS de Fase 1.3.
+6. **Roadmap a certificación gubernamental oficial** — Zenix como ACE STPS post primer cliente piloto cerrado (v1.0.5+). DC-3 oficial añadido a v1.1.x. Antes, comprobante interno alineado a estándar oficial citado es totalmente válido para uso comercial.
+
+**Plan de producción Fase 1.3 (12 días enfocados):**
+
+| Día | Trabajo | Entregable |
+|-----|---------|------------|
+| 1-4 | **Curso 1: Distintivo H + NOM-035** (combo compliance MX) | ~28 lessons + 60 preguntas |
+| 5-8 | **Curso 2: Front Office Excellence** (AHLEI CFDR-aligned, sin terminología Zenix) | ~25 lessons + 40 preguntas |
+| 9-12 | **Curso 3: Housekeeping Standards Premium** (AHLEI CHHE-aligned, sin terminología Zenix) | ~27 lessons + 50 preguntas |
+| 13 | **Generador certificados co-branded** + endpoint público `/verify/cert/:id` + cleanup | Producción-ready |
+
+**Total entregable Fase 1.3:** ~80 lessons + 150 preguntas + sistema de certificación + 22 docs en `docs/zenix-learning/`.
+
+**Día 1 — arrancamos AHORA:** outline detallado Curso 1 Distintivo H + redacción Módulo 1 "Marco normativo Distintivo H" (~3 lessons). Ubicación: `docs/zenix-learning/courses/01-distintivo-h-haccp/`.
 
 ---
 
 ## Bitácora
 
-- **2026-05-22** — Doc creado tras decisiones del usuario (sin consultor pago, base = temarios oficiales públicos, audio placeholders, stock photos quirúrgicas). Insight JTBD "operación desde la ignorancia" incorporado a la plantilla editorial.
+- **2026-05-22** (AM) — Doc creado tras decisiones del usuario (sin consultor pago, base = temarios oficiales públicos, audio placeholders, stock photos quirúrgicas). Insight JTBD "operación desde la ignorancia" incorporado a la plantilla editorial.
+- **2026-05-22** (PM) — Decisiones finales del usuario registradas (Cialdini+SDT modelo comercial, Pool completo cursos, arquitectura engine/content, Inglés segmentado a Tier 2, Curso Zenix Sistema separado, roadmap ACE STPS). Cross-references añadidas a docs 21 y 22. Arrancamos Día 1 redacción Curso 1.

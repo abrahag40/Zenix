@@ -1,7 +1,17 @@
-# Zenix Learning — Catálogo MVP de 3 cursos
+# Zenix Learning — Catálogo MVP de 3 cursos + Pool completo (roadmap)
 
-> Esqueleto editorial de los 3 cursos confirmados. NO es la redacción final; es el plan temático con normas, syllabi, evaluación, escenarios y bibliografía verificable. Sirve de input para redactores + reviewers expertos antes de publicar.
-> **Última actualización:** 2026-05-21
+> Esqueleto editorial de los 3 cursos confirmados para Fase 1.3 + Pool completo de cursos candidatos como roadmap de expansión del catálogo. NO es la redacción final; es el plan temático con normas, syllabi, evaluación, escenarios y bibliografía verificable. Sirve de input para redactores + reviewers expertos antes de publicar.
+> **Última actualización:** 2026-05-22 — añadido Pool completo de cursos candidatos (Tier 1-5) + corregido bug arquitectónico (cursos hospitality NO usan terminología Zenix interna, son estándares industriales portables). Cross-reference: docs [21-lms-architecture-content-separation.md](21-lms-architecture-content-separation.md) (engine vs content) + [22-sales-negotiation-model.md](22-sales-negotiation-model.md) (Cialdini + SDT + Pool detallado con pricing).
+
+---
+
+## 0. Principio editorial fundacional
+
+**Los 3 cursos hospitality del catálogo MVP NO son sobre cómo usar el sistema Zenix.** Son sobre **mejores prácticas hoteleras alineadas a estándares oficiales** (NMX-F-605 / NOM-035 / AHLEI CFDR / AHLEI CHHE / CDC / OSHA / EPA). El objetivo es **agregar valor al hotel a través de su personal** — usando estándares globales que portan al staff incluso si cambia de hotel.
+
+El "Curso Zenix Sistema" (cómo operar el PMS por rol) es producto **separado**, parte del Activate wizard onboarding (gratis), y se desarrolla DESPUÉS de los 3 cursos hospitality.
+
+**Esto convierte a cada curso hospitality del catálogo en producto portable, certificable externamente y vendible a hoteles que NO usan Zenix PMS (Tier 5 marketplace futuro).**
 
 ---
 
@@ -198,7 +208,7 @@
 
 1. **Distintivo H + NOM-035 combo es el primer curso obvio** — todo cliente Zenix en MX lo necesita por compliance, ROI inmediato en evitar multas STPS hasta $586k MXN.
 2. **Front Office y Housekeeping NO deben emitir el CFDR/CHHE como propio** — eso requiere ser AHLEI partner licensee (proceso comercial). Zenix Learning puede emitir certificado propio "alineado a estándar AHLEI" y opcionalmente facilitar el examen oficial pagado aparte.
-3. **Cross-references con CLAUDE.md decisiones**: el curso de Housekeeping debe usar la terminología Zenix (PENDING/READY/IN_PROGRESS/DONE/VERIFIED §1) y el de Front Office la nomenclatura folio + PaymentLog + OTA-collect (§87, §110). Esto convierte la capacitación en onboarding del PMS — diferenciador vs eHotelier/AHLEI standalone.
+3. **Cross-references con CLAUDE.md decisiones — CORREGIDO 2026-05-22**: los cursos hospitality del catálogo (FO, HK, DH) **NO deben usar terminología Zenix interna** (PENDING/READY/IN_PROGRESS/DONE/VERIFIED §1, folio + PaymentLog + OTA-collect §87/§110, etc.). Son cursos sobre **mejores prácticas industriales portables** alineadas a estándares globales (AHLEI/SECTUR/CDC/OSHA), NO sobre operación del sistema Zenix. Esto los hace certificables externamente y vendibles a hoteles que NO usan Zenix PMS (estrategia Tier 5 marketplace futura). El "Curso Zenix Sistema" para onboarding técnico es producto **separado**, gratuito vía Activate wizard, producido en una fase posterior. Ver [22-sales-negotiation-model.md §6](22-sales-negotiation-model.md).
 4. **Evidencia documental** debe encajar con el modelo multi-tenant 4-level (§63) — `TrainingRecord { staffId, courseId, legalEntityId, score, completedAt, certificateUrl }` para que la auditoría STPS pueda extraer por LegalEntity.
 
 ## Fuentes pendientes de verificación con consultor
@@ -211,6 +221,76 @@
 
 ---
 
+---
+
+## Pool completo de cursos candidatos — roadmap del catálogo (Tier 1-5)
+
+> Esta sección documenta la **visión completa** del catálogo Zenix Learning a 24 meses. Los 3 cursos MVP son Tier 1; el Pool define los siguientes 18+ cursos que se irán produciendo según traction comercial. Pricing detallado en [22-sales-negotiation-model.md §3](22-sales-negotiation-model.md) + [11-pricing-bundling.md](11-pricing-bundling.md).
+
+### Tier 1 — Catálogo MVP (Fase 1.3, en producción 2026-05-22)
+
+✅ **Curso 1: Distintivo H + NOM-035-STPS** — Individual one-time + hook regalo (detalle arriba)  
+✅ **Curso 2: Front Office Excellence** — DLC mensual base + hook regalo (detalle arriba)  
+✅ **Curso 3: Housekeeping Standards Premium** — DLC mensual base + hook regalo (detalle arriba)
+
+### Tier 2 — Expansión cercana (v1.0.5 – v1.1.x, ~6-12 meses post launch)
+
+| # | Curso | Tier de venta | Estándar alineado | Justificación de prioridad |
+|---|-------|----------------|--------------------|------------------------------|
+| 4 | **Inglés Hotelero Esencial (A1-A2)** | DLC mensual bundle Inglés ($5-7 USD/staff/mes) | CEFR A1-A2 + ESP Hospitality (English for Specific Purposes) | Hostal LATAM con turismo extranjero — gap explícito reportado. Vocabulario crítico de supervivencia: saludo, números, check-in/out, quejas básicas, emergencias, room service, indicaciones. |
+| 5 | **Inglés Hotelero Intermedio (B1)** | DLC mensual mismo bundle | CEFR B1 + ESP Hospitality | Continuación natural. Manejo de quejas complejas, ventas/upsell en inglés, conversación con grupos, llamadas telefónicas (PSTN). |
+| 6 | **Inglés Hotelero Avanzado (B2-C1)** | DLC mensual mismo bundle | CEFR B2-C1 + ESP Hospitality + Cross-Cultural Communication (Hofstede 1980) | Para front office de hoteles premium o ejecutivos. Negociación con corporate accounts, presentaciones, escritura formal, manejo de comunidades culturales específicas (EE.UU./UK/Australia/Alemania). |
+| 7 | **Servicio al Huésped Premium (CGSP-aligned)** | DLC bundle + individual ($89-129 USD/staff cert) | AHLEI CGSP — Certified Guest Service Professional | Cross-departamental (FO + HK + F&B). Complementa los 3 cursos base con servicio holístico. Reconocimiento O*NET. |
+| 8 | **Bartending Esencial (Hostal/Boutique)** | Individual + DLC bundle F&B | BarSmarts + WSET (Wine & Spirit Education Trust) + Cocteles LATAM clásicos | F&B en hostales/boutique = revenue secundario alto-margin; muchos bartenders sin formación formal. Margarita, mojito, pisco sour, mezcal cocktails como base + responsible serving (anti-alcoholismo). |
+
+### Tier 3 — Expansión media (v1.2 – v1.3, ~12-18 meses)
+
+| # | Curso | Estándar alineado | Justificación |
+|---|-------|--------------------|----------------|
+| 9 | **F&B Service (Restaurant Hotel)** | NRA ServSafe Food Handler + AHLEI CHRSE (Certified Hospitality Restaurant Service Executive) | Restaurantes de hotel — gap recurrente. Cubre desde mesero junior hasta runner/chef de partida. |
+| 10 | **Wine 101 + Maridajes LATAM** | WSET Level 1 + vinos México (Valle de Guadalupe) / Argentina (Mendoza) / Chile (Casablanca, Maipo) | Premium restaurant hotel + sommelier informal. Maridajes con cocina LATAM. |
+| 11 | **Revenue Management Esencial** | HSMAI CRME-aligned + Cornell CHIA basics | Para revenue managers / owners pequeños haciendo RM manual. RevPAR, ADR, OCC, pickup, pace, BAR setting, dilution analysis. |
+| 12 | **Channel Management + OTAs (estándar Zenix propio)** | Sin estándar AHLEI directo (Zenix-owned content) | Cross-references documentación Channex/Booking/Expedia/Hostelworld. Único curso del Tier 3 que SÍ usa terminología Zenix técnica donde aplica (Channex.io, OTA virtual cards, etc.). |
+| 13 | **Liderazgo Supervisor (CHS-aligned)** | AHLEI CHS — Certified Hospitality Supervisor | Para jefes de recepción / supervisores HK con 2+ años de experiencia. Coaching, feedback, manejo de conflictos, gestión de turnos. |
+| 14 | **Seguridad y Emergencias Hotelero** | AHLA Hotel Safety + OSHA + NFPA 101 Life Safety + CPR/Primeros Auxilios | Fire safety, evacuación, primeros auxilios, manejo huéspedes intoxicados/médicos, robos, terremotos (LATAM seismic zones). |
+
+### Tier 4 — Compliance LATAM por país (v1.3 – v1.5, ~18-24 meses)
+
+| # | Curso | Estándar alineado | País |
+|---|-------|--------------------|------|
+| 15 | **NOM-251-SSA1 + COFEPRIS Alimentos** | NOM-251-SSA1-2009 | MX (cocina hotelera, complementa Distintivo H del Tier 1) |
+| 16 | **NOM-247 Bebidas Alcohólicas + Ley Seca Federal** | NOM-247-SSA1 + LGS Art. 220 | MX (bar/restaurant) |
+| 17 | **Norma Sectorial Colombia NTSH** | NTSH 006/2017 alojamiento | CO |
+| 18 | **Reglamento Hospedaje Costa Rica ICT** | ICT — Instituto Costarricense de Turismo + Ley 1917 | CR |
+| 19 | **Mincetur Perú Reglamento Hospedaje** | DS N° 001-2015 + Categorización CALTUR | PE |
+| 20 | **Sectur Argentina + AHT Capacitación** | Ley Nacional 18.828 + AHT (Asociación Hoteles Turismo) | AR |
+| 21 | **GDPR + LFPDPPP + Habeas Data Datos del Huésped** | GDPR Art. 28 + LFPDPPP MX + Habeas Data CO + Ley 25.326 AR | LATAM general |
+
+### Tier 5 — Cursos custom + marketplace (v1.5+)
+
+> Modelo Coursera/Udemy aplicado a hostería LATAM. Cursos producidos por terceros (AHLEI partners, consultores SECTUR, escuelas hoteleras) con revenue share 70/30 (creador/Zenix) o 80/20 con exclusividad. Catalogación curada por equipo Zenix.
+
+| Categoría | Ejemplos |
+|-----------|----------|
+| **Idiomas adicionales** | Portugués Hotelero PT-BR (Brasil cross-border), Francés básico, Mandarín turístico (mercado chino post-pandemia), Alemán Hotelero (mercado europeo premium) |
+| **Especialidades F&B** | Barismo specialty coffee (SCA-aligned), Cocina mexicana certificada (Distintivo M), Vegano/Vegetariano protocolo (Veg Society UK), Cocina sin gluten para celíacos |
+| **Sustainability** | Bandera Azul Costa Rica, Green Globe Certification, EarthCheck, Sello "Hotel Sustentable" LATAM |
+| **Wellness** | Spa management (ISPA-aligned), Yoga instructor para resorts (Yoga Alliance RYT-200), Wellness retreat operations |
+| **Aventura** | Buceo PADI Divemaster cross-hospitality, Guía senderismo NOLS-aligned, Surf instructor ISA, Kayak BCU |
+| **Marketing & Branding** | TripAdvisor SEO, Instagram marketing para hoteles, Influencer hosting protocol, OTA listing optimization |
+
+### Curso Zenix Sistema — producto separado (NO está en el catálogo hospitality)
+
+| Atributo | Valor |
+|----------|-------|
+| **Contenido** | Cómo operar el PMS Zenix según rol (RECEPTIONIST / HOUSEKEEPER / SUPERVISOR / GM) |
+| **Pricing** | **$0** — incluido en Activate wizard onboarding |
+| **Cuándo se produce** | Después de Tier 1 MVP (Fase 2 producción) |
+| **Por qué separado** | Cliente que cancela DLC Learning sigue teniendo este curso disponible para nuevos contratados — es operacional del PMS, no opcional |
+
+---
+
 ## Bitácora
 
 - **2026-05-21** — Doc creado a partir de research del agente de contenidos. 3 cursos con syllabi + evaluación + escenarios + bibliografía.
+- **2026-05-22** — Añadido Pool completo de cursos candidatos (Tier 1-5) como roadmap del catálogo a 24 meses. Inglés Hotelero segmentado en Esencial/Intermedio/Avanzado por niveles CEFR. Corregido bug arquitectónico crítico: los cursos hospitality del catálogo NO usan terminología Zenix interna (PENDING/READY/folio/PaymentLog) — son estándares industriales portables alineados a AHLEI/SECTUR/CDC/OSHA, lo que los hace certificables externamente y vendibles a hoteles que NO usan Zenix PMS (Tier 5 marketplace futuro). El "Curso Zenix Sistema" es producto **separado** del catálogo hospitality, gratuito vía Activate wizard, producido en una fase posterior. Cross-references añadidas a docs 21 (arquitectura engine vs content) y 22 (modelo comercial Cialdini+SDT).

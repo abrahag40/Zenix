@@ -3,7 +3,7 @@
 > Documentación estratégica + técnica del módulo Zenix Learning (LMS embebido al PMS).
 > **Versión target:** v1.0.0 (rama `claude/zenix-learning-lms-v1-2qz8l`) o v1.1.0 fallback.
 > **Modelo comercial:** Add-On / DLC pago. Curso de regalo como hook de cierre comercial.
-> **Última actualización:** 2026-05-21
+> **Última actualización:** 2026-05-22 — añadidos docs 21 (arquitectura engine/content) + 22 (modelo comercial Cialdini+SDT + Pool completo Tier 1-5) + arranque producción Día 1 Curso 1 Distintivo H+NOM-035 (Módulo 1 completo).
 
 ---
 
@@ -41,6 +41,9 @@ Tres razones objetivas (no marketing):
 | [18-pricing-billing-detail.md](18-pricing-billing-detail.md) | Cómo se cobra exactamente — per-active-staff + casos concretos + comparativa competencia + edge cases pendientes Fase 1.4 | Comercial, producto |
 | [19-pedagogical-foundations-official-validation.md](19-pedagogical-foundations-official-validation.md) | Validación quirúrgica de fundamentos pedagógicos oficialmente reconocidos (APA/ATD/ISO/UNESCO/LATAM). Tabla Tier 1-4 + métodos PROHIBIDOS + frase comercial maestra | Producto, comercial, ingeniería |
 | [20-content-production-plan.md](20-content-production-plan.md) | Plan ejecutable Fase 1.3 redacción 3 cursos — 31 fuentes públicas + plantilla editorial canónica + cronograma 12 días + quality bar | Producto, contenido |
+| [21-lms-architecture-content-separation.md](21-lms-architecture-content-separation.md) | **Arquitectura no negociable Engine vs Content** — el LMS es motor estable, los cursos son contenido versionado. Patrón Moodle/Canvas/Articulate. Anti-patrones prohibidos. Roadmap evolutivo. | Ingeniería, producto |
+| [22-sales-negotiation-model.md](22-sales-negotiation-model.md) | **Modelo comercial Cialdini + SDT + variantes del doble hook + Pool completo Tier 1-5** — referencias verificables, métricas Year 1, anti-patrones comerciales prohibidos. Master del equipo comercial. | Comercial, founder |
+| [courses/01-distintivo-h-nom-035/](courses/01-distintivo-h-nom-035/) | **Curso 1 en producción Día 1 (2026-05-22)** — Outline + Módulo 1 redactado completo (3 lessons) + question bank inicial. | Contenido |
 
 ---
 
