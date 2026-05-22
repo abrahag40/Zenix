@@ -3,7 +3,7 @@
 > Documentación estratégica + técnica del módulo Zenix Learning (LMS embebido al PMS).
 > **Versión target:** v1.0.0 (rama `claude/zenix-learning-lms-v1-2qz8l`) o v1.1.0 fallback.
 > **Modelo comercial:** Add-On / DLC pago. Curso de regalo como hook de cierre comercial.
-> **Última actualización:** 2026-05-22 (Día 3) — añadidos docs 21 (arquitectura engine/content) + 22 (modelo comercial Cialdini+SDT + 7 variantes del doble hook incl. Variante G "Hook Killer Demo Game" + Pool completo Tier 1-5) + 23 (Games HTML5 como diferenciador comercial — Phaser 3 + 7 conceptos game + Fase 1.4-INTERLUDIO roadmap) + **24 (Course Progress & Module-Gating Mechanics — segmentación por módulos + quizzes + % progreso + re-takes anti-frustración)** + producción Día 1 Módulo 1 (3 lessons) + Día 2 Módulo 2 (4 lessons) + Día 3 Módulo 3 (5 lessons capstone Game A) Curso 1 Distintivo H+NOM-035.
+> **Última actualización:** 2026-05-22 (Día 4) — docs 21-24 publicados + producción Día 1-4 Curso 1 Distintivo H+NOM-035: Módulo 1 (3 lessons marco normativo) + Módulo 2 (4 lessons zona peligro + ETAs + 4 brotes LATAM) + Módulo 3 (5 lessons 11 áreas + 28 puntos críticos completos + 🎮 Game A capstone) + **Módulo 4 (3 lessons higiene manipulador + protocolo CDC + política exclusión)** + **Módulo 5 (4 lessons limpieza vs desinfección + código colores + MSDS + calibración termómetros)**. **75% del Curso 1 completo** — 19 lessons de ~28. Próximo Día 5: Módulos 6-8 (NOM-035 completo) + question bank examen final.
 
 ---
 
@@ -45,7 +45,7 @@ Tres razones objetivas (no marketing):
 | [22-sales-negotiation-model.md](22-sales-negotiation-model.md) | **Modelo comercial Cialdini + SDT + 7 variantes del doble hook (A-G) + Pool completo Tier 1-5** — Variante G "Hook Killer Demo Game" post Fase 1.4. Master del equipo comercial. | Comercial, founder |
 | [23-games-interactive-learning-strategy.md](23-games-interactive-learning-strategy.md) | **Games HTML5 como diferenciador comercial** — Phaser 3 + PixiJS + Babylon (futuro) + Tiled + Aseprite. 7 conceptos de game (A-G). Game-pilot Fase 1.4: "Auditoría Sorpresa Distintivo H Simulator". Engine/content integration. ROI 4.5×-14.5×. 28 fuentes verificables. | Producto, ingeniería, comercial |
 | [24-course-progress-module-gating.md](24-course-progress-module-gating.md) | **Course Progress & Module-Gating Mechanics** — segmentación por módulos, Module Quiz por módulo, % progreso por módulo aprobado, política re-takes 3 intentos anti-frustración, examen final separado para certificado. UX wireframes + mapping schema Prisma + ProgressService recalcula automáticamente. | Producto, ingeniería |
-| [courses/01-distintivo-h-nom-035/](courses/01-distintivo-h-nom-035/) | **Curso 1 en producción (2026-05-22)** — Outline + Módulo 1 (3 lessons) + Módulo 2 (4 lessons) + Módulo 3 (5 lessons capstone Game A) redactados. Próximo: Módulos 4-8. | Contenido |
+| [courses/01-distintivo-h-nom-035/](courses/01-distintivo-h-nom-035/) | **Curso 1 en producción (2026-05-22)** — Outline + Módulo 1 (3 lessons) + Módulo 2 (4 lessons) + Módulo 3 (5 lessons capstone Game A) + Módulo 4 (3 lessons higiene manipulador) + Módulo 5 (4 lessons limpieza/desinfección/códigos) redactados. **75% del Curso 1 completo.** Próximo: Módulos 6-8 (NOM-035 + Guías + Política) + examen final. | Contenido |
 
 ---
 
