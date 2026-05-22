@@ -1,7 +1,7 @@
 # Documentación Zenix
 
 > **Audiencia:** developers de ZaharDev, sub-consultoras licenciadas, hoteles cliente, auditores externos.
-> **Última actualización:** 2026-05-22 PM (Plan MARKET-INTEL-PRO documentado + DEMAND-INTELLIGENCE actualizado con PredictHQ adapter alternativo. Pricing tiers consolidados: MVP free → Pro $50-80/mes → Premium $80-150/mes → Bundle $120-200/mes).
+> **Última actualización:** 2026-05-22 late PM (Bloque 1 kickoff oficial. Sprint ACTIVO: CHANNEX-INBOUND. Nueva carpeta `ops/` con 3 docs administrativos: handoff checklist + PredictHQ explainer + branding recommendation).
 
 Zenix es el **Property Management System** especializado en hotelería boutique y hostales LATAM que **ZaharDev** distribuye vía red de sub-consultoras licenciadas (modelo SAP PartnerEdge).
 
@@ -37,6 +37,7 @@ Esta carpeta contiene la documentación canónica del producto, arquitectura, es
 | [standards/](standards/) | Auditores + legal | AHLEI / HFTP / USALI, fiscal, GDPR/LGPD, accesibilidad, seguridad + **JSON Schemas canónicos** (ej. `toc-linter-schema.json` para Zenix Sign) |
 | [business-intelligence/](business-intelligence/) | ZaharDev BI | Data strategy operativa (complementa vision/10) |
 | [engineering/](engineering/) | Developers | Estándares de código, quality gates |
+| **[ops/](ops/)** ⭐ | **Owner + agentes IA futuros** | **Operational handoff checklists, explainers en español plano de servicios externos (PredictHQ, Lighthouse, Mifiel), recomendaciones de branding/marketing. Diseñado para context-restore post session-clean.** |
 | [consulting-playbook/](consulting-playbook/) | Sub-consultoras | Onboarding de hoteles, fases de implementación |
 | [competitive-intelligence/](competitive-intelligence/) | ZaharDev + ventas | Análisis comparativo PMS, actualización trimestral |
 | [archive/](archive/) | Histórico | Research de fase MVP + strategy-old (anterior a vision/) |
@@ -87,6 +88,10 @@ Los documentos vencidos llevan badge `> ⚠️ Última revisión: YYYY-MM-DD —
 
 ## Cambios recientes
 
+- **2026-05-22 (late PM)** — Bloque 1 kickoff oficial. Sprint ACTIVO: **CHANNEX-INBOUND** en branch `feature/channex-inbound`. Nueva carpeta `ops/` con 3 docs:
+  - [`ops/2026-05-22-bloque1-kickoff.md`](ops/2026-05-22-bloque1-kickoff.md) — handoff checklist consolidando 10 decisiones del owner + acciones administrativas pendientes + sprints documentados full list. Diseñado para session-clean restart.
+  - [`ops/predicthq-explainer.md`](ops/predicthq-explainer.md) — explainer ejecutivo plain-spanish de PredictHQ (qué es, quién lo usa, cuándo activamos, cómo encaja en sprints futuros, paso-a-paso del trial).
+  - [`ops/branding-landing-recommendation.md`](ops/branding-landing-recommendation.md) — decisión arquitectural del marketing site: sub-secciones de zenix.app vs dominios separados vs sub-dominios. Opción A confirmada con NN/g 2019 + Ahrefs 2023 + patrón industry.
 - **2026-05-22 (PM)** — Plan MARKET-INTEL-PRO documentado + DEMAND-INTELLIGENCE actualizado con PredictHQ.
   - [`sprints/MARKET-INTEL-PRO-plan.md`](sprints/MARKET-INTEL-PRO-plan.md) — sprint v1.1.x DLC (~15-20 días-dev). Event ingest multi-adapter (Ticketmaster + PredictHQ + Calendarific + Nager.Date + Bandsintown) con dedup fuzzy-match + `LocalEventSourceLink` cross-reference. Swap compset MVP → Lighthouse partnership. Auto-radius detection. Push notifications con 5 rule types. 15 decisiones D-MKTPRO1..15. Cobertura LATAM detallada per país. Eventbrite Search API descartada permanente.
   - [`sprints/DEMAND-INTELLIGENCE-plan.md`](sprints/DEMAND-INTELLIGENCE-plan.md) actualizado con sección 2.1 "PredictHQ como adapter alternativo" + sección 2.2 explicando separación de sprints. Nuevos adapters propuestos: `PredictHQFlightProxyAdapter` + `CompositeFlightDataAdapter`.
