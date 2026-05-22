@@ -45,7 +45,7 @@ Lo que **falta**:
 
 | Proveedor | Pricing | Cobertura LATAM | Datos útiles | Fit MVP |
 |---|---|---|---|---|
-| **Amadeus Travel API** | $0.005-0.02/call, sandbox gratis | ✅ Excelente | Inventory + pricing + booking volume + load factor | ⭐ Recomendado |
+| **Amadeus Travel API** | $0.005-0.02/call, sandbox gratis | ✅ Excelente | Inventory + pricing + booking volume + load factor | ⭐ Recomendado primary |
 | **AviationStack** | $50-300/mes flat | ✅ Buena | Real-time arrivals/departures + scheduled | Alternativa |
 | **FlightAware AeroAPI** | $0.0024-0.012/call | ✅ Buena | Tracked flights, no pricing | Limitado |
 | **Cirium FlightStats** | Enterprise ($2-10k/mes) | ✅ Premium | Histórico + forecasts + schedule | Out-of-scope MVP |
@@ -54,6 +54,36 @@ Lo que **falta**:
 | **Travelport Universal API** | Enterprise | ✅ | GDS data | Out-of-scope MVP |
 
 **Decisión preliminar:** Amadeus Travel API para MVP (sandbox gratis + pay-as-you-go production + cobertura LATAM sólida + bien documentado). Adapter pattern análogo a `ICompsetAdapter` para swap futuro a Cirium si enterprise tier.
+
+### 2.1 PredictHQ como adapter alternativo (NUEVO 2026-05-22)
+
+**Trade-off importante:** si el cliente ya activó **MARKET-INTEL-PRO DLC** con `PredictHQEventAdapter` (ver [MARKET-INTEL-PRO-plan.md §2.3](MARKET-INTEL-PRO-plan.md)), PredictHQ ya provee:
+
+- **`local_rank`** (0-100) — impacto local del evento. Reemplaza la necesidad de curator manual asignando `demandImpact`.
+- **`aviation_rank`** (0-100) — impacto en demanda de vuelos al área. **Directamente correlacionable con `FlightDemandIndex`** que este sprint propone construir desde Amadeus.
+
+Esto significa que **PredictHQ puede sustituir parcialmente la integración Amadeus** en este sprint. El `DemandScore` heurístico weighted-sum puede usar `aviation_rank` como input en lugar de calcular `FlightDemandIndex` desde Amadeus directamente.
+
+**Decisión de diseño:**
+
+`IFlightDataAdapter` queda como interface principal. Implementaciones:
+
+| Adapter | Cuándo usarla |
+|---|---|
+| **`AmadeusFlightDataAdapter`** | MVP base. Cliente sin MARKET-INTEL-PRO Premium. Pay-as-you-go. |
+| **`PredictHQFlightProxyAdapter`** | Cliente CON MARKET-INTEL-PRO Premium tier + PredictHQ activo. Usa `aviation_rank` como proxy del FlightDemandIndex, ahorra llamadas Amadeus. |
+| **`CompositeFlightDataAdapter`** | Combina Amadeus (granularidad fina) + PredictHQ (impact scoring). Tier Enterprise. |
+
+`LegalEntity.demandIntelFlightProvider` configura cuál usar. Default `AMADEUS` para clientes sin PHQ.
+
+### 2.2 Por qué este sprint NO se merge en MARKET-INTEL-PRO
+
+Aunque PredictHQ overlap es real, mantenemos sprints separados porque:
+
+1. **MARKET-INTEL-PRO** entrega event ingest + Lighthouse swap + auto-radius + notifications. Producto comercial coherente $50-80/mes.
+2. **DEMAND-INTELLIGENCE** entrega forward-looking demand awareness con flight data + vacation calendars + recommendations engine. Producto separado $80-150/mes.
+3. Cliente puede comprar uno sin el otro. Bundle combinado tiene descuento.
+4. PredictHQ adapter aparece en **ambos sprints** porque su valor cruza categorías (events ingest para MARKET-INTEL-PRO + impact scoring para DEMAND-INTELLIGENCE).
 
 ---
 

@@ -1,7 +1,7 @@
 # Documentación Zenix
 
 > **Audiencia:** developers de ZaharDev, sub-consultoras licenciadas, hoteles cliente, auditores externos.
-> **Última actualización:** 2026-05-22 (Plans RATES-METRICS-COMPSET-CORE + DEMAND-INTELLIGENCE creados en `sprints/`. Sprint principal Bloque 1 v1.0.0; sprint futuro v1.1.x+ DLC).
+> **Última actualización:** 2026-05-22 PM (Plan MARKET-INTEL-PRO documentado + DEMAND-INTELLIGENCE actualizado con PredictHQ adapter alternativo. Pricing tiers consolidados: MVP free → Pro $50-80/mes → Premium $80-150/mes → Bundle $120-200/mes).
 
 Zenix es el **Property Management System** especializado en hotelería boutique y hostales LATAM que **ZaharDev** distribuye vía red de sub-consultoras licenciadas (modelo SAP PartnerEdge).
 
@@ -87,6 +87,9 @@ Los documentos vencidos llevan badge `> ⚠️ Última revisión: YYYY-MM-DD —
 
 ## Cambios recientes
 
+- **2026-05-22 (PM)** — Plan MARKET-INTEL-PRO documentado + DEMAND-INTELLIGENCE actualizado con PredictHQ.
+  - [`sprints/MARKET-INTEL-PRO-plan.md`](sprints/MARKET-INTEL-PRO-plan.md) — sprint v1.1.x DLC (~15-20 días-dev). Event ingest multi-adapter (Ticketmaster + PredictHQ + Calendarific + Nager.Date + Bandsintown) con dedup fuzzy-match + `LocalEventSourceLink` cross-reference. Swap compset MVP → Lighthouse partnership. Auto-radius detection. Push notifications con 5 rule types. 15 decisiones D-MKTPRO1..15. Cobertura LATAM detallada per país. Eventbrite Search API descartada permanente.
+  - [`sprints/DEMAND-INTELLIGENCE-plan.md`](sprints/DEMAND-INTELLIGENCE-plan.md) actualizado con sección 2.1 "PredictHQ como adapter alternativo" + sección 2.2 explicando separación de sprints. Nuevos adapters propuestos: `PredictHQFlightProxyAdapter` + `CompositeFlightDataAdapter`.
 - **2026-05-22** — Dos sprint plans nuevos:
   - [`sprints/RATES-METRICS-COMPSET-CORE-plan.md`](sprints/RATES-METRICS-COMPSET-CORE-plan.md) — sprint principal del Bloque 1 (20-23 días-dev) que combina 3 capas: rate plans + seasons + day-of-week + restrictions + promotions, dashboard métricas con MetricsDailySnapshot, Compset Card MVP con scraping DIY + adapter pattern abierto a Lighthouse partnership, LocalEvent con scope replicable LATAM 4-niveles (country→region→city→lat/lng radius), Events Curator role.
   - [`sprints/DEMAND-INTELLIGENCE-plan.md`](sprints/DEMAND-INTELLIGENCE-plan.md) — sprint futuro (30-40 días-dev) v1.1.x+ DLC tier "Demand Intelligence Premium": flight APIs Amadeus + vacation calendars per source country + DemandScore heurístico weighted-sum + Recommendations engine no-auto-apply. Pricing $80-150/property/mes.
