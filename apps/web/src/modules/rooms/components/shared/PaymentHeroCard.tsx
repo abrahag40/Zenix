@@ -28,9 +28,17 @@ interface Props {
   totalAmount: number
   amountPaid: number
   balance: number
+  /** Property currency — fiscal truth. Siempre persisted, NUNCA cambia. */
   currency: string
   /** Conversiones secundarias: "1 unidad currency = X target". Null si no aplica. */
   secondaryRates?: Record<string, number | null> | null
+  /**
+   * Display currency override (Sprint 2026-05-20 currency toggle).
+   * Cuando se setea y difiere de `currency`, los amounts se renderizan
+   * convertidos vía secondaryRates. Default = currency (preserva comportamiento
+   * del slide). Solo el detail page lo usa hoy.
+   */
+  displayCurrency?: string
   /** OTA name (Booking.com, Expedia...) cuando paymentModel=OTA_COLLECT. */
   otaSource?: string | null
   /** Disabled cuando reserva cancelada/no-show/post-checkout sin permisos. */
@@ -48,17 +56,34 @@ function decimalsFor(c: string): number {
   if (['KWD','BHD','OMR','JOD'].includes(c)) return 3
   return 2
 }
+// 2026-05-20 — Cambio: usar ISO code explícito en lugar de currency symbol
+// local. Intl.NumberFormat({style:'currency'}) en es-MX renderiza MXN como
+// "$X" (peso sign) mientras USD aparece como "USD X". Ambiguo: el "$" alone
+// puede leerse como USD en contextos internacionales (e.g., toggle activo).
+// Forzar el ISO code en cada lado del toggle elimina la confusión.
 function formatMoney(amount: number, currency: string) {
   const dec = decimalsFor(currency)
-  try {
-    return new Intl.NumberFormat('es-MX', { style:'currency', currency, minimumFractionDigits:dec, maximumFractionDigits:dec }).format(amount)
-  } catch { return `${currency} ${amount.toFixed(dec)}` }
+  const num = amount.toLocaleString('es-MX', { minimumFractionDigits: dec, maximumFractionDigits: dec })
+  return `${currency} ${num}`
 }
 
 export function PaymentHeroCard({
   paymentModel, totalAmount, amountPaid, balance, currency, secondaryRates,
-  otaSource, canRegisterPayment, onRegisterPayment,
+  displayCurrency, otaSource, canRegisterPayment, onRegisterPayment,
 }: Props) {
+  // Display currency convertion (Sprint 2026-05-20 currency toggle).
+  // Si displayCurrency === currency o no se pasa, no hay conversión.
+  // Si difiere y hay rate, convertimos amounts + cambiamos currency efectiva.
+  const effectiveCurrency = displayCurrency && displayCurrency !== currency
+    ? displayCurrency
+    : currency
+  const rate = displayCurrency && displayCurrency !== currency
+    ? (secondaryRates?.[displayCurrency] ?? null)
+    : null
+  const convert = (amount: number): number => rate ? amount * rate : amount
+  const displayTotal   = convert(totalAmount)
+  const displayPaid    = convert(amountPaid)
+  const displayBalance = convert(balance)
   const isOtaCollect = paymentModel === 'OTA_COLLECT'
   // Sprint EDIT-RESERVATION iter 7 — 4 estados explícitos:
   //   OVERPAID  (balance < -0.01) → "Crédito a favor del huésped" ámbar
@@ -143,16 +168,24 @@ export function PaymentHeroCard({
                 : '#B91C1C',                   // crimson — acción cobrar
             }}
           >
-            {isOtaCollect ? formatMoney(0, currency)
-              : isOverpaid ? formatMoney(overpaidAmount, currency)
-              : isPaid    ? formatMoney(0, currency)
-              : formatMoney(balance, currency)}
+            {isOtaCollect ? formatMoney(0, effectiveCurrency)
+              : isOverpaid ? formatMoney(Math.abs(displayBalance), effectiveCurrency)
+              : isPaid    ? formatMoney(0, effectiveCurrency)
+              : formatMoney(displayBalance, effectiveCurrency)}
           </p>
-          {/* #3 — Conversión secundaria (USD/EUR) — small gray */}
-          {!isPaid && !isOtaCollect && !isOverpaid && balance > 0 && secondaryRates && (
+          {/* #3 — Conversión secundaria.
+              Cuando el toggle está activo (displayCurrency != currency), la
+              secondary se vuelve property currency (fiscal truth). Cuando no,
+              se delega a ConversionLine para mostrar USD/EUR. */}
+          {rate && (
+            <p className="text-[11px] text-slate-400 font-mono tabular-nums mt-0.5">
+              ≈ {formatMoney(isOverpaid ? overpaidAmount : balance, currency)}
+            </p>
+          )}
+          {!rate && !isPaid && !isOtaCollect && !isOverpaid && balance > 0 && secondaryRates && (
             <ConversionLine amount={balance} rates={secondaryRates} />
           )}
-          {isOverpaid && secondaryRates && (
+          {!rate && isOverpaid && secondaryRates && (
             <ConversionLine amount={overpaidAmount} rates={secondaryRates} />
           )}
           {isOverpaid && (
@@ -161,22 +194,32 @@ export function PaymentHeroCard({
             </p>
           )}
         </div>
-        <StatusPill
-          variant={isOtaCollect ? 'ota' : isOverpaid ? 'credit' : isPaid ? 'paid' : isPartial ? 'partial' : 'pending'}
-          otaLabel={otaSource ? (OTA_SOURCE_LABELS[otaSource] ?? otaSource) : undefined}
-        />
+        {/* StatusPill — solo cuando el estado NO es ya obvio del header
+            text. Para isPaid/isOverpaid el label del header + accent color
+            ya comunican el estado, el pill duplicaba.
+            isPartial/isPending sí necesitan el pill (label header es "Saldo
+            pendiente" genérico, el pill afina "Parcial" vs "Sin pagar"). */}
+        {(isOtaCollect || isPartial || isPending) && (
+          <StatusPill
+            variant={isOtaCollect ? 'ota' : isPartial ? 'partial' : 'pending'}
+            otaLabel={otaSource ? (OTA_SOURCE_LABELS[otaSource] ?? otaSource) : undefined}
+          />
+        )}
       </div>
 
-      {/* ── #4 — Pagado / Total + progress bar (oculto si OTA_COLLECT) ─── */}
-      {!isOtaCollect && (
+      {/* ── #4 — Pagado / Total + progress bar.
+          Oculto si OTA_COLLECT (no aplica) o si isPaid/isOverpaid (barra al
+          100% no aporta info, son estados finales). NN/g H8 minimalist +
+          Apple HIG progressive disclosure. */}
+      {!isOtaCollect && !isPaid && !isOverpaid && (
         <>
           <div className="space-y-1">
             <div className="flex justify-between text-[11px] text-slate-600">
               <span>
-                Pagado <span className="font-mono tabular-nums">{formatMoney(amountPaid, currency)}</span>
+                Pagado <span className="font-mono tabular-nums">{formatMoney(displayPaid, effectiveCurrency)}</span>
               </span>
               <span>
-                Total <span className="font-mono tabular-nums">{formatMoney(totalAmount, currency)}</span>
+                Total <span className="font-mono tabular-nums">{formatMoney(displayTotal, effectiveCurrency)}</span>
               </span>
             </div>
             <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
@@ -191,30 +234,33 @@ export function PaymentHeroCard({
               />
             </div>
           </div>
-
-          {/* ── #5 — CTA primario "Registrar pago" ──────────────────────── */}
-          {canRegisterPayment && !isPaid && (
-            <Button
-              size="sm"
-              onClick={onRegisterPayment}
-              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white h-8 text-xs"
-            >
-              <CreditCard className="h-3.5 w-3.5 mr-1.5" />
-              Registrar pago
-            </Button>
-          )}
-          {canRegisterPayment && isPaid && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={onRegisterPayment}
-              className="w-full h-8 text-xs"
-            >
-              <CreditCard className="h-3.5 w-3.5 mr-1.5" />
-              Registrar pago adicional
-            </Button>
-          )}
         </>
+      )}
+
+      {/* ── #5 — CTA "Registrar pago" — VIVE FUERA del bloque del progress
+          bar para que esté disponible incluso en estados finales (isPaid,
+          isOverpaid) donde el progress bar ya no se muestra pero el
+          recepcionista puede querer registrar un pago adicional o refund. */}
+      {!isOtaCollect && canRegisterPayment && !isPaid && !isOverpaid && (
+        <Button
+          size="sm"
+          onClick={onRegisterPayment}
+          className="w-full bg-emerald-600 hover:bg-emerald-700 text-white h-8 text-xs"
+        >
+          <CreditCard className="h-3.5 w-3.5 mr-1.5" />
+          Registrar pago
+        </Button>
+      )}
+      {!isOtaCollect && canRegisterPayment && (isPaid || isOverpaid) && (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={onRegisterPayment}
+          className="w-full h-8 text-xs"
+        >
+          <CreditCard className="h-3.5 w-3.5 mr-1.5" />
+          Registrar pago adicional
+        </Button>
       )}
 
       {/* OTA_COLLECT — mensaje informativo */}

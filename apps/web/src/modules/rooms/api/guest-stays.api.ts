@@ -116,6 +116,7 @@ export const guestStaysApi = {
     guestEmail?: string
     guestPhone?: string
     nationality?: string
+    guestSex?: string
     documentType?: string
     adults: number
     children: number

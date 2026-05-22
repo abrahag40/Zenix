@@ -278,13 +278,24 @@ export function useMoveRoom(propertyId: string) {
   return useMutation({
     mutationFn: ({ stayId, newRoomId }: { stayId: string; newRoomId: string }) =>
       guestStaysApi.moveRoom(stayId, newRoomId, 'complimentary'),
-    onSuccess: () => {
-      qc.invalidateQueries({
+    // 2026-05-19 — Bug fix: el bloque no se movía visualmente hasta refresh.
+    // Root cause: (1) `invalidateQueries` con refetchType:'active' no garantiza
+    // re-fetch cuando React Query considera el query "suspendido" (CLAUDE.md §3);
+    // (2) faltaba invalidar `stay-journeys-timeline` que es de donde el calendar
+    // lee segmentos. Mismo patrón que useExtendStay / useEarlyCheckout.
+    // También invalida `guest-stay-timeline` (audit history) para que el
+    // Historial en ReservationDetailPage muestre cada move sin staleness.
+    onSuccess: async () => {
+      await qc.refetchQueries({
         queryKey: ['guest-stays', propertyId],
         exact: false,
-        refetchType: 'active',
+      })
+      await qc.refetchQueries({
+        queryKey: ['stay-journeys-timeline', propertyId],
+        exact: false,
       })
       qc.invalidateQueries({ queryKey: ['rooms', propertyId], exact: false })
+      qc.invalidateQueries({ queryKey: ['guest-stay-timeline'], exact: false })
     },
     onError: (err: Error) => {
       toast.error(err.message ?? 'No se pudo mover la reserva')
@@ -470,9 +481,21 @@ export function useSplitMidStay(propertyId: string) {
         newRoomId,
         effectiveDate: effectiveDate.toISOString(),
       }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['guest-stays', propertyId], exact: false, refetchType: 'active' })
+    // 2026-05-19 — Bug fix: el segmento ROOM_MOVE no aparecía en el calendar
+    // hasta refresh. Falta clave `stay-journeys-timeline` (donde viven los
+    // segments) + invalidateQueries refetchType:'active' no garantiza fetch
+    // (CLAUDE.md §3). Pattern alineado con useExtendStay / useMoveExtensionRoom.
+    onSuccess: async () => {
+      await qc.refetchQueries({
+        queryKey: ['stay-journeys-timeline', propertyId],
+        exact: false,
+      })
+      await qc.refetchQueries({
+        queryKey: ['guest-stays', propertyId],
+        exact: false,
+      })
       qc.invalidateQueries({ queryKey: ['rooms', propertyId], exact: false })
+      qc.invalidateQueries({ queryKey: ['guest-stay-timeline'], exact: false })
       toast.success('Habitación cambiada')
     },
     onError: (err: Error) => {
@@ -490,9 +513,12 @@ export function useMoveExtensionRoom(propertyId: string) {
   return useMutation({
     mutationFn: ({ segmentId, newRoomId }: { segmentId: string; newRoomId: string }) =>
       guestStaysApi.moveExtensionRoom(segmentId, newRoomId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false, refetchType: 'active' })
-      qc.invalidateQueries({ queryKey: ['guest-stays', propertyId], exact: false, refetchType: 'active' })
+    // 2026-05-19 — refetch (no invalidate) + add guest-stay-timeline para que
+    // el Historial muestre cada re-asignación sin staleness.
+    onSuccess: async () => {
+      await qc.refetchQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false })
+      await qc.refetchQueries({ queryKey: ['guest-stays', propertyId], exact: false })
+      qc.invalidateQueries({ queryKey: ['guest-stay-timeline'], exact: false })
       toast.success('Extensión movida a la nueva habitación')
     },
     onError: (err: Error) => {
@@ -585,9 +611,17 @@ export function useSplitReservation(propertyId: string) {
       journeyId: string
       parts: Array<{ roomId: string; checkIn: Date; checkOut: Date }>
     }) => guestStaysApi.splitReservation(journeyId, parts),
-    onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ['guest-stays', propertyId], exact: false, refetchType: 'active' })
-      qc.invalidateQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false, refetchType: 'active' })
+    // 2026-05-19 — await refetchQueries (CLAUDE.md §3) — invalidate refetchType:'active'
+    // no garantiza re-render del calendar; los nuevos segments quedaban invisibles.
+    onSuccess: async (_data, vars) => {
+      await qc.refetchQueries({
+        queryKey: ['stay-journeys-timeline', propertyId],
+        exact: false,
+      })
+      await qc.refetchQueries({
+        queryKey: ['guest-stays', propertyId],
+        exact: false,
+      })
       qc.invalidateQueries({ queryKey: ['rooms', propertyId], exact: false })
       toast.success(`Reserva dividida en ${vars.parts.length} habitaciones`)
     },

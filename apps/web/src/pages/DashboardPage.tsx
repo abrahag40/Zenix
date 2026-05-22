@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { FxRateWidget } from '@/components/FxRateWidget'
+import { OverstayedWidget } from '@/components/OverstayedWidget'
 
 /**
  * DashboardPage — placeholder landing.
@@ -53,6 +54,7 @@ export function DashboardPage() {
 
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <FxRateWidget />
+        <OverstayedWidget />
       </section>
 
       <div className="bg-gray-50 border border-dashed border-gray-300 rounded-xl p-6 text-center">

@@ -336,13 +336,21 @@ export function TimelineScheduler() {
 
   const handleDropSuccess = useCallback((result: DropResult) => {
     // ── Journey segment drag ─────────────────────────────────────────────────
-    // ORIGINAL (unlocked) + EXTENSION_SAME/NEW_ROOM are movable.
-    // ROOM_MOVE / SPLIT are immutable history and are never draggable.
+    // ORIGINAL + EXTENSION_SAME/NEW_ROOM + ROOM_MOVE current segment son
+    // movables (siempre que NO estén locked = past). El backend
+    // `executeMidStayRoomMove` siempre opera sobre el último segment unlocked
+    // (ver `getActiveSegment` en stay-journeys.service), así que un segundo
+    // move sobre la misma journey funciona naturalmente: A1→A2→A3. Bug fix
+    // 2026-05-19: el filtrado anterior excluía ROOM_MOVE incluso si era el
+    // segment actual, impidiendo cambios sucesivos legítimos.
+    // SPLIT sigue siendo immutable (representa historia de split, no movable).
     const draggedJourneyBlock = journeyBlocks.find(b => b.id === result.stayId)
     const isMovableJourneySegment =
-      draggedJourneyBlock?.segmentReason === 'ORIGINAL' ||
-      draggedJourneyBlock?.segmentReason === 'EXTENSION_SAME_ROOM' ||
-      draggedJourneyBlock?.segmentReason === 'EXTENSION_NEW_ROOM'
+      !draggedJourneyBlock?.segmentLocked &&
+      (draggedJourneyBlock?.segmentReason === 'ORIGINAL' ||
+        draggedJourneyBlock?.segmentReason === 'EXTENSION_SAME_ROOM' ||
+        draggedJourneyBlock?.segmentReason === 'EXTENSION_NEW_ROOM' ||
+        draggedJourneyBlock?.segmentReason === 'ROOM_MOVE')
 
     if (draggedJourneyBlock && isMovableJourneySegment) {
       // IN_HOUSE journey segment: moving the entire segment would shift past nights
@@ -582,18 +590,29 @@ export function TimelineScheduler() {
   const occupancySet = useMemo(() => {
     const set = new Set<string>()
     const MS_DAY = 86400000
+    // Sprint AVAIL-OVERSTAY (2026-05-19) — stays con scheduledCheckout vencido
+    // pero sin actualCheckout (zombies) NO ocupan celdas. Espejo del filtro
+    // backend en AvailabilityService.check (§128).
+    const todayUtc = new Date()
+    const zombieCutoffMs = Date.UTC(
+      todayUtc.getUTCFullYear(),
+      todayUtc.getUTCMonth(),
+      todayUtc.getUTCDate(),
+    )
     for (const block of allBlocksForDragCheck) {
       if (block.actualCheckout) continue // departed — not an active occupancy
       if (block.noShowAt) continue       // no-show releases inventory (CLAUDE.md §17)
-      const startDayMs = Date.UTC(
-        block.checkIn.getUTCFullYear(),
-        block.checkIn.getUTCMonth(),
-        block.checkIn.getUTCDate(),
-      )
       const endDayMs = Date.UTC(
         block.checkOut.getUTCFullYear(),
         block.checkOut.getUTCMonth(),
         block.checkOut.getUTCDate(),
+      )
+      // Zombie filter: scheduled checkout strictly before today's UTC start.
+      if (endDayMs < zombieCutoffMs) continue
+      const startDayMs = Date.UTC(
+        block.checkIn.getUTCFullYear(),
+        block.checkIn.getUTCMonth(),
+        block.checkIn.getUTCDate(),
       )
       for (let t = startDayMs; t < endDayMs; t += MS_DAY) {
         const d = new Date(t)

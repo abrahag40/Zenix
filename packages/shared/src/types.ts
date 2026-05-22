@@ -270,6 +270,7 @@ export interface GuestStayDto {
   guestEmail: string | null
   guestPhone: string | null
   nationality: string | null
+  guestSex: string | null
   documentType: string | null
   documentNumber: string | null
   paxCount: number

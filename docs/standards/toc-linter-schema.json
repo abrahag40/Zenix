@@ -1,0 +1,275 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zenix.app/schemas/toc-linter-report.v1.json",
+  "title": "TermsAndConditionsLinterReport",
+  "description": "JSON Schema for the linter output produced by Zenix Sign's TocLinterService when validating a TermsAndConditionsVersion content. Persisted in TermsAndConditionsVersion.linterReport (jsonb).",
+  "type": "object",
+  "version": "1.0.0",
+  "lastUpdated": "2026-05-21",
+  "owner": "Zenix Sign (DLC v1.1.x) — SIGN-DLC sprint",
+  "required": ["schemaVersion", "ranAt", "language", "findings", "summary"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "description": "Semantic version of this schema. Allows future migrations.",
+      "const": "1.0.0"
+    },
+    "ranAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of when the linter executed against the content."
+    },
+    "ranByStaffId": {
+      "type": ["string", "null"],
+      "description": "Staff ID that triggered the lint (null if automatic on save)."
+    },
+    "language": {
+      "type": "string",
+      "enum": ["es", "en", "pt"],
+      "description": "Language of the linted content. Rules are language-aware (sectionHeading regex differs)."
+    },
+    "contentSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "SHA-256 of the linted content (so we can detect content drift between lint and activation)."
+    },
+    "findings": {
+      "type": "array",
+      "description": "Array of all issues detected. Empty array if content passed cleanly.",
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    },
+    "summary": {
+      "type": "object",
+      "description": "Aggregated counts by severity for quick UI badges.",
+      "required": ["errors", "warnings", "info"],
+      "additionalProperties": false,
+      "properties": {
+        "errors": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of findings with severity='error'. Activation of the ToC version is blocked while >0."
+        },
+        "warnings": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of findings with severity='warning'. Activation allowed with explicit override + reason."
+        },
+        "info": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of findings with severity='info'. Suggestions, never blocking."
+        }
+      }
+    },
+    "rulesetVersion": {
+      "type": "string",
+      "description": "Version of the rule pack that produced this report (allows tracking which ruleset version was used). Format: semver."
+    }
+  },
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "required": ["ruleId", "severity", "message", "language"],
+      "additionalProperties": false,
+      "properties": {
+        "ruleId": {
+          "type": "string",
+          "description": "Unique identifier of the rule that fired. Stable across versions of the same rule (SemVer of rule = $defs/rulesetVersion).",
+          "enum": [
+            "RULE_NOSHOW_SECTION_PRESENT",
+            "RULE_IDENTITY_VERIFICATION_PRESENT",
+            "RULE_LATE_CHANGE_WINDOW",
+            "RULE_DAMAGE_FEE_REASONABLE",
+            "RULE_LANGUAGE_MATCHES_PROPERTY",
+            "RULE_PAYMENT_POLICY_PRESENT",
+            "RULE_FORCE_MAJEURE_PRESENT",
+            "RULE_GDPR_LFPDPPP_CONSENT_LANGUAGE",
+            "RULE_REFUND_POLICY_PROFECO_COMPLIANT",
+            "RULE_GUEST_CONDUCT_DEFINED"
+          ]
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["error", "warning", "info"],
+          "description": "error = bloqueante para activación de la versión; warning = activable con override + reason; info = sugerencia."
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable message in the language of the content. Localized."
+        },
+        "messageEn": {
+          "type": ["string", "null"],
+          "description": "Optional English translation for internal support reviews."
+        },
+        "language": {
+          "type": "string",
+          "enum": ["es", "en", "pt"],
+          "description": "Language of the message field."
+        },
+        "location": {
+          "type": ["object", "null"],
+          "description": "Where in the document the issue was found. Null if global (e.g., missing section).",
+          "required": ["line"],
+          "additionalProperties": false,
+          "properties": {
+            "line": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "1-based line number in the markdown content."
+            },
+            "column": {
+              "type": ["integer", "null"],
+              "minimum": 1,
+              "description": "1-based column. Null if rule applies to the whole line."
+            },
+            "snippet": {
+              "type": "string",
+              "maxLength": 200,
+              "description": "Excerpt of the offending text (truncated to 200 chars) for the editor highlight."
+            }
+          }
+        },
+        "suggestion": {
+          "type": ["object", "null"],
+          "description": "Optional auto-fix suggestion. Null if no actionable replacement available.",
+          "required": ["kind", "description"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": ["replace", "insert", "delete", "manual"],
+              "description": "replace = swap snippet for newText; insert = add newText at location; delete = remove snippet; manual = no auto-fix, only described."
+            },
+            "description": {
+              "type": "string",
+              "description": "Human description of the suggested fix."
+            },
+            "newText": {
+              "type": ["string", "null"],
+              "description": "The replacement/insertion text. Null when kind='delete' or kind='manual'."
+            }
+          }
+        },
+        "reference": {
+          "type": ["object", "null"],
+          "description": "External authoritative reference backing the rule (regulatory citation).",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": ["law", "norm", "industry_guideline", "internal_policy"],
+              "description": "Type of citation."
+            },
+            "citation": {
+              "type": "string",
+              "description": "Short canonical citation. Example: 'PROFECO LFPC Art. 90' or 'Visa CRR 13.7'."
+            },
+            "url": {
+              "type": ["string", "null"],
+              "format": "uri",
+              "description": "Direct URL to the official source if publicly available."
+            }
+          }
+        },
+        "overridable": {
+          "type": "boolean",
+          "description": "Si true, el supervisor puede activar la versión a pesar del finding con override + reason. Si false (solo aplicable a severity='error'), bloquea activación obligatoriamente.",
+          "default": true
+        },
+        "overrideHistory": {
+          "type": "array",
+          "description": "Historial de overrides previos al guardar (auditoría). Vacío en primera ejecución.",
+          "items": {
+            "type": "object",
+            "required": ["overriddenBy", "overriddenAt", "reason"],
+            "additionalProperties": false,
+            "properties": {
+              "overriddenBy": {
+                "type": "string",
+                "description": "Staff ID que aprobó override."
+              },
+              "overriddenAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 10,
+                "maxLength": 500,
+                "description": "Justificación del override. Mínimo 10 caracteres."
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "schemaVersion": "1.0.0",
+      "ranAt": "2026-05-21T14:32:11.000Z",
+      "ranByStaffId": "8bfac382-63be-49f7-ba9e-dd9726e438aa",
+      "language": "es",
+      "contentSha256": "9c1b4f2e8a3d5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c",
+      "rulesetVersion": "1.0.0",
+      "findings": [
+        {
+          "ruleId": "RULE_LATE_CHANGE_WINDOW",
+          "severity": "warning",
+          "message": "La ventana de aviso para cambios de fecha es de 16 días hábiles. Plazos mayores a 3 días hábiles pueden considerarse cláusula abusiva según PROFECO Art. 90.",
+          "messageEn": "Date change notice window is 16 business days. Windows greater than 3 business days may be deemed abusive under PROFECO Art. 90.",
+          "language": "es",
+          "location": {
+            "line": 23,
+            "column": 1,
+            "snippet": "Requests for date modifications must be submitted with a minimum of 16 business days' notice prior to the original check-in date."
+          },
+          "suggestion": {
+            "kind": "replace",
+            "description": "Reducir la ventana a 72 horas o 3 días hábiles, alineado con estándares de industria boutique.",
+            "newText": "Requests for date modifications must be submitted with a minimum of 72 hours' notice prior to the original check-in date."
+          },
+          "reference": {
+            "kind": "law",
+            "citation": "PROFECO LFPC Art. 90",
+            "url": "https://www.diputados.gob.mx/LeyesBiblio/pdf/LFPC.pdf"
+          },
+          "overridable": true,
+          "overrideHistory": []
+        },
+        {
+          "ruleId": "RULE_DAMAGE_FEE_REASONABLE",
+          "severity": "warning",
+          "message": "Cargo de USD 150 por toalla perdida puede considerarse desproporcionado. Estándar de industria boutique es USD 25-50.",
+          "messageEn": "USD 150 charge per lost towel may be deemed disproportionate. Industry standard for boutique hotels is USD 25-50.",
+          "language": "es",
+          "location": {
+            "line": 41,
+            "column": 1,
+            "snippet": "Lost or removed towels will be charged USD 150."
+          },
+          "suggestion": {
+            "kind": "replace",
+            "description": "Ajustar a tarifa proporcional al costo real de reposición.",
+            "newText": "Lost or removed towels will be charged USD 40."
+          },
+          "reference": {
+            "kind": "industry_guideline",
+            "citation": "HFTP Hospitality Financial Management Handbook 2023 — Section 4.7 Ancillary Charges",
+            "url": null
+          },
+          "overridable": true,
+          "overrideHistory": []
+        }
+      ],
+      "summary": {
+        "errors": 0,
+        "warnings": 2,
+        "info": 0
+      }
+    }
+  ]
+}

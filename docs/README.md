@@ -1,7 +1,7 @@
 # Documentación Zenix
 
 > **Audiencia:** developers de ZaharDev, sub-consultoras licenciadas, hoteles cliente, auditores externos.
-> **Última actualización:** 2026-05-13 (refactor mayor — `vision/` reemplaza `strategy/`, obsoletos en `archive/`)
+> **Última actualización:** 2026-05-21 (Sprint BITACORA-UNIFICATION + plan SIGN-DLC: nuevos artefactos en `architecture/ADR-0001-pdf-rendering.md`, `standards/toc-linter-schema.json`, `sprints/SIGN-DLC-plan.md`; módulo 8 agregado en sales master).
 
 Zenix es el **Property Management System** especializado en hotelería boutique y hostales LATAM que **ZaharDev** distribuye vía red de sub-consultoras licenciadas (modelo SAP PartnerEdge).
 
@@ -32,9 +32,9 @@ Esta carpeta contiene la documentación canónica del producto, arquitectura, es
 | [eas-push-setup.md](eas-push-setup.md) | DevOps | Setup de Expo Push notifications |
 | [research-dashboard-v3.md](research-dashboard-v3.md) | Producto + design | Research vigente dashboard adaptativo |
 | [research-housekeeping-hub.md](research-housekeeping-hub.md) | Producto + mobile dev | Research vigente Hub Recamarista |
-| [sprints/](sprints/) | Developers | Planes técnicos de sprint (ej. mx-1-maintenance-plan.md) |
-| [architecture/](architecture/) | Tech Lead + arquitectos | Arquitectura técnica, RBAC, multi-tenancy, integraciones |
-| [standards/](standards/) | Auditores + legal | AHLEI / HFTP / USALI, fiscal, GDPR/LGPD, accesibilidad, seguridad |
+| [sprints/](sprints/) | Developers | Planes técnicos de sprint (ej. mx-1-maintenance-plan.md, SIGN-DLC-plan.md, CHANNEX-INBOUND-plan.md, FX-LATAM-plan.md, BOOKING-ENGINE-plan.md) |
+| [architecture/](architecture/) | Tech Lead + arquitectos | Arquitectura técnica, RBAC, multi-tenancy, integraciones + **ADRs** (Architecture Decision Records, formato MADR 3.0 — ej. `ADR-0001-pdf-rendering.md`) |
+| [standards/](standards/) | Auditores + legal | AHLEI / HFTP / USALI, fiscal, GDPR/LGPD, accesibilidad, seguridad + **JSON Schemas canónicos** (ej. `toc-linter-schema.json` para Zenix Sign) |
 | [business-intelligence/](business-intelligence/) | ZaharDev BI | Data strategy operativa (complementa vision/10) |
 | [engineering/](engineering/) | Developers | Estándares de código, quality gates |
 | [consulting-playbook/](consulting-playbook/) | Sub-consultoras | Onboarding de hoteles, fases de implementación |
@@ -87,6 +87,11 @@ Los documentos vencidos llevan badge `> ⚠️ Última revisión: YYYY-MM-DD —
 
 ## Cambios recientes
 
+- **2026-05-21** — Sprint **BITACORA-UNIFICATION** cerrado + plan **SIGN-DLC** documentado. Tres artefactos nuevos:
+  - [`sprints/SIGN-DLC-plan.md`](sprints/SIGN-DLC-plan.md) — plan técnico módulo DLC v1.1.x (digital check-in + e-signature + NOM-151 + chargeback Evidence Package). ~12 días-dev. Pricing Starter $25 / Pro $40 / NOM-151 add-on $10.
+  - [`architecture/ADR-0001-pdf-rendering.md`](architecture/ADR-0001-pdf-rendering.md) — primera ADR formal del repo (formato MADR 3.0). Decisión Puppeteer + pool sobre wkhtmltopdf/pdfkit/SaaS externos. Documenta mitigación de memoria, determinismo del hash via pdf-lib, Browserless.io como escape hatch.
+  - [`standards/toc-linter-schema.json`](standards/toc-linter-schema.json) — JSON Schema 2020-12 del LinterReport del ToC linter de Zenix Sign. 10 reglas con citas regulatorias (PROFECO LFPC Art. 90, HFTP Handbook 2023, Visa CRR 13.7/10.4).
+  - Módulo 8 — Zenix Sign agregado en [`zenix-sales-master.md`](zenix-sales-master.md) con tabla comparativa vs PMS competidores, ROI documentado, 3 speech quotes.
 - **2026-05-13** — Refactor mayor. Visión estratégica completa consolidada en `vision/` (11 archivos). 12 docs obsoletos movidos a `archive/`. Carpeta `strategy/` anterior renombrada a `archive/strategy-old`. CLAUDE.md slim (3970 → 700 líneas).
 - **2026-05-04** — Sprint 8I + 9-HK refactor docs creados.
 - **2026-05-03** — Estructura Diátaxis-aligned introducida.
