@@ -1,7 +1,7 @@
 # Documentación Zenix
 
 > **Audiencia:** developers de ZaharDev, sub-consultoras licenciadas, hoteles cliente, auditores externos.
-> **Última actualización:** 2026-05-21 (Sprint BITACORA-UNIFICATION + plan SIGN-DLC: nuevos artefactos en `architecture/ADR-0001-pdf-rendering.md`, `standards/toc-linter-schema.json`, `sprints/SIGN-DLC-plan.md`; módulo 8 agregado en sales master).
+> **Última actualización:** 2026-05-22 (Plans RATES-METRICS-COMPSET-CORE + DEMAND-INTELLIGENCE creados en `sprints/`. Sprint principal Bloque 1 v1.0.0; sprint futuro v1.1.x+ DLC).
 
 Zenix es el **Property Management System** especializado en hotelería boutique y hostales LATAM que **ZaharDev** distribuye vía red de sub-consultoras licenciadas (modelo SAP PartnerEdge).
 
@@ -87,6 +87,9 @@ Los documentos vencidos llevan badge `> ⚠️ Última revisión: YYYY-MM-DD —
 
 ## Cambios recientes
 
+- **2026-05-22** — Dos sprint plans nuevos:
+  - [`sprints/RATES-METRICS-COMPSET-CORE-plan.md`](sprints/RATES-METRICS-COMPSET-CORE-plan.md) — sprint principal del Bloque 1 (20-23 días-dev) que combina 3 capas: rate plans + seasons + day-of-week + restrictions + promotions, dashboard métricas con MetricsDailySnapshot, Compset Card MVP con scraping DIY + adapter pattern abierto a Lighthouse partnership, LocalEvent con scope replicable LATAM 4-niveles (country→region→city→lat/lng radius), Events Curator role.
+  - [`sprints/DEMAND-INTELLIGENCE-plan.md`](sprints/DEMAND-INTELLIGENCE-plan.md) — sprint futuro (30-40 días-dev) v1.1.x+ DLC tier "Demand Intelligence Premium": flight APIs Amadeus + vacation calendars per source country + DemandScore heurístico weighted-sum + Recommendations engine no-auto-apply. Pricing $80-150/property/mes.
 - **2026-05-21** — Sprint **BITACORA-UNIFICATION** cerrado + plan **SIGN-DLC** documentado. Tres artefactos nuevos:
   - [`sprints/SIGN-DLC-plan.md`](sprints/SIGN-DLC-plan.md) — plan técnico módulo DLC v1.1.x (digital check-in + e-signature + NOM-151 + chargeback Evidence Package). ~12 días-dev. Pricing Starter $25 / Pro $40 / NOM-151 add-on $10.
   - [`architecture/ADR-0001-pdf-rendering.md`](architecture/ADR-0001-pdf-rendering.md) — primera ADR formal del repo (formato MADR 3.0). Decisión Puppeteer + pool sobre wkhtmltopdf/pdfkit/SaaS externos. Documenta mitigación de memoria, determinismo del hash via pdf-lib, Browserless.io como escape hatch.
