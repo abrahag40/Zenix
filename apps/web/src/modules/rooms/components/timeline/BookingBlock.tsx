@@ -188,29 +188,55 @@ function BookingBlockInner({
     (stayStatus === 'IN_HOUSE' || stayStatus === 'UNCONFIRMED') &&
     !stay.noShowAt &&
     isAfterWarningHour
+  // Sprint AVAIL-OVERSTAY (2026-05-19) — stay zombie: scheduledCheckout ya pasó
+  // pero no hay actualCheckout. Tratado como salido por AvailabilityService;
+  // visible aquí con badge "Vencido" para que recepción confirme la salida o
+  // gestione el folio pendiente.
+  const isOverstayed =
+    !stay.actualCheckout &&
+    !stay.noShowAt &&
+    startOfDay(new Date(stay.checkOut)).getTime() < todayStart.getTime()
   const colors = STAY_STATUS_COLORS[stayStatus as StayStatusKey]
   const otaAccent = OTA_ACCENT_COLORS[stay.source] ?? OTA_ACCENT_COLORS.other
   // Journey block flags: segments whose roomId can be reassigned via drag.
-  // - ORIGINAL, EXTENSION_SAME_ROOM, EXTENSION_NEW_ROOM: draggable when not locked.
-  // - ROOM_MOVE, SPLIT: always click-only (represent placed history; changing
-  //   their room would break the audit trail of the stay journey).
+  // - ORIGINAL, EXTENSION_SAME_ROOM, EXTENSION_NEW_ROOM, ROOM_MOVE: draggable
+  //   cuando NO están locked (locked=past segment, ya consumido).
+  // - SPLIT: click-only (representa historia de split, no movable).
+  // Bug fix 2026-05-19: ROOM_MOVE current segment debe permitir re-arrastrar
+  // — un guest puede cambiar A1→A2→A3 sin que el sistema se ate las manos
+  // después del primer move (el backend opera siempre sobre el último
+  // segment unlocked vía getActiveSegment).
   const isJourneyBlock = !!stay.segmentReason
   const isMovableSegment =
     !stay.segmentLocked &&
     (stay.segmentReason === 'ORIGINAL' ||
       stay.segmentReason === 'EXTENSION_SAME_ROOM' ||
-      stay.segmentReason === 'EXTENSION_NEW_ROOM')
+      stay.segmentReason === 'EXTENSION_NEW_ROOM' ||
+      stay.segmentReason === 'ROOM_MOVE')
   const isMovableExtension =
     stay.segmentReason === 'EXTENSION_SAME_ROOM' ||
     stay.segmentReason === 'EXTENSION_NEW_ROOM'
+  // useAvatarOnly: cuando el bloque es demasiado angosto para mostrar texto
+  // sin truncar a vacío. Pre 2026-05-19 iter 3 sólo se gateaba por `dayWidth ≤ 20`,
+  // pero un bloque 1-night con dayWidth=40-50 también se queda sin espacio
+  // útil (padding-right reservado para futuros chips + 7px dot) y mostraba
+  // sólo un dot perdido. Apple Calendar / Cloudbeds / Mews: cuando no cabe
+  // el nombre, mostrar avatar centrado en lugar de dot fantasma.
   const isCompact = dayWidth <= 20
+  const useAvatarOnly = isCompact || rect.width < 56
   const showText = rect.width > TIMELINE.MIN_BLOCK_WIDTH
   const showEdgeLabels = !isCompact && rect.width > 80
 
   // Progressive density helpers
-  const nameParts = stay.guestName.split(' ')
-  const firstName = nameParts[0]
-  const lastInitial = nameParts[1]?.[0] ?? ''
+  const nameParts = stay.guestName.split(/\s+/).filter(Boolean)
+  const firstName = nameParts[0] ?? ''
+  const lastName = nameParts[nameParts.length - 1] ?? ''
+  const firstInitial = (firstName[0] ?? '').toUpperCase()
+  const lastInitial = (nameParts.length > 1 ? lastName[0] : '').toUpperCase()
+  // Avatar de iniciales (Apple Calendar mini-card pattern):
+  // 1 nombre → "A"; 2+ nombres → "AR". Lo usamos para bloques compactos
+  // (single-night a zoom out) donde no cabe ni el nombre abreviado.
+  const initials = (firstInitial + lastInitial) || firstInitial || '?'
   const showDot = rect.width <= 80
   const dotColor = isDeparting
     ? '#BA7517'
@@ -221,11 +247,16 @@ function BookingBlockInner({
     : stay.segmentReason === 'EXTENSION_SAME_ROOM' || stay.segmentReason === 'EXTENSION_NEW_ROOM'
     ? '#378ADD'
     : '#1D9E75'
+  // Writing del nombre — Apple HIG progressive disclosure:
+  //   rect.width ≤ 30: blank (compact branch usa avatar de iniciales)
+  //   30-50: iniciales "AR"
+  //   50-80: "Nombre A." (primer nombre + inicial)
+  //   >80: nombre completo
   const displayName =
     rect.width <= 50
-      ? `${firstName[0] ?? ''}${firstName[1] ?? ''}.`
+      ? initials
       : rect.width <= 80
-      ? `${firstName} ${lastInitial}.`
+      ? `${firstName} ${lastInitial}.`.trim()
       : stay.guestName
 
   // Departed stays are read-only — no drag, no lock, no actions
@@ -439,6 +470,10 @@ function BookingBlockInner({
             : isInActiveJourney
             ? `0 0 0 2px #378ADD, 0 4px 12px rgba(55,138,221,0.35), ${BLOCK_SHADOW}`
             : BLOCK_SHADOW,
+          // Sprint AVAIL-OVERSTAY: stroke amber animado vive en overlay div
+          // .overstay-stroke (ver más abajo). Lo separamos del boxShadow inline
+          // porque las animaciones de box-shadow CSS no se interpolan bien con
+          // múltiples sombras inline; un overlay dedicado da más control.
           borderRadius: 6,
           pointerEvents: isDragging ? 'none' : 'auto',
           opacity: isNsStripe
@@ -491,8 +526,41 @@ function BookingBlockInner({
           }}
         />
 
-        {isCompact ? (
-          <div className="w-full h-full" />
+        {/* Sprint AVAIL-OVERSTAY — Vencido indicator (rediseño 2026-05-19 iter 2).
+            Iter 1 (icono disco amber) chocaba con el journey-extension arrow
+            que vive en el mismo `top-1 right-1`. Apple HIG: estado debe
+            comunicarse por tratamiento del borde + motion, no por iconos
+            apilados. Overlay div con animación de stroke amber (breathing
+            entre 2px → 2.5px + halo blur exterior). Tooltip nativo conserva
+            el detalle textual. */}
+        {isOverstayed && !isDragging && (
+          <div
+            className="absolute inset-0 rounded-md pointer-events-none overstay-stroke z-[1]"
+            title="Salida programada vencida — confirma checkout o gestiona el folio"
+          />
+        )}
+
+        {useAvatarOnly ? (
+          /* Apple Calendar mini-card pattern: bloques angostos muestran
+             avatar de iniciales centrado en lugar de un dot perdido o
+             texto truncado a vacío. Industry consensus 5/5 PMS (Cloudbeds,
+             Mews, Opera, RoomRaccoon, Sirvoy). Apple HIG iPad Calendar
+             week view usa el mismo patrón. TooltipPortal entrega info
+             completa en hover. */
+          <div className="h-full flex items-center justify-center px-1">
+            <div
+              className="flex items-center justify-center rounded-full bg-white/90 font-semibold tracking-tight tabular-nums shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_1px_1.5px_rgba(0,0,0,0.08)]"
+              style={{
+                width: Math.min(20, Math.max(12, rect.width - 8)),
+                height: Math.min(20, rect.height - 6),
+                color: dotColor,
+                fontSize: rect.width < 24 ? 8 : 10,
+              }}
+              aria-label={stay.guestName}
+            >
+              {rect.width >= 24 ? initials : initials[0]}
+            </div>
+          </div>
         ) : textOffset > 0 ? (
           /* ── Clipped layout: block starts before the visible viewport ──
              Absolutely position name + OUT side-by-side at the visible left edge,
@@ -504,7 +572,8 @@ function BookingBlockInner({
                 className="absolute inset-y-0 flex items-center gap-1.5 overflow-hidden"
                 style={{
                   left: textOffset + 6,
-                  right: isDeparting && onCheckout && !isDragging && !isSegmentLocked ? 58 : 6,
+                  // Reserva derecha 26px para el OUT chip circular (18px + 8px de aire).
+                  right: isDeparting && onCheckout && !isDragging && !isSegmentLocked ? 26 : 6,
                 }}
               >
                 {showDot && (
@@ -517,21 +586,25 @@ function BookingBlockInner({
                 </span>
               </div>
             )}
-            {/* OUT button — always anchored to right edge of the block */}
+            {/* OUT button redesign 2026-05-19 — Apple HIG pill chip.
+                Glass amber bg + white icon + sutil shadow + hover lift.
+                ≥110px ancho del bloque: muestra "Salida"; menor: solo icono. */}
             {!isConfirmedNoShow && isDeparting && onCheckout && !isDragging && !isSegmentLocked && (
               <button
-                className="absolute inset-y-0 right-1.5 my-auto flex items-center gap-0.5 bg-amber-600 hover:bg-amber-700
-                           text-white rounded px-1.5 py-0.5 text-[9px] font-bold h-fit
-                           transition-colors shadow-sm shrink-0"
+                className="group absolute inset-y-0 right-1.5 my-auto z-20 flex items-center justify-center
+                           bg-amber-600/95 hover:bg-amber-700 hover:scale-110 active:scale-95
+                           text-white rounded-full h-[18px] w-[18px] shrink-0
+                           shadow-[0_1px_2px_rgba(180,83,9,0.45),inset_0_0_0_1.25px_rgba(255,255,255,0.85)]
+                           transition-all duration-150"
                 onClick={(e) => {
                   e.stopPropagation()
                   onCheckout(stay.id)
                 }}
                 onMouseDown={(e) => e.stopPropagation()}
-                title="Confirmar checkout"
+                title="Confirmar salida"
+                aria-label="Confirmar salida"
               >
-                <LogOut className="h-2.5 w-2.5" />
-                OUT
+                <LogOut className="h-2.5 w-2.5" strokeWidth={2.75} />
               </button>
             )}
           </>
@@ -540,10 +613,10 @@ function BookingBlockInner({
             className="h-full flex items-center gap-1.5 overflow-hidden relative"
             style={{
               paddingLeft: 8,
-              // Reserve right space: OUT (~52px) | NS badge (~28px) | lock (~20px)
+              // Reserve right space — nuevo OUT chip circular 18px (2026-05-19 iter 2).
               paddingRight:
-                isDeparting && rect.width > 80 && onCheckout && !isDragging && !isSegmentLocked
-                  ? 58
+                isDeparting && rect.width > 50 && onCheckout && !isDragging && !isSegmentLocked
+                  ? 26
                   : isPotentialNoShow && rect.width > 70 && !isDragging && !isSegmentLocked
                   ? 36
                   : !isPast && !isDragging && !isSegmentLocked
@@ -578,21 +651,23 @@ function BookingBlockInner({
               </div>
             )}
 
-            {/* DEPARTING — absolute right, same as clipped layout */}
+            {/* DEPARTING — Apple HIG pill chip (mismo diseño que clipped layout). */}
             {!isConfirmedNoShow && isDeparting && rect.width > 80 && onCheckout && !isDragging && !isSegmentLocked && (
               <button
-                className="absolute inset-y-0 right-1.5 my-auto flex items-center gap-0.5 bg-amber-600 hover:bg-amber-700
-                           text-white rounded px-1.5 py-0.5 text-[9px] font-bold h-fit
-                           transition-colors shadow-sm shrink-0"
+                className="group absolute inset-y-0 right-1.5 my-auto z-20 flex items-center justify-center
+                           bg-amber-600/95 hover:bg-amber-700 hover:scale-110 active:scale-95
+                           text-white rounded-full h-[18px] w-[18px] shrink-0
+                           shadow-[0_1px_2px_rgba(180,83,9,0.45),inset_0_0_0_1.25px_rgba(255,255,255,0.85)]
+                           transition-all duration-150"
                 onClick={(e) => {
                   e.stopPropagation()
                   onCheckout(stay.id)
                 }}
                 onMouseDown={(e) => e.stopPropagation()}
-                title="Confirmar checkout"
+                title="Confirmar salida"
+                aria-label="Confirmar salida"
               >
-                <LogOut className="h-2.5 w-2.5" />
-                OUT
+                <LogOut className="h-2.5 w-2.5" strokeWidth={2.75} />
               </button>
             )}
             {/* POTENTIAL NO-SHOW — badge NS con pulsing dot (only when not yet confirmed) */}
@@ -644,7 +719,7 @@ function BookingBlockInner({
             journey que NO son el último — los terminales no necesitan señalar
             continuación. Se omite en modo compact (dayWidth ≤ 20px) para no
             saturar visualmente cuando los bloques son angostos. */}
-        {isJourneyBlock && stay.isLastSegment === false && !isDragging && !isCompact && (
+        {isJourneyBlock && stay.isLastSegment === false && !isDragging && !useAvatarOnly && (
           <TooltipProvider delayDuration={150}>
             {/* onOpenChange: cuando el tooltip del indicador se abre, dismissamos
                 el tooltip del bloque (useTooltip.hide()) para que no se sobrepongan.
@@ -764,14 +839,20 @@ function BookingBlockInner({
                 ? stay.isLastSegment === true
                 : !isSegmentLocked) && (
           <div
-            // Hit-area simétrica centrada en el borde derecho del bloque:
-            //   w-6 (24px) + -right-2 (extiende 8px FUERA del bloque) → 16px
-            //   dentro + 8px fuera. Fitts 1954: target más fácil de adquirir si
-            //   el cursor lo cruza al acercarse desde cualquier lado. Mantenemos
-            //   16px hacia adentro (no menos) porque ahí la mayoría apunta tras
-            //   identificar el bloque visualmente. Sólo 8px hacia afuera para
-            //   minimizar colisión con el inicio del bloque adyacente.
-            className="absolute -right-2 top-0 bottom-0 w-6 z-10"
+            // 2026-05-19 iter 3 — Hit-area refinada. Antes: w-6 -right-2 (16px
+            // hacia adentro del bloque) hacía que el handle se empalmara con
+            // el OUT button (18px chip a right-1.5). Reportado por el usuario.
+            //
+            // Ahora: w-2 -right-1 = 8px total (4px fuera + 4px dentro del bloque),
+            // centrado exactamente en el borde derecho. Apple/macOS resize-edge
+            // pattern (Finder window, Pages, Numbers): 4-6px porque el cursor
+            // `ew-resize` da feedback visual claro al acercarse. Sin empalme
+            // con el OUT chip (que ahora vive en x=6..24 desde el borde).
+            //
+            // Fitts 1954: la hit-area de 4px exterior + 4px interior es suficiente
+            // si el target es visualmente perceptible. Aquí lo es: el borde del
+            // bloque es la affordance.
+            className="absolute -right-1 top-0 bottom-0 w-2 z-10"
             style={{ cursor: 'ew-resize' }}
             title="Arrastrar para extender estadía"
             onMouseDown={(e) => {

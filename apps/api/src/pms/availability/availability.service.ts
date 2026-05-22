@@ -57,6 +57,31 @@ export interface ReservationNotification {
   traceId: string
 }
 
+/**
+ * Stay overstayed (zombie): `scheduledCheckout` ya pasó pero `actualCheckout=null`.
+ * AvailabilityService los excluye del check; este shape los expone para reports
+ * y dashboard widget (contabilidad necesita ubicar saldos pendientes).
+ */
+export interface OverstayedStay {
+  id: string
+  guestName: string
+  guestEmail: string | null
+  guestPhone: string | null
+  roomId: string
+  roomNumber: string | null
+  roomCategory: string | null
+  checkinAt: Date
+  scheduledCheckout: Date
+  actualCheckin: Date | null
+  source: string | null
+  bookingRef: string | null
+  paymentStatus: string
+  totalCharges: number
+  totalPayments: number
+  outstandingBalance: number
+  hoursOverdue: number
+}
+
 @Injectable()
 export class AvailabilityService {
   private readonly logger = new Logger(AvailabilityService.name)
@@ -109,6 +134,32 @@ export class AvailabilityService {
     const newCheckOutDay = utcStartOfDay(dto.to)
     const dayAfterNewCheckIn = new Date(newCheckInDay.getTime() + 86400000)
 
+    // ── Overstayed/zombie stays — Sprint AVAIL-OVERSTAY (2026-05-19) ─────────
+    // Stay con `actualCheckout=null` cuya `scheduledCheckout` ya pasó. Operación
+    // real: el huésped se fue pero recepción nunca confirmó la salida; o cambió
+    // dueño de turno; o cayó la conexión justo en el checkout. Resultado: el
+    // bloque queda zombie en el calendario y bloquea re-bookings legítimos
+    // (caso reportado 2026-05-18: drag Elena A1→A2 rechazado porque Carlos
+    // tiene `scheduledCheckout` de hace días y `actualCheckout=null`).
+    //
+    // Política Option B (user-approved 2026-05-19):
+    //   1. AvailabilityService los trata como salidos → libera inventario.
+    //   2. OverstayService.findOverstayed() los retorna para reports + dashboard
+    //      → contabilidad encuentra el saldo pendiente sin que el sistema
+    //      "esconda" el problema.
+    //
+    // Cutoff = startOfDay(today). Un stay con `scheduledCheckout=ayer` ya es
+    // zombie a partir de las 00:00 UTC de hoy. No usamos +24h grace porque
+    // recepcionistas suelen confirmar el día de la salida, no al día siguiente.
+    const zombieCutoff = utcStartOfDay(new Date())
+    // Combinamos `dayAfterNewCheckIn` (day-level overlap) con `zombieCutoff`
+    // (overstayed filter): el stay debe tener checkout >= ambos. Si Elena
+    // arrastra con `from=su.checkIn` (en pasado), `dayAfterNewCheckIn` cae en
+    // el pasado → solo `zombieCutoff` discrimina; los zombies quedan fuera.
+    const effectiveCheckoutCutoff = new Date(
+      Math.max(dayAfterNewCheckIn.getTime(), zombieCutoff.getTime())
+    )
+
     // ── Local: direct GuestStay rows (excluding no-shows and checked-out) ────
     // Cuando se pasa excludeJourneyId, también excluimos la GuestStay padre del
     // journey: el caller está reorganizando esa estadía completa (extensión,
@@ -130,10 +181,9 @@ export class AvailabilityService {
         ...(dto.excludeJourneyId
           ? { NOT: { stayJourney: { id: dto.excludeJourneyId } } }
           : {}),
-        // Day-level overlap: existing.checkinDay < new.checkoutDay AND
-        //                    existing.checkoutDay > new.checkinDay
+        // Day-level overlap + zombie filter (combined en `effectiveCheckoutCutoff`).
         checkinAt: { lt: newCheckOutDay },
-        scheduledCheckout: { gte: dayAfterNewCheckIn },
+        scheduledCheckout: { gte: effectiveCheckoutCutoff },
       },
       select: { id: true, guestName: true, checkinAt: true, scheduledCheckout: true },
     })
@@ -162,10 +212,19 @@ export class AvailabilityService {
         ...(dto.excludeJourneyId
           ? { journeyId: { not: dto.excludeJourneyId } }
           : {}),
-        // Day-level overlap, mismo razonamiento que GuestStay arriba.
+        // Day-level overlap + zombie filter, mismo razonamiento que GuestStay arriba.
+        // El stay padre del journey también debe pasar el cutoff de overstayed:
+        // si su `scheduledCheckout < zombieCutoff`, todos sus segments son zombies.
         checkIn: { lt: newCheckOutDay },
-        checkOut: { gte: dayAfterNewCheckIn },
-        journey: { guestStay: { noShowAt: null, actualCheckout: null, cancelledAt: null } },
+        checkOut: { gte: effectiveCheckoutCutoff },
+        journey: {
+          guestStay: {
+            noShowAt: null,
+            actualCheckout: null,
+            cancelledAt: null,
+            scheduledCheckout: { gte: zombieCutoff },
+          },
+        },
       },
       include: { journey: { select: { guestName: true } } },
     })
@@ -234,6 +293,77 @@ export class AvailabilityService {
     }
 
     return { available: conflicts.length === 0, conflicts, checkedChannex }
+  }
+
+  /**
+   * Find overstayed (zombie) stays in a property — `scheduledCheckout` ya pasó
+   * pero `actualCheckout=null`. Visible para reports + dashboard widget.
+   *
+   * Sprint AVAIL-OVERSTAY (2026-05-19). Counterpart de la lógica zombie en
+   * `check()`: lo que availability ignora, este método expone.
+   *
+   * Incluye `balanceProjection`-style data: `totalCharges`, `totalPayments` y
+   * `outstandingBalance` (computado client-side por el caller — aquí solo
+   * devolvemos los datos crudos para que el módulo de reports decida formato).
+   */
+  async findOverstayed(propertyId: string): Promise<OverstayedStay[]> {
+    const zombieCutoff = utcStartOfDay(new Date())
+    const stays = await this.prisma.guestStay.findMany({
+      where: {
+        propertyId,
+        deletedAt: null,
+        actualCheckout: null,
+        noShowAt: null,
+        cancelledAt: null,
+        scheduledCheckout: { lt: zombieCutoff },
+      },
+      select: {
+        id: true,
+        guestName: true,
+        guestEmail: true,
+        guestPhone: true,
+        roomId: true,
+        room: { select: { number: true, category: true } },
+        checkinAt: true,
+        scheduledCheckout: true,
+        actualCheckin: true,
+        source: true,
+        bookingRef: true,
+        paymentStatus: true,
+        totalAmount: true,
+        amountPaid: true,
+      },
+      orderBy: { scheduledCheckout: 'asc' },
+    })
+
+    const now = new Date()
+    return stays.map((s) => {
+      const totalCharges = Number(s.totalAmount ?? 0)
+      const totalPayments = Number(s.amountPaid ?? 0)
+      const outstandingBalance = totalCharges - totalPayments
+      const hoursOverdue = Math.floor(
+        (now.getTime() - s.scheduledCheckout.getTime()) / (60 * 60 * 1000)
+      )
+      return {
+        id: s.id,
+        guestName: s.guestName,
+        guestEmail: s.guestEmail,
+        guestPhone: s.guestPhone,
+        roomId: s.roomId,
+        roomNumber: s.room?.number ?? null,
+        roomCategory: s.room?.category ?? null,
+        checkinAt: s.checkinAt,
+        scheduledCheckout: s.scheduledCheckout,
+        actualCheckin: s.actualCheckin,
+        source: s.source,
+        bookingRef: s.bookingRef,
+        paymentStatus: s.paymentStatus,
+        totalCharges,
+        totalPayments,
+        outstandingBalance,
+        hoursOverdue,
+      }
+    })
   }
 
   /**

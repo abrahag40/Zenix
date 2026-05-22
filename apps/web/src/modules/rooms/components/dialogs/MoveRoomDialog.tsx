@@ -217,7 +217,14 @@ export function MoveRoomDialog({
   const currentRate = stay.ratePerNight
 
   // ── Simple move state (flujo actual) ────────────────────────────────────────
-  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null)
+  // 2026-05-19 — Bug 3 fix: cuando la apertura viene de drag-drop, el cuarto
+  // destino ya está identificado por gesture. Seed `selectedRoomId` para
+  // ahorrarle al recepcionista volver a clickear el mismo cuarto en el picker.
+  // (Aplica solo en simple mode; split mode usa `initialNewRoomId` para la
+  // parte 2.)
+  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(
+    initialNewRoomId ?? null,
+  )
   const maxEffectiveDate = format(addDays(checkOut, -1), 'yyyy-MM-dd')
   const [effectiveDateStr, setEffectiveDateStr] = useState(format(today, 'yyyy-MM-dd'))
 
@@ -251,15 +258,21 @@ export function MoveRoomDialog({
   }
   const staysByRoom = useMemo(() => {
     const m = new Map<string, StayIndexEntry[]>()
+    // Sprint AVAIL-OVERSTAY (2026-05-19) — overstayed/zombie stays (sch ya pasó
+    // pero actualCheckout=null) no generan conflicto. Espejo del filtro backend
+    // en AvailabilityService.check (§128).
+    const todayMs = startOfDay(new Date()).getTime()
     for (const s of stays) {
       if (s.actualCheckout) continue
       if (s.noShowAt) continue // CLAUDE.md §17 — no-shows release inventory
+      const checkOutMs = startOfDay(new Date(s.checkOut)).getTime()
+      if (checkOutMs < todayMs) continue // zombie — tratado como salido
       const entry: StayIndexEntry = {
         id: s.id,
         journeyId: s.journeyId,
         guestName: s.guestName,
         checkInMs:  startOfDay(new Date(s.checkIn)).getTime(),
-        checkOutMs: startOfDay(new Date(s.checkOut)).getTime(),
+        checkOutMs,
       }
       const arr = m.get(s.roomId)
       if (arr) arr.push(entry)
@@ -1041,6 +1054,7 @@ function SplitPartRoomField({
   locked,
 }: SplitPartRoomFieldProps) {
   const [open, setOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
   const selected = useMemo(
     () => (selectedRoomId ? rooms.find((r) => r.id === selectedRoomId) ?? null : null),
     [rooms, selectedRoomId],
@@ -1055,8 +1069,19 @@ function SplitPartRoomField({
     [onSelect],
   )
 
+  // 2026-05-19 — Issue 4: cuando el picker se expande inline (320px de alto),
+  // el contenido empuja el modal y el picker queda total o parcialmente fuera
+  // del viewport scrollable. Centramos en viewport tras la animación de open.
+  useEffect(() => {
+    if (!open || !containerRef.current) return
+    const t = setTimeout(() => {
+      containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 50)
+    return () => clearTimeout(t)
+  }, [open])
+
   return (
-    <div>
+    <div ref={containerRef}>
       <p className="text-[10px] text-slate-400 mb-0.5">Habitación</p>
       <button
         type="button"

@@ -51,6 +51,17 @@ function hasConflict(params: {
 }): { conflict: boolean; reason?: string } {
   const { stayId, targetRoomId, checkIn, checkOut, stays } = params
 
+  // Sprint AVAIL-OVERSTAY (2026-05-19) — espejo del filtro backend:
+  //   1. Si la stay candidata está overstayed (zombie), no genera conflicto.
+  //   2. Si la stay dragged ya hizo check-in (checkIn en pasado), el window
+  //      relevante empieza HOY — días pasados ya no compiten por inventario.
+  //      Sin esta clip, Elena checked-in con checkIn=May 15 dragged hoy May 19
+  //      detectaba conflicto fantasma con Carlos zombie sch=May 17.
+  const todayStart = startOfDay(new Date())
+  const nIn = startOfDay(checkIn)
+  const nOut = startOfDay(checkOut)
+  const effectiveCheckIn = nIn < todayStart ? todayStart : nIn
+
   const conflicting = stays.find(s => {
     if (s.id === stayId) return false
     if (s.roomId !== targetRoomId) return false
@@ -59,10 +70,12 @@ function hasConflict(params: {
 
     const sIn = startOfDay(new Date(s.checkIn))
     const sOut = startOfDay(new Date(s.checkOut))
-    const nIn = startOfDay(checkIn)
-    const nOut = startOfDay(checkOut)
 
-    return sOut > nIn && sIn < nOut
+    // Zombie filter: scheduled checkout strictly before today's UTC start AND
+    // actualCheckout is null (already filtered above).
+    if (sOut < todayStart) return false
+
+    return sOut > effectiveCheckIn && sIn < nOut
   })
 
   if (conflicting) {
