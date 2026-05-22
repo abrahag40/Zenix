@@ -292,4 +292,12 @@ export const dlcApi = {
 
   cancel: (dlcCode: DLCCode, reason: string) =>
     api.post<TenantDLC>(`/api/v1/dlc/${dlcCode}/cancel`, { reason }),
+
+  /**
+   * Actualiza scopedPropertyIds del DLC (§147 — caso 4 hoteles).
+   * propertyIds = [] → activo en TODAS las properties (default).
+   * propertyIds poblado → solo activo en esas properties.
+   */
+  updateScope: (dlcCode: DLCCode, propertyIds: string[]) =>
+    api.post<TenantDLC>(`/api/v1/dlc/${dlcCode}/scope`, { propertyIds }),
 }

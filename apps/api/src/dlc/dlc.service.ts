@@ -306,6 +306,76 @@ export class DLCService {
   }
 
   /**
+   * Actualiza `scopedPropertyIds` de un DLC activo (§147).
+   * Caso de uso típico: cadena con 4 hoteles que quiere agregar/quitar
+   * properties del scope del DLC sin cancelar.
+   *
+   * Reglas:
+   *   - DLC debe estar ACTIVE (no se permite scope-edit en SUSPENDED/ARCHIVED)
+   *   - Array vacío [] = activo en TODAS las properties (default)
+   *   - Si propertyIds incluye IDs que no pertenecen a la organizationId,
+   *     lanza ConflictException
+   *   - Audit log entry SCOPE_UPDATED con previousScope + newScope
+   */
+  async updateScope(
+    organizationId: string,
+    dlcCode: DLCCode,
+    propertyIds: string[],
+    actor: JwtPayload,
+  ) {
+    const dlc = await this.prisma.tenantDLC.findUnique({
+      where: { organizationId_dlcCode: { organizationId, dlcCode } },
+    })
+    if (!dlc) throw new NotFoundException(`DLC ${dlcCode} not found for org ${organizationId}`)
+    if (dlc.status !== DLCStatus.ACTIVE) {
+      throw new ConflictException(
+        `Cannot update scope on DLC in status=${dlc.status} (must be ACTIVE)`,
+      )
+    }
+
+    // Validar que los propertyIds pertenezcan a la org (§147)
+    if (propertyIds.length > 0) {
+      const validProperties = await this.prisma.property.findMany({
+        where: { id: { in: propertyIds }, organizationId },
+        select: { id: true },
+      })
+      if (validProperties.length !== propertyIds.length) {
+        throw new ConflictException(
+          'Algunos propertyIds no pertenecen a tu organización. Verifica el scope.',
+        )
+      }
+    }
+
+    const previousScope = dlc.scopedPropertyIds
+    const result = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.tenantDLC.update({
+        where: { id: dlc.id },
+        data: { scopedPropertyIds: propertyIds },
+      })
+      await tx.tenantDLCLog.create({
+        data: {
+          tenantDlcId: dlc.id,
+          event: 'SCOPE_UPDATED',
+          metadata: {
+            previousScope,
+            newScope: propertyIds,
+            allPropertiesNow: propertyIds.length === 0,
+          },
+          actorId: actor.sub,
+        },
+      })
+      return updated
+    })
+
+    this.invalidateCache(organizationId, dlcCode)
+    this.logger.log(
+      `DLC SCOPE_UPDATED: org=${organizationId} code=${dlcCode} ` +
+        `previous=[${previousScope.join(',')}] new=[${propertyIds.join(',')}]`,
+    )
+    return result
+  }
+
+  /**
    * Cancelación voluntaria por cliente.
    * ACTIVE → SUSPENDED con cancellationReason de usuario.
    */

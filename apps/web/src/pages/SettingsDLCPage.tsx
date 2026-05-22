@@ -27,6 +27,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useDLCs, useActivateDLC, useCancelDLC } from '../modules/learning/hooks/useLearning'
+import { DLCScopeEditor } from '../modules/learning/components/DLCScopeEditor'
 import type {
   DLCCode,
   DLCStatus,
@@ -144,6 +145,7 @@ function DLCCard(props: {
   const { catalog, existing } = props
   const [showCancel, setShowCancel] = useState(false)
   const [cancelReason, setCancelReason] = useState('')
+  const [showScopeEditor, setShowScopeEditor] = useState(false)
 
   const status = existing?.status
 
@@ -188,13 +190,22 @@ function DLCCard(props: {
           )}
 
           {catalog.available && existing?.status === 'ACTIVE' && !showCancel && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowCancel(true)}
-            >
-              Cancelar
-            </Button>
+            <div className="flex flex-col gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowScopeEditor(true)}
+              >
+                Configurar scope
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowCancel(true)}
+              >
+                Cancelar
+              </Button>
+            </div>
           )}
 
           {catalog.available && existing && existing.status !== 'ACTIVE' && (
@@ -256,6 +267,15 @@ function DLCCard(props: {
             </Button>
           </div>
         </div>
+      )}
+
+      {/* §147 — Scope editor modal */}
+      {existing && existing.status === 'ACTIVE' && (
+        <DLCScopeEditor
+          open={showScopeEditor}
+          onOpenChange={setShowScopeEditor}
+          dlc={existing}
+        />
       )}
     </div>
   )

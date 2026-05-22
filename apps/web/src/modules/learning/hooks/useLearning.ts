@@ -179,3 +179,28 @@ export function useCancelDLC() {
     },
   })
 }
+
+export function useUpdateDLCScope() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      dlcCode,
+      propertyIds,
+    }: {
+      dlcCode: DLCCode
+      propertyIds: string[]
+    }) => dlcApi.updateScope(dlcCode, propertyIds),
+    onSuccess: async (data) => {
+      await qc.invalidateQueries({ queryKey: [KEY_DLCS] })
+      await qc.invalidateQueries({ queryKey: [KEY_DLC, data.dlcCode] })
+      const scopeMsg =
+        data.scopedPropertyIds.length === 0
+          ? 'activo en todas las properties'
+          : `activo en ${data.scopedPropertyIds.length} ${data.scopedPropertyIds.length === 1 ? 'property' : 'properties'}`
+      toast.success(`Scope actualizado — ${scopeMsg}`)
+    },
+    onError: (err: Error) => {
+      toast.error(`No se pudo actualizar scope: ${err.message}`)
+    },
+  })
+}

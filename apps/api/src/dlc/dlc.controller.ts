@@ -46,4 +46,19 @@ export class DLCController {
       actor,
     )
   }
+
+  @Post(':dlcCode/scope')
+  @Roles(StaffRole.SUPERVISOR)
+  updateScope(
+    @Param('dlcCode') dlcCode: DLCCode,
+    @Body() body: { propertyIds: string[] },
+    @CurrentUser() actor: JwtPayload,
+  ) {
+    return this.service.updateScope(
+      actor.organizationId,
+      dlcCode,
+      body.propertyIds ?? [],
+      actor,
+    )
+  }
 }
