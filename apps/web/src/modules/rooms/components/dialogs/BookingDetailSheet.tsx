@@ -599,7 +599,6 @@ function UploadDocumentPhotoDialog({
           {/* Preview area */}
           <div className="rounded-lg border border-slate-200 bg-slate-50 overflow-hidden mb-3 aspect-[4/3] flex items-center justify-center">
             {displayUrl ? (
-              // eslint-disable-next-line jsx-a11y/img-redundant-alt
               <img
                 src={displayUrl}
                 alt="Vista previa del documento"
