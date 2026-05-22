@@ -251,7 +251,13 @@ export class GuestStaysService {
           guestEmail: dto.guestEmail,
           guestPhone: dto.guestPhone,
           nationality: dto.nationality,
+          // Sprint 2026-05-20 — guestSex para BI analytics futuras.
+          guestSex: dto.guestSex,
           documentType: dto.documentType,
+          // Bug fix 2026-05-20: documentNumber estaba en CreateGuestStayDto
+          // (línea 41-43) pero el create() no lo persistía → cualquier nueva
+          // reserva con número de documento capturado lo perdía silenciosamente.
+          documentNumber: dto.documentNumber,
           paxCount: dto.adults + (dto.children ?? 0),
           checkinAt: checkIn,
           scheduledCheckout: checkOut,
@@ -2419,6 +2425,207 @@ export class GuestStaysService {
    * Devuelve TODOS los PaymentLogs (originales + voids) ordenados desc.
    * La UI distingue voided vía isVoid + voidsLogId.
    */
+  /**
+   * Timeline unificado: GuestStayLog (stay-level) + StayJourneyEvent (journey-level).
+   * Ordenado cronológicamente. Sprint 2026-05-19.
+   *
+   * Resuelve nombres de actor en una sola batch (sin N+1). Devuelve eventos
+   * con shape uniforme para el renderer del frontend.
+   */
+  async getTimeline(stayId: string): Promise<
+    Array<{
+      id: string
+      source: 'STAY' | 'JOURNEY'
+      eventType: string
+      occurredAt: Date
+      actorName: string | null
+      metadata: Record<string, unknown> | null
+    }>
+  > {
+    const orgId = this.tenant.getOrganizationId()
+    const stay = await this.prisma.guestStay.findUnique({
+      where: { id: stayId, organizationId: orgId },
+      select: { id: true, createdAt: true, stayJourney: { select: { id: true } } },
+    })
+    if (!stay) throw new NotFoundException('Estadía no encontrada')
+
+    const journeyId = stay.stayJourney?.id ?? null
+
+    const [stayLogs, journeyEvents] = await Promise.all([
+      this.prisma.guestStayLog.findMany({
+        where: { stayId },
+        orderBy: { occurredAt: 'asc' },
+      }),
+      journeyId
+        ? this.prisma.stayJourneyEvent.findMany({
+            where: { journeyId },
+            orderBy: { occurredAt: 'asc' },
+          })
+        : Promise.resolve([]),
+    ])
+
+    // Resolve actor names in single batch.
+    const actorIds = [
+      ...new Set(
+        [...stayLogs, ...journeyEvents]
+          .map((e) => e.actorId)
+          .filter((id): id is string => !!id),
+      ),
+    ]
+    const staff = actorIds.length === 0
+      ? []
+      : await this.prisma.staff.findMany({
+          where: { id: { in: actorIds } },
+          select: { id: true, name: true },
+        })
+    const nameById = new Map(staff.map((s) => [s.id, s.name]))
+
+    // Resolve roomIds → roomNumber so labels pueden decir "Hab. A2" en vez de
+    // UUIDs. Recolectamos cualquier campo que parezca roomId en los payloads.
+    const roomIdKeys = ['roomId', 'fromRoomId', 'toRoomId', 'previousRoomId']
+    const collectRoomIds = (payload: unknown): string[] => {
+      if (!payload || typeof payload !== 'object') return []
+      const obj = payload as Record<string, unknown>
+      return roomIdKeys
+        .map((k) => obj[k])
+        .filter((v): v is string => typeof v === 'string' && v.length > 0)
+    }
+    const allRoomIds = [
+      ...new Set([
+        ...stayLogs.flatMap((l) => collectRoomIds(l.metadata)),
+        ...journeyEvents.flatMap((e) => collectRoomIds(e.payload)),
+      ]),
+    ]
+    const rooms = allRoomIds.length === 0
+      ? []
+      : await this.prisma.room.findMany({
+          where: { id: { in: allRoomIds } },
+          select: { id: true, number: true },
+        })
+    const roomNumberById = new Map(rooms.map((r) => [r.id, r.number]))
+
+    // Decora cada payload con los room numbers resueltos. El frontend usa estos
+    // campos `*RoomNumber` para construir labels específicos sin necesidad de
+    // una query adicional. Si un roomId no resuelve (room eliminada legacy),
+    // pasa null — el frontend cae a "Hab. (eliminada)".
+    const decorate = (payload: Record<string, unknown> | null) => {
+      if (!payload) return null
+      const enriched: Record<string, unknown> = { ...payload }
+      for (const key of roomIdKeys) {
+        const val = payload[key]
+        if (typeof val === 'string') {
+          enriched[`${key}Number`] = roomNumberById.get(val) ?? null
+        }
+      }
+      return enriched
+    }
+
+    const fromStay = stayLogs.map((log) => ({
+      id: `stay:${log.id}`,
+      source: 'STAY' as const,
+      eventType: log.event,
+      occurredAt: log.occurredAt,
+      actorName: log.actorId ? nameById.get(log.actorId) ?? null : null,
+      metadata: decorate(log.metadata as Record<string, unknown> | null),
+    }))
+
+    const fromJourney = journeyEvents.map((evt) => ({
+      id: `journey:${evt.id}`,
+      source: 'JOURNEY' as const,
+      eventType: evt.eventType,
+      occurredAt: evt.occurredAt,
+      actorName: evt.actorId ? nameById.get(evt.actorId) ?? null : null,
+      metadata: decorate(evt.payload as Record<string, unknown> | null),
+    }))
+
+    // Si no hay un GuestStayLog `CREATED` sintetizamos uno desde `stay.createdAt`
+    // — stays legacy (pre-sprint EDIT-RESERVATION) no tienen ese log.
+    const hasCreated = stayLogs.some((l) => l.event === 'CREATED' || l.event === 'STAY_CREATED')
+    const synthetic = hasCreated
+      ? []
+      : [{
+          id: `synthetic:created`,
+          source: 'STAY' as const,
+          eventType: 'CREATED',
+          occurredAt: stay.createdAt,
+          actorName: null,
+          metadata: null,
+        }]
+
+    return [...synthetic, ...fromStay, ...fromJourney].sort(
+      (a, b) => a.occurredAt.getTime() - b.occurredAt.getTime(),
+    )
+  }
+
+  /**
+   * Guest stats agregadas — repeat guest indicator. Sprint 2026-05-20.
+   * Mews + Opera top cross-PMS request: "¿es cliente recurrente o primera visita?"
+   *
+   * Aggregación por email O phone (cualquiera de los dos identifica al guest;
+   * el mismo email + phone distintos pueden indicar cuentas separadas pero
+   * mismo individual). Excluye:
+   *   - La propia stay (current)
+   *   - Stays canceladas (cancelledAt != null) — no-shows tampoco cuentan
+   *
+   * Privacy: email/phone son PII pero el usuario ya las capturó para esta
+   * stay (legitimate interest GDPR Art. 6.1.f). Cross-stay lookup es ops
+   * standard cross-PMS.
+   */
+  async getGuestStats(stayId: string): Promise<{
+    previousStaysCount: number
+    firstVisitAt: string | null
+    lastVisitAt: string | null
+    totalNightsHistorical: number
+  }> {
+    const orgId = this.tenant.getOrganizationId()
+
+    const current = await this.prisma.guestStay.findUnique({
+      where: { id: stayId, organizationId: orgId },
+      select: { id: true, guestEmail: true, guestPhone: true },
+    })
+    if (!current) throw new NotFoundException('Estadía no encontrada')
+    if (!current.guestEmail && !current.guestPhone) {
+      return { previousStaysCount: 0, firstVisitAt: null, lastVisitAt: null, totalNightsHistorical: 0 }
+    }
+
+    const orFilters: Array<{ guestEmail?: string; guestPhone?: string }> = []
+    if (current.guestEmail) orFilters.push({ guestEmail: current.guestEmail })
+    if (current.guestPhone) orFilters.push({ guestPhone: current.guestPhone })
+
+    const previous = await this.prisma.guestStay.findMany({
+      where: {
+        organizationId: orgId,
+        OR: orFilters,
+        id: { not: stayId },
+        cancelledAt: null,
+        noShowAt: null,
+      },
+      select: {
+        checkinAt: true,
+        scheduledCheckout: true,
+        actualCheckout: true,
+      },
+      orderBy: { checkinAt: 'asc' },
+    })
+
+    if (previous.length === 0) {
+      return { previousStaysCount: 0, firstVisitAt: null, lastVisitAt: null, totalNightsHistorical: 0 }
+    }
+
+    const totalNights = previous.reduce((sum, s) => {
+      const exit = s.actualCheckout ?? s.scheduledCheckout
+      const ms = new Date(exit).getTime() - new Date(s.checkinAt).getTime()
+      return sum + Math.max(0, Math.floor(ms / 86_400_000))
+    }, 0)
+
+    return {
+      previousStaysCount: previous.length,
+      firstVisitAt: previous[0].checkinAt.toISOString(),
+      lastVisitAt: previous[previous.length - 1].checkinAt.toISOString(),
+      totalNightsHistorical: totalNights,
+    }
+  }
+
   async listPaymentLogs(stayId: string) {
     const orgId = this.tenant.getOrganizationId()
     const stay = await this.prisma.guestStay.findUnique({
@@ -2697,6 +2904,7 @@ export class GuestStaysService {
         authorId: actorId,
         content:  dto.content.trim(),
         channel:  dto.channel ?? 'GENERAL',
+        kind:     dto.kind ?? 'CHAT', // Default CHAT; STICKY/SYSTEM solicitud explícita.
       },
     })
 

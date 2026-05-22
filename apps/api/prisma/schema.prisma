@@ -1247,6 +1247,15 @@ model GuestStay {
   documentType          String?             @map("document_type")
   documentNumber        String?             @map("document_number")
   nationality           String?
+  // Sex/gender del huésped principal — Sprint 2026-05-20.
+  // Captura opcional al crear reserva. Útil para BI analytics + reportes
+  // demográficos (no-show rates per cohort, length-of-stay correlations, etc.).
+  // Valores: 'M' (male), 'F' (female), 'O' (other / non-binary),
+  // 'N' (prefer not to say). String libre por flexibilidad cultural LATAM
+  // (algunas jurisdicciones requieren third gender option vs binary).
+  // GDPR/LFPDPPP: PII sensible — enmascarado en exports B2B (TODO §10
+  // docs/vision/10-data-strategy-abi.md anonymization policy).
+  guestSex              String?             @map("guest_sex")
   paxCount              Int                 @default(1) @map("pax_count")
   checkinAt             DateTime            @map("checkin_at")
   scheduledCheckout     DateTime            @map("scheduled_checkout")
@@ -1623,12 +1632,19 @@ model GuestStayNote {
   // Channel hint para filtrado UI: 'GENERAL' | 'GUEST_REQUEST' | 'HOUSEKEEPING' | 'INTERNAL'
   // Default GENERAL. No enum — patrón "espiral" §95 para evolución sin migration.
   channel   String   @default("GENERAL")
+  // Sprint 2026-05-20 — kind discriminator:
+  //   'CHAT'   — mensaje de bitácora team (default). Telegram-style chat UI.
+  //   'STICKY' — postit pinned, siempre visible en el sidebar derecho.
+  //   'SYSTEM' — mensaje automático de Zenix (audit + futuro AI agents).
+  //              authorId NULL/empty cuando kind=SYSTEM.
+  kind      String   @default("CHAT")
   createdAt DateTime @default(now()) @map("created_at")
   editedAt  DateTime? @map("edited_at")
 
   stay   GuestStay @relation(fields: [stayId], references: [id])
 
   @@index([stayId, createdAt])
+  @@index([stayId, kind])
   @@map("guest_stay_notes")
 }
 
