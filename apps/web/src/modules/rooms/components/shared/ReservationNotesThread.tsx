@@ -75,6 +75,9 @@ export function ReservationNotesThread({ stayId, currentUserId, compact = false 
     try { return window.localStorage.getItem(DRAFT_KEY(stayId)) ?? '' } catch { return '' }
   })
   const [channel, setChannel] = useState<NoteChannel>('GENERAL')
+  // Filtro de visualización: null = mostrar todas. Independiente del channel
+  // de composición (un usuario puede filtrar por LIMPIEZA pero crear una INTERNAL).
+  const [filterChannel, setFilterChannel] = useState<NoteChannel | null>(null)
   const [pending, setPending] = useState<DisplayNote[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState('')
@@ -93,9 +96,24 @@ export function ReservationNotesThread({ stayId, currentUserId, compact = false 
 
   // Combinar notas server + pendientes (memoized).
   const serverNotes = notesQuery.data ?? []
-  const allNotes: DisplayNote[] = useMemo(() => {
+  const allNotesUnfiltered: DisplayNote[] = useMemo(() => {
     return [...serverNotes, ...pending]
   }, [serverNotes, pending])
+
+  // Aplicar filtro de visualización (si hay).
+  const allNotes: DisplayNote[] = useMemo(() => {
+    if (!filterChannel) return allNotesUnfiltered
+    return allNotesUnfiltered.filter((n) => n.channel === filterChannel)
+  }, [allNotesUnfiltered, filterChannel])
+
+  // Contadores per-channel para badges en el filter row.
+  const channelCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const n of allNotesUnfiltered) {
+      counts[n.channel] = (counts[n.channel] ?? 0) + 1
+    }
+    return counts
+  }, [allNotesUnfiltered])
 
   // Limpiar pendientes que ya llegaron por SSE — match content + 30s.
   useEffect(() => {
@@ -180,14 +198,128 @@ export function ReservationNotesThread({ stayId, currentUserId, compact = false 
 
   return (
     <div className={cn('flex flex-col', compact ? 'h-72' : 'h-full')}>
-      {/* Lista */}
-      <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+      {/* Filtro por channel — fila única horizontal-scroll si overflow.
+          Apple HIG / Linear / iOS Mail pattern.
+          · "Todas" muestra count total (ancla la información agregada).
+          · Channel chips: solo label + dot (sin count individual) → 5 chips
+            caben en una fila a 340px de sidebar.
+          · `flex-nowrap` + `overflow-x-auto` con scrollbar oculto → escala
+            cuando se agreguen channels nuevos. */}
+      {allNotesUnfiltered.length > 0 && (
+        <div className="mb-2.5 pb-2.5 border-b border-slate-100">
+          <style>{`.notes-filter-row::-webkit-scrollbar { display: none; }`}</style>
+          <div
+            className="notes-filter-row flex gap-1 overflow-x-auto"
+            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' as unknown as 'auto' }}
+          >
+              <button
+                type="button"
+                onClick={() => setFilterChannel(null)}
+                className={cn(
+                  'shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium transition-colors',
+                  filterChannel === null
+                    ? 'bg-slate-800 text-white'
+                    : 'bg-white border border-slate-200 text-slate-500 hover:border-slate-300',
+                )}
+              >
+                Todas
+                <span className="tabular-nums opacity-70">{allNotesUnfiltered.length}</span>
+              </button>
+              {(Object.entries(CHANNEL_META) as Array<[NoteChannel, typeof CHANNEL_META.GENERAL]>).map(([key, meta]) => {
+                const n = channelCounts[key] ?? 0
+                if (n === 0) return null
+                const active = filterChannel === key
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setFilterChannel(active ? null : key)}
+                    aria-pressed={active}
+                    title={`${meta.label} · ${n}`}
+                    className={cn(
+                      'shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium transition-colors',
+                      active
+                        ? meta.chip
+                        : 'bg-white border border-slate-200 text-slate-500 hover:border-slate-300',
+                    )}
+                  >
+                    <span className={cn('inline-block w-1.5 h-1.5 rounded-full', meta.dot)} />
+                    {meta.label}
+                  </button>
+                )
+              })}
+          </div>
+        </div>
+      )}
+
+      {/* Lista — surface cool-blue muted (Telegram-inspired, Mehrabian-Russell
+          1974 PAD: baja Arousal + alta Pleasure). Hace contrast con bubbles
+          blancas de otros usuarios sin clashar con emerald de mine. */}
+      <div
+        className="flex-1 overflow-y-auto space-y-2 px-2.5 py-2.5 rounded-lg border border-slate-200"
+        style={{ backgroundColor: '#E8EFF7' }}
+      >
         {notesQuery.isLoading ? (
           <p className="text-xs text-slate-400 py-4 text-center">Cargando…</p>
         ) : allNotes.length === 0 ? (
-          <p className="text-xs text-slate-400 py-4 text-center">
-            Sin notas todavía. Agrega la primera entrada al historial.
-          </p>
+          allNotesUnfiltered.length === 0 ? (
+            // Truly empty — illustration + centered copy (Apple HIG empty state pattern).
+            <div className="h-full min-h-[240px] flex flex-col items-center justify-center text-center px-6 py-8">
+              <svg
+                viewBox="0 0 96 96"
+                className="w-20 h-20 mb-4"
+                aria-hidden
+              >
+                {/* Soft mint halo */}
+                <circle cx="48" cy="48" r="42" fill="#ECFDF5" />
+                {/* Chat bubble — emerald stroke + dots inside (Telegram empty-state metaphor) */}
+                <path
+                  d="M24 38 a10 10 0 0 1 10 -10 L62 28 a10 10 0 0 1 10 10 L72 56 a10 10 0 0 1 -10 10 L44 66 L36 74 L36 66 L34 66 a10 10 0 0 1 -10 -10 Z"
+                  fill="#FFFFFF"
+                  stroke="#10B981"
+                  strokeWidth="2"
+                  strokeLinejoin="round"
+                />
+                <circle cx="38" cy="47" r="2.6" fill="#10B981" />
+                <circle cx="48" cy="47" r="2.6" fill="#10B981" />
+                <circle cx="58" cy="47" r="2.6" fill="#10B981" />
+                {/* Small accent bubble — paper plane / outgoing message hint */}
+                <path
+                  d="M68 22 L84 28 L78 32 L82 38 L72 36 L68 22 Z"
+                  fill="#A7F3D0"
+                  stroke="#059669"
+                  strokeWidth="1.4"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              <p className="text-sm font-semibold text-slate-700">
+                Conversación vacía
+              </p>
+              <p className="text-xs text-slate-500 mt-1 max-w-[220px] leading-snug">
+                Inicia la bitácora del equipo — comparte solicitudes, observaciones o coordinaciones sobre esta reserva.
+              </p>
+            </div>
+          ) : (
+            // Filtro activo sin resultados — empty state secundario, compacto.
+            <div className="h-full min-h-[180px] flex flex-col items-center justify-center text-center px-6 py-8">
+              <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mb-3">
+                <svg viewBox="0 0 24 24" className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="M21 21 L16.65 16.65" />
+                </svg>
+              </div>
+              <p className="text-xs font-medium text-slate-600">
+                Sin notas en este filtro
+              </p>
+              <button
+                type="button"
+                onClick={() => setFilterChannel(null)}
+                className="mt-2 text-[11px] text-emerald-600 hover:text-emerald-700 font-medium underline-offset-2 hover:underline"
+              >
+                Ver todas
+              </button>
+            </div>
+          )
         ) : (
           allNotes.map((n) => {
             const mine = n.authorId === currentUserId
@@ -196,76 +328,123 @@ export function ReservationNotesThread({ stayId, currentUserId, compact = false 
             const canEdit = !n.__pending && mine && ageMs < EDIT_WINDOW_MS
             const isEditing = editingId === n.id
 
+            const displayName = mine ? 'Tú' : `Staff ${n.authorId.slice(0, 4)}`
+            const initials =
+              (displayName.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? '').join('') || '?')
+            // Hash-derived hue para avatar de otros (BitacoraChat pattern).
+            const hue =
+              Array.from(n.authorId).reduce((sum, c) => sum + c.charCodeAt(0), 0) % 360
+            const avatarBg = `hsl(${hue}, 65%, 55%)`
+
             return (
               <div
                 key={n.id}
-                className={cn(
-                  'rounded-lg border px-3 py-2',
-                  mine ? 'bg-emerald-50/50 border-emerald-100 ml-6' : 'bg-slate-50 border-slate-100 mr-6',
-                  n.__pending && 'opacity-60',
-                )}
+                className={cn('flex gap-1.5 items-end group', mine ? 'justify-end' : 'justify-start')}
               >
-                <div className="flex items-baseline justify-between gap-2 mb-1">
-                  <span className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-700">
-                    <span className={cn('inline-block w-1.5 h-1.5 rounded-full', meta.dot)} />
-                    {mine ? 'Tú' : `Staff ${n.authorId.slice(0, 4)}`}
-                    <span className={cn('px-1.5 py-0 rounded text-[9px] font-medium', meta.chip)}>
+                {!mine && (
+                  <div
+                    className="h-7 w-7 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0 shadow-sm"
+                    style={{ backgroundColor: avatarBg }}
+                    title={displayName}
+                  >
+                    {initials}
+                  </div>
+                )}
+
+                <div
+                  className={cn(
+                    'max-w-[78%] rounded-2xl px-3 py-1.5 shadow-[0_1px_2px_rgba(0,0,0,0.06)]',
+                    mine
+                      ? 'bg-emerald-500 text-white rounded-br-sm'
+                      : 'bg-white text-slate-800 rounded-bl-sm border border-slate-100',
+                    n.__pending && 'opacity-60',
+                  )}
+                >
+                  {/* Header inline: nombre del autor (solo other) + chip de channel.
+                      Ahorra espacio vertical vs colocar el chip en su propia fila. */}
+                  <div className="flex items-center gap-1.5 mb-1">
+                    {!mine && (
+                      <span className="text-[10px] font-semibold" style={{ color: avatarBg }}>
+                        {displayName}
+                      </span>
+                    )}
+                    <span
+                      className={cn(
+                        'inline-flex items-center gap-1 px-1.5 py-0 rounded text-[9px] font-medium',
+                        mine ? 'bg-white/20 text-white' : meta.chip,
+                      )}
+                    >
+                      <span
+                        className={cn('inline-block w-1 h-1 rounded-full', mine ? 'bg-white/80' : meta.dot)}
+                      />
                       {meta.label}
                     </span>
-                  </span>
-                  <span className="text-[10px] text-slate-400 tabular-nums">
-                    {n.__pending
-                      ? 'Enviando…'
-                      : format(parseISO(n.createdAt), 'd MMM HH:mm', { locale: es })}
-                    {n.editedAt && !n.__pending && <span className="italic ml-1">(editada)</span>}
-                  </span>
-                </div>
-
-                {isEditing ? (
-                  <div className="space-y-1.5">
-                    <textarea
-                      value={editDraft}
-                      onChange={(e) => setEditDraft(e.target.value)}
-                      rows={2}
-                      maxLength={2000}
-                      className="w-full text-sm border border-emerald-300 rounded px-2 py-1 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-400"
-                      autoFocus
-                    />
-                    <div className="flex gap-1.5 justify-end">
-                      <Button
-                        type="button" size="sm" variant="ghost"
-                        onClick={() => { setEditingId(null); setEditDraft('') }}
-                        disabled={editMut.isPending}
-                        className="text-xs h-7"
-                      >
-                        Cancelar
-                      </Button>
-                      <Button
-                        type="button" size="sm"
-                        onClick={commitEditNote}
-                        disabled={editMut.isPending}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-7"
-                      >
-                        {editMut.isPending ? 'Guardando…' : 'Guardar'}
-                      </Button>
-                    </div>
                   </div>
-                ) : (
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-sm text-slate-800 whitespace-pre-wrap flex-1">{n.content}</p>
-                    {canEdit && (
+
+                  {isEditing ? (
+                    <div className="space-y-1.5 mt-1">
+                      <textarea
+                        value={editDraft}
+                        onChange={(e) => setEditDraft(e.target.value)}
+                        rows={2}
+                        maxLength={2000}
+                        className="w-full text-[13px] border border-emerald-300 rounded px-2 py-1 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-400 text-slate-800 bg-white"
+                        autoFocus
+                      />
+                      <div className="flex gap-1.5 justify-end">
+                        <Button
+                          type="button" size="sm" variant="ghost"
+                          onClick={() => { setEditingId(null); setEditDraft('') }}
+                          disabled={editMut.isPending}
+                          className={cn('text-[11px] h-6 px-2', mine && 'text-white hover:bg-white/15 hover:text-white')}
+                        >
+                          Cancelar
+                        </Button>
+                        <Button
+                          type="button" size="sm"
+                          onClick={commitEditNote}
+                          disabled={editMut.isPending}
+                          className="bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] h-6 px-2"
+                        >
+                          {editMut.isPending ? 'Guardando…' : 'Guardar'}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-[13px] leading-snug whitespace-pre-wrap break-words">
+                      {n.content}
+                    </p>
+                  )}
+
+                  {/* Footer: timestamp + edit pencil */}
+                  <div
+                    className={cn(
+                      'text-[9.5px] tabular-nums mt-0.5 flex items-center justify-end gap-1.5',
+                      mine ? 'text-emerald-50/80' : 'text-slate-400',
+                    )}
+                  >
+                    {n.editedAt && !n.__pending && <span className="italic">editada</span>}
+                    <span>
+                      {n.__pending
+                        ? 'Enviando…'
+                        : format(parseISO(n.createdAt), 'HH:mm', { locale: es })}
+                    </span>
+                    {canEdit && !isEditing && (
                       <button
                         type="button"
                         onClick={() => startEditNote(n)}
-                        className="text-slate-300 hover:text-slate-600 p-0.5 -mr-1 flex-shrink-0"
+                        className={cn(
+                          'opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity',
+                          mine ? 'text-white' : 'text-slate-500',
+                        )}
                         title="Editar nota (5 min)"
                         aria-label="Editar nota"
                       >
-                        <Pencil className="h-3 w-3" />
+                        <Pencil className="h-2.5 w-2.5" />
                       </button>
                     )}
                   </div>
-                )}
+                </div>
               </div>
             )
           })
@@ -303,30 +482,35 @@ export function ReservationNotesThread({ stayId, currentUserId, compact = false 
             onKeyDown={(e) => {
               // IME composition fix (W2-06): no submit mid-acento/CJK.
               if (e.nativeEvent.isComposing || e.keyCode === 229) return
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+              // Enter envía. Shift+Enter inserta newline (patrón Telegram/Slack).
+              if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault()
                 submit()
               }
             }}
-            placeholder="Escribe una nota… (⌘/Ctrl + Enter envía)"
-            rows={2}
+            placeholder="Escribe una nota…"
+            rows={1}
             maxLength={2000}
             className={cn(
-              'flex-1 text-sm border border-slate-300 rounded-md px-2.5 py-1.5 resize-none',
+              'flex-1 text-sm border border-slate-300 rounded-full px-3.5 py-2 resize-none leading-tight',
               'focus:outline-none focus:ring-2 focus:ring-emerald-400',
               shakeClass,
             )}
           />
-          <Button
+          <button
             type="button"
-            size="sm"
-            disabled={createMut.isPending}
+            disabled={createMut.isPending || draft.trim().length === 0}
             onClick={submit}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white shrink-0"
+            aria-label={createMut.isPending ? 'Enviando' : 'Enviar nota'}
+            className={cn(
+              'h-9 w-9 rounded-full bg-emerald-600 hover:bg-emerald-700 active:scale-95',
+              'text-white flex items-center justify-center shrink-0 shadow-sm',
+              'disabled:opacity-50 disabled:scale-100 transition-all',
+              'focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400',
+            )}
           >
-            <Send className="h-3.5 w-3.5 mr-1.5" />
-            {createMut.isPending ? 'Enviando…' : 'Enviar'}
-          </Button>
+            <Send className="h-4 w-4" />
+          </button>
         </div>
       </div>
     </div>

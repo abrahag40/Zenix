@@ -34,6 +34,10 @@ import {
   Pencil,
   Camera,
   Upload,
+  ChevronDown,
+  Wrench,
+  CalendarPlus,
+  Split as SplitIcon,
 } from 'lucide-react'
 
 import { format, differenceInDays, differenceInHours, startOfDay } from 'date-fns'
@@ -167,6 +171,216 @@ function CopyableId({ value, short = false }: { value: string; short?: boolean }
 // Thumbnail de la foto del documento (captura en check-in §108). Click → lightbox.
 // Si no hay foto, render compacto invitando a capturarla (legacy fallback antes
 // que v1.0.3 IMG migre a S3 con upload background). Visa CRR §5.9.2 evidence.
+
+// ─── SegmentContextLine ──────────────────────────────────────────────────────
+// Una sola fila compacta que reemplaza los 4 banners previos
+// (EXTENSION_SAME_ROOM / EXTENSION_NEW_ROOM / ROOM_MOVE / SPLIT). Cumple
+// estandarización Apple HIG: misma altura, mismo padding, color semántico
+// distinto. Para detalle profundo (timestamp, actor, secuencia) → Historial.
+
+function SegmentContextLine({
+  segmentReason,
+  nights,
+  originalRoomNumber,
+  roomNumber,
+}: {
+  segmentReason: string | undefined | null
+  nights: number
+  originalRoomNumber: string | undefined | null
+  roomNumber: string | undefined | null
+}) {
+  if (!segmentReason) return null
+
+  const n = nights
+  const plural = n !== 1 ? 's' : ''
+
+  // Configuración por tipo de segmento. Cada caso define:
+  //   icon, bg/border/text colors (semántica del sistema Zenix), texto.
+  let config: {
+    Icon: React.ElementType
+    bg: string
+    border: string
+    label: string
+    body: React.ReactNode
+  } | null = null
+
+  if (segmentReason === 'EXTENSION_SAME_ROOM') {
+    config = {
+      Icon: CalendarPlus,
+      bg: 'bg-emerald-50/70',
+      border: 'border-emerald-200',
+      label: 'text-emerald-700',
+      body: <>Extensión <span className="font-semibold">+{n} noche{plural}</span> en la misma habitación</>,
+    }
+  } else if (segmentReason === 'EXTENSION_NEW_ROOM') {
+    config = {
+      Icon: CalendarPlus,
+      bg: 'bg-emerald-50/70',
+      border: 'border-emerald-200',
+      label: 'text-emerald-700',
+      body: originalRoomNumber && roomNumber
+        ? <>Extensión <span className="font-semibold">+{n} noche{plural}</span> · Hab. {originalRoomNumber} <span className="text-emerald-500 mx-0.5">→</span> <span className="font-semibold">Hab. {roomNumber}</span></>
+        : <>Extensión <span className="font-semibold">+{n} noche{plural}</span> con cambio de habitación</>,
+    }
+  } else if (segmentReason === 'ROOM_MOVE') {
+    config = {
+      Icon: ArrowRightLeft,
+      bg: 'bg-blue-50/70',
+      border: 'border-blue-200',
+      label: 'text-blue-700',
+      body: originalRoomNumber && roomNumber
+        ? <>Cambio de habitación · Hab. {originalRoomNumber} <span className="text-blue-500 mx-0.5">→</span> <span className="font-semibold">Hab. {roomNumber}</span></>
+        : <>Cambio de habitación</>,
+    }
+  } else if (segmentReason === 'SPLIT') {
+    config = {
+      Icon: SplitIcon,
+      bg: 'bg-violet-50/70',
+      border: 'border-violet-200',
+      label: 'text-violet-700',
+      body: <>Tramo de reserva dividida · <span className="font-semibold">{n} noche{plural}</span> en Hab. {roomNumber}</>,
+    }
+  }
+
+  if (!config) return null
+
+  const { Icon, bg, border, label, body } = config
+  return (
+    <div
+      className={cn(
+        'flex items-center gap-2 rounded-lg border px-3 py-2',
+        bg,
+        border,
+      )}
+    >
+      <Icon className={cn('h-3.5 w-3.5 shrink-0', label)} />
+      <div className={cn('text-xs leading-snug truncate', label.replace('700', '800'))}>
+        {body}
+      </div>
+    </div>
+  )
+}
+
+// ─── RoomMaintenanceCallout ───────────────────────────────────────────────────
+// Colapsable. Cerrado por default (NN/g progressive disclosure — sólo abrir
+// cuando el recepcionista realmente necesita el contexto). Cada fila tiene
+// badge de prioridad de ancho fijo (54px) para alineación vertical perfecta,
+// título principal en gris-900, y fechas de inicio/fin en menor jerarquía.
+
+const TICKET_PRIORITY_META: Record<
+  string,
+  { label: string; badge: string }
+> = {
+  CRITICAL: { label: 'Crítico', badge: 'bg-red-100 text-red-700 border-red-200' },
+  HIGH:     { label: 'Alto',    badge: 'bg-red-50  text-red-600 border-red-100' },
+  MEDIUM:   { label: 'Medio',   badge: 'bg-amber-100 text-amber-800 border-amber-200' },
+  LOW:      { label: 'Bajo',    badge: 'bg-slate-100 text-slate-600 border-slate-200' },
+}
+
+function RoomMaintenanceCallout({
+  tickets,
+  onOpenTicket,
+  onViewAll,
+}: {
+  tickets: Array<{
+    id: string
+    priority: string
+    title: string
+    createdAt: string
+    estimatedEndAt: string | null
+    hasAutoBlock: boolean
+  }>
+  onOpenTicket: (id: string) => void
+  onViewAll: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const visible = tickets.slice(0, 3)
+  const rest = tickets.length - visible.length
+
+  return (
+    <div className="bg-amber-50/60 border border-amber-200 rounded-xl overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between gap-2 px-3 py-2.5 hover:bg-amber-100/40 transition-colors"
+      >
+        <span className="flex items-center gap-2 text-xs font-semibold text-amber-900">
+          <Wrench className="h-3.5 w-3.5 text-amber-700 shrink-0" />
+          <span>
+            {tickets.length} ticket{tickets.length === 1 ? '' : 's'} de mantenimiento en esta habitación
+          </span>
+        </span>
+        <ChevronDown
+          className={cn(
+            'h-3.5 w-3.5 text-amber-700 shrink-0 transition-transform',
+            open && 'rotate-180',
+          )}
+        />
+      </button>
+
+      {open && (
+        <div className="px-3 pb-3 pt-1 space-y-1.5 border-t border-amber-200/60">
+          {visible.map((t) => {
+            const meta = TICKET_PRIORITY_META[t.priority] ?? TICKET_PRIORITY_META.LOW
+            const startDate = format(new Date(t.createdAt), 'd MMM', { locale: es })
+            const endDate = t.estimatedEndAt
+              ? format(new Date(t.estimatedEndAt), 'd MMM', { locale: es })
+              : null
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => onOpenTicket(t.id)}
+                className="w-full flex items-center gap-2.5 rounded-lg bg-white border border-amber-100 px-2.5 py-2 hover:bg-amber-100/30 hover:border-amber-200 transition-colors text-left"
+              >
+                <span
+                  className={cn(
+                    'inline-flex items-center justify-center text-[10px] font-semibold rounded border',
+                    'w-[54px] h-[20px] shrink-0 tabular-nums',
+                    meta.badge,
+                  )}
+                >
+                  {meta.label}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-medium text-slate-900 truncate leading-tight">
+                    {t.title}
+                  </div>
+                  <div className="mt-0.5 text-[10px] text-slate-500 font-mono tabular-nums">
+                    <span className="text-slate-400">Inicio</span> {startDate}
+                    {endDate && (
+                      <>
+                        <span className="text-slate-300 mx-1">·</span>
+                        <span className="text-slate-400">Fin est.</span> {endDate}
+                      </>
+                    )}
+                  </div>
+                </div>
+                {t.hasAutoBlock && (
+                  <span
+                    title="Habitación bloqueada en OTAs"
+                    className="text-[10px] shrink-0 text-amber-700"
+                  >
+                    🔒
+                  </span>
+                )}
+              </button>
+            )
+          })}
+          {rest > 0 && (
+            <button
+              type="button"
+              onClick={onViewAll}
+              className="w-full text-center text-[11px] text-amber-700 hover:text-amber-900 font-medium pt-1"
+            >
+              Ver los {rest} restantes →
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function DocumentPhotoCard({
   photoUrl, documentType, guestName, onUploadRequest, canUpload,
@@ -1052,78 +1266,6 @@ export function BookingDetailSheet({
                   onCancel={cancelStayEdit}
                   onSave={() => void saveStayEdit()}
                 />
-                {/* W3.2 — Maintenance callout: tickets activos en esta habitación.
-                    Color por prioridad más alta. Click → /maintenance?ticketId=X
-                    abre el TicketDetailDrawer en el módulo dedicado. */}
-                {roomTickets.length > 0 && (
-                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
-                    <div className="flex items-center gap-2 text-xs font-semibold text-amber-900">
-                      <span className="text-base leading-none">🔧</span>
-                      <span>
-                        {roomTickets.length} ticket{roomTickets.length === 1 ? '' : 's'} de mantenimiento en esta habitación
-                      </span>
-                    </div>
-                    <ul className="space-y-1.5">
-                      {roomTickets.slice(0, 3).map((t) => (
-                        <li key={t.id}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (onOpenMaintenanceTicket) {
-                                onOpenMaintenanceTicket(t.id)
-                              } else {
-                                navigate(`/maintenance?ticketId=${t.id}`)
-                              }
-                            }}
-                            className="w-full text-left flex items-start gap-2 p-2 rounded-lg bg-white hover:bg-amber-100/50 transition-colors"
-                          >
-                            <span
-                              className={cn(
-                                'text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 mt-0.5',
-                                t.priority === 'CRITICAL'
-                                  ? 'bg-red-50 text-red-700'
-                                  : t.priority === 'HIGH'
-                                  ? 'bg-red-50 text-red-600'
-                                  : t.priority === 'MEDIUM'
-                                  ? 'bg-amber-100 text-amber-700'
-                                  : 'bg-slate-100 text-slate-600',
-                              )}
-                            >
-                              {t.priority === 'CRITICAL'
-                                ? 'Crítico'
-                                : t.priority === 'HIGH'
-                                ? 'Alto'
-                                : t.priority === 'MEDIUM'
-                                ? 'Medio'
-                                : 'Bajo'}
-                            </span>
-                            <span className="flex-1 text-xs text-slate-900 line-clamp-2 leading-snug">
-                              {t.title}
-                            </span>
-                            {t.hasAutoBlock && (
-                              <span
-                                title="Habitación bloqueada en OTAs"
-                                className="text-[10px] shrink-0 mt-0.5"
-                              >
-                                🔒
-                              </span>
-                            )}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                    {roomTickets.length > 3 && (
-                      <button
-                        type="button"
-                        onClick={() => navigate(`/maintenance?roomId=${stay.roomId}`)}
-                        className="text-[11px] text-amber-700 hover:text-amber-900 font-medium underline"
-                      >
-                        Ver los {roomTickets.length - 3} restantes →
-                      </button>
-                    )}
-                  </div>
-                )}
-
                 {/* Fechas */}
                 <div className="bg-slate-50 rounded-xl p-4">
                   <div className="flex items-stretch gap-3">
@@ -1145,9 +1287,18 @@ export function BookingDetailSheet({
                         })}
                       </div>
 
-                      <div className="text-xs text-slate-400 mt-0.5">
-                        15:00
-                      </div>
+                      {/* Hora: si hay actualCheckin mostramos hora real con
+                          tipografía emerald (registrado); si no, hora target. */}
+                      {stay.actualCheckin ? (
+                        <div className="text-[11px] font-semibold text-emerald-700 mt-0.5 tabular-nums">
+                          {format(new Date(stay.actualCheckin), 'HH:mm', { locale: es })}
+                          <span className="text-[10px] text-emerald-600 font-normal ml-1">registrado</span>
+                        </div>
+                      ) : (
+                        <div className="text-xs text-slate-400 mt-0.5 tabular-nums">
+                          15:00
+                        </div>
+                      )}
                     </div>
 
                     {/* Nights */}
@@ -1179,79 +1330,34 @@ export function BookingDetailSheet({
                         })}
                       </div>
 
-                      <div className="text-xs text-slate-400 mt-0.5">
-                        12:00
-                      </div>
+                      {stay.actualCheckout ? (
+                        <div className="text-[11px] font-semibold text-emerald-700 mt-0.5 tabular-nums">
+                          {format(new Date(stay.actualCheckout), 'HH:mm', { locale: es })}
+                          <span className="text-[10px] text-emerald-600 font-normal ml-1">registrado</span>
+                        </div>
+                      ) : (
+                        <div className="text-xs text-slate-400 mt-0.5 tabular-nums">
+                          12:00
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
 
-                {/* ── Segment context banners ─────────────────────────────────
-                    Body uses regular weight: the dates card above is the primary
-                    anchor (font-bold). Bold in the body would compete with it and
-                    flatten the hierarchy. Room-transition numbers keep bold since
-                    the spatial delta *is* the primary info of these banners. */}
-
-                {/* Extension — same room */}
-                {stay.segmentReason === 'EXTENSION_SAME_ROOM' && (
-                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
-                    <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">
-                      Extensión
-                    </div>
-                    <div className="text-sm text-emerald-800 mt-0.5">
-                      +{nights} noche{nights !== 1 ? 's' : ''} en la misma habitación
-                    </div>
-                  </div>
-                )}
-
-                {/* Extension + room change */}
-                {stay.segmentReason === 'EXTENSION_NEW_ROOM' && (
-                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 space-y-1">
-                    <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">
-                      Extensión con cambio de habitación
-                    </div>
-                    {stay.originalRoomNumber && stay.roomNumber && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-slate-500">Hab. {stay.originalRoomNumber}</span>
-                        <span className="text-emerald-500">→</span>
-                        <span className="text-sm font-bold text-emerald-800">Hab. {stay.roomNumber}</span>
-                      </div>
-                    )}
-                    <div className="text-xs text-emerald-700">
-                      +{nights} noche{nights !== 1 ? 's' : ''}
-                    </div>
-                  </div>
-                )}
-
-                {/* Room move — the spatial delta is the whole story */}
-                {isRoomMove && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3">
-                    <div className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">
-                      Cambio de habitación
-                    </div>
-                    {stay.originalRoomNumber && stay.roomNumber ? (
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-sm text-slate-500">Hab. {stay.originalRoomNumber}</span>
-                        <span className="text-blue-400">→</span>
-                        <span className="text-sm font-bold text-blue-800">Hab. {stay.roomNumber}</span>
-                      </div>
-                    ) : (
-                      <div className="text-sm font-bold text-blue-800 mt-0.5">Hab. {stay.roomNumber}</div>
-                    )}
-                  </div>
-                )}
-
-                {/* Split — tramo de una reserva dividida en varias habitaciones */}
-                {isSplit && (
-                  <div className="bg-violet-50 border border-violet-200 rounded-xl px-4 py-3">
-                    <div className="text-[10px] font-bold text-violet-600 uppercase tracking-wider">
-                      Tramo de reserva dividida
-                    </div>
-                    <div className="text-sm text-violet-800 mt-0.5">
-                      Hab. {stay.roomNumber} · {nights} noche{nights !== 1 ? 's' : ''}
-                    </div>
-                  </div>
-                )}
+                {/* ── Segment context (unificado 2026-05-19 iter 3) ────────────
+                    Antes: 4 banners distintos (extensión-same, extensión-new,
+                    room-move, split) cada uno con tamaño/altura diferente y
+                    el de EXTENSION_NEW_ROOM ocupaba ~80px de alto innecesarios.
+                    Ahora: 1 sola fila compacta (32px alto) con icono semántico
+                    + descripción concisa. Patrón Apple Calendar inline metadata
+                    bar. Para detalle (timestamp, actor, secuencia de moves) →
+                    Historial tab. */}
+                <SegmentContextLine
+                  segmentReason={stay.segmentReason}
+                  nights={nights}
+                  originalRoomNumber={stay.originalRoomNumber}
+                  roomNumber={stay.roomNumber}
+                />
 
                 {/* Room + pax */}
                 <div className="grid grid-cols-2 gap-3">
@@ -1379,6 +1485,21 @@ export function BookingDetailSheet({
                     <div className="text-xs text-amber-800">{stay.arrivalNotes}</div>
                   </div>
                 ) : null}
+
+                {/* W3.2 — Maintenance tickets activos en esta habitación.
+                    2026-05-19 — refactor: colapsable, al final del tab (estándar
+                    "core info first, ancillary last"), pixel-perfect badges,
+                    fechas de inicio + fin estimado con tipografía diferenciada. */}
+                {roomTickets.length > 0 && (
+                  <RoomMaintenanceCallout
+                    tickets={roomTickets}
+                    onOpenTicket={(id) => {
+                      if (onOpenMaintenanceTicket) onOpenMaintenanceTicket(id)
+                      else navigate(`/maintenance?ticketId=${id}`)
+                    }}
+                    onViewAll={() => navigate(`/maintenance?roomId=${stay.roomId}`)}
+                  />
+                )}
               </div>
             </TabsContent>
 
