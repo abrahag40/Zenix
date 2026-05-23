@@ -15,6 +15,7 @@ import { CheckoutsPage } from './pages/CheckoutsPage'
 import { ReportsPage } from './pages/ReportsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { DiscrepanciesPage } from './pages/DiscrepanciesPage'
+import ChannexConflictsPage from './pages/ChannexConflictsPage'
 import { BlocksPage } from './pages/BlocksPage'
 import { MaintenancePage } from './pages/MaintenancePage'
 import { ReservationDetailPage } from './pages/ReservationDetailPage'
@@ -86,6 +87,7 @@ export default function App() {
           <Route path="/kanban"          element={<ProtectedLayout><KanbanPage /></ProtectedLayout>} />
           <Route path="/checkouts"       element={<ProtectedLayout><CheckoutsPage /></ProtectedLayout>} />
           <Route path="/discrepancies"   element={<ProtectedLayout><DiscrepanciesPage /></ProtectedLayout>} />
+          <Route path="/channex/conflicts" element={<ProtectedLayout><ChannexConflictsPage /></ProtectedLayout>} />
           <Route path="/blocks"          element={<ProtectedLayout><BlocksPage /></ProtectedLayout>} />
           <Route path="/maintenance"     element={<ProtectedLayout><MaintenancePage /></ProtectedLayout>} />
           <Route path="/reports"         element={<ProtectedLayout><ReportsPage /></ProtectedLayout>} />

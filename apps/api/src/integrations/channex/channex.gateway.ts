@@ -305,6 +305,283 @@ export class ChannexGateway {
       this.logger.error(`[Channex] pushStopSell network error trace=${params.traceId}: ${msg}`)
     }
   }
+
+  // ─── Booking revisions API (Sprint CHANNEX-INBOUND) ─────────────────────────
+  //
+  // Cuando Channex emite un webhook booking_new/modify/cancel, el payload
+  // trae SOLO `{event, property_id, booking_id, revision_id}`. Para obtener
+  // la reserva completa, el PMS debe llamar GET /booking_revisions/:id con
+  // user-api-key, persistir, y luego POST /booking_revisions/:id/ack.
+  //
+  // Si no se ackea en 30 minutos, Channex re-emite `non_acked_booking`.
+
+  /**
+   * GET /api/v1/booking_revisions/:id
+   * Retorna la revision completa con guest, rooms, services, currency, etc.
+   * Lanza si HTTP != 200 — el caller debe manejar retry/backoff (outbox).
+   */
+  async getBookingRevision(revisionId: string): Promise<ChannexBookingRevision> {
+    this.requireEnabled('getBookingRevision')
+    const url = `${this.baseUrl}/booking_revisions/${revisionId}`
+    const res = await fetch(url, {
+      headers: {
+        'user-api-key': this.apiKey!,
+        'Content-Type': 'application/json',
+      },
+    })
+
+    if (!res.ok) {
+      const text = await res.text()
+      throw new ChannexHttpError(
+        `getBookingRevision ${revisionId} HTTP ${res.status}: ${text}`,
+        res.status,
+      )
+    }
+
+    const json = (await res.json()) as { data?: { attributes?: ChannexBookingRevision } }
+    const attrs = json.data?.attributes
+    if (!attrs) {
+      throw new ChannexHttpError(`getBookingRevision ${revisionId} missing data.attributes`, 502)
+    }
+    return attrs
+  }
+
+  /**
+   * POST /api/v1/booking_revisions/:id/ack
+   * Marca la revision como recibida y procesada. Idempotente del lado
+   * Channex — un ack duplicado responde 422 (Unprocessable Entity), no error.
+   */
+  async ackBookingRevision(revisionId: string): Promise<{ acked: boolean; alreadyAcked: boolean }> {
+    this.requireEnabled('ackBookingRevision')
+    const url = `${this.baseUrl}/booking_revisions/${revisionId}/ack`
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'user-api-key': this.apiKey!,
+        'Content-Type': 'application/json',
+      },
+    })
+
+    if (res.status === 200) {
+      return { acked: true, alreadyAcked: false }
+    }
+    // Idempotent success on 404 / 422 — the revision is no longer in the
+    // unacked queue (acked by a previous worker, or by the feed scheduler
+    // racing the webhook). Audit C2: treating these as DEAD_LETTER on a
+    // duplicate ack call was producing false alarms.
+    //   · 404 — documented response when "Booking Revision with provided
+    //     ID is not present at system" (post-ack purge).
+    //   · 422 — observed in some Channex environments for the same case
+    //     (kept defensively).
+    if (res.status === 404 || res.status === 422) {
+      this.logger.warn(
+        `[Channex] ackBookingRevision ${revisionId} HTTP ${res.status} ` +
+          `(treating as already-acked / idempotent)`,
+      )
+      return { acked: true, alreadyAcked: true }
+    }
+    const text = await res.text()
+    throw new ChannexHttpError(
+      `ackBookingRevision ${revisionId} HTTP ${res.status}: ${text}`,
+      res.status,
+    )
+  }
+
+  /**
+   * GET /api/v1/booking_revisions/feed
+   * Lista las revisions no ackeadas (oldest first). Usado por el
+   * ChannexFeedScheduler para reconciliation nocturna (D-CHX6) y como
+   * fallback si un webhook se perdió.
+   */
+  async listBookingRevisionsFeed(params?: {
+    propertyId?: string
+    page?: number
+    limit?: number
+  }): Promise<{ revisions: ChannexBookingRevision[]; meta: ChannexFeedMeta }> {
+    this.requireEnabled('listBookingRevisionsFeed')
+    const search = new URLSearchParams({
+      'order[inserted_at]': 'asc',
+      ...(params?.propertyId ? { 'filter[property_id]': params.propertyId } : {}),
+      ...(params?.page ? { page: String(params.page) } : {}),
+      ...(params?.limit ? { limit: String(params.limit) } : {}),
+    })
+    const url = `${this.baseUrl}/booking_revisions/feed?${search.toString()}`
+    const res = await fetch(url, {
+      headers: {
+        'user-api-key': this.apiKey!,
+        'Content-Type': 'application/json',
+      },
+    })
+
+    if (!res.ok) {
+      const text = await res.text()
+      throw new ChannexHttpError(`listBookingRevisionsFeed HTTP ${res.status}: ${text}`, res.status)
+    }
+
+    const json = (await res.json()) as {
+      data?: Array<{ attributes: ChannexBookingRevision }>
+      meta?: ChannexFeedMeta
+    }
+    const revisions = (json.data ?? []).map((row) => row.attributes)
+    const meta: ChannexFeedMeta = json.meta ?? { total: 0, page: 1, limit: revisions.length }
+    return { revisions, meta }
+  }
+
+  /**
+   * GET /api/v1/properties
+   * Health check para certification + debug. Lista properties accesibles
+   * con la api-key configurada.
+   */
+  async listProperties(): Promise<Array<{ id: string; title: string; timezone: string; currency: string }>> {
+    this.requireEnabled('listProperties')
+    const res = await fetch(`${this.baseUrl}/properties`, {
+      headers: {
+        'user-api-key': this.apiKey!,
+        'Content-Type': 'application/json',
+      },
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new ChannexHttpError(`listProperties HTTP ${res.status}: ${text}`, res.status)
+    }
+    const json = (await res.json()) as {
+      data?: Array<{ id: string; attributes: { title: string; timezone: string; currency: string } }>
+    }
+    return (json.data ?? []).map((row) => ({
+      id: row.id,
+      title: row.attributes.title,
+      timezone: row.attributes.timezone,
+      currency: row.attributes.currency,
+    }))
+  }
+
+  /**
+   * PUT /api/v1/bookings/:id
+   * Cancel a booking via Channex CRS — Channex relays the cancellation
+   * upstream to the OTA. Per Channex docs (CRS API): "to cancel booking,
+   * please use status cancelled".
+   *
+   * NOTE: this only propagates the cancellation signal. The OTA's own
+   * cancellation policy (refund / penalty / fee) is enforced by the OTA
+   * itself — Booking.com / Expedia / Airbnb decide. Front-desk should
+   * communicate with the guest via the OTA extranet for any monetary
+   * resolution.
+   */
+  async cancelBookingAtChannex(
+    bookingId: string,
+    reason?: string,
+  ): Promise<{ ok: boolean; status: number }> {
+    this.requireEnabled('cancelBookingAtChannex')
+    const url = `${this.baseUrl}/bookings/${bookingId}`
+    const body = {
+      booking: {
+        status: 'cancelled',
+        ...(reason ? { notes: `Cancelled by Zenix PMS: ${reason}` } : {}),
+      },
+    }
+    const res = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        'user-api-key': this.apiKey!,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    })
+
+    if (res.status === 200 || res.status === 204) {
+      this.logger.log(`[Channex] cancelBookingAtChannex OK booking=${bookingId}`)
+      return { ok: true, status: res.status }
+    }
+    const text = await res.text()
+    throw new ChannexHttpError(
+      `cancelBookingAtChannex ${bookingId} HTTP ${res.status}: ${text}`,
+      res.status,
+    )
+  }
+
+  private requireEnabled(op: string): void {
+    if (!this.enabled) {
+      throw new ChannexHttpError(`[Channex] ${op} called but CHANNEX_API_KEY not set`, 503)
+    }
+  }
+}
+
+// ── Booking revision types ───────────────────────────────────────────────────
+
+export type ChannexBookingStatus = 'new' | 'modified' | 'cancelled'
+
+export interface ChannexBookingRevisionRoom {
+  amount: string
+  checkin_date: string
+  checkout_date: string
+  rate_plan_id: string
+  room_type_id: string
+  occupancy: { adults: number; children: number; infants: number }
+  days?: Record<string, string>
+  services?: unknown[]
+  taxes?: unknown[]
+  guests?: Array<{ name?: string; surname?: string }>
+}
+
+export interface ChannexBookingRevisionCustomer {
+  name?: string
+  surname?: string
+  mail?: string
+  phone?: string
+  address?: string
+  city?: string
+  country?: string
+  zip?: string
+  language?: string
+  company?: string
+}
+
+export interface ChannexBookingRevision {
+  id: string
+  property_id: string
+  booking_id: string
+  unique_id?: string
+  system_id?: string
+  ota_reservation_code?: string
+  ota_name?: string
+  status: ChannexBookingStatus
+  arrival_date: string
+  departure_date: string
+  arrival_hour?: string
+  amount?: string
+  /**
+   * Channex 2026-04-01 schema addition. Indicates whether `amount` is gross
+   * (incluye comisión OTA + impuestos) o net (sin comisión). Si Channex
+   * empieza a enviar net, nuestro mapeo necesita restar/sumar diferenciado
+   * para que el folio coincida con USALI. Default seguro: tratamos null y
+   * 'gross' como gross. Cualquier otro valor → log warning + tratamos como
+   * gross (manager debe reconciliar).
+   */
+  amount_type?: 'gross' | 'net' | null
+  currency?: string
+  ota_commission?: string
+  rooms: ChannexBookingRevisionRoom[]
+  services?: unknown[]
+  customer?: ChannexBookingRevisionCustomer
+  occupancy?: { adults: number; children: number; infants: number }
+  inserted_at?: string
+  notes?: string
+  payment_collect?: 'property' | 'channel' | 'ota'
+  /** Booking.com Genius / Airbnb virtual card details (2024+ schema). */
+  guarantee?: unknown
+}
+
+export interface ChannexFeedMeta {
+  total: number
+  page: number
+  limit: number
+}
+
+export class ChannexHttpError extends Error {
+  constructor(message: string, public readonly status: number) {
+    super(message)
+    this.name = 'ChannexHttpError'
+  }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
