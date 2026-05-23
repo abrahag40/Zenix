@@ -768,6 +768,30 @@ housekeeping3/
 
 > **Sprint CHANNEX-INBOUND — implementación cerrada 2026-05-22 con 94/94 unit tests verdes + 3/3 sandbox integration vs `staging.channex.io`. Roadmap post-cert (improvements v1.0.1+) documentado en [docs/sprints/CHANNEX-INBOUND-post-cert-roadmap.md](docs/sprints/CHANNEX-INBOUND-post-cert-roadmap.md): trigger directo ya activo (Day 7), pendientes last-room sync push + Postgres advisory locks + outbound retry queue + health monitor + smart suggestions v2 (bed-level + multi-property).**
 
+### Channex outbound — Sprint CHANNEX-OUTBOUND-CERT (Days 1-7, 2026-05-22)
+
+139. **D-CHX-OUT-1 — Outbox queue obligatoria para todo outbound.** Ningún `gateway.pushAvailability/pushRestrictions` se llama directamente desde save handlers. **TODO** pasa por `ChannexOutboundBuilderService` event listener → `ChannexOutboundQueue` table → `ChannexOutboundWorker`. Excepción única: `FullSyncOrchestrator` puede llamar `builder.enqueue()` direct porque ya respeta su propia idempotencia + window enforcement. Cert AP-2.2 mitigado estructuralmente. Grep test en CI verifica regresión.
+
+140. **D-CHX-OUT-2 — Gateway methods toman arrays, no escalares.** `pushAvailability(entries: ChannexAvailabilityEntry[])` y `pushRestrictions(entries: ChannexRestrictionEntry[])` enforced en TypeScript types. NO existe método singular `pushRate(date, value)`. AP-4 (per-date loops) imposible por contrato del gateway.
+
+141. **D-CHX-OUT-3 — Domain events vía EventEmitter2, no polling.** AvailabilityService + futuro RatesService emiten `CHANNEX_AVAILABILITY_CHANGED` / `CHANNEX_RESTRICTION_UPDATED` constants post-save. Listener `OutboxBuilderService` traduce a outbox rows. NO query `WHERE updated_at > X` en cron. AP-2.1 evitado por arquitectura. Event constants en [channex-outbound-events.ts](apps/api/src/integrations/channex/outbound/channex-outbound-events.ts) — single source of truth importable sin dependencia de ChannexOutboundModule (Hexagonal).
+
+142. **D-CHX-OUT-4 — Separación AVAILABILITY vs RATES_RESTRICTIONS estructural.** `ChannexOutboundKind` enum con 2 valores. Worker drena cada kind como HTTP message separado. Cero código que pueda mezclarlos. Cumple recomendación oficial Channex "send availability and rates separately" + AP-2.8.
+
+143. **D-CHX-OUT-5 — TokenBucket sliding window 10 tokens/60s per (property, kind).** Memory-resident v1.0.0; Redis-backed v1.0.5 cuando escalemos multi-pod. Worker chequea bucket antes de Gateway call: si exhausted → row DEFERRED (no attempt++, no es failure). 429 de Channex es señal de bucket mal calibrado → log error. Cumple cert Test 12 + AP-2.3.
+
+144. **D-CHX-OUT-6 — Retry policy: 429 Retry-After header / 5xx exp backoff / max 5 → DEAD_LETTER.** 429 → `max(60s, Retry-After)` (Channex docs minimum 1 minute pause). 5xx/network → `2^attempts` seconds. Max 5 attempts → DEAD_LETTER + `ChannexOutboundNotifService.raiseDeadLetter` → AppNotification ACTION_REQUIRED HIGH al SUPERVISOR con `expiresAt:null` (compliance permanente §101). Cert AP-2.3 visible vs silent drop.
+
+145. **D-CHX-OUT-7 — Full sync 1×/24h off-peak hard-coded.** `FullSyncOrchestrator` con 2 guards estructurales: (a) `now - channexLastFullSyncAt >= 23h` (idempotencia, MIN_INTERVAL_MS const); (b) Local hour `∈ [channexFullSyncWindowStart, channexFullSyncWindowEnd)` default `[3, 5)`. Manual trigger admin endpoint salta guards PERO marca lastSync (cron no re-dispara). Cert AP-3 (timer-based full-sync) imposible — verificado por grep test en CI.
+
+146. **D-CHX-OUT-8 — Mappings en DB, jamás en código.** `Room.channexRoomTypeId`, `PropertySettings.channexPropertyId`, futuro `RatePlan.channexRatePlanId`. Pre-commit grep test verifica que ningún archivo non-test en `src/` contiene UUIDs Channex hardcoded (AP-5). Test exposed via `channex.cert-tests.integration.spec.ts`.
+
+147. **D-CHX-OUT-9 — Integration tests llaman codepath productivo, NO Gateway direct.** Suite `channex.cert-tests.integration.spec.ts` cubre los 14 escenarios cert via grep + sandbox + production codepath verification. Tests 9-13 verde hoy; Tests 2-8 (rates) marcados `describe.skip` con razón documentada (pending sprint RATES-METRICS-COMPSET-CORE → RatePlan model + RatesService). Cert AP-1 + AP-6 mitigados.
+
+148. **D-CHX-OUT-10 — Admin observability page `/settings/channex` para SUPERVISOR + Stage 4 reviewer.** Snapshot tiempo real: outbound + inbound queue counts por status (últimas 24h), token bucket capacity per kind con progress bars, webhook last received + count 24h, feed scheduler last run, full sync state + nextEligibleAt, DEAD_LETTER lists con error completo, conflicts open count + link a `/channex/conflicts`. Manual full sync trigger button. Auto-refresh 30s. Es la evidencia visual que Channex Stage 4 reviewer pide durante live screenshare.
+
+> **Sprint CHANNEX-OUTBOUND-CERT — implementación cerrada 2026-05-22 con 161/161 unit tests verde + 11/11 cert integration tests + 3/3 sandbox HTTP 200 vs `staging.channex.io`. Cert Tests cubiertos: 1, 9, 10, 11, 12, 13 (6/14). Tests 2-8 (rates) pending RATES-METRICS-COMPSET-CORE sprint (~5-6 sem); contrato handoff documentado en [docs/sprints/CHANNEX-OUTBOUND-CERT-handoff-to-rates.md](docs/sprints/CHANNEX-OUTBOUND-CERT-handoff-to-rates.md). Test 14 declarations formales en [docs/ops/channex-test-14-declarations.md](docs/ops/channex-test-14-declarations.md). Stage 4 walkthrough script en [docs/ops/channex-cert-stage4-walkthrough.md](docs/ops/channex-cert-stage4-walkthrough.md). Los 14 anti-patrones oficiales mitigados estructuralmente — verificados via grep tests + cert integration spec.**
+
 ---
 
 ## Patterns & Conventions
