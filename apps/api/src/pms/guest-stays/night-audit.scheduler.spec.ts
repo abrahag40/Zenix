@@ -87,6 +87,9 @@ describe('NightAuditScheduler', () => {
         { provide: PrismaService,     useValue: prismaMock },
         { provide: GuestStaysService, useValue: guestStaysServiceMock },
         { provide: ChannexGateway, useValue: { pushInventory: jest.fn().mockResolvedValue(undefined), notifyRelease: jest.fn().mockResolvedValue(undefined) } },
+        // Sprint CHANNEX-OUTBOUND-CERT Day 5 — EventEmitter2 inyectado para
+        // refactor AP-2.2 (no más pushInventory direct desde scheduler).
+        { provide: require('@nestjs/event-emitter').EventEmitter2, useValue: { emit: jest.fn() } },
       ],
     }).compile()
 
