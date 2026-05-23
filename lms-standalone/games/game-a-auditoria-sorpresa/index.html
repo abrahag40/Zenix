@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="es-MX">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Auditoría Sorpresa · Distintivo H Simulator</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: #14110f;
+        overflow: hidden;
+        height: 100%;
+        font-family: system-ui, -apple-system, sans-serif;
+      }
+      #game-root {
+        width: 100vw;
+        height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      /* Región aria-live para anuncios de accesibilidad (lectores de pantalla) */
+      #a11y-live {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="game-root"></div>
+    <div id="a11y-live" aria-live="polite" role="status"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

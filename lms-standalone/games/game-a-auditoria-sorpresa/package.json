@@ -1,0 +1,19 @@
+{
+  "name": "game-a-auditoria-sorpresa",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Serious game Phaser 3 — Auditoría Sorpresa: Distintivo H Simulator. Capstone del Módulo 3 del curso Distintivo H + NOM-035.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "phaser": "^3.80.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "vite": "^5.2.11"
+  }
+}
