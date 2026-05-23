@@ -231,12 +231,51 @@ export class BookingNewHandler {
       channexConflict: false,
     })
 
-    const stay = await this.prisma.guestStay.create({
-      data: { ...data, checkedInById },
-      select: { id: true, roomId: true },
+    // Crear GuestStay + StayJourney + ORIGINAL StaySegment en MISMA tx.
+    // Mirror del manual createStay (guest-stays.service.ts:282-309) —
+    // sin esto la reserva OTA queda como "legacy stay sin journey":
+    //   · Calendar SÍ la muestra (via staysWithoutJourneys filter)
+    //   · Pero NO se puede mover via MoveRoomDialog journey path
+    //   · NO se puede extender via extendNewRoom (necesita journey)
+    //   · BookingCancelHandler journey cascade no se ejecuta
+    // Day 3 audit gap detectado por la pregunta del owner 2026-05-22.
+    const stay = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.guestStay.create({
+        data: { ...data, checkedInById },
+        select: { id: true, roomId: true, checkinAt: true, scheduledCheckout: true },
+      })
+
+      // StayJourney (1:1 con GuestStay para flujos uniformes)
+      const journey = await tx.stayJourney.create({
+        data: {
+          organizationId,
+          propertyId: property.id,
+          guestName: data.guestName,
+          guestEmail: data.guestEmail,
+          guestStayId: created.id,
+          journeyCheckIn: created.checkinAt,
+          journeyCheckOut: created.scheduledCheckout,
+        },
+      })
+
+      // ORIGINAL segment (status ACTIVE, reason ORIGINAL — mismo enum del flow manual)
+      await tx.staySegment.create({
+        data: {
+          journeyId: journey.id,
+          roomId: created.roomId,
+          guestStayId: created.id,
+          checkIn: created.checkinAt,
+          checkOut: created.scheduledCheckout,
+          status: 'ACTIVE',
+          reason: 'ORIGINAL',
+          rateSnapshot: new Prisma.Decimal(data.ratePerNight as Prisma.Decimal),
+        },
+      })
+
+      return created
     })
 
-    // 7. SSE
+    // 7. SSE — calendar listener (useRoomSSE) refresca al recibir esto
     this.notifications.emit(property.id, 'channex:stay:created', {
       stayId: stay.id,
       roomId: stay.roomId,

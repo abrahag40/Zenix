@@ -51,14 +51,31 @@ function makeRevision(overrides: Partial<ChannexBookingRevision> = {}): ChannexB
 }
 
 function makePrismaMock() {
+  // Sprint CHANNEX-INBOUND fix 2026-05-22 — BookingNewHandler ahora crea
+  // GuestStay + StayJourney + StaySegment en MISMA tx (mirror manual flow).
+  // El mock simula la tx ejecutando el callback con los mocks tx-scoped.
+  const txGuestStayCreate = jest.fn()
+  const txStayJourneyCreate = jest.fn().mockResolvedValue({ id: 'journey-1' })
+  const txStaySegmentCreate = jest.fn().mockResolvedValue({ id: 'segment-1' })
+
   return {
     guestStay: {
       findUnique: jest.fn(),
+      // Para los conflict paths que NO usan $transaction (persistConflict),
+      // se mantiene como mock directo.
       create: jest.fn(),
       update: jest.fn().mockResolvedValue({}),
     },
     property: { findUnique: jest.fn() },
     room: { findMany: jest.fn(), findFirst: jest.fn() },
+    $transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
+      fn({
+        guestStay: { create: txGuestStayCreate },
+        stayJourney: { create: txStayJourneyCreate },
+        staySegment: { create: txStaySegmentCreate },
+      }),
+    ),
+    _tx: { txGuestStayCreate, txStayJourneyCreate, txStaySegmentCreate },
   }
 }
 
@@ -90,7 +107,7 @@ describe('BookingNewHandler', () => {
     handler = mod.get(BookingNewHandler)
   })
 
-  it('happy path: room mapped + available → kind=created + SSE emit', async () => {
+  it('happy path: room mapped + available → kind=created + SSE emit + Journey+Segment creados', async () => {
     prisma.guestStay.findUnique.mockResolvedValue(null)
     prisma.property.findUnique.mockResolvedValue({
       id: 'prop-1',
@@ -99,12 +116,39 @@ describe('BookingNewHandler', () => {
     })
     prisma.room.findMany.mockResolvedValue([{ id: 'room-a1', number: 'A1' }])
     availability.check.mockResolvedValue({ available: true, conflicts: [], checkedChannex: false })
-    prisma.guestStay.create.mockResolvedValue({ id: 'stay-1', roomId: 'room-a1' })
+    // tx.guestStay.create returns the new stay
+    prisma._tx.txGuestStayCreate.mockResolvedValue({
+      id: 'stay-1',
+      roomId: 'room-a1',
+      checkinAt: new Date('2026-06-01T21:30:00Z'),
+      scheduledCheckout: new Date('2026-06-04T16:00:00Z'),
+    })
 
     const result = await handler.handle(makeRevision())
 
     expect(result).toEqual({ kind: 'created', stayId: 'stay-1', roomId: 'room-a1' })
-    expect(prisma.guestStay.create).toHaveBeenCalled()
+    // Verifica que la TX corrió + creó las 3 entidades (mirror manual flow)
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1)
+    expect(prisma._tx.txGuestStayCreate).toHaveBeenCalled()
+    expect(prisma._tx.txStayJourneyCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        organizationId: 'org-1',
+        propertyId: 'prop-1',
+        guestStayId: 'stay-1',
+        journeyCheckIn: expect.any(Date),
+        journeyCheckOut: expect.any(Date),
+      }),
+    })
+    expect(prisma._tx.txStaySegmentCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        journeyId: 'journey-1',
+        roomId: 'room-a1',
+        guestStayId: 'stay-1',
+        status: 'ACTIVE',
+        reason: 'ORIGINAL',
+      }),
+    })
+    // SSE refresca calendar (useRoomSSE listener wired Day post-audit)
     expect(notifications.emit).toHaveBeenCalledWith(
       'prop-1',
       'channex:stay:created',
@@ -313,7 +357,12 @@ describe('BookingNewHandler', () => {
     availability.check
       .mockResolvedValueOnce({ available: false, conflicts: [], checkedChannex: false })
       .mockResolvedValueOnce({ available: true, conflicts: [], checkedChannex: false })
-    prisma.guestStay.create.mockResolvedValue({ id: 'stay-2', roomId: 'room-a2' })
+    prisma._tx.txGuestStayCreate.mockResolvedValue({
+      id: 'stay-2',
+      roomId: 'room-a2',
+      checkinAt: new Date('2026-06-01T21:30:00Z'),
+      scheduledCheckout: new Date('2026-06-04T16:00:00Z'),
+    })
 
     const result = await handler.handle(makeRevision())
 

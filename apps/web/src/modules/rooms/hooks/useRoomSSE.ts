@@ -11,6 +11,13 @@ const ROOM_EVENT_TYPES = new Set<SseEventType>([
   'stay:no_show',
   'stay:no_show_reverted',
   'arrival:at_risk',
+  // Sprint CHANNEX-INBOUND — invalidate calendar cuando llega/cambia/cancela
+  // una reserva OTA via Channex. Sin esto la nueva reserva NO aparece en
+  // tiempo real (espera staleTime 5min o reload manual del recepcionista).
+  'channex:stay:created',
+  'channex:stay:modified',
+  'channex:stay:cancelled',
+  'channex:stay:conflict',
   // Block lifecycle events — keep calendar and all modules in sync
   'block:created',
   'block:approved',
