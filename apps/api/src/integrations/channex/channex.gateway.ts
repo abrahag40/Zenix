@@ -306,6 +306,156 @@ export class ChannexGateway {
     }
   }
 
+  // ─── ARI Push (Sprint CHANNEX-OUTBOUND-CERT) ────────────────────────────────
+  //
+  // Endpoints oficiales Channex (verificado 2026-05-22):
+  //   POST /availability   — count per [property, room_type, date]
+  //   POST /restrictions   — rates + min_stay + max_stay + CTA/CTD + stop_sell
+  //                          per [property, rate_plan, date]
+  //
+  // NOTA crítica: NO existe POST /rates separado. Todo lo que NO es
+  // availability (rates, stop_sell, CTA, CTD, min/max stay) va junto al
+  // endpoint /restrictions y opera a nivel de rate_plan_id (NO room_type_id).
+  // El pushStopSell legacy del Sprint 8 enviaba room_type_id (incorrecto).
+  // pushRestrictions corrige esto y debe usarse para todo nuevo código.
+  //
+  // Anti-patterns mitigados:
+  //   · AP-4: ambos métodos aceptan arrays. Singular methods no existen.
+  //   · AP-2.8: dos métodos distintos para los dos endpoints — imposible
+  //     mezclar avail con rate/restriction en un solo HTTP call.
+
+  /**
+   * POST /api/v1/availability
+   *
+   * Acepta batch de entries cross-property cross-room-type. El caller
+   * (ChannexOutboundWorker) debe haber armado el batch respetando rate limit.
+   *
+   * Soporta tanto `date` (single) como `date_from`+`date_to` (range) per row.
+   *
+   * Best-effort §31: el caller maneja retry/backoff (outbox pattern).
+   * Lanza ChannexHttpError si Channex responde no-200.
+   */
+  async pushAvailability(entries: ChannexAvailabilityEntry[]): Promise<void> {
+    this.requireEnabled('pushAvailability')
+    if (entries.length === 0) return
+
+    const values = entries.map((e) => {
+      const base = {
+        property_id: e.propertyId,
+        room_type_id: e.roomTypeId,
+        availability: e.availability,
+      }
+      if (e.date) {
+        return { ...base, date: e.date }
+      }
+      if (e.dateFrom && e.dateTo) {
+        return { ...base, date_from: e.dateFrom, date_to: e.dateTo }
+      }
+      throw new Error(
+        `[Channex] pushAvailability entry needs either { date } or { dateFrom, dateTo } — ` +
+          `got property=${e.propertyId} room_type=${e.roomTypeId}`,
+      )
+    })
+
+    const res = await fetch(`${this.baseUrl}/availability`, {
+      method: 'POST',
+      headers: {
+        'user-api-key': this.apiKey!,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ values }),
+    })
+
+    if (!res.ok) {
+      const text = await res.text()
+      throw new ChannexHttpError(
+        `pushAvailability HTTP ${res.status} entries=${entries.length}: ${text}`,
+        res.status,
+      )
+    }
+
+    this.logger.log(`[Channex] pushAvailability OK entries=${entries.length}`)
+  }
+
+  /**
+   * POST /api/v1/restrictions
+   *
+   * Endpoint unificado que soporta rate + todas las restricciones por
+   * rate_plan_id. Channex requiere AT LEAST ONE restriction field por row.
+   *
+   * Una sola llamada puede contener N entries con CUALQUIER combinación de:
+   *   rate, min_stay_through, min_stay_arrival, min_stay, max_stay,
+   *   closed_to_arrival, closed_to_departure, stop_sell, days[]
+   *
+   * Esto cumple los Tests 2-8 oficiales (todos baten "1 API call" porque
+   * agrupamos batched entries dentro del array values).
+   */
+  async pushRestrictions(entries: ChannexRestrictionEntry[]): Promise<void> {
+    this.requireEnabled('pushRestrictions')
+    if (entries.length === 0) return
+
+    const values = entries.map((e) => {
+      const row: Record<string, unknown> = {
+        property_id: e.propertyId,
+        rate_plan_id: e.ratePlanId, // ← CRÍTICO: rate_plan_id, NO room_type_id
+      }
+      if ('date' in e && e.date) row.date = e.date
+      else {
+        row.date_from = e.dateFrom
+        row.date_to = e.dateTo
+      }
+      if (e.days && e.days.length > 0) row.days = e.days
+      if (e.rate !== undefined) row.rate = e.rate
+      if (e.rates && e.rates.length > 0) row.rates = e.rates
+      if (e.minStayThrough !== undefined) row.min_stay_through = e.minStayThrough
+      if (e.minStayArrival !== undefined) row.min_stay_arrival = e.minStayArrival
+      if (e.minStay !== undefined) row.min_stay = e.minStay
+      if (e.maxStay !== undefined) row.max_stay = e.maxStay
+      if (e.closedToArrival !== undefined) row.closed_to_arrival = e.closedToArrival
+      if (e.closedToDeparture !== undefined) row.closed_to_departure = e.closedToDeparture
+      if (e.stopSell !== undefined) row.stop_sell = e.stopSell
+
+      // Channex: "At least one restriction should be present on the request"
+      const hasField = Object.keys(row).some(
+        (k) =>
+          ![
+            'property_id',
+            'rate_plan_id',
+            'date',
+            'date_from',
+            'date_to',
+            'days',
+          ].includes(k),
+      )
+      if (!hasField) {
+        throw new Error(
+          `[Channex] pushRestrictions entry must have at least one restriction ` +
+            `(rate, min_stay_*, max_stay, closed_to_*, stop_sell) — got only date keys`,
+        )
+      }
+      return row
+    })
+
+    const res = await fetch(`${this.baseUrl}/restrictions`, {
+      method: 'POST',
+      headers: {
+        'user-api-key': this.apiKey!,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ values }),
+    })
+
+    if (!res.ok) {
+      const text = await res.text()
+      throw new ChannexHttpError(
+        `pushRestrictions HTTP ${res.status} entries=${entries.length}: ${text}`,
+        res.status,
+      )
+    }
+
+    this.logger.log(`[Channex] pushRestrictions OK entries=${entries.length}`)
+  }
+
   // ─── Booking revisions API (Sprint CHANNEX-INBOUND) ─────────────────────────
   //
   // Cuando Channex emite un webhook booking_new/modify/cancel, el payload
@@ -583,6 +733,54 @@ export class ChannexHttpError extends Error {
     this.name = 'ChannexHttpError'
   }
 }
+
+// ── ARI Push entry types (Sprint CHANNEX-OUTBOUND-CERT) ─────────────────────
+
+/**
+ * Availability entry — POST /availability. Provide EITHER `date` (single day)
+ * OR (`dateFrom` + `dateTo`) for a range. `availability` is the absolute count.
+ * Validated at runtime by `pushAvailability`.
+ */
+export interface ChannexAvailabilityEntry {
+  propertyId: string
+  roomTypeId: string
+  date?: string // YYYY-MM-DD
+  dateFrom?: string // YYYY-MM-DD inclusive
+  dateTo?: string // YYYY-MM-DD inclusive
+  availability: number
+}
+
+/**
+ * Restriction entry — POST /restrictions. At LEAST ONE of {rate, rates,
+ * min_stay_*, max_stay, closed_to_*, stop_sell} must be present. Otherwise
+ * `pushRestrictions` throws (cert AP — empty restriction rows fail).
+ *
+ * `days` filters which weekdays the row applies to (e.g., ['mo','tu','we']
+ * for weekday-only restrictions; omit for all days).
+ *
+ * For per-occupancy rates use `rates: [{occupancy, rate}, ...]` instead of
+ * the singular `rate` field (Channex doc: "multi-occupancy support").
+ */
+export interface ChannexRestrictionEntry {
+  propertyId: string
+  ratePlanId: string // ← rate_plan_id (NOT room_type_id — endpoint operates per rate plan)
+  date?: string // YYYY-MM-DD (use this OR dateFrom+dateTo)
+  dateFrom?: string
+  dateTo?: string
+  days?: ChannexWeekday[]
+  rate?: number | string // single rate
+  rates?: Array<{ occupancy: number; rate: number | string }> // multi-occupancy
+  minStayThrough?: number
+  minStayArrival?: number
+  /** @deprecated Use minStayThrough — Channex still accepts but newer flow uses through/arrival explicit. */
+  minStay?: number
+  maxStay?: number
+  closedToArrival?: boolean
+  closedToDeparture?: boolean
+  stopSell?: boolean
+}
+
+export type ChannexWeekday = 'mo' | 'tu' | 'we' | 'th' | 'fr' | 'sa' | 'su'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

@@ -18,6 +18,7 @@ import { MaintenanceModule } from './maintenance/maintenance.module'
 import { NotificationsModule } from './notifications/notifications.module'
 import { ChannexModule } from './integrations/channex/channex.module'
 import { ChannexInboundModule } from './integrations/channex/inbound/channex-inbound.module'
+import { ChannexOutboundModule } from './integrations/channex/outbound/channex-outbound.module'
 import { AvailabilityModule } from './pms/availability/availability.module'
 import { AccessControlModule } from './common/access-control/access-control.module'
 import { SettingsModule } from './settings/settings.module'
@@ -75,6 +76,7 @@ import { PropertyScopeGuard } from './common/guards/property-scope.guard'
     NotificationsModule,
     ChannexModule,
     ChannexInboundModule, // Sprint CHANNEX-INBOUND — webhooks OTA → PMS
+    ChannexOutboundModule, // Sprint CHANNEX-OUTBOUND-CERT — PMS → Channex ARI push
     AvailabilityModule,
     AccessControlModule,
     SettingsModule,

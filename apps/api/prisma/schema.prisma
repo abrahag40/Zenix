@@ -1104,6 +1104,14 @@ model PropertySettings {
   // D-CHX6 pull reconciliación nocturna toggle + last run timestamp.
   channexPullEnabled            Boolean         @default(true) @map("channex_pull_enabled")
   channexPullLastRunAt          DateTime?       @map("channex_pull_last_run_at")
+  // ── Channex OUTBOUND-CERT — D-CHX-OUT-7 full-sync idempotency ──────────
+  // Cron runs daily but only ACTS si: (now - channexLastFullSyncAt) >= 23h
+  // AND hora local IN [windowStart, windowEnd). Default 03:00-05:00.
+  // Hard-coded en arquitectura para hacer AP-3 (timer-based full-sync)
+  // estructuralmente imposible.
+  channexLastFullSyncAt         DateTime?       @map("channex_last_full_sync_at")
+  channexFullSyncWindowStart    Int             @default(3) @map("channex_full_sync_window_start")
+  channexFullSyncWindowEnd      Int             @default(5) @map("channex_full_sync_window_end")
   // ── Sprint 8H — Housekeeping scheduling ───────────────────────────────────
   // Hora local (0-23) a la que el MorningRosterScheduler genera el roster del día.
   // Default 7 = 7:00 AM. Configurable per-property porque hostels vacacionales LATAM
@@ -1483,6 +1491,74 @@ enum ChannexOutboxStatus {
   SUCCEEDED
   FAILED
   DEAD_LETTER
+}
+
+// ===================== CHANNEX OUTBOUND (Sprint CHANNEX-OUTBOUND-CERT) =====================
+//
+// Estructuralmente separa AVAILABILITY (POST /availability) de
+// RATES_RESTRICTIONS (POST /restrictions, que incluye tanto rates como
+// CTA/CTD/min_stay/max_stay/stop_sell según docs Channex). La separación
+// hace AP-2.8 (mixed payload) imposible — el worker drena cada kind como
+// mensaje HTTP separado.
+//
+// Anti-patterns mitigated:
+//   · AP-3 (full-sync timer) → solo FullSyncOrchestrator puede setear
+//     payload completo, y respeta channexLastFullSyncAt 24h gate.
+//   · AP-4 (per-date loops) → payload.entries es array; el worker batch.
+//   · AP-2.2 (direct API call) → save handlers emiten event → builder
+//     persiste row → worker async drena. Save no se bloquea si Channex cae.
+//   · AP-2.8 → kind separa los dos endpoints estructuralmente.
+//
+// payloadHash sirve para dedup: si el mismo delta llega 2× en 5s por un
+// double-click del recepcionista, solo encolamos uno (anti-flood).
+//
+// priority: AVAILABILITY=100 (Channex doc dice "push these updates to the
+// front of the queue"), RATES_RESTRICTIONS=50.
+
+enum ChannexOutboundKind {
+  AVAILABILITY        // POST /api/v1/availability — count per [property, room_type, date]
+  RATES_RESTRICTIONS  // POST /api/v1/restrictions — rates + min/max stay + CTA/CTD + stop_sell per [property, rate_plan, date]
+}
+
+enum ChannexOutboundStatus {
+  PENDING
+  IN_PROGRESS
+  SUCCEEDED
+  FAILED
+  DEAD_LETTER
+}
+
+model ChannexOutboundQueue {
+  id              String                  @id @default(uuid())
+  propertyId      String                  @map("property_id")
+  kind            ChannexOutboundKind
+  // Delta-only payload (AP-3): { entries: [{...}] }. NUNCA dump completo
+  // salvo el FullSyncOrchestrator que tiene su propia idempotencia 24h.
+  payload         Json
+  status          ChannexOutboundStatus   @default(PENDING)
+  // AVAILABILITY=100, RATES_RESTRICTIONS=50 (Channex prioriza avail)
+  priority        Int                     @default(50)
+  attempts        Int                     @default(0)
+  lastError       String?                 @map("last_error")
+  // Backoff: tras 429 respeta Retry-After; tras 5xx 2^attempts seconds
+  nextAttemptAt   DateTime                @default(now()) @map("next_attempt_at")
+  // Lock holder identifier (hostname:pid) para multi-worker debug
+  lockedAt        DateTime?               @map("locked_at")
+  lockedBy        String?                 @map("locked_by")
+  processedAt     DateTime?               @map("processed_at")
+  // Anti-flood: SHA-256 del payload (kind+propertyId+entries normalizadas).
+  // Si llega outro row con mismo hash en estado PENDING/IN_PROGRESS, lo
+  // descartamos como duplicado.
+  payloadHash     String                  @map("payload_hash")
+  createdAt       DateTime                @default(now()) @map("created_at")
+  updatedAt       DateTime                @updatedAt @map("updated_at")
+
+  // Worker pickup query: WHERE status IN (PENDING, FAILED) AND nextAttemptAt <= NOW()
+  // ORDER BY priority DESC, nextAttemptAt ASC
+  @@index([status, priority, nextAttemptAt])
+  @@index([propertyId, status])
+  @@index([payloadHash])
+  @@map("channex_outbound_queue")
 }
 
 model ChannexOutbox {
