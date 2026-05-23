@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common'
 import { NotificationsModule } from '../../../notifications/notifications.module'
+import { ChannexAdminService } from './channex-admin.service'
 import { ChannexFullSyncController } from './channex-full-sync.controller'
 import { ChannexFullSyncOrchestrator } from './channex-full-sync.orchestrator'
 import { ChannexOutboundBuilderService } from './channex-outbound-builder.service'
@@ -30,12 +31,14 @@ import { ChannexTokenBucketService } from './channex-token-bucket.service'
     ChannexOutboundNotifService,
     ChannexOutboundWorker,
     ChannexFullSyncOrchestrator,
+    ChannexAdminService,
   ],
   exports: [
     ChannexOutboundBuilderService,
     ChannexTokenBucketService,
     ChannexOutboundWorker,
     ChannexFullSyncOrchestrator,
+    ChannexAdminService,
   ],
 })
 export class ChannexOutboundModule {}

@@ -94,6 +94,10 @@ const NAV: NavItem[] = [
       // Sprint CHANNEX-INBOUND — Day 5 D-CHX5 conflict review queue.
       // Solo visible cuando hay conflictos pendientes (showChannexBadge gate).
       { to: '/channex/conflicts', icon: '🔁', label: 'Conflictos Channex', showChannexBadge: true },
+      // Sprint CHANNEX-OUTBOUND-CERT Day 6 — admin observability + manual full-sync.
+      // SUPERVISOR-only (gated server-side). Es donde el cert Stage 4 reviewer
+      // verifica queue counts + retry logic + DEAD_LETTER visibility en vivo.
+      { to: '/settings/channex', icon: '📡', label: 'Channex admin' },
     ],
   },
   { kind: 'leaf', to: '/reports',       icon: '📊', label: 'Reportes' },

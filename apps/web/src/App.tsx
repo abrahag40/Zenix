@@ -16,6 +16,7 @@ import { ReportsPage } from './pages/ReportsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { DiscrepanciesPage } from './pages/DiscrepanciesPage'
 import ChannexConflictsPage from './pages/ChannexConflictsPage'
+import ChannexAdminPage from './pages/ChannexAdminPage'
 import { BlocksPage } from './pages/BlocksPage'
 import { MaintenancePage } from './pages/MaintenancePage'
 import { ReservationDetailPage } from './pages/ReservationDetailPage'
@@ -88,6 +89,7 @@ export default function App() {
           <Route path="/checkouts"       element={<ProtectedLayout><CheckoutsPage /></ProtectedLayout>} />
           <Route path="/discrepancies"   element={<ProtectedLayout><DiscrepanciesPage /></ProtectedLayout>} />
           <Route path="/channex/conflicts" element={<ProtectedLayout><ChannexConflictsPage /></ProtectedLayout>} />
+          <Route path="/settings/channex" element={<ProtectedLayout><ChannexAdminPage /></ProtectedLayout>} />
           <Route path="/blocks"          element={<ProtectedLayout><BlocksPage /></ProtectedLayout>} />
           <Route path="/maintenance"     element={<ProtectedLayout><MaintenancePage /></ProtectedLayout>} />
           <Route path="/reports"         element={<ProtectedLayout><ReportsPage /></ProtectedLayout>} />

@@ -1,8 +1,9 @@
-import { Controller, NotFoundException, Param, Post } from '@nestjs/common'
+import { Controller, Get, NotFoundException, Param, Post } from '@nestjs/common'
 import { JwtPayload, StaffRole } from '@zenix/shared'
 import { CurrentUser } from '../../../common/decorators/current-user.decorator'
 import { Roles } from '../../../common/decorators/roles.decorator'
 import { PrismaService } from '../../../prisma/prisma.service'
+import { ChannexAdminService } from './channex-admin.service'
 import { ChannexFullSyncOrchestrator } from './channex-full-sync.orchestrator'
 
 /**
@@ -26,7 +27,25 @@ export class ChannexFullSyncController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly orchestrator: ChannexFullSyncOrchestrator,
+    private readonly admin: ChannexAdminService,
   ) {}
+
+  /**
+   * GET /v1/admin/channex/status/:propertyId
+   * Observability snapshot — usado por /settings/channex admin UI y por
+   * el cert Stage 4 reviewer durante el live screenshare.
+   */
+  @Get('status/:propertyId')
+  async getStatus(@Param('propertyId') propertyId: string) {
+    const property = await this.prisma.property.findUnique({
+      where: { id: propertyId },
+      select: { id: true },
+    })
+    if (!property) {
+      throw new NotFoundException(`Property ${propertyId} not found`)
+    }
+    return this.admin.getStatus(propertyId)
+  }
 
   @Post('full-sync/:propertyId')
   async triggerFullSync(
