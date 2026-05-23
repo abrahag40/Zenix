@@ -466,10 +466,11 @@ function BookingBlockInner({
           boxShadow: isConfirmedNoShow
             ? `inset 0 0 0 1.5px rgba(239,68,68,0.50), ${BLOCK_SHADOW}`
             : stay.channexConflict
-            // Sprint CHANNEX-INBOUND — visual cue: stays con conflict OTA
-            // tienen ring amber dashed para distinguirlas a-glance del
-            // calendar. Click → tooltip dirige a /channex/conflicts.
-            ? `inset 0 0 0 2px rgba(217,119,6,0.85), ${BLOCK_SHADOW}`
+            // Sprint CHANNEX-INBOUND + Cert audit C6 fix (2026-05-22):
+            // Conflict stays con visual MÁS distintivo — doble ring amber
+            // dentro + outside, comunica "tentativo, no committed" mucho
+            // mejor que single inset. Click → /channex/conflicts.
+            ? `inset 0 0 0 2px rgba(217,119,6,0.85), 0 0 0 2px rgba(217,119,6,0.30), ${BLOCK_SHADOW}`
             : isPotentialNoShow
             ? `inset 0 0 0 1.5px rgba(245,158,11,0.70), ${BLOCK_SHADOW}`
             : isInActiveJourney

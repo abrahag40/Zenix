@@ -17,6 +17,7 @@ import { PrismaService } from '../../../prisma/prisma.service'
 import { BookingCancelHandler } from './handlers/booking-cancel.handler'
 import { BookingModifyHandler } from './handlers/booking-modify.handler'
 import { BookingNewHandler } from './handlers/booking-new.handler'
+import { ChannexNotifService } from './channex-notif.service'
 
 function makeRevision(overrides: Partial<ChannexBookingRevision> = {}): ChannexBookingRevision {
   return {
@@ -70,6 +71,13 @@ describe('ChannexRevisionPullerService', () => {
     bookingCancel = {
       handle: jest.fn().mockResolvedValue({ kind: 'cancelled', stayId: 'stay-1' }),
     }
+    const channexNotif = {
+      raiseConflict: jest.fn().mockResolvedValue({ notificationId: 'notif-1' }),
+    }
+    // Make prisma.property.findUnique mock-ready for channel event tests
+    ;(prisma as unknown as { property: { findUnique: jest.Mock } }).property = {
+      findUnique: jest.fn().mockResolvedValue({ organizationId: 'org-1' }),
+    }
     const mod = await Test.createTestingModule({
       providers: [
         ChannexRevisionPullerService,
@@ -78,6 +86,7 @@ describe('ChannexRevisionPullerService', () => {
         { provide: BookingNewHandler, useValue: bookingNew },
         { provide: BookingModifyHandler, useValue: bookingModify },
         { provide: BookingCancelHandler, useValue: bookingCancel },
+        { provide: ChannexNotifService, useValue: channexNotif },
       ],
     }).compile()
     svc = mod.get(ChannexRevisionPullerService)

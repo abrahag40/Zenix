@@ -107,7 +107,7 @@ describe('ChannexFullSyncOrchestrator', () => {
         channexPropertyId: 'chx-p1',
       })
       prisma.room.findMany.mockResolvedValue([
-        { id: 'r1', channexRoomTypeId: 'chx-rt-std' },
+        { id: 'r1', channexRoomTypeId: 'chx-rt-std', category: 'PRIVATE', units: [{ id: 'u1' }] },
       ])
 
       const result = await svc.runForPropertyIfDue({
@@ -131,7 +131,7 @@ describe('ChannexFullSyncOrchestrator', () => {
         channexPropertyId: 'chx-p1',
       })
       prisma.room.findMany.mockResolvedValue([
-        { id: 'r1', channexRoomTypeId: 'chx-rt-std' },
+        { id: 'r1', channexRoomTypeId: 'chx-rt-std', category: 'PRIVATE', units: [{ id: 'u1' }] },
       ])
 
       const result = await svc.runForPropertyIfDue(baseProperty)
@@ -159,9 +159,9 @@ describe('ChannexFullSyncOrchestrator', () => {
         channexPropertyId: 'chx-p1',
       })
       prisma.room.findMany.mockResolvedValue([
-        { id: 'r1', channexRoomTypeId: 'chx-rt-std' },
-        { id: 'r2', channexRoomTypeId: 'chx-rt-std' },
-        { id: 'r3', channexRoomTypeId: 'chx-rt-std' },
+        { id: 'r1', channexRoomTypeId: 'chx-rt-std', category: 'PRIVATE', units: [{ id: 'u1' }] },
+        { id: 'r2', channexRoomTypeId: 'chx-rt-std', category: 'PRIVATE', units: [{ id: 'u2' }] },
+        { id: 'r3', channexRoomTypeId: 'chx-rt-std', category: 'PRIVATE', units: [{ id: 'u3' }] },
       ])
 
       const result = await svc.runForProperty('p1', { manual: true })
@@ -187,9 +187,9 @@ describe('ChannexFullSyncOrchestrator', () => {
         channexPropertyId: 'chx-p1',
       })
       prisma.room.findMany.mockResolvedValue([
-        { id: 'r1', channexRoomTypeId: 'chx-rt-std' },
-        { id: 'r2', channexRoomTypeId: 'chx-rt-std' },
-        { id: 'r3', channexRoomTypeId: 'chx-rt-std' },
+        { id: 'r1', channexRoomTypeId: 'chx-rt-std', category: 'PRIVATE', units: [{ id: 'u1' }] },
+        { id: 'r2', channexRoomTypeId: 'chx-rt-std', category: 'PRIVATE', units: [{ id: 'u2' }] },
+        { id: 'r3', channexRoomTypeId: 'chx-rt-std', category: 'PRIVATE', units: [{ id: 'u3' }] },
       ])
 
       await svc.runForProperty('p1', { manual: true })
@@ -206,9 +206,9 @@ describe('ChannexFullSyncOrchestrator', () => {
         channexPropertyId: 'chx-p1',
       })
       prisma.room.findMany.mockResolvedValue([
-        { id: 'r1', channexRoomTypeId: 'chx-rt-std' },
-        { id: 'r2', channexRoomTypeId: 'chx-rt-std' },
-        { id: 'r3', channexRoomTypeId: 'chx-rt-std' },
+        { id: 'r1', channexRoomTypeId: 'chx-rt-std', category: 'PRIVATE', units: [{ id: 'u1' }] },
+        { id: 'r2', channexRoomTypeId: 'chx-rt-std', category: 'PRIVATE', units: [{ id: 'u2' }] },
+        { id: 'r3', channexRoomTypeId: 'chx-rt-std', category: 'PRIVATE', units: [{ id: 'u3' }] },
       ])
       // Date.now controlado para que day 0 sea predecible
       jest.useFakeTimers().setSystemTime(new Date(Date.UTC(2026, 5, 1, 0, 0, 0)))
@@ -254,13 +254,99 @@ describe('ChannexFullSyncOrchestrator', () => {
       expect(prisma.propertySettings.update).toHaveBeenCalled()
     })
 
+    it('cert audit C8 ⭐ hostel dorm: SHARED room con 4 units → availability=4', async () => {
+      // Monica Tulum scenario: dorm de 4 camas mapped a 1 Channex room_type.
+      // ANTES (bug): availability=1 (hotel model)
+      // AHORA (C8 fix): availability=4 (sum of units)
+      prisma.propertySettings.findUnique.mockResolvedValue({
+        propertyId: 'p1',
+        channexPropertyId: 'chx-p1',
+      })
+      prisma.room.findMany.mockResolvedValue([
+        {
+          id: 'dorm-A',
+          channexRoomTypeId: 'chx-rt-dorm',
+          category: 'SHARED',
+          units: [{ id: 'bed-1' }, { id: 'bed-2' }, { id: 'bed-3' }, { id: 'bed-4' }],
+        },
+      ])
+
+      await svc.runForProperty('p1', { manual: true })
+
+      const entries = builder.enqueue.mock.calls[0][0].payload.entries
+      expect(entries[0].availability).toBe(4) // 4 beds, all empty
+    })
+
+    it('cert audit C8: block unit-level (1 bed) en dorm → availability=3 (no 0)', async () => {
+      prisma.propertySettings.findUnique.mockResolvedValue({
+        propertyId: 'p1',
+        channexPropertyId: 'chx-p1',
+      })
+      prisma.room.findMany.mockResolvedValue([
+        {
+          id: 'dorm-A',
+          channexRoomTypeId: 'chx-rt-dorm',
+          category: 'SHARED',
+          units: [{ id: 'bed-1' }, { id: 'bed-2' }, { id: 'bed-3' }, { id: 'bed-4' }],
+        },
+      ])
+      jest.useFakeTimers().setSystemTime(new Date(Date.UTC(2026, 5, 1, 0, 0, 0)))
+      prisma.roomBlock.findMany.mockResolvedValue([
+        {
+          roomId: 'dorm-A',
+          unitId: 'bed-1', // bed-level block (1 unit)
+          startDate: new Date(Date.UTC(2026, 5, 1)),
+          endDate: new Date(Date.UTC(2026, 5, 5)),
+        },
+      ])
+
+      await svc.runForProperty('p1', { manual: true })
+
+      const entries = builder.enqueue.mock.calls[0][0].payload.entries
+      // Día 1: 1 bed bloqueada → 3 disponibles
+      expect(entries[0].availability).toBe(3)
+      jest.useRealTimers()
+      jest.restoreAllMocks()
+    })
+
+    it('cert audit C8: block room-level (unitId null) en dorm → availability=0 (todas las beds)', async () => {
+      prisma.propertySettings.findUnique.mockResolvedValue({
+        propertyId: 'p1',
+        channexPropertyId: 'chx-p1',
+      })
+      prisma.room.findMany.mockResolvedValue([
+        {
+          id: 'dorm-A',
+          channexRoomTypeId: 'chx-rt-dorm',
+          category: 'SHARED',
+          units: [{ id: 'bed-1' }, { id: 'bed-2' }, { id: 'bed-3' }, { id: 'bed-4' }],
+        },
+      ])
+      jest.useFakeTimers().setSystemTime(new Date(Date.UTC(2026, 5, 1, 0, 0, 0)))
+      prisma.roomBlock.findMany.mockResolvedValue([
+        {
+          roomId: 'dorm-A',
+          unitId: null, // ROOM-LEVEL block — ocupa las 4 beds
+          startDate: new Date(Date.UTC(2026, 5, 1)),
+          endDate: new Date(Date.UTC(2026, 5, 5)),
+        },
+      ])
+
+      await svc.runForProperty('p1', { manual: true })
+
+      const entries = builder.enqueue.mock.calls[0][0].payload.entries
+      expect(entries[0].availability).toBe(0) // todas las beds bloqueadas
+      jest.useRealTimers()
+      jest.restoreAllMocks()
+    })
+
     it('RatePlan model no existe → restrictions skipped con warning', async () => {
       prisma.propertySettings.findUnique.mockResolvedValue({
         propertyId: 'p1',
         channexPropertyId: 'chx-p1',
       })
       prisma.room.findMany.mockResolvedValue([
-        { id: 'r1', channexRoomTypeId: 'chx-rt' },
+        { id: 'r1', channexRoomTypeId: 'chx-rt', category: 'PRIVATE', units: [{ id: 'u1' }] },
       ])
       // No ratePlan property en prisma mock — feature flag detection skip
 

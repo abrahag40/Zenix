@@ -521,8 +521,11 @@ export class ChannexGateway {
     // duplicate ack call was producing false alarms.
     //   · 404 — documented response when "Booking Revision with provided
     //     ID is not present at system" (post-ack purge).
-    //   · 422 — observed in some Channex environments for the same case
-    //     (kept defensively).
+    //   · 422 — DEFENSIVE only. Channex docs (verified 2026-05-22) NO
+    //     mention 422 explicitly for ack idempotency; just 200/401/404.
+    //     Pero algunos sandbox legacy responden 422 con "already_acked"
+    //     body — preservamos la rama por compat. Audit D1: confirmar con
+    //     soporte Channex post-cert si seguimos viéndolo.
     if (res.status === 404 || res.status === 422) {
       this.logger.warn(
         `[Channex] ackBookingRevision ${revisionId} HTTP ${res.status} ` +

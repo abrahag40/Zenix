@@ -300,6 +300,10 @@ enum PaymentStatus {
 //                     payment_collect=ota). `confirmCheckin` skip guard BALANCE_UNPAID
 //                     y marca folio "paid via OTA virtual card / pending reconciliation".
 //   HYBRID_DEPOSIT  — depósito previo + saldo en hotel. balance = total − depositReceived.
+//                     RESERVED — ningún codepath productivo lo setea en v1.0.x.
+//                     Habilitar cuando se implemente parse de Channex booking.deposits[]
+//                     (Booking.com partial prepayment / Genius pre-arrival deposit pattern).
+//                     Cert audit D3 (2026-05-22): preservado por roadmap, no removido.
 enum PaymentModel {
   HOTEL_COLLECT
   OTA_COLLECT
@@ -1104,6 +1108,11 @@ model PropertySettings {
   // D-CHX6 pull reconciliación nocturna toggle + last run timestamp.
   channexPullEnabled            Boolean         @default(true) @map("channex_pull_enabled")
   channexPullLastRunAt          DateTime?       @map("channex_pull_last_run_at")
+  // Cert audit A4 fix (2026-05-22): cierra fail-open de ChannexAuthGuard.
+  // Default TRUE en producción: webhook sin secret configurado → 401.
+  // Solo sandbox/dev pueden setear FALSE para onboarding rápido pre-secret.
+  // El gate cerrado evita vector de inyección documentado en audit P1-1.
+  channexWebhookSecretRequired  Boolean         @default(true) @map("channex_webhook_secret_required")
   // ── Channex OUTBOUND-CERT — D-CHX-OUT-7 full-sync idempotency ──────────
   // Cron runs daily but only ACTS si: (now - channexLastFullSyncAt) >= 23h
   // AND hora local IN [windowStart, windowEnd). Default 03:00-05:00.
@@ -1399,6 +1408,12 @@ model GuestStay {
   channexConflict       Boolean    @default(false) @map("channex_conflict")
   channexLastSyncAt     DateTime?  @map("channex_last_sync_at")
   channexOtaName        String?    @map("channex_ota_name")  // booking.com | expedia | airbnb | hostelworld | ...
+  // Cert audit C9 fix (2026-05-22) — virtual card persistence Booking.com Genius.
+  // Channex envía guarantee.card_number MASKED (e.g. "****1234"), is_virtual,
+  // expiration_date, meta.virtual_card_*. Persistimos para chargeback evidence
+  // Visa CRR §5.9.2. PCI-safe: nunca PAN clear-text (Channex pre-enmascara).
+  // Shape: { cardType, masked, expirationDate, isVirtual, meta:{...virtualCard*...} }
+  channexGuaranteeMeta  Json?      @map("channex_guarantee_meta")
   // ──────────────────────────────────────────────────────────────────────
 
   organization Organization      @relation(fields: [organizationId], references: [id])

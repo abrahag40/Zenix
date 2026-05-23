@@ -93,7 +93,16 @@ export class ChannexWebhookController {
       })
     }
 
-    // Respond fast (200). Worker dispatches the actual work async.
+    // Cert audit D4 — explicar el 200 always-on-auth-pass:
+    // Channex documenta que webhook receivers DEBEN responder rápido. Si
+    // respondemos 5xx, Channex acumula el webhook en su queue interna
+    // y reintenta automáticamente — eventualmente notifica al partner
+    // como "non_acked_booking". Lo correcto es:
+    //   1. Auth fail → 401 (Channex pause + alert al partner)
+    //   2. Auth pass → 200 inmediato + outbox enqueue
+    //   3. Processing failure async → DEAD_LETTER + nuestra propia alert
+    // El handler async NUNCA debería bloquear esta response — si falla,
+    // el outbox retry + AppNotification al SUPERVISOR cubre la recovery.
     return { received: true, logId, outboxId, message: 'Queued for processing' }
   }
 }

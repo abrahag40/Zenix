@@ -108,6 +108,11 @@ export class ChannexBookingMapper {
       channexLastSyncAt: revision.inserted_at ? new Date(revision.inserted_at) : new Date(),
       channexConflict,
       channexOtaName: revision.ota_name ?? null,
+      // Cert audit C9 — virtual card guarantee persist (Booking.com Genius,
+      // Airbnb Premium). Channex envía masked + meta — PCI safe.
+      // Prisma.DbNull cuando ausente (vs undefined que sería "no setear").
+      channexGuaranteeMeta:
+        ChannexBookingMapper.composeGuaranteeMeta(revision) ?? Prisma.DbNull,
 
       // Pace / lead-time analytics
       bookingLeadDays: ChannexBookingMapper.computeLeadDays(
@@ -185,9 +190,10 @@ export class ChannexBookingMapper {
     const surname = firstRoomGuest?.surname ?? revision.customer?.surname ?? ''
     const composed = `${name} ${surname}`.trim()
     if (composed.length > 0) return composed
-    // Last resort: OTA reservation code (cert reviewers expect a non-empty name)
-    if (revision.ota_reservation_code) return `Guest ${revision.ota_reservation_code}`
-    return 'Guest (unnamed)'
+    // Last resort: OTA reservation code (cert reviewers expect a non-empty name).
+    // Cert audit D2: español es-MX para piloto LATAM.
+    if (revision.ota_reservation_code) return `Huésped ${revision.ota_reservation_code}`
+    return 'Huésped sin nombre'
   }
 
   static composeNotes(revision: ChannexBookingRevision): string | null {
@@ -199,6 +205,30 @@ export class ChannexBookingMapper {
       parts.push('[Channex] Payment collected by OTA — folio se marca PAID al check-in.')
     }
     return parts.length > 0 ? parts.join('\n') : null
+  }
+
+  /**
+   * Cert audit C9 — extrae guarantee enmascarada para chargeback evidence.
+   * Channex pre-enmascara `card_number` (e.g. "****1234") — almacenar es
+   * PCI-safe SAQ A. Si no hay guarantee retorna null.
+   */
+  static composeGuaranteeMeta(revision: ChannexBookingRevision): Prisma.InputJsonValue | null {
+    const g = (revision as ChannexBookingRevision & { guarantee?: GuaranteeShape }).guarantee
+    if (!g || typeof g !== 'object') return null
+    const out: Record<string, unknown> = {}
+    if (g.card_type) out.cardType = g.card_type
+    if (g.card_number) out.masked = g.card_number // ya pre-enmascarado por Channex
+    if (g.expiration_date) out.expirationDate = g.expiration_date
+    if (g.is_virtual !== undefined) out.isVirtual = g.is_virtual
+    if (g.meta) {
+      out.meta = {
+        currency: g.meta.virtual_card_currency_code ?? null,
+        balance: g.meta.virtual_card_current_balance ?? null,
+        effectiveDate: g.meta.virtual_card_effective_date ?? null,
+        expirationDate: g.meta.virtual_card_expiration_date ?? null,
+      }
+    }
+    return Object.keys(out).length > 0 ? (out as Prisma.InputJsonValue) : null
   }
 
   static computeLeadDays(insertedAt: string | undefined, arrivalDate: string): number | null {
@@ -249,6 +279,19 @@ export class ChannexBookingMapper {
 
 function pad2(n: number): string {
   return n.toString().padStart(2, '0')
+}
+
+interface GuaranteeShape {
+  card_type?: string
+  card_number?: string // masked
+  expiration_date?: string
+  is_virtual?: boolean
+  meta?: {
+    virtual_card_currency_code?: string
+    virtual_card_current_balance?: string
+    virtual_card_effective_date?: string
+    virtual_card_expiration_date?: string
+  }
 }
 
 /**

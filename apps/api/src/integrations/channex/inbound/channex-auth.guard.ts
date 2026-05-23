@@ -48,7 +48,11 @@ export class ChannexAuthGuard implements CanActivate {
 
     const settings = await this.prisma.propertySettings.findUnique({
       where: { propertyId },
-      select: { propertyId: true, channexWebhookSecret: true },
+      select: {
+        propertyId: true,
+        channexWebhookSecret: true,
+        channexWebhookSecretRequired: true, // Cert A4
+      },
     })
 
     if (!settings) {
@@ -58,14 +62,23 @@ export class ChannexAuthGuard implements CanActivate {
 
     const presentedToken = extractBearer(pickHeader(req, 'authorization'))
 
-    // Fail-open onboarding: si la property aún no tiene secret configurado,
-    // log warning y permitir (necesario para activar el webhook por primera
-    // vez en sandbox). Una vez que Activate (§77-§80) escribe el secret,
-    // el fail-open se cierra automáticamente.
+    // Cert audit A4 fix: fail-open SOLO si explicitly opted-in via
+    // PropertySettings.channexWebhookSecretRequired=false (sandbox/dev).
+    // En producción default TRUE → secret null → reject 401.
     if (!settings.channexWebhookSecret) {
+      if (settings.channexWebhookSecretRequired) {
+        this.logger.error(
+          `[ChannexAuthGuard] property=${propertyId} REJECTED — no webhook secret configured ` +
+            `AND secretRequired=true. Configure via /settings/channex rotate-secret.`,
+        )
+        throw new UnauthorizedException(
+          `Webhook secret not configured for property ${propertyId}. Contact administrator.`,
+        )
+      }
+      // Sandbox / onboarding path — opt-in fail-open explícito
       this.logger.warn(
-        `[ChannexAuthGuard] property=${propertyId} has NO webhook secret configured ` +
-          `— accepting (sandbox/onboarding). Rotate via Activate to enable strict check.`,
+        `[ChannexAuthGuard] property=${propertyId} fail-open ACCEPTED (secretRequired=false). ` +
+          `This is sandbox/dev mode — DO NOT use in production.`,
       )
       req.channexAuth = { propertyId, secretConfigured: false, valid: true }
       return true

@@ -256,23 +256,18 @@ describe('ChannexConflictsService', () => {
       expect(gateway.cancelBookingAtChannex).toHaveBeenCalledWith('book-1', 'manager review')
     })
 
-    it('outbound Channex falla → local cancel commit + audit del error', async () => {
+    it('cert audit B3: outbound Channex falla → throw ConflictException + NO local commit', async () => {
       prisma.guestStay.findFirst.mockResolvedValue(makeStay())
       gateway.cancelBookingAtChannex.mockRejectedValue(new ChannexHttpError('500 boom', 500))
 
-      const result = await svc.resolve('stay-1', 'actor-1', { kind: 'CANCEL_AT_OTA' })
+      // ANTES (cert risk P1-6): local commit + audit error → OTA double-booking
+      // AHORA (B3 fix): outbound-first ordering → throw + NO local commit
+      await expect(
+        svc.resolve('stay-1', 'actor-1', { kind: 'CANCEL_AT_OTA' }),
+      ).rejects.toThrow(ConflictException)
 
-      expect(result.kind).toBe('cancelled')
-      expect((result as { channexAck: boolean }).channexAck).toBe(false)
-      expect((result as { channexError: string | null }).channexError).toContain('500 boom')
-      // Local cancel committed (tx.guestStay.update was called)
-      expect(prisma.tx.guestStay.update).toHaveBeenCalled()
-      // Audit log for the propagation failure (called OUTSIDE the tx)
-      const failLog = prisma.guestStayLog.create.mock.calls.find(
-        (c) => c[0].data.event === 'CHANNEX_PROPAGATION_FAILED',
-      )
-      expect(failLog).toBeDefined()
-      expect(failLog?.[0].data.metadata.httpStatus).toBe(500)
+      // Local cancel NOT committed (tx never ran)
+      expect(prisma.tx.guestStay.update).not.toHaveBeenCalled()
     })
   })
 

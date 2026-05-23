@@ -7,6 +7,7 @@ import { ChannexConflictsController } from './channex-conflicts.controller'
 import { ChannexConflictsService } from './channex-conflicts.service'
 import { ChannexFeedScheduler } from './channex-feed.scheduler'
 import { ChannexNotifService } from './channex-notif.service'
+import { ChannexPurgeScheduler } from './channex-purge.scheduler'
 import { ChannexRoomSuggesterService } from './channex-room-suggester.service'
 import { ChannexInboundService } from './channex-inbound.service'
 import { ChannexOutboxScheduler } from './channex-outbox.scheduler'
@@ -39,6 +40,7 @@ import { BookingNewHandler } from './handlers/booking-new.handler'
     ChannexRevisionPullerService,
     ChannexOutboxScheduler,
     ChannexFeedScheduler,
+    ChannexPurgeScheduler,
     ChannexSystemStaffService,
     ChannexConflictsService,
     ChannexRoomSuggesterService,

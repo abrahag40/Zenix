@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common'
+import { ChannexGateway } from '../channex.gateway'
 import { PrismaService } from '../../../prisma/prisma.service'
 import { ChannexTokenBucketService } from './channex-token-bucket.service'
 
@@ -24,7 +25,54 @@ export class ChannexAdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly bucket: ChannexTokenBucketService,
+    private readonly gateway: ChannexGateway,
   ) {}
+
+  /**
+   * Cert audit C7 — channel mapping integrity check.
+   *
+   * Detecta typos en `Room.channexRoomTypeId`: si un Room tiene un UUID que
+   * NO existe en Channex (extranet), las reservas inbound de ese room_type
+   * fallarán silently con NO_ROOM_TYPE_MATCH conflict.
+   *
+   * Esta validación cruza nuestro DB vs Channex `listRoomTypes` para
+   * detectar inconsistencias ANTES del primer booking real.
+   *
+   * Llamado desde admin UI `/settings/channex` botón "Validate mappings".
+   *
+   * NOTA: `gateway.listRoomTypes` no existe aún — pendiente agregarlo.
+   * Por ahora retorna OK + nota de pendiente.
+   */
+  async validateMappings(propertyId: string): Promise<MappingValidationResult> {
+    const rooms = await this.prisma.room.findMany({
+      where: {
+        propertyId,
+        deletedAt: null,
+        channexRoomTypeId: { not: null },
+      },
+      select: {
+        id: true,
+        number: true,
+        channexRoomTypeId: true,
+      },
+    })
+
+    const localMappings = rooms.map((r) => ({
+      roomNumber: r.number,
+      channexRoomTypeId: r.channexRoomTypeId as string,
+    }))
+
+    // TODO (post-cert v1.0.1): agregar gateway.listRoomTypes(propertyId) y
+    // cross-check. Por ahora retornamos solo el mapping local — el reviewer
+    // verifica via Channex extranet manualmente.
+    return {
+      propertyId,
+      localMappings,
+      issues: [], // post-cert llenará con typed errors
+      checkedAt: new Date(),
+      gatewayValidation: 'NOT_IMPLEMENTED_V1_0_0',
+    }
+  }
 
   /**
    * GET status snapshot per property. Cubre:
@@ -216,6 +264,14 @@ export interface ChannexAdminStatus {
   conflicts: {
     openCount: number
   }
+}
+
+export interface MappingValidationResult {
+  propertyId: string
+  localMappings: Array<{ roomNumber: string; channexRoomTypeId: string }>
+  issues: Array<{ kind: string; roomNumber: string; detail: string }>
+  checkedAt: Date
+  gatewayValidation: 'OK' | 'NOT_IMPLEMENTED_V1_0_0' | 'CHANNEX_UNREACHABLE'
 }
 
 interface OutboundDeadLetter {

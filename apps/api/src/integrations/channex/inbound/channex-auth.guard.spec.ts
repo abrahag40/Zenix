@@ -46,10 +46,22 @@ describe('ChannexAuthGuard', () => {
     await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException)
   })
 
-  it('acepta y marca secretConfigured:false cuando la property no tiene secret (onboarding)', async () => {
+  it('rechaza 401 cuando secret null Y secretRequired=true (cert A4 default produccion)', async () => {
     prisma.propertySettings.findUnique.mockResolvedValue({
       propertyId: 'prop-1',
       channexWebhookSecret: null,
+      channexWebhookSecretRequired: true, // default produccion
+    })
+    const { ctx } = makeCtx({ 'x-channex-property-id': 'prop-1' })
+
+    await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException)
+  })
+
+  it('acepta fail-open SOLO cuando secretRequired=false (sandbox/dev opt-in)', async () => {
+    prisma.propertySettings.findUnique.mockResolvedValue({
+      propertyId: 'prop-1',
+      channexWebhookSecret: null,
+      channexWebhookSecretRequired: false, // explicit opt-in
     })
     const { ctx, req } = makeCtx({ 'x-channex-property-id': 'prop-1' })
 

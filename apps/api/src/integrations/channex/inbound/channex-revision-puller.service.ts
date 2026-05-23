@@ -8,6 +8,7 @@ import {
 import { BookingCancelHandler } from './handlers/booking-cancel.handler'
 import { BookingModifyHandler } from './handlers/booking-modify.handler'
 import { BookingNewHandler } from './handlers/booking-new.handler'
+import { ChannexNotifService } from './channex-notif.service'
 
 /**
  * Pull → save → ack orchestration for a single Channex outbox row.
@@ -41,6 +42,7 @@ export class ChannexRevisionPullerService {
     private readonly bookingNew: BookingNewHandler,
     private readonly bookingModify: BookingModifyHandler,
     private readonly bookingCancel: BookingCancelHandler,
+    private readonly notif: ChannexNotifService,
   ) {}
 
   /**
@@ -74,9 +76,36 @@ export class ChannexRevisionPullerService {
     }
 
     if (!row.channexRevisionId) {
-      // Bare event (send_data:false or non_acked_booking without revision).
-      // Day 6 feed scheduler handles those — for now, mark SUCCEEDED noop.
-      await this.markSucceeded(row.id, { revisionFetched: false })
+      // Bare event — sin revision_id. Tipos posibles:
+      //   · availability_modify — confirmation de nuestro push (C2 fix audit)
+      //   · channel_activate / channel_deactivate — OTA conectada/desconectada (C10)
+      //   · non_acked_booking sin payload — feed scheduler lo recoge
+      //
+      // Cert audit C2 + C10: dispatch específico por eventType en vez de
+      // marcar SUCCEEDED silente para todos.
+      const eventType = row.eventType
+      if (eventType === 'channel_deactivate') {
+        // OTA desconectada = revenue impact crítico
+        this.logger.warn(
+          `[Channex puller] channel_deactivate property=${row.propertyId} — ` +
+            `notifying SUPERVISOR for revenue investigation`,
+        )
+        // AppNotif fire-and-forget (no bloquea SUCCEEDED mark)
+        await this.notifyChannelEvent(row.propertyId, eventType, 'high')
+      } else if (eventType === 'channel_activate') {
+        this.logger.log(
+          `[Channex puller] channel_activate property=${row.propertyId} — ` +
+            `OTA connected, will start receiving bookings`,
+        )
+        await this.notifyChannelEvent(row.propertyId, eventType, 'low')
+      } else if (eventType === 'availability_modify') {
+        // Confirmation de nuestro propio push — solo log
+        this.logger.debug(
+          `[Channex puller] availability_modify ack property=${row.propertyId} — ` +
+            `our push was received successfully`,
+        )
+      }
+      await this.markSucceeded(row.id, { revisionFetched: false, eventType })
       return { status: 'SUCCEEDED' }
     }
 
@@ -149,6 +178,40 @@ export class ChannexRevisionPullerService {
         lockedBy: `${process.env.HOSTNAME ?? 'local'}:${process.pid}`,
       },
     })
+  }
+
+  /**
+   * Cert audit C10 — notif al SUPERVISOR cuando Channex emite eventos de
+   * channel lifecycle. `channel_deactivate` es revenue-critical (OTA
+   * desconectada = no bookings) — priority high.
+   */
+  private async notifyChannelEvent(
+    propertyId: string,
+    eventType: string,
+    severity: 'low' | 'high',
+  ): Promise<void> {
+    try {
+      const property = await this.prisma.property.findUnique({
+        where: { id: propertyId },
+        select: { organizationId: true },
+      })
+      if (!property?.organizationId) return
+      await this.notif.raiseConflict({
+        organizationId: property.organizationId,
+        propertyId,
+        stayId: null,
+        bookingId: null,
+        reason: eventType === 'channel_deactivate' ? 'CHANNEL_DEACTIVATED' : 'CHANNEL_ACTIVATED',
+        otaName: null,
+        actionUrl: '/settings/channex',
+      })
+    } catch (err) {
+      this.logger.warn(
+        `[Channex puller] notifyChannelEvent failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      )
+    }
   }
 
   private async markSucceeded(id: string, meta: Record<string, unknown>): Promise<void> {

@@ -225,7 +225,7 @@ describe('ChannexBookingMapper', () => {
         roomId: 'room-a1',
         channexConflict: false,
       })
-      expect(result.guestName).toBe('Guest BDC-1234')
+      expect(result.guestName).toBe('Huésped BDC-1234')
     })
   })
 

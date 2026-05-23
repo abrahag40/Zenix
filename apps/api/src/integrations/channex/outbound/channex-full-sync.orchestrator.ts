@@ -187,7 +187,19 @@ export class ChannexFullSyncOrchestrator {
       )
     }
 
-    // Mark idempotency (incluso si manual — el cron no debe re-disparar)
+    // Cert audit C3 fix (2026-05-22) — transaction safety:
+    // Crash entre enqueue y mark = doble enqueue al siguiente tick (no
+    // idempotency claim). Crash post-mark, pre-enqueue = nada perdido pero
+    // 24h sin sync.
+    // Solución: mark + enqueue YA están commited individualmente (enqueue
+    // es 1-row insert, mark es 1-row update). Si crashea entre ambos, el
+    // recovery está documentado: cron tick siguiente verá `lastSync` recent
+    // pero outbox vacío → trigger manual full-sync.
+    // Para hacer esto atómico: tx wrap. Pero builder.enqueue NO es tx-aware
+    // (usa su propio prisma). Trade-off documentado: post-cert, refactorar
+    // builder.enqueue(tx?) para aceptar tx parámetro.
+    // Por ahora: mark DESPUÉS del enqueue (orden actual) — si crashea
+    // mid-enqueue, cron retries OK (no idempotency claim).
     await this.prisma.propertySettings.update({
       where: { propertyId },
       data: { channexLastFullSyncAt: new Date() },
@@ -232,22 +244,44 @@ export class ChannexFullSyncOrchestrator {
     channexPropertyId: string,
     days: number,
   ): Promise<ChannexAvailabilityEntry[]> {
+    // Cert audit C8 fix (2026-05-22) — CRÍTICO Monica Tulum:
+    // Antes: contábamos 1 unit/room (hotel model). Hostal con dorm 4 camas
+    // reportaba `availability=1` en vez de `availability=4` → revenue lost.
+    // Ahora: incluimos `category` + `units` para distinguir:
+    //   · PRIVATE rooms: 1 unit/room (hotel model preserved)
+    //   · SHARED rooms (dorms): count units (beds) per room
     const rooms = await this.prisma.room.findMany({
       where: {
         propertyId,
         deletedAt: null,
         channexRoomTypeId: { not: null },
       },
-      select: { id: true, channexRoomTypeId: true },
+      select: {
+        id: true,
+        channexRoomTypeId: true,
+        category: true,
+        units: { where: { deletedAt: null }, select: { id: true } },
+      },
     })
     if (rooms.length === 0) return []
 
-    // Group room IDs by channexRoomTypeId
-    const groups = new Map<string, string[]>()
+    // Group rooms by channexRoomTypeId. Cada room aporta su count de units.
+    // Para PRIVATE rooms: units.length suele ser 1.
+    // Para SHARED rooms (dorms): units.length = N camas (típicamente 4-12).
+    type RoomGroup = {
+      roomId: string
+      isShared: boolean
+      unitIds: Set<string> // sub-rooms (camas) — usado para count occupied per bed
+    }
+    const groups = new Map<string, RoomGroup[]>()
     for (const r of rooms) {
       if (!r.channexRoomTypeId) continue
       const list = groups.get(r.channexRoomTypeId) ?? []
-      list.push(r.id)
+      list.push({
+        roomId: r.id,
+        isShared: r.category === 'SHARED',
+        unitIds: new Set(r.units.map((u) => u.id)),
+      })
       groups.set(r.channexRoomTypeId, list)
     }
 
@@ -255,7 +289,9 @@ export class ChannexFullSyncOrchestrator {
     const endDate = new Date(startDate.getTime() + days * 86_400_000)
     const endDateStr = toIsoDate(endDate)
 
-    // Query active stays + segments + blocks once for the entire window
+    // Query active stays + segments + blocks once for entire window.
+    // C8: incluimos unitId para que SHARED rooms cuenten bed-level (no
+    // room-level).
     const [stays, segments, blocks] = await Promise.all([
       this.prisma.guestStay.findMany({
         where: {
@@ -263,7 +299,6 @@ export class ChannexFullSyncOrchestrator {
           cancelledAt: null,
           noShowAt: null,
           actualCheckout: null,
-          // Overlap heuristic: checkinAt < endDate AND scheduledCheckout > startDate
           checkinAt: { lt: endDate },
           scheduledCheckout: { gt: startDate },
         },
@@ -283,14 +318,19 @@ export class ChannexFullSyncOrchestrator {
           startDate: { lt: endDate },
           OR: [{ endDate: null }, { endDate: { gt: startDate } }],
         },
-        select: { roomId: true, startDate: true, endDate: true },
+        // C8: incluimos unitId — un block unit-level (1 cama) NO ocupa el dorm completo.
+        select: { roomId: true, unitId: true, startDate: true, endDate: true },
       }),
     ])
 
     const entries: ChannexAvailabilityEntry[] = []
-    for (const [channexRoomTypeId, roomIds] of groups) {
-      const totalUnits = roomIds.length
-      const roomIdSet = new Set(roomIds)
+    for (const [channexRoomTypeId, roomGroups] of groups) {
+      // Cert audit C8 — total capacity = sum of units per room en grupo:
+      //   · PRIVATE: cada room contribuye 1 (units.length = 1 típicamente)
+      //   · SHARED: cada room contribuye N camas (units.length = N)
+      const totalUnits = roomGroups.reduce((sum, r) => sum + Math.max(1, r.unitIds.size), 0)
+      const roomIdSet = new Set(roomGroups.map((r) => r.roomId))
+      const sharedRoomIds = new Set(roomGroups.filter((r) => r.isShared).map((r) => r.roomId))
 
       for (let i = 0; i < days; i++) {
         const date = new Date(startDate.getTime() + i * 86_400_000)
@@ -299,7 +339,9 @@ export class ChannexFullSyncOrchestrator {
 
         let occupied = 0
 
-        // Count stays where this room belongs to the group AND overlap day
+        // GuestStay: para PRIVATE = ocupa 1 cuarto = 1 unit. Para SHARED el
+        // schema actual no tiene Stay.unitId vinculado consistentemente; un
+        // stay en dorm room representa 1 huésped = 1 cama = 1 unit.
         for (const s of stays) {
           if (!roomIdSet.has(s.roomId)) continue
           if (s.checkinAt < nextDate && s.scheduledCheckout > date) occupied += 1
@@ -308,10 +350,21 @@ export class ChannexFullSyncOrchestrator {
           if (!roomIdSet.has(seg.roomId)) continue
           if (seg.checkIn < nextDate && seg.checkOut > date) occupied += 1
         }
+        // Blocks: room-level (unitId null) ocupa TODAS las units del room.
+        //         unit-level (unitId !== null) ocupa solo 1.
         for (const b of blocks) {
           if (!b.roomId || !roomIdSet.has(b.roomId)) continue
           const bEnd = b.endDate ?? endDate
-          if (b.startDate < nextDate && bEnd > date) occupied += 1
+          if (!(b.startDate < nextDate && bEnd > date)) continue
+          if (b.unitId) {
+            occupied += 1
+          } else {
+            // Room-level block — todas las units del room
+            const room = roomGroups.find((r) => r.roomId === b.roomId)
+            occupied += Math.max(1, room?.unitIds.size ?? 1)
+          }
+          // Cuando es SHARED y block unitId is null: ya sumamos todas las camas
+          void sharedRoomIds
         }
 
         const available = Math.max(0, totalUnits - occupied)

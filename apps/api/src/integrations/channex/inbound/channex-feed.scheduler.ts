@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common'
-import { Cron, CronExpression } from '@nestjs/schedule'
+import { Cron } from '@nestjs/schedule'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../../../prisma/prisma.service'
 import { ChannexGateway, ChannexHttpError } from '../channex.gateway'
@@ -58,7 +58,12 @@ export class ChannexFeedScheduler {
     private readonly inbound: ChannexInboundService,
   ) {}
 
-  @Cron(CronExpression.EVERY_30_MINUTES, { name: 'channex-feed-reconciliation' })
+  // Cert audit A6 fix (2026-05-22): docs oficiales Channex 2024-12 recomiendan
+  // 15-20 min polling. Estábamos en 30 min — fuera del rango. Bajamos a 15
+  // para cumplir literal. Costo extra: ~1 HTTP call extra cada hora en
+  // estado normal (feed empty), negligible.
+  // NestJS schedule no expone EVERY_15_MINUTES — usamos cron string raw.
+  @Cron('*/15 * * * *', { name: 'channex-feed-reconciliation' })
   async runScheduled(): Promise<void> {
     await this.run({ source: 'cron' })
   }

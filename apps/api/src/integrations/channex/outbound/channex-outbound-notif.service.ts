@@ -37,11 +37,23 @@ export class ChannexOutboundNotifService {
     lastError: string
     httpStatus: number | null
   }): Promise<{ notificationId: string }> {
-    const title = `Channex sync failed — ${args.kind === 'AVAILABILITY' ? 'disponibilidad' : 'tarifas/restricciones'}`
-    const body =
-      `Tras ${args.attempts} intentos, Zenix no pudo propagar el cambio a Channex. ` +
-      `Verifica /settings/channex y considera disparar full-sync manual. ` +
-      `Error: ${args.lastError.slice(0, 200)}`
+    // Cert audit B2 fix: distinguir data integrity issue de Channex outage.
+    // Si lastError menciona null organizationId/property, es un BUG en NUESTRO
+    // schema (Property mal seedeado), no un Channex down — priority URGENT
+    // + título distinto para que el operador no asuma "Channex está caído".
+    const isDataIntegrity = /null organizationId|property=.+not found in Zenix DB/.test(args.lastError)
+    const priority = isDataIntegrity ? 'URGENT' : 'HIGH'
+    const titlePrefix = isDataIntegrity
+      ? '⚠ DATA INTEGRITY — Channex sync impossible'
+      : 'Channex sync failed'
+    const title = `${titlePrefix} — ${args.kind === 'AVAILABILITY' ? 'disponibilidad' : 'tarifas/restricciones'}`
+    const body = isDataIntegrity
+      ? `Una property tiene null organizationId o falta del DB. Esto es ` +
+        `un BUG schema, no Channex down. Contacta ops para revisar ` +
+        `multi-tenancy integrity. Error técnico: ${args.lastError.slice(0, 200)}`
+      : `Tras ${args.attempts} intentos, Zenix no pudo propagar el cambio a Channex. ` +
+        `Verifica /settings/channex y considera disparar full-sync manual. ` +
+        `Error: ${args.lastError.slice(0, 200)}`
 
     const notif = await this.prisma.appNotification.create({
       data: {
@@ -49,7 +61,7 @@ export class ChannexOutboundNotifService {
         propertyId: args.propertyId,
         type: 'ACTION_REQUIRED',
         category: 'SYSTEM',
-        priority: 'HIGH',
+        priority: priority as 'HIGH' | 'URGENT',
         title,
         body,
         metadata: {

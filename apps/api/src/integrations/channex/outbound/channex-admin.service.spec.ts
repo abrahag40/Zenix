@@ -13,6 +13,7 @@
 import { Test } from '@nestjs/testing'
 import { ChannexAdminService } from './channex-admin.service'
 import { ChannexTokenBucketService } from './channex-token-bucket.service'
+import { ChannexGateway } from '../channex.gateway'
 import { PrismaService } from '../../../prisma/prisma.service'
 
 function makePrismaMock() {
@@ -51,6 +52,8 @@ describe('ChannexAdminService.getStatus', () => {
         ChannexAdminService,
         { provide: PrismaService, useValue: prisma },
         { provide: ChannexTokenBucketService, useValue: bucket },
+        // Cert audit C7 — admin service now depends on gateway for mapping validation
+        { provide: ChannexGateway, useValue: { enabled: true } },
       ],
     }).compile()
     svc = mod.get(ChannexAdminService)

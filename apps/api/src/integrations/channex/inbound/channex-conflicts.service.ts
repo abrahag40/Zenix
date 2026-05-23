@@ -194,6 +194,33 @@ export class ChannexConflictsService {
       manualReason: reason ?? null,
     }
 
+    // Cert audit B3 fix (2026-05-22) — outbound-first ordering.
+    // ANTES: local cancel commit PRIMERO, Channex push DESPUÉS (best-effort §31).
+    //   Problem: si Channex falla, OTA seguía creyendo activa la reserva
+    //   → double-booking real (lo que cert pretende prevenir).
+    // AHORA: para CANCEL_AT_OTA, push a Channex PRIMERO. Si Channex acked,
+    //   commit local. Si falla, throw 503 → supervisor reintenta o usa
+    //   extranet OTA manualmente.
+    // Trade-off: +500ms-2s latencia en el modal supervisor. Aceptable —
+    // es 1 supervisor decision, no ruta hot recepcionista.
+    if (propagateToChannex && stay.channexBookingId) {
+      try {
+        await this.gateway.cancelBookingAtChannex(stay.channexBookingId, reason)
+        // Channex acked → safe to commit local
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        const status = err instanceof ChannexHttpError ? err.status : null
+        this.logger.error(
+          `[Channex conflict] CANCEL_AT_OTA aborted — Channex rejected ` +
+            `(status=${status ?? 'N/A'}): ${msg}. Local stay NOT cancelled.`,
+        )
+        throw new ConflictException(
+          `Channex rejected the cancellation (HTTP ${status ?? 'error'}). ` +
+            `Local stay was NOT cancelled. Retry or cancel via OTA extranet manually.`,
+        )
+      }
+    }
+
     await this.prisma.$transaction(async (tx) => {
       await tx.guestStay.update({
         where: { id: stay.id },
@@ -243,36 +270,10 @@ export class ChannexConflictsService {
       })
     })
 
-    // Optional outbound propagation to Channex (best-effort §31)
-    let channexAck = false
-    let channexError: string | null = null
-    if (propagateToChannex && stay.channexBookingId) {
-      try {
-        await this.gateway.cancelBookingAtChannex(stay.channexBookingId, reason)
-        channexAck = true
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        channexError = msg
-        this.logger.warn(
-          `[Channex conflict] cancelBookingAtChannex failed stay=${stay.id}: ${msg} ` +
-            `— local cancel committed, manual OTA action required`,
-        )
-        // Update audit log with the propagation failure
-        await this.prisma.guestStayLog.create({
-          data: {
-            stayId: stay.id,
-            event: 'CHANNEX_PROPAGATION_FAILED',
-            actorId,
-            actorType: 'SYSTEM',
-            metadata: {
-              attemptedAction: 'CANCEL_AT_OTA',
-              error: msg,
-              httpStatus: err instanceof ChannexHttpError ? err.status : null,
-            },
-          },
-        })
-      }
-    }
+    // Cert audit B3 — outbound ya se hizo PRE-commit (líneas arriba).
+    // Si llegamos aquí, Channex acked OR no era CANCEL_AT_OTA.
+    const channexAck = propagateToChannex && !!stay.channexBookingId
+    const channexError: string | null = null
 
     this.notifications.emit(stay.propertyId, 'channex:stay:cancelled', {
       stayId: stay.id,
