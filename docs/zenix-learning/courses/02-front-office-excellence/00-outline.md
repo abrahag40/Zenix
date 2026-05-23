@@ -214,8 +214,8 @@ sources: [referencias a bibliografía sección 4]
 
 | Día | Trabajo | Entregable |
 |-----|---------|-----------|
-| 7 | Outline + Módulo 1 (La industria + rol de recepción, 3 lessons) | ✅ Este documento + M1 |
-| 8 | Módulos 2-3-4 (Tecnología + Pre-arrival + Check-in, ~10 lessons) | ⏳ |
+| 7 | Outline + Módulo 1 (La industria + rol de recepción, 3 lessons) | ✅ Completado 2026-05-22 |
+| 8 | Módulos 2-3-4 (Tecnología + Pre-arrival + Check-in, 10 lessons) | ✅ Completado 2026-05-22 |
 | 9 | Módulos 5-6-7-8-9 (Folio + Check-out + Servicio + Seguridad + No-shows, ~14 lessons) + question bank | ⏳ |
 
 ---
@@ -237,4 +237,5 @@ sources: [referencias a bibliografía sección 4]
 
 ## Bitácora
 
-- **2026-05-22** (Día 7) — Outline Curso 2 creado. 9 módulos · ~27 lessons · ~20h. Bibliografía AHLEI CFDR + CONOCER EC0124 + PCI-DSS + Visa Core Rules + Kotler + Cialdini + Heskett + Hofstede. Principio editorial fundacional: CERO terminología Zenix interna (curso portable sobre estándares industriales). Game D "Front Desk Rush" como capstone M4 (Fase 1.5). Disclaimer AHLEI obligatorio en cada lesson. Módulo 1 redactado a continuación.
+- **2026-05-22** (Día 7) — Outline Curso 2 creado. 9 módulos · ~27 lessons · ~20h. Bibliografía AHLEI CFDR + CONOCER EC0124 + PCI-DSS + Visa Core Rules + Kotler + Cialdini + Heskett + Hofstede. Principio editorial fundacional: CERO terminología Zenix interna (curso portable sobre estándares industriales). Game D "Front Desk Rush" como capstone M4 (Fase 1.5). Disclaimer AHLEI obligatorio en cada lesson. Módulo 1 redactado (3 lessons).
+- **2026-05-22** (Día 8) — Módulos 2 + 3 + 4 redactados completos (10 lessons). M2 Tecnología recepción (PMS genérico + estados habitación + KPIs + channel managers + OTAs + modelos de cobro). M3 Pre-arrival (comunicación proactiva + tipos garantía + overbooking relocate policy + service recovery paradox). M4 Check-in excelente (proceso 6 pasos + conexión humana + upselling ético + casos especiales VIP/grupos/walk-in/late arrival + Game D capstone). Bibliografía expandida: SiteMinder + Canary + Kotter 1996 + Willis&Todorov 2006 + Hart/Heskett/Sasser 1990 Service Recovery Paradox + Carnegie + economía distribución. **Curso 2 al ~48% (13 de 27 lessons).**
