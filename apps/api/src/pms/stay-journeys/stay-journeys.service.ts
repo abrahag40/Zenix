@@ -726,15 +726,22 @@ export class StayJourneyService {
   /**
    * moveExtensionRoom — Reasigna un segmento del journey a una habitación diferente.
    *
-   * Acepta segmentos **no bloqueados** con reason ORIGINAL, EXTENSION_SAME_ROOM o
-   * EXTENSION_NEW_ROOM. ROOM_MOVE y SPLIT son inmutables (representan historia
-   * planeada — mover su roomId rompería el audit trail del journey).
+   * Acepta segmentos **no bloqueados** con reason ORIGINAL, EXTENSION_SAME_ROOM,
+   * EXTENSION_NEW_ROOM o ROOM_MOVE. SPLIT sigue siendo inmutable (representa
+   * decisión histórica de partir la reserva).
+   *
+   * 2026-05-19 — bug fix: ROOM_MOVE unlocked previamente rechazado. Un ROOM_MOVE
+   * con `locked=false` significa "el guest todavía no ha llegado a ese cuarto";
+   * cambiar el destino es re-planear la mudanza, no romper auditoría. El segment
+   * locked=true (move ejecutado y noches consumidas) sigue protegido por el
+   * guard `segment.locked` abajo.
    *
    * Para extensiones, el `reason` se recalcula según si el nuevo cuarto coincide
    * con el ORIGINAL del journey (EXTENSION_SAME_ROOM vs EXTENSION_NEW_ROOM).
-   * Para ORIGINAL, el reason se mantiene y, si hay `guestStayId` asociado,
-   * también se sincroniza `GuestStay.roomId` para que vistas legacy (planning,
-   * housekeeping) queden consistentes.
+   * Para ROOM_MOVE el reason se mantiene (sigue siendo una mudanza, sólo cambia
+   * el destino). Para ORIGINAL, el reason se mantiene y, si hay `guestStayId`
+   * asociado, también se sincroniza `GuestStay.roomId` para que vistas legacy
+   * (planning, housekeeping) queden consistentes.
    */
   async moveExtensionRoom(segmentId: string, newRoomId: string) {
     const segment = await this.prisma.staySegment.findUniqueOrThrow({
@@ -755,10 +762,11 @@ export class StayJourneyService {
       'ORIGINAL',
       'EXTENSION_SAME_ROOM',
       'EXTENSION_NEW_ROOM',
+      'ROOM_MOVE',
     ]
     if (!movableReasons.includes(segment.reason)) {
       throw new BadRequestException(
-        'Solo se pueden reubicar segmentos ORIGINAL o de extensión (ROOM_MOVE y SPLIT son inmutables)',
+        'Solo se pueden reubicar segmentos ORIGINAL, de extensión o ROOM_MOVE (SPLIT es inmutable)',
       )
     }
     if (segment.locked) {
@@ -776,12 +784,17 @@ export class StayJourneyService {
     )
 
     const originalRoomId = segment.journey.segments[0]?.roomId
+    // ORIGINAL → ORIGINAL (siempre). ROOM_MOVE → ROOM_MOVE (sigue siendo una
+    // mudanza, sólo cambia el destino). EXTENSION_* → recalcular según si el
+    // nuevo cuarto coincide con el ORIGINAL del journey.
     const newReason =
       segment.reason === 'ORIGINAL'
         ? 'ORIGINAL'
-        : newRoomId === originalRoomId
-          ? 'EXTENSION_SAME_ROOM'
-          : 'EXTENSION_NEW_ROOM'
+        : segment.reason === 'ROOM_MOVE'
+          ? 'ROOM_MOVE'
+          : newRoomId === originalRoomId
+            ? 'EXTENSION_SAME_ROOM'
+            : 'EXTENSION_NEW_ROOM'
 
     const updated = await this.prisma.$transaction(async (tx) => {
       const seg = await tx.staySegment.update({
@@ -798,6 +811,25 @@ export class StayJourneyService {
           data: { roomId: newRoomId },
         })
       }
+
+      // 2026-05-19 — Bug fix: este método no escribía StayJourneyEvent, por
+      // lo que cada `moveExtensionRoom` desaparecía del historial. El usuario
+      // movió Elena 2 veces pero sólo veía 1 en Historial. Ahora cada
+      // re-asignación queda registrada con el room transition.
+      await tx.stayJourneyEvent.create({
+        data: {
+          journeyId: segment.journeyId,
+          eventType: 'ROOM_MOVE_EXECUTED',
+          payload: {
+            segmentId,
+            fromRoomId: segment.roomId,
+            toRoomId: newRoomId,
+            fromReason: segment.reason,
+            toReason: newReason,
+            mode: 'EXTENSION_REASSIGN',
+          },
+        },
+      })
 
       return seg
     })

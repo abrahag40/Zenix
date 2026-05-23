@@ -500,6 +500,80 @@ Antes de ejecutar `prisma db seed`:
 
 ---
 
+## Transition plan — v1.0.0 (hoy) → v1.0.2 CFDI-CORE
+
+### Estado v1.0.0 (post-sprint 2026-05-20)
+
+Implementación **interim** sin `TaxCatalogEntry` todavía. Vive en `apps/api/src/pms/guest-stays/tax-breakdown.service.ts` con reglas hardcoded:
+
+| Jurisdicción | Reglas hoy | Endpoint |
+|---|---|---|
+| **MX/Quintana Roo** (Cancún, Playa del Carmen, Tulum, Cozumel, Chetumal, Bacalar, Holbox, Akumal, Puerto Morelos, Isla Mujeres) | IVA 16% + ISH 6% + nota DSA pendiente | `GET /v1/guest-stays/:id/tax-breakdown` |
+| **MX/otros estados** | IVA 16% federal + nota "ISH estatal pendiente con v1.0.2" | idem |
+| **Países no-MX** | `configured: false` + nota "Pendiente con CFDI-CORE" | idem |
+
+**Inferencia de jurisdicción**: `Property.city` (`apps/api/prisma/schema.prisma` Property model) → state lookup vía `Set<string>` hardcoded en `QR_CITIES`. Lista verificada contra INEGI municipios Quintana Roo 2026.
+
+**Algoritmo reverse-engineering** (modelo INCLUSIVE actual): `totalAmount` registrado es bruto-incluyente → `base = totalGross / (1 + Σtasas)`. Para QR: 22% total → divisor 1.22.
+
+**Frontend** (`apps/web/src/pages/ReservationDetailPage.tsx`): Pago tab → "Detalles del cálculo" card consume el endpoint y renderiza line items con detail "16% × USD X". Header del card muestra chip de jurisdicción.
+
+### Migración v1.0.2 — paso a paso
+
+**Pre-requisitos**:
+1. Ejecutar Prisma migration `add-tax-catalog-entry` (ver [PAY-CORE-prisma-migration-draft.md](PAY-CORE-prisma-migration-draft.md))
+2. Ejecutar `prisma db seed` para poblar 32 estados MX + 8 países LATAM con datos de este doc
+3. Validar checklist pre-seed productivo (§Checklist arriba)
+
+**Refactor del service** (apps/api/src/pms/guest-stays/tax-breakdown.service.ts):
+
+```ts
+// ANTES (v1.0.0 hardcoded):
+const QR_CITIES = new Set([...])
+if (isQuintanaRooCity(city)) {
+  // Apply IVA + ISH hardcoded rates
+}
+
+// DESPUÉS (v1.0.2 catalog-driven):
+async computeForStay(stayId: string) {
+  const property = await this.prisma.property.findUnique({...})
+  // Resolve catalog entries with PROPERTY > LEGAL_ENTITY > base precedence (§92):
+  const entries = await this.taxCatalog.resolveTaxesForProperty(property.id)
+  // Apply each entry's calculation type (PERCENT_OF_BASE | FIXED_PER_ROOM_NIGHT |
+  // UMA_MULTIPLIER | UMA_PER_PERSON_TIERED | PER_BOOKING)
+  return this.buildBreakdown(stay, entries)
+}
+```
+
+**Cambios cero al frontend** — el endpoint mantiene la misma forma (`TaxBreakdown` interface en `tax-breakdown.service.ts`). El frontend ya consume `lineItems[]` sin asumir IVA/ISH específicos. Sólo añadir nuevas calculation types al type narrowing del frontend si DSA/UMA llega.
+
+**Tests requeridos en v1.0.2**:
+- Cada uno de los 32 estados MX devuelve la combinación correcta IVA + ISH
+- QR municipios devuelven IVA + ISH + DSA (con modalidad confirmada por Activate wizard §94)
+- Frontera norte devuelve IVA 8% (no 16%)
+- Yucatán devuelve ISH 4.5% (no 5%, post-reforma 2026)
+- LATAM 8 países: cada uno devuelve sus entradas
+- Brasil devuelve `configured: false` con nota Sovos v1.2
+
+**Sub-tareas concretas para sprint v1.0.2** (orden de ejecución):
+
+1. **Día 1-2**: Prisma migration `TaxCatalogEntry` + `TaxCatalogOverride` + `UmaValue` + `FiscalRegime.fxAdapterClass` campo. Tests del schema (constraints, validFrom < validTo, unique keys).
+2. **Día 3-5**: Seed productivo MX (IVA federal + 32 estados ISH + QR DSA por municipio). Validación contra Periódico Oficial Estado por estado (TAX_CURATOR).
+3. **Día 6-7**: Seed LATAM 8 países (CO, CR, PE, PA, GT, AR, SV, HN). Validación contra fuentes primarias.
+4. **Día 8-10**: Refactor `TaxBreakdownService.computeForStay` → catalog-driven. Mantener interface backward-compat para no romper frontend.
+5. **Día 11-12**: `TaxCatalogOverride` UI en Settings (TAX_CURATOR + LegalEntity admin). Wizard Activate §94 carga overrides si DSA modalidad confirmada por Tesorería.
+6. **Día 13-14**: Tests integración (catalog resolution per-jurisdiction). Migration data de Hotel Monica Tulum (validation real).
+7. **Día 15**: `IFiscalAdapter` Strategy pattern (`MxCfdi40Adapter` baseline). FacturAdapter + SW Sapien fallback.
+8. **Día 16-20**: CFDI 4.0 issuance (CFDI I emisión al cobrar, CFDI E al cancelar, CFDI REP al recibir pago tardío). Sandbox test con PAC.
+
+**Riesgos identificados**:
+- **TAX_CURATOR role contratación es bottleneck** — sin contador externo, founder se vuelve cuello de botella. Resolver ANTES de iniciar v1.0.2.
+- **Wizard Activate verifica DSA Tulum/Cozumel** — modalidad per-room vs per-person debe quedar confirmada antes de migrar Hotel Monica Tulum a v1.0.2. Si Tesorería no responde, marcar `status=AMBIGUOUS` y bloquear emisión CFDI para ese caso (fail-closed).
+- **Brasil out-of-scope** — flag warning en cualquier reserva con Channex `country=BR` hasta v1.2.
+
+---
+
 ## Bitácora de revisiones
 
 - **2026-05-15** — Versión inicial DRAFT. Datos confirmados con fuentes secundarias (El Contribuyente, JA Del Río, Airbnb Help, Playa del Carmen Ayuntamiento, Hacienda CR, DIAN, SUNAT, DGI PA, INGUAT, ZOLITUR, AFIP). Filas marcadas AMBIGUOUS: DSA Tulum, DSA Cozumel, Yucatán impuesto ambiental.
+- **2026-05-20** — Sección "Transition plan v1.0.0 → v1.0.2" agregada. `TaxBreakdownService` interim implementado (hardcoded QR cities + IVA-only fallback). Sub-tareas v1.0.2 ordenadas día por día. Riesgos identificados (TAX_CURATOR contratación, wizard Activate verifica DSA, Brasil out-of-scope).

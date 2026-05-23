@@ -52,6 +52,7 @@ class CancelStayDto {
   metadata?: Record<string, unknown>
 }
 import { GuestStaysService } from './guest-stays.service'
+import { TaxBreakdownService } from './tax-breakdown.service'
 import { CreateGuestStayDto } from './dto/create-guest-stay.dto'
 import { MoveRoomDto } from './dto/move-room.dto'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
@@ -59,7 +60,10 @@ import { JwtPayload } from '@zenix/shared'
 
 @Controller('v1/guest-stays')
 export class GuestStaysController {
-  constructor(private readonly service: GuestStaysService) {}
+  constructor(
+    private readonly service: GuestStaysService,
+    private readonly taxBreakdown: TaxBreakdownService,
+  ) {}
 
   @Post()
   create(@Body() dto: CreateGuestStayDto, @CurrentUser() actor: JwtPayload) {
@@ -196,6 +200,39 @@ export class GuestStaysController {
   @Get(':id/payments')
   listPayments(@Param('id') id: string) {
     return this.service.listPaymentLogs(id)
+  }
+
+  /**
+   * Timeline unificado de auditoría para una estadía:
+   *   GuestStayLog (eventos stay-level) + StayJourneyEvent (journey-level).
+   * Ordenado cronológicamente. Sprint 2026-05-19 — feedback usuario: el
+   * "Historial" sólo mostraba "Reserva creada" porque renderizaba hard-coded.
+   * Ahora cualquier room-move / extension / cancel / restore / no-show
+   * registrado por los servicios aparece automáticamente.
+   */
+  @Get(':id/timeline')
+  getTimeline(@Param('id') id: string) {
+    return this.service.getTimeline(id)
+  }
+
+  /**
+   * Desglose fiscal de la estadía según la jurisdicción de la propiedad.
+   * Sprint 2026-05-20. Retorna line items computados (IVA + ISH + DSA según
+   * estado/país) o jurisdicción no-configurada con nota explicativa.
+   * Ver TaxBreakdownService para reglas por jurisdicción.
+   */
+  @Get(':id/tax-breakdown')
+  getTaxBreakdown(@Param('id') id: string) {
+    return this.taxBreakdown.computeForStay(id)
+  }
+
+  /**
+   * Guest stats agregadas (repeat guest indicator). Sprint 2026-05-20.
+   * Mews + Opera top request: distinguir primera-visita vs cliente recurrente.
+   */
+  @Get(':id/guest-stats')
+  getGuestStats(@Param('id') id: string) {
+    return this.service.getGuestStats(id)
   }
 
   @Get(':id')

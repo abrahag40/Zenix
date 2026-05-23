@@ -76,6 +76,9 @@ const step1Schema = z.object({
   .max(80)
   .regex(nameRegex, 'Solo letras'),
 
+  /** Sexo del huésped — Sprint 2026-05-20 — opcional, BI analytics futuras. */
+  guestSex: z.enum(['M', 'F', 'O', 'N']).optional(),
+
   documentType: z.string().optional(),
   documentPhoto: z.string().optional(),
 
@@ -436,8 +439,10 @@ export function CheckInDialog({
                   </div>
                 </div>
 
-                {/* Nacionalidad / Huéspedes */}
-                <div className="grid grid-cols-2 gap-3">
+                {/* Nacionalidad / Sexo / Huéspedes — Sprint 2026-05-20:
+                    guestSex agregado al lado de Nacionalidad para BI analytics.
+                    Opcional — el usuario puede dejarlo en blanco. */}
+                <div className="grid grid-cols-3 gap-3">
                   <div className="space-y-1">
                     <Label className="text-xs font-semibold text-slate-600">
                       Nacionalidad <span className="text-red-500">*</span>
@@ -461,6 +466,21 @@ export function CheckInDialog({
                         <FieldError message={f1.formState.errors.nationality.message} />
                       </div>
                     )}
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs font-semibold text-slate-600">
+                      Sexo
+                    </Label>
+                    <select
+                      {...f1.register('guestSex')}
+                      className="h-9 w-full text-sm bg-white border border-slate-300 rounded px-2 focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-400"
+                    >
+                      <option value="">—</option>
+                      <option value="M">Masculino</option>
+                      <option value="F">Femenino</option>
+                      <option value="O">Otro</option>
+                      <option value="N">Prefiere no decir</option>
+                    </select>
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs font-semibold text-slate-600">

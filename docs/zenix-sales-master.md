@@ -1451,6 +1451,118 @@ Patrón industria: **SAP Tax Determination · Vertex Tax Content team · Salesfo
 
 ---
 
+## Módulo 8 — Zenix Sign: check-in digital + firma electrónica + chargeback shield (DLC v1.1.x)
+
+> Diseño 2026-05-21 tras caso documentado Hotel Azúcar Tulum (manager con acceso manual a PANs por Hotel Collect de Expedia, tres hojas firmadas archivadas físicamente como única evidencia anti-chargeback). Plan técnico completo: [`docs/sprints/SIGN-DLC-plan.md`](sprints/SIGN-DLC-plan.md).
+
+### El problema que resuelve
+
+Lo que la operación manual obliga al hotel boutique hoy:
+
+1. **Imprimir tres hojas por reserva**: Guest Registration Card (datos personales + firma), Terms & Conditions (firma de aceptación), Payment Voucher (copia del recibo del POS bancario con last-4 y holder name, firmado por el huésped). 8-10 minutos por check-in.
+2. **Archivar las tres hojas mínimo 13 meses** — período de disputa Visa (CRR 13.7).
+3. **Manager con acceso a PANs completos** del portal del OTA (Expedia Partner Central / Booking Extranet) cuando opera en modelo Hotel Collect. Captura manualmente en la terminal POS física. **Violación PCI-DSS Req. 3.3.1.**
+4. **En caso de chargeback**, escaneo manual de las tres hojas → upload al portal del adquirente → win rate ~48% según Chargebacks911 (vs 67% con evidencia digital).
+
+### El gap competitivo de mercado
+
+| PMS | Digital signature | Audit trail SHA-256 | NOM-151 nativo (MX) | ToC linter PROFECO | Evidence package 1-click |
+|---|---|---|---|---|---|
+| **Mews Kiosk** | ✅ DocuSign embed | parcial | ❌ (config manual Mifiel) | ❌ | ❌ |
+| **Cloudbeds Digital Check-in** | ✅ HelloSign | ✅ | ❌ | ❌ | parcial |
+| **Opera Cloud Kiosk** | ✅ OPI | ✅ | ❌ | ❌ | ❌ |
+| **RoomRaccoon** | ✅ Adyen iPad | ✅ | ❌ | ❌ | ❌ |
+| **Little Hotelier** | parcial | ❌ | ❌ | ❌ | ❌ |
+| **Zenix Sign** | ✅ canvas propio | ✅ + hash + IP | ✅ **único PMS LATAM-first** | ✅ **único** | ✅ |
+
+**Insight comercial**: los PMS globales asumen que un cliente mexicano que necesita conservación oficial NOM-151 contratará por separado a Mifiel/SeguriData y lo integrará manualmente. Zenix Sign lo trae nativo como add-on configurable desde el wizard de activación.
+
+### La solución — wizard digital de 5 pasos
+
+El huésped recibe (al confirmar reserva o 48h antes del arrival) un link único: `https://miHotel.zenix.app/checkin-portal/4XK2P`. Desde su móvil, sin instalar nada, completa:
+
+1. **Welcome** — vista previa de su reserva + estimado de 2 minutos.
+2. **Datos personales** — formulario pre-rellenado con info del OTA + foto del documento (cámara móvil) + nacionalidad + acompañantes.
+3. **Terms & Conditions** — viewer con scroll-detection obligatorio (no se puede avanzar sin leer hasta el final, Apple HIG forcing function) + checkbox de aceptación con timestamp + IP capturados.
+4. **Firma digital** — signature canvas (signature_pad@5.0, MIT) con validación de ≥30 puntos en el trazo.
+5. **Confirmación** — código corto para presentar en recepción + PDF descargable + copia automática al email.
+
+Al llegar al hotel, el recepcionista solo escanea el código de 5 caracteres y el guest está in-house en 60 segundos. **Cero papel. Cero PAN tocado por humano. Audit trail completo desde el segundo cero.**
+
+### Audit trail NOM-151-grade (México)
+
+Cada documento firmado genera:
+
+- **PDF inmutable** combinando form + ToC snapshot exacto + signature SVG embebida.
+- **Hash SHA-256** del PDF completo (Visa Dispute Management Guidelines Junio 2024 §5.9.2 lo acepta explícitamente como compelling evidence).
+- **Audit log append-only** (`SignatureAuditLog`) — eventos `CARD_CREATED`, `TOC_DISPLAYED`, `TOC_ACCEPTED`, `SIGNATURE_CAPTURED`, `PDF_GENERATED`, con `actorType`, `actorId`, `ipAddress`, `userAgent`, `occurredAt`.
+- **Conservación oficial NOM-151-SCFI-2016** (add-on opcional) vía PSC acreditado por la Secretaría de Economía (MVP: Mifiel; backlog: SeguriData, Trust2u). El PSC sella el hash + timestamp y emite **constancia oficial** admisible ante notario / juicio civil mexicano.
+
+**Fundamento legal**: Código de Comercio Art. 89-114 (reformas 2003, 2014) establece equivalencia funcional firma electrónica = firma autógrafa cuando cumple las cuatro condiciones del Art. 97. NOM-151-SCFI-2016 regula la conservación de mensajes de datos. Para chargebacks Visa/Mastercard, las guidelines 2024 reconocen "digitally signed registration card with timestamp + IP + audit trail" como evidencia válida.
+
+### Linter de Terms & Conditions — anti-PROFECO
+
+Cuando el supervisor edita el T&C del hotel, un linter automático detecta cláusulas potencialmente abusivas según **PROFECO Art. 90** y estándares de industria:
+
+- ⚠️ Cláusula con ventana de cambio de fechas >3 días hábiles → potencialmente abusiva.
+- ⚠️ Fees de daño >USD $200 en items "menores" (toalla, sábana) → potencialmente abusiva.
+- ❌ Falta sección de No-Show policy → bloquea defensa de chargebacks CRR 13.7.
+- ⚠️ Falta sección de Identity verification → recomendado per Visa CRR 10.4.
+
+Caso real del fixture: el T&C de Azúcar Hotel Tulum tiene cláusula 6 *"requests for date modifications must be submitted with minimum of 16 business days notice"* — el linter lo marca como potencial abuso y sugiere reducir a 72h.
+
+### Evidence Package builder — un clic para defender un chargeback
+
+Cuando llega un dispute notice del adquirente, el manager NO escanea hojas. Click en "Generar evidencia chargeback" desde la pantalla de la reserva, y Zenix arma un PDF combinado con:
+
+1. Registration card firmado (con foto del documento)
+2. Snapshot del T&C versión exacta firmada por ESE huésped (versionado per LegalEntity)
+3. Payment voucher digital firmado (last-4 + approval code, nunca PAN)
+4. Timeline completo: check-in time, room key activations, restaurant charges, check-out time
+5. Audit log con IPs + timestamps + user agents
+
+PDF listo para upload directo al portal de Banorte/Banamex/Stripe Disputes. Tiempo de preparación de evidencia: **8 min → 60 segundos**.
+
+### ROI documentable para el hotel
+
+| Métrica | Baseline (papel) | Con Zenix Sign | Fuente |
+|---|---|---|---|
+| Chargeback win-rate | ~48% | ≥65% | Chargebacks911 *Hospitality Industry Chargeback Report 2023* |
+| Check-in time avg | 8-10 min | <3 min | Mews benchmark interno 2023 |
+| Pre-arrival completion rate | 0% (no aplica) | ≥55% al mes 3 | Cloudbeds reported avg |
+| Tiempo para armar evidencia chargeback | ~30 min (manual scan) | 1 min | Internal |
+| Exposición a multas PCI-DSS por PAN en papel | $5k-100k/mes risk | 0 | Visa Operating Regulations |
+
+Para un boutique con USD $30k/mes en revenue OTA, asumiendo 1% chargeback rate, recuperación incremental por mejor win-rate: **~USD $700-900/mes**. El módulo Pro ($40/mes) se paga 20× con un solo chargeback ganado al año.
+
+### Posicionamiento de pricing (DLC tier Pro)
+
+| Tier | Precio (USD) | Incluido |
+|---|---|---|
+| **Sign Starter** | $25/property/mes | Hasta 100 firmas/mes, PDF audit, storage 1 GB |
+| **Sign Pro** | $40/property/mes | Firmas ilimitadas, ToC linter, evidence package, storage 5 GB |
+| **NOM-151 Add-on** | +$10/property/mes | Conservación PSC (Mifiel pass-through ~$5/doc) + constancia oficial |
+
+Comparativa de mercado:
+- **Cloudbeds Payments** add-on $30-50/mes/property — sin NOM-151.
+- **Mews Kiosk** solo tier Enterprise (~$300/mes/property) — sin NOM-151.
+- **RoomRaccoon** built-in — sin NOM-151.
+- **Zenix Sign Pro $40** — con NOM-151 add-on opcional. **Mejor relación costo/feature en mercado LATAM.**
+
+### Para el speech de ventas
+
+> "¿Sabes en este momento dónde está la copia firmada con los datos de tarjeta del huésped que se hospedó hace tres meses? Si tu equipo te dice 'en un fólder en la oficina del manager', ya estás en violación de PCI-DSS y un chargeback que llegue mañana lo defiendes con foto borrosa de papel firmado. Zenix Sign lo digitaliza con audit trail SHA-256 + IP + timestamp + opcionalmente conservación NOM-151 oficial. La próxima auditoría PCI-DSS no encuentra ni una hoja de papel con datos de tarjeta. Y los chargebacks los defiendes con un click."
+
+> "Mews y Cloudbeds digitalizan la firma — sí. Pero ninguno cumple automáticamente con NOM-151 mexicano. Ese gap es donde Zenix gana en LATAM: somos el único PMS donde la conservación oficial ante notario está a un toggle de distancia."
+
+> "El linter de T&C es trabajo de un abogado mercantil de $4,000 MXN/hora. Zenix te alerta antes de que firmes algo que PROFECO declarará abusivo. La cláusula '16 business days notice for date changes' del hotel del lado se marca automáticamente como potencial riesgo."
+
+### Argumento de cierre para el hotel boutique LATAM
+
+> "Tu manager hoy carga la responsabilidad criminal de manejar PANs ajenos a mano. Si hay una fuga de datos, la liability cae sobre el hotel (LFPDPPP + Visa Operating Regulations) y potencialmente sobre el manager personalmente. Zenix Sign le quita ese riesgo: el sistema nunca toca el PAN, el huésped firma en su propio teléfono, y la evidencia es indisputable porque incluye metadata que el papel no puede falsificar. Cuarenta dólares al mes por property — es seguro de responsabilidad civil y comercial en un solo módulo."
+
+---
+
 ## Módulo de Mantenimiento — Sistema de tickets work-order completo (Sprint Mx-1, mayo 2026)
 
 El housekeeper es quien entra a cada habitación todos los días — es el primero en ver un grifo roto, una lámpara fundida, o una mancha. Hoy ese reporte llega por WhatsApp y se pierde. **Zenix lo convirtió en un sistema completo de work-orders.**

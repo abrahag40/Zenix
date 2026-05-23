@@ -154,8 +154,12 @@ export function PaymentMovementsList({
               )}
             </div>
 
-            {/* Derecha: monto + running balance + acción */}
-            <div className="flex flex-col items-end gap-0.5 shrink-0 min-w-[80px]">
+            {/* Derecha: monto + running balance + acción.
+                items-center 2026-05-20: cuando dos textos de tamaños distintos
+                (amount bold grande + bal small light) comparten columna, el
+                center-align se ve más balanceado que right-align. Apple HIG
+                paired-info: visual centers alineados. */}
+            <div className="flex flex-col items-center gap-0.5 shrink-0 min-w-[90px]">
               <span className={cn(
                 'text-sm font-bold tabular-nums font-mono',
                 isFwdVoidEntry ? 'text-rose-600'
@@ -175,18 +179,26 @@ export function PaymentMovementsList({
               </span>
             </div>
 
-            {/* Acción Anular — sólo originales no-voided + permiso */}
-            {canVoid && !isVoided && !isFwdVoidEntry && (
+            {/* Acción Anular — sólo originales no-voided + permiso.
+                Bug fix 2026-05-20: SIEMPRE reservamos el slot del icon
+                (visible o spacer transparente) para que la columna del monto
+                tenga el mismo right boundary independientemente del estado.
+                Antes: sin botón, el monto se corría a la derecha rompiendo
+                alineación vertical entre filas (NN/g H4 consistency). */}
+            {canVoid && !isVoided && !isFwdVoidEntry ? (
               <button
                 type="button"
                 onClick={() => onVoid(p)}
                 disabled={isVoidPending}
-                title="Anular pago"
+                title="Anular este pago — registra una entrada de anulación con razón obligatoria"
                 aria-label="Anular pago"
-                className="text-slate-300 hover:text-rose-600 p-1 rounded hover:bg-rose-50 transition-colors shrink-0 self-start mt-0.5"
+                className="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-rose-600 rounded hover:bg-rose-50 transition-colors shrink-0 self-start mt-0.5"
               >
                 <Ban className="h-3.5 w-3.5" />
               </button>
+            ) : (
+              /* Spacer transparente — preserva alineación de la columna monto. */
+              <div className="w-7 h-7 shrink-0 self-start mt-0.5" aria-hidden="true" />
             )}
           </div>
         )

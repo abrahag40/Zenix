@@ -34,6 +34,16 @@ export class CreateGuestStayDto {
   @IsOptional()
   nationality?: string
 
+  /**
+   * Sex/gender del huésped principal. Opcional al crear; campo BI-friendly.
+   * Valores aceptados: M | F | O (other/non-binary) | N (prefer not to say).
+   * Persistido como string libre por flexibilidad cultural — el enum vive
+   * en el client si se quiere validar más estricto.
+   */
+  @IsString()
+  @IsOptional()
+  guestSex?: string
+
   @IsString()
   @IsOptional()
   documentType?: string

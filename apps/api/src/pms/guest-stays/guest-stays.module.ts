@@ -4,6 +4,7 @@ import { GuestStaysService } from './guest-stays.service'
 import { NightAuditScheduler } from './night-audit.scheduler'
 import { PotentialNoShowScheduler } from './potential-noshow.scheduler'
 import { LateCheckoutScheduler } from './late-checkout.scheduler'
+import { TaxBreakdownService } from './tax-breakdown.service'
 import { TenantContextService } from '../../common/tenant-context.service'
 import { StayJourneysModule } from '../stay-journeys/stay-journeys.module'
 import { NotificationsModule } from '../../notifications/notifications.module'
@@ -19,8 +20,9 @@ import { AssignmentModule } from '../../assignment/assignment.module'
     NightAuditScheduler,
     PotentialNoShowScheduler,
     LateCheckoutScheduler,
+    TaxBreakdownService,
     TenantContextService,
   ],
-  exports: [GuestStaysService],
+  exports: [GuestStaysService, TaxBreakdownService],
 })
 export class GuestStaysModule {}
