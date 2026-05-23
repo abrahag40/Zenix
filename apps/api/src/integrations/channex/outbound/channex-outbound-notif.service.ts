@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../../../prisma/prisma.service'
 import { NotificationsService } from '../../../notifications/notifications.service'
+import { PushService } from '../../../notifications/push.service'
 
 /**
  * ChannexOutboundNotifService — persiste AppNotification cuando un row del
@@ -24,6 +25,7 @@ export class ChannexOutboundNotifService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sse: NotificationsService,
+    private readonly push: PushService,
   ) {}
 
   async raiseDeadLetter(args: {
@@ -80,6 +82,16 @@ export class ChannexOutboundNotifService {
       createdAt: new Date(),
     })
 
+    // Fix Caso 4 — Expo push para SUPERVISOR mobile (igual que inbound notif).
+    void this.firePushToSupervisors(args.organizationId, args.propertyId, title, body, {
+      outboundQueueId: args.outboundQueueId,
+      notificationId: notif.id,
+    }).catch((err) =>
+      this.logger.warn(
+        `[Channex outbound notif] push failed: ${err instanceof Error ? err.message : String(err)}`,
+      ),
+    )
+
     this.logger.error(
       `[Channex outbound notif] DEAD_LETTER notif=${notif.id} ` +
         `queue=${args.outboundQueueId} kind=${args.kind} attempts=${args.attempts} ` +
@@ -87,5 +99,25 @@ export class ChannexOutboundNotifService {
     )
 
     return { notificationId: notif.id }
+  }
+
+  private async firePushToSupervisors(
+    organizationId: string,
+    propertyId: string,
+    title: string,
+    body: string,
+    data: Record<string, string>,
+  ): Promise<void> {
+    const supervisors = await this.prisma.staff.findMany({
+      where: { organizationId, propertyId, role: 'SUPERVISOR', active: true },
+      select: { id: true },
+    })
+    if (supervisors.length === 0) return
+    await this.push.sendToMultipleStaff(
+      supervisors.map((s) => s.id),
+      title,
+      body,
+      data,
+    )
   }
 }

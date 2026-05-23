@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../../../prisma/prisma.service'
 import { NotificationsService } from '../../../notifications/notifications.service'
+import { PushService } from '../../../notifications/push.service'
 
 /**
  * ChannexNotifService — persists AppNotification rows for Channex conflicts
@@ -30,6 +31,7 @@ export class ChannexNotifService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sse: NotificationsService,
+    private readonly push: PushService,
   ) {}
 
   async raiseConflict(args: {
@@ -89,11 +91,50 @@ export class ChannexNotifService {
       createdAt: new Date(),
     })
 
+    // Fix Caso 4 — Expo push para SUPERVISOR en mobile. Sin esto el
+    // SUPERVISOR no recibe OS-level notif y solo ve el conflict si tiene
+    // el web abierto. Fire-and-forget — fail no bloquea la creación local.
+    void this.firePushToSupervisors(
+      args.organizationId,
+      args.propertyId,
+      title,
+      body,
+      { stayId: args.stayId, notificationId: notif.id },
+    ).catch((err) =>
+      this.logger.warn(
+        `[Channex notif] push fallback failed: ${err instanceof Error ? err.message : String(err)}`,
+      ),
+    )
+
     this.logger.log(
       `[Channex notif] CONFLICT notif=${notif.id} property=${args.propertyId} ` +
         `reason=${args.reason} ota=${args.otaName ?? '∅'}`,
     )
     return { notificationId: notif.id }
+  }
+
+  private async firePushToSupervisors(
+    organizationId: string,
+    propertyId: string,
+    title: string,
+    body: string,
+    data: Record<string, string | null>,
+  ): Promise<void> {
+    const supervisors = await this.prisma.staff.findMany({
+      where: { organizationId, propertyId, role: 'SUPERVISOR', active: true },
+      select: { id: true },
+    })
+    if (supervisors.length === 0) return
+    const cleanData: Record<string, string> = {}
+    for (const [k, v] of Object.entries(data)) {
+      if (v !== null && v !== undefined) cleanData[k] = String(v)
+    }
+    await this.push.sendToMultipleStaff(
+      supervisors.map((s) => s.id),
+      title,
+      body,
+      cleanData,
+    )
   }
 
   static bodyForReason(reason: string, otaName: string | null): string {
