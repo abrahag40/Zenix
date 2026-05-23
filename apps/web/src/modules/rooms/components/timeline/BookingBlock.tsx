@@ -465,6 +465,11 @@ function BookingBlockInner({
           color: isConfirmedNoShow ? '#7F1D1D' : colors.text,
           boxShadow: isConfirmedNoShow
             ? `inset 0 0 0 1.5px rgba(239,68,68,0.50), ${BLOCK_SHADOW}`
+            : stay.channexConflict
+            // Sprint CHANNEX-INBOUND — visual cue: stays con conflict OTA
+            // tienen ring amber dashed para distinguirlas a-glance del
+            // calendar. Click → tooltip dirige a /channex/conflicts.
+            ? `inset 0 0 0 2px rgba(217,119,6,0.85), ${BLOCK_SHADOW}`
             : isPotentialNoShow
             ? `inset 0 0 0 1.5px rgba(245,158,11,0.70), ${BLOCK_SHADOW}`
             : isInActiveJourney

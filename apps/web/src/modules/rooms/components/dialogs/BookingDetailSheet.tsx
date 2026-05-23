@@ -1442,6 +1442,55 @@ export function BookingDetailSheet({
                           <CopyableId value={stay.otaReservationId} />
                         </div>
                       )}
+
+                      {/* Sprint CHANNEX-INBOUND — info OTA específica via Channel
+                          Manager. Visible solo cuando la reserva vino por Channex.
+                          Recepción usa channex_booking_id para cross-referenciar
+                          con extranet del OTA en caso de disputa. */}
+                      {stay.channexBookingId && (
+                        <div className="flex items-center justify-between px-3 py-2.5 border-t border-slate-100">
+                          <span className="text-xs text-slate-400 font-mono uppercase tracking-wide">
+                            Channex ID
+                          </span>
+                          <CopyableId value={stay.channexBookingId} />
+                        </div>
+                      )}
+                      {stay.channexLastSyncAt && (
+                        <div className="flex items-center justify-between px-3 py-2.5 border-t border-slate-100">
+                          <span className="text-xs text-slate-400 font-mono uppercase tracking-wide">
+                            Última sync OTA
+                          </span>
+                          <span className="text-xs text-slate-600">
+                            {new Date(stay.channexLastSyncAt).toLocaleString('es-MX', {
+                              dateStyle: 'short',
+                              timeStyle: 'short',
+                            })}
+                          </span>
+                        </div>
+                      )}
+                      {stay.paymentModel === 'OTA_COLLECT' && (
+                        <div className="flex items-center justify-between px-3 py-2.5 border-t border-slate-100 bg-blue-50/40">
+                          <span className="text-xs text-blue-900 font-medium uppercase tracking-wide">
+                            Pago por OTA
+                          </span>
+                          <span className="text-xs text-blue-800">
+                            Cobrado por {stay.channexOtaName ?? stay.otaName ?? 'OTA'} · folio marca PAID
+                          </span>
+                        </div>
+                      )}
+                      {stay.channexConflict && (
+                        <div className="flex items-center justify-between px-3 py-2.5 border-t border-amber-200 bg-amber-50">
+                          <span className="text-xs text-amber-900 font-semibold uppercase tracking-wide">
+                            ⚠ Conflict OTA
+                          </span>
+                          <a
+                            href="/channex/conflicts"
+                            className="text-xs text-amber-900 underline hover:text-amber-700"
+                          >
+                            Revisar →
+                          </a>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}

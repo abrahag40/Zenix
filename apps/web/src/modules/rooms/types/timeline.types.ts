@@ -50,6 +50,16 @@ export interface GuestStayBlock {
   otaName?: string
   otaReservationId?: string
   pmsReservationId?: string
+  /**
+   * Sprint CHANNEX-INBOUND — campos Channex específicos.
+   * Visibles en BookingDetailSheet "Tab OTA" y en BookingBlock como
+   * visual cue (channexConflict → ring amber).
+   */
+  channexBookingId?: string | null
+  channexOtaName?: string | null
+  channexConflict?: boolean
+  channexLastSyncAt?: Date | null
+  paymentModel?: 'HOTEL_COLLECT' | 'OTA_COLLECT' | 'HYBRID_DEPOSIT'
   guestEmail?: string
   guestPhone?: string
   documentType?: string

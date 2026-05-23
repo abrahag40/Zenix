@@ -27,7 +27,16 @@ interface ApiJourney {
   /** Set cuando journey.status === 'CHECKED_OUT' — el moment del checkout real */
   journeyCheckOut?: string
   /** bookingRef + actualCheckin viven en GuestStay (parent) — incluidos via include. */
-  guestStay?: { bookingRef?: string | null; actualCheckin?: string | null }
+  guestStay?: {
+    bookingRef?: string | null
+    actualCheckin?: string | null
+    // Sprint CHANNEX-INBOUND — campos OTA expuestos al frontend
+    channexBookingId?: string | null
+    channexOtaName?: string | null
+    channexConflict?: boolean | null
+    channexLastSyncAt?: string | null
+    paymentModel?: 'HOTEL_COLLECT' | 'OTA_COLLECT' | 'HYBRID_DEPOSIT' | null
+  }
   segments: ApiSegment[]
 }
 
@@ -141,6 +150,15 @@ function adaptJourneys(journeys: ApiJourney[]): GuestStayBlock[] {
         // segment.checkIn ≤ today + reason in [EXT_NEW_ROOM, ROOM_MOVE]
         // + moveConfirmedAt == null).
         moveConfirmedAt: seg.moveConfirmedAt ? new Date(seg.moveConfirmedAt) : undefined,
+        // Sprint CHANNEX-INBOUND — campos OTA visibles en BookingDetailSheet
+        // tab "OTA" + BookingBlock ring visual cuando channexConflict=true.
+        channexBookingId: journey.guestStay?.channexBookingId ?? null,
+        channexOtaName: journey.guestStay?.channexOtaName ?? null,
+        channexConflict: journey.guestStay?.channexConflict ?? false,
+        channexLastSyncAt: journey.guestStay?.channexLastSyncAt
+          ? new Date(journey.guestStay.channexLastSyncAt)
+          : null,
+        paymentModel: journey.guestStay?.paymentModel ?? undefined,
       })
     }
   }

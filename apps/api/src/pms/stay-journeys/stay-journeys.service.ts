@@ -82,7 +82,20 @@ export class StayJourneyService {
         // como "UNCONFIRMED" → muestra botón "Confirmar check-in" erróneo
         // (anti-pattern operacional: 5/5 PMS hacen extension auto-IN_HOUSE
         // si el parent stay ya está checked-in). Sprint 2026-05-17.
-        guestStay: { select: { bookingRef: true, actualCheckin: true } },
+        // Sprint CHANNEX-OUTBOUND-CERT — UI cohesion: campos Channex
+        // necesarios para BookingDetailSheet (tab OTA) + BookingBlock
+        // visual (ring amber para channexConflict, badge OTA name).
+        guestStay: {
+          select: {
+            bookingRef: true,
+            actualCheckin: true,
+            channexBookingId: true,
+            channexOtaName: true,
+            channexConflict: true,
+            channexLastSyncAt: true,
+            paymentModel: true,
+          },
+        },
         segments: {
           where: { status: { not: 'CANCELLED' } },
           include: {
