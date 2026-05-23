@@ -1206,6 +1206,254 @@ async function main() {
   }
   console.log(`✅ Maintenance recurrence templates seeded: ${maintenanceTemplates.length} (Sprint Mx-1)`)
 
+  // ════════════════════════════════════════════════════════════════════════
+  // Sprint LEARNING-CORE Fase 1.1 — seed Zenix Learning (DLC + 1 curso stub)
+  // ════════════════════════════════════════════════════════════════════════
+  // Activa LEARNING_CORE para la org Tulum + seed de "Distintivo H + NOM-035"
+  // con 2 módulos, 4 lessons (HTML5 + audio + video stub + PDF placeholder),
+  // y assessment con 5 preguntas pool. Suficiente para E2E del player.
+  //
+  // Idempotente: upsert per dlcCode + slug (unique).
+
+  const learningDlc = await prisma.tenantDLC.upsert({
+    where: { organizationId_dlcCode: { organizationId: org.id, dlcCode: 'LEARNING_CORE' } },
+    update: { status: 'ACTIVE' },
+    create: {
+      organizationId: org.id,
+      dlcCode: 'LEARNING_CORE',
+      status: 'ACTIVE',
+      billingMode: 'PER_STAFF_ACTIVE',
+      pricePerUnit: 7.00,
+      scopedPropertyIds: [], // todas las properties
+      metadata: { seedDemo: true, activatedDuringSeed: true },
+    },
+  })
+
+  await prisma.tenantDLCLog.create({
+    data: {
+      tenantDlcId: learningDlc.id,
+      event: 'ACTIVATED',
+      metadata: { source: 'seed', firstActivation: true },
+    },
+  }).catch(() => { /* idempotent: ignore duplicates on re-seed */ })
+
+  // ─── Curso 1 — Distintivo H + NOM-035 (stub demo) ───
+  const distintivoHCourse = await prisma.learningCourse.upsert({
+    where: { slug: 'distintivo-h-nom-035' },
+    update: {},
+    create: {
+      slug: 'distintivo-h-nom-035',
+      title: 'Distintivo H + NOM-035-STPS',
+      shortDescription:
+        'Combo compliance México: sanitación turística SECTUR/SSA + riesgos psicosociales STPS. DC-3 incluido.',
+      longDescription:
+        'Curso compliance LFT-México para personal operativo de A&B + recepción. Cubre las 11 áreas de Distintivo H (NMX-F-605-NORMEX-2018) más los 5 factores de riesgo psicosocial de NOM-035-STPS-2018.\n\nAl completar recibes DC-3 STPS válido por 12 meses, con QR de verificación pública para auditoría.\n\nEste curso es un STUB DE DEMOSTRACIÓN para validar el player E2E. El contenido productivo será redactado en Sprint 1.3 con consultor SECTUR certificado.',
+      category: 'COMPLIANCE_LEGAL',
+      tier: 'CORE',
+      language: 'ES_MX',
+      status: 'PUBLISHED',
+      contentVersion: '1.0.0-demo',
+      publishedAt: new Date(),
+      certificateType: 'STPS_DC3',
+      recertificationMonths: 12,
+      estimatedHours: 24.00,
+      bloomLevels: ['REMEMBER', 'UNDERSTAND', 'APPLY', 'EVALUATE'],
+      prerequisites: [],
+      passingScore: 80.00,
+      maxAttempts: 3,
+      retakeWaitHours: 48,
+      isGiftEligible: true,
+      thumbnailUrl: null,
+      metadata: { tags: ['distintivo-h', 'nom-035', 'compliance-mx', 'stps', 'demo-seed'] },
+    },
+  })
+
+  // 2 módulos demo
+  const module1 = await prisma.learningModule.upsert({
+    where: { courseId_order: { courseId: distintivoHCourse.id, order: 1 } },
+    update: {},
+    create: {
+      courseId: distintivoHCourse.id,
+      order: 1,
+      title: 'Marco normativo Distintivo H',
+      description:
+        'NMX-F-605-NORMEX-2018, rol SECTUR/EMA, ciclo anual, beneficios comerciales.',
+      estimatedMinutes: 120,
+    },
+  })
+
+  const module2 = await prisma.learningModule.upsert({
+    where: { courseId_order: { courseId: distintivoHCourse.id, order: 2 } },
+    update: {},
+    create: {
+      courseId: distintivoHCourse.id,
+      order: 2,
+      title: 'Zona de peligro + ETAs',
+      description:
+        '4-60 °C, agentes biológicos (Salmonella, E. coli, Listeria), enfermedades transmitidas por alimentos.',
+      estimatedMinutes: 180,
+    },
+  })
+
+  // 4 lessons (1 HTML5, 1 AUDIO, 1 VIDEO, 1 PDF) — cubre los 4 players
+  await prisma.learningLesson.upsert({
+    where: { moduleId_order: { moduleId: module1.id, order: 1 } },
+    update: {},
+    create: {
+      moduleId: module1.id,
+      order: 1,
+      title: 'Qué es el Distintivo H y por qué importa',
+      type: 'HTML5_NATIVE',
+      durationMinutes: 8,
+      contentJson: [
+        {
+          kind: 'text',
+          body: 'El **Distintivo H** es un reconocimiento que otorga SECTUR + Secretaría de Salud a establecimientos de A&B (incluyendo restaurantes de hotel) que cumplen con la norma mexicana NMX-F-605-NORMEX-2018 sobre Manejo Higiénico de Alimentos.\n\nEs voluntario, pero altamente recomendado para hoteles que sirven comida — varios OTAs lo listan como filtro de búsqueda, y AMHM lo considera estándar mínimo para hotelería boutique.',
+        },
+        {
+          kind: 'callout',
+          tone: 'info',
+          body: 'Vigencia: 1 año. Requiere recertificación anual con auditoría in-situ.',
+        },
+        {
+          kind: 'text',
+          body: 'El curso de capacitación obligatorio es de 10 horas mínimo (aula + práctica), impartido por instructor SECTUR-CONOCER. Debe cubrir:\n• 80% del personal operativo (meseros, cocineros, lavalozas)\n• 100% de mandos medios y altos',
+        },
+        {
+          kind: 'quiz',
+          questions: [
+            {
+              id: 'q1',
+              q: '¿Quiénes otorgan el Distintivo H?',
+              options: [
+                'SAT + STPS',
+                'SECTUR + Secretaría de Salud',
+                'CONACyT + ICANN',
+                'Solo SECTUR',
+              ],
+              correctIdx: 1,
+              explain:
+                'Distintivo H es co-otorgado por SECTUR (Secretaría de Turismo) y la Secretaría de Salud, basado en NMX-F-605-NORMEX-2018.',
+            },
+          ],
+        },
+      ],
+    },
+  })
+
+  await prisma.learningLesson.upsert({
+    where: { moduleId_order: { moduleId: module1.id, order: 2 } },
+    update: {},
+    create: {
+      moduleId: module1.id,
+      order: 2,
+      title: 'Escucha rápida — Las 11 áreas evaluadas',
+      type: 'AUDIO_MP3',
+      durationMinutes: 4,
+      // Placeholder URL — Fase 1.3 contenido real grabado
+      audioUrl: 'https://stub.zenix.com/audio/distintivo-h-areas.mp3',
+      transcriptText:
+        'Las 11 áreas evaluadas en una auditoría Distintivo H son:\n\n1. Recepción de mercancía\n2. Almacenamiento (seco, refrigeración, congelación)\n3. Manejo de sustancias químicas\n4. Refrigeración y congelación de productos\n5. Cocina (zonas frías y calientes)\n6. Agua y hielo\n7. Sanitarios para empleados\n8. Manejo de basura\n9. Control de plagas\n10. Personal (higiene + uniforme)\n11. Bar\n\nCada área tiene puntos críticos (100% requeridos) y puntos no críticos (mínimo 90%).',
+    },
+  })
+
+  await prisma.learningLesson.upsert({
+    where: { moduleId_order: { moduleId: module2.id, order: 1 } },
+    update: {},
+    create: {
+      moduleId: module2.id,
+      order: 1,
+      title: 'Video — Zona de peligro de temperaturas',
+      type: 'VIDEO_MP4',
+      durationMinutes: 6,
+      videoUrl: 'https://stub.zenix.com/video/zona-peligro.mp4',
+      transcriptText:
+        'La zona de peligro de temperaturas es el rango entre 4 °C y 60 °C en el cual las bacterias patógenas se multiplican rápidamente. Mantener alimentos fríos a ≤4 °C y calientes a ≥60 °C es la regla número uno de inocuidad alimentaria.',
+    },
+  })
+
+  await prisma.learningLesson.upsert({
+    where: { moduleId_order: { moduleId: module2.id, order: 2 } },
+    update: {},
+    create: {
+      moduleId: module2.id,
+      order: 2,
+      title: 'Guía PDF — Lista de verificación Distintivo H',
+      type: 'PDF_DOCUMENT',
+      durationMinutes: 12,
+      pdfUrl: 'https://stub.zenix.com/pdf/distintivo-h-checklist.pdf',
+    },
+  })
+
+  // Assessment final con 5 preguntas pool (4 mostradas por intento)
+  await prisma.learningAssessment.upsert({
+    where: { courseId: distintivoHCourse.id },
+    update: {},
+    create: {
+      courseId: distintivoHCourse.id,
+      questionsPerAttempt: 4,
+      durationMinutes: 30,
+      shuffleQuestions: true,
+      shuffleOptions: true,
+      showResultDetail: true,
+      questionBank: [
+        {
+          id: 'qa1',
+          q: '¿Cuál es la zona de peligro de temperaturas para alimentos?',
+          options: ['0-20 °C', '4-60 °C', '20-40 °C', '60-100 °C'],
+          correct: 1,
+          explain: 'La zona de peligro es 4-60 °C — bacterias se multiplican rápido en ese rango.',
+        },
+        {
+          id: 'qa2',
+          q: 'Según Distintivo H, ¿qué porcentaje mínimo del personal operativo debe capacitarse?',
+          options: ['50%', '70%', '80%', '100%'],
+          correct: 2,
+          explain:
+            '80% del personal operativo + 100% de mandos medios y altos (requisito SECTUR-CONOCER).',
+        },
+        {
+          id: 'qa3',
+          q: 'NOM-035-STPS identifica 5 factores de riesgo psicosocial. ¿Cuál NO es uno?',
+          options: [
+            'Ambiente de trabajo',
+            'Carga y jornadas',
+            'Salario mínimo',
+            'Liderazgo y relaciones',
+          ],
+          correct: 2,
+          explain:
+            'Salario mínimo NO es factor de riesgo psicosocial bajo NOM-035 (es competencia de otras normativas).',
+        },
+        {
+          id: 'qa4',
+          q: 'Sanción máxima por trabajador por incumplir NOM-035 (UMA 2026 = MXN $117.31)',
+          options: [
+            '50 UMA = MXN $5,865',
+            '250 UMA = MXN $29,327',
+            '5,000 UMA = MXN $586,550',
+            '10,000 UMA = MXN $1,173,100',
+          ],
+          correct: 2,
+          explain:
+            'Art. 994-V LFT: 250-5,000 UMA por incumplimiento de NOMs en seguridad e higiene.',
+        },
+        {
+          id: 'qa5',
+          q: 'Vigencia del Distintivo H',
+          options: ['6 meses', '1 año', '2 años', 'Vitalicio'],
+          correct: 1,
+          explain:
+            '1 año. Re-certificación anual con auditoría in-situ por unidad acreditada EMA.',
+        },
+      ],
+    },
+  })
+
+  console.log(
+    '✅ Learning seed: DLC LEARNING_CORE ACTIVE en Tulum + curso "Distintivo H + NOM-035" (2 mod, 4 lessons, 5 Q pool)',
+  )
+
   console.log('✅ Cancún checkout stays: 201/202 (hoy) · 301 (mañana) · 401 (pasado)')
   console.log(`\n📅 Fechas de checkout (UTC):
      HOY         ${TODAY_STR}  → Tulum: A1, A2, B1  | Cancún: 201, 202

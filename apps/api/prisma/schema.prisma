@@ -55,6 +55,12 @@ enum AppNotificationCategory {
   // ADMIN_ERROR / HOTEL = HIGH (anómalos), OTA = MEDIUM, GUEST = LOW.
   STAY_CANCELLED
   STAY_RESTORED
+  // ── Sprint LEARNING-CORE Fase 1.2 — Push reminders learning (§136 max 2/día) ─
+  // Disparados por LearningReminderScheduler con timing pegado a Shift.startTime
+  // (10 min antes). Priority MEDIUM (compliance importante pero no urgente).
+  // Alert fatigue prevention: consolidados si >1 pendiente.
+  LEARNING_REMINDER       // staff con curso en progreso + turno próximo
+  LEARNING_EXPIRY_WARNING // staff con cert venciendo en 7d/3d/1d
 }
 
 enum AppNotificationPriority {
@@ -444,35 +450,41 @@ model Organization {
   legalEntities LegalEntity[]
 
   // Reverse relations (denormalized organizationId in all business tables)
-  properties          Property[]
-  users               User[]
-  rooms               Room[]
-  units               Unit[]
-  housekeepingStaff   Staff[]
-  checkouts           Checkout[]
-  cleaningTasks       CleaningTask[]
-  taskLogs            TaskLog[]
-  cleaningNotes       CleaningNote[]
-  maintenanceIssues   MaintenanceIssue[]
-  unitDiscrepancies   UnitDiscrepancy[]
-  pushTokens          PushToken[]
-  pmsConfigs          PmsConfig[]
-  propertySettings    PropertySettings[]
-  roomTypes           RoomType[]
-  guestStays          GuestStay[]
-  roomTypeChecklists  RoomTypeChecklist[]
-  roomReadinessTasks  RoomReadinessTask[]
-  stayJourneys        StayJourney[]
-  roomBlocks          RoomBlock[]
-  appNotifications    AppNotification[]
-  exchangeRates       ExchangeRate[]
+  properties              Property[]
+  users                   User[]
+  rooms                   Room[]
+  units                   Unit[]
+  housekeepingStaff       Staff[]
+  checkouts               Checkout[]
+  cleaningTasks           CleaningTask[]
+  taskLogs                TaskLog[]
+  cleaningNotes           CleaningNote[]
+  maintenanceIssues       MaintenanceIssue[]
+  unitDiscrepancies       UnitDiscrepancy[]
+  pushTokens              PushToken[]
+  pmsConfigs              PmsConfig[]
+  propertySettings        PropertySettings[]
+  roomTypes               RoomType[]
+  guestStays              GuestStay[]
+  roomTypeChecklists      RoomTypeChecklist[]
+  roomReadinessTasks      RoomReadinessTask[]
+  stayJourneys            StayJourney[]
+  roomBlocks              RoomBlock[]
+  appNotifications        AppNotification[]
+  exchangeRates           ExchangeRate[]
   // ── Sprint 8H ─────────────────────────────────────────────────────────────
-  staffShifts         StaffShift[]
+  staffShifts             StaffShift[]
   // ── Sprint 9 ──────────────────────────────────────────────────────────────
-  channelCommissions  ChannelCommission[]
+  channelCommissions      ChannelCommission[]
   // ── Sprint Mx-1 — Mantenimiento ──────────────────────────────────────────
-  maintenanceTickets  MaintenanceTicket[]
-  recurrenceTemplates MaintenanceRecurrenceTemplate[]
+  maintenanceTickets      MaintenanceTicket[]
+  recurrenceTemplates     MaintenanceRecurrenceTemplate[]
+  // ── Sprint LEARNING-CORE — Zenix Learning ───────────────────────────────
+  learningCourses         LearningCourse[]
+  learningEnrollments     LearningEnrollment[]
+  learningAssignmentRules LearningAssignmentRule[]
+  // ── DLC subscription model (2026-05-21) ───────────────────────────────
+  tenantDlcs              TenantDLC[]
 
   @@map("organizations")
 }
@@ -552,8 +564,10 @@ model Brand {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
-  organizations Organization[]
-  userRoles     BrandUserRole[]
+  organizations   Organization[]
+  userRoles       BrandUserRole[]
+  // ── Sprint LEARNING-CORE — Zenix Learning ───────────────────────────────
+  learningCourses LearningCourse[]
 
   @@map("brands")
 }
@@ -598,10 +612,15 @@ model LegalEntity {
   createdAt             DateTime  @default(now()) @map("created_at")
   updatedAt             DateTime  @updatedAt @map("updated_at")
 
-  organization Organization          @relation(fields: [organizationId], references: [id])
-  fiscalRegime FiscalRegime?         @relation(fields: [fiscalRegimeId], references: [id])
-  properties   Property[]
-  userRoles    LegalEntityUserRole[]
+  organization            Organization             @relation(fields: [organizationId], references: [id])
+  fiscalRegime            FiscalRegime?            @relation(fields: [fiscalRegimeId], references: [id])
+  properties              Property[]
+  userRoles               LegalEntityUserRole[]
+  // ── Sprint LEARNING-CORE — Zenix Learning ───────────────────────────────
+  learningCourses         LearningCourse[]
+  learningEnrollments     LearningEnrollment[]
+  learningCertificates    LearningCertificate[]
+  learningAssignmentRules LearningAssignmentRule[]
 
   @@unique([organizationId, taxId])
   @@index([organizationId])
@@ -672,31 +691,35 @@ model Property {
   updatedAt      DateTime     @updatedAt @map("updated_at")
 
   // v1.0.5 — relación a Organization ahora NOT NULL.
-  organization       Organization             @relation(fields: [organizationId], references: [id])
+  organization            Organization             @relation(fields: [organizationId], references: [id])
   // v1.0.5 — nuevo FK opcional. Required v1.1+ tras backfill verificado.
-  legalEntity        LegalEntity?             @relation(fields: [legalEntityId], references: [id])
-  rooms              Room[]
-  roomTypes          RoomType[]
-  staff              Staff[]
-  pmsConfig          PmsConfig?
-  settings           PropertySettings?
-  userRoles          UserPropertyRole[]
-  stayJourneys       StayJourney[]
-  appNotifications   AppNotification[]
-  fxRates            PropertyFxRate[]
+  legalEntity             LegalEntity?             @relation(fields: [legalEntityId], references: [id])
+  rooms                   Room[]
+  roomTypes               RoomType[]
+  staff                   Staff[]
+  pmsConfig               PmsConfig?
+  settings                PropertySettings?
+  userRoles               UserPropertyRole[]
+  stayJourneys            StayJourney[]
+  appNotifications        AppNotification[]
+  fxRates                 PropertyFxRate[]
   // ── Sprint 8H ─────────────────────────────────────────────────────────────
-  shifts             StaffShift[]
-  staffCoverages     StaffCoverage[]
-  shiftClocks        StaffShiftClock[]
+  shifts                  StaffShift[]
+  staffCoverages          StaffCoverage[]
+  shiftClocks             StaffShiftClock[]
   // ── Sprint 9 — Reports / Channel Manager ──────────────────────────────────
-  channelCommissions ChannelCommission[]
+  channelCommissions      ChannelCommission[]
   // ── Feature flags / testing toggles ───────────────────────────────────────
-  featureFlags       FeatureFlag[]
+  featureFlags            FeatureFlag[]
   // ── Reports — pre-computed aggregations (Sprint 9 research) ──────────────
-  dailyMetrics       DailyPropertyMetrics[]
-  channelProduction  ChannelProductionDaily[]
+  dailyMetrics            DailyPropertyMetrics[]
+  channelProduction       ChannelProductionDaily[]
   // ── Sprint Mx-1 — Mantenimiento ──────────────────────────────────────────
-  maintenanceTickets MaintenanceTicket[]
+  maintenanceTickets      MaintenanceTicket[]
+  // ── Sprint LEARNING-CORE — Zenix Learning ───────────────────────────────
+  learningCourses         LearningCourse[]
+  learningEnrollments     LearningEnrollment[]
+  learningAssignmentRules LearningAssignmentRule[]
 
   @@index([organizationId])
   @@index([legalEntityId])
@@ -805,55 +828,68 @@ model Staff {
   deletedAt      DateTime?    @map("deleted_at")
   createdAt      DateTime     @default(now())
 
-  organization            Organization?              @relation(fields: [organizationId], references: [id])
-  user                    User?                      @relation(fields: [userId], references: [id])
-  property                Property                   @relation(fields: [propertyId], references: [id])
-  tasks                   CleaningTask[]             @relation("AssignedTasks")
-  verifiedTasks           CleaningTask[]             @relation("VerifiedTasks")
-  taskLogs                TaskLog[]
-  cleaningNotes           CleaningNote[]
-  pushTokens              PushToken[]
-  checkouts               Checkout[]                 @relation("ManualCheckouts")
-  issues                  MaintenanceIssue[]
-  reportedDiscrepancies   UnitDiscrepancy[]          @relation("DiscrepancyReporter")
-  resolvedDiscrepancies   UnitDiscrepancy[]          @relation("DiscrepancyResolver")
-  requestedBlocks         RoomBlock[]                @relation("BlocksRequested")
-  approvedBlocks          RoomBlock[]                @relation("BlocksApproved")
-  blockLogs               BlockLog[]                 @relation("BlockLogs")
-  contactLogs             GuestContactLog[]          @relation("ContactLogs")
-  notificationsTriggered  AppNotification[]          @relation("NotifTriggeredBy")
-  notificationReads       AppNotificationRead[]      @relation("NotifReadBy")
-  notificationApprovals   AppNotificationApproval[]  @relation("NotifApprovedBy")
-  collectedPayments       PaymentLog[]               @relation("PaymentCollectedBy")
-  approvedPayments        PaymentLog[]               @relation("PaymentApprovedBy")
-  voidedPayments          PaymentLog[]               @relation("PaymentVoidedBy")
+  organization              Organization?              @relation(fields: [organizationId], references: [id])
+  user                      User?                      @relation(fields: [userId], references: [id])
+  property                  Property                   @relation(fields: [propertyId], references: [id])
+  tasks                     CleaningTask[]             @relation("AssignedTasks")
+  verifiedTasks             CleaningTask[]             @relation("VerifiedTasks")
+  taskLogs                  TaskLog[]
+  cleaningNotes             CleaningNote[]
+  pushTokens                PushToken[]
+  checkouts                 Checkout[]                 @relation("ManualCheckouts")
+  issues                    MaintenanceIssue[]
+  reportedDiscrepancies     UnitDiscrepancy[]          @relation("DiscrepancyReporter")
+  resolvedDiscrepancies     UnitDiscrepancy[]          @relation("DiscrepancyResolver")
+  requestedBlocks           RoomBlock[]                @relation("BlocksRequested")
+  approvedBlocks            RoomBlock[]                @relation("BlocksApproved")
+  blockLogs                 BlockLog[]                 @relation("BlockLogs")
+  contactLogs               GuestContactLog[]          @relation("ContactLogs")
+  notificationsTriggered    AppNotification[]          @relation("NotifTriggeredBy")
+  notificationReads         AppNotificationRead[]      @relation("NotifReadBy")
+  notificationApprovals     AppNotificationApproval[]  @relation("NotifApprovedBy")
+  collectedPayments         PaymentLog[]               @relation("PaymentCollectedBy")
+  approvedPayments          PaymentLog[]               @relation("PaymentApprovedBy")
+  voidedPayments            PaymentLog[]               @relation("PaymentVoidedBy")
   // ── Sprint 8H — housekeeping scheduling ─────────────────────────────────
-  shifts                  StaffShift[]
-  shiftExceptions         StaffShiftException[]      @relation("ShiftExceptionsForStaff")
-  approvedShiftExceptions StaffShiftException[]      @relation("ShiftExceptionsApprovedBy")
-  coverages               StaffCoverage[]
-  shiftClocks             StaffShiftClock[]
-  preferences             StaffPreferences?
-  preferenceChangesMade   StaffPreferenceLog[]       @relation("PreferenceChangesByStaff")
+  shifts                    StaffShift[]
+  shiftExceptions           StaffShiftException[]      @relation("ShiftExceptionsForStaff")
+  approvedShiftExceptions   StaffShiftException[]      @relation("ShiftExceptionsApprovedBy")
+  coverages                 StaffCoverage[]
+  shiftClocks               StaffShiftClock[]
+  preferences               StaffPreferences?
+  preferenceChangesMade     StaffPreferenceLog[]       @relation("PreferenceChangesByStaff")
   // ── Sprint 8I-J — Hub Recamarista gamificación (privacy-respecting) ─────
-  streak                  StaffStreak?
-  personalRecords         StaffPersonalRecord[]
-  dailyActivity           StaffDailyActivity[]
+  streak                    StaffStreak?
+  personalRecords           StaffPersonalRecord[]
+  dailyActivity             StaffDailyActivity[]
   // ── Feature flags audit trail ────────────────────────────────────────────
-  featureFlagsUpdated     FeatureFlag[]
-  featureFlagAudits       FeatureFlagAuditLog[]
+  featureFlagsUpdated       FeatureFlag[]
+  featureFlagAudits         FeatureFlagAuditLog[]
   // ── Sprint Mx-1 — Módulo de Mantenimiento ─────────────────────────────────
   // Un staff puede aparecer en múltiples roles dentro del ciclo de vida de un
   // ticket (reporta, asignado, resuelve, verifica) — cada relación es independiente.
   // Department.MAINTENANCE identifica al staff que es técnico de mantenimiento.
-  ticketsReported         MaintenanceTicket[]        @relation("TicketsReported")
-  ticketsAssigned         MaintenanceTicket[]        @relation("TicketsAssigned")
-  ticketsResolved         MaintenanceTicket[]        @relation("TicketsResolved")
-  ticketsVerified         MaintenanceTicket[]        @relation("TicketsVerified")
-  ticketsApproved         MaintenanceTicket[]        @relation("TicketsApproved")
-  ticketPhotosUploaded    MaintenanceTicketPhoto[]   @relation("TicketPhotoUploader")
-  ticketCommentsAuthored  MaintenanceTicketComment[] @relation("TicketCommentAuthor")
-  ticketLogsBy            MaintenanceTicketLog[]     @relation("TicketLogActor")
+  ticketsReported           MaintenanceTicket[]        @relation("TicketsReported")
+  ticketsAssigned           MaintenanceTicket[]        @relation("TicketsAssigned")
+  ticketsResolved           MaintenanceTicket[]        @relation("TicketsResolved")
+  ticketsVerified           MaintenanceTicket[]        @relation("TicketsVerified")
+  ticketsApproved           MaintenanceTicket[]        @relation("TicketsApproved")
+  ticketPhotosUploaded      MaintenanceTicketPhoto[]   @relation("TicketPhotoUploader")
+  ticketCommentsAuthored    MaintenanceTicketComment[] @relation("TicketCommentAuthor")
+  ticketLogsBy              MaintenanceTicketLog[]     @relation("TicketLogActor")
+  // ── Sprint LEARNING-CORE — Zenix Learning ───────────────────────────────
+  learningEnrollments       LearningEnrollment[]       @relation("LearningEnrollmentStaff")
+  learningEnrollmentsBy     LearningEnrollment[]       @relation("LearningEnrollmentEnrolledBy")
+  learningCertificates      LearningCertificate[]      @relation("LearningCertificateStaff")
+  learningEnrollmentLogsBy  LearningEnrollmentLog[]    @relation("LearningEnrollmentLogActor")
+  learningBadgeAwards       LearningBadgeAward[]       @relation("LearningBadgeAwardStaff")
+  learningStreak            LearningStreak?            @relation("LearningStreakStaff")
+  learningPreferences       LearningPreferences?       @relation("LearningPreferencesStaff")
+  learningCoursesCreated    LearningCourse[]           @relation("LearningCoursesCreated")
+  learningAssignmentRulesBy LearningAssignmentRule[]   @relation("LearningAssignmentRulesCreated")
+  // ── DLC subscription model (2026-05-21) ─────────────────────────────────
+  tenantDlcsActivated       TenantDLC[]                @relation("TenantDlcActivatedBy")
+  tenantDlcLogsBy           TenantDLCLog[]             @relation("TenantDlcLogActor")
 
   @@index([organizationId])
   @@index([organizationId, propertyId])
@@ -1353,34 +1389,34 @@ model GuestStay {
   // change. Soporta hotel boutique / hostal / STR (Airbnb-style) con el
   // mismo modelo: STR persiste `cancelMetadata.airbnbCancelCode` sin
   // afectar el flujo principal.
-  cancelledAt           DateTime?  @map("cancelled_at")
-  cancelledById         String?    @map("cancelled_by_id")
+  cancelledAt          DateTime? @map("cancelled_at")
+  cancelledById        String?   @map("cancelled_by_id")
   // 'GUEST' | 'HOTEL' | 'OTA' | 'ADMIN_ERROR' | 'SYSTEM' (string, no enum)
-  cancelInitiator       String?    @map("cancel_initiator")
+  cancelInitiator      String?   @map("cancel_initiator")
   // Texto libre + opcional motivo de dropdown via cancelReasonCode
-  cancelReason          String?    @map("cancel_reason")
-  cancelReasonCode      String?    @map("cancel_reason_code")
+  cancelReason         String?   @map("cancel_reason")
+  cancelReasonCode     String?   @map("cancel_reason_code")
   // OTA cancel codes, refund refs, host fees (STR), email refs, etc.
-  cancelMetadata        Json?      @map("cancel_metadata")
+  cancelMetadata       Json?     @map("cancel_metadata")
   // 'PMS_DIRECT' | 'CHANNEX_WEBHOOK' | 'AUTO_SYSTEM'
-  cancelledFromChannel  String?    @map("cancelled_from_channel")
+  cancelledFromChannel String?   @map("cancelled_from_channel")
   // FK hook para CancellationPolicy futura (v1.1+ rate plan policies)
-  cancellationPolicyId  String?    @map("cancellation_policy_id")
+  cancellationPolicyId String?   @map("cancellation_policy_id")
   // Sembrado para v1.0.2 CFDI-CORE — emite CFDI E + FormaPago=15 si folio
   // origen tuvo CFDI I previo y cancelInitiator != 'ADMIN_ERROR'
-  requiresFiscalReview  Boolean    @default(false) @map("requires_fiscal_review")
+  requiresFiscalReview Boolean   @default(false) @map("requires_fiscal_review")
   // Sembrado para anonymization scheduler v1.0.4 NS-UI
-  anonymizedAt          DateTime?  @map("anonymized_at")
+  anonymizedAt         DateTime? @map("anonymized_at")
   // ──────────────────────────────────────────────────────────────────────
 
-  organization Organization      @relation(fields: [organizationId], references: [id])
-  room         Room              @relation(fields: [roomId], references: [id])
-  stayJourney  StayJourney?
-  staySegments StaySegment[]
-  contactLogs  GuestContactLog[]
-  paymentLogs  PaymentLog[]
+  organization  Organization      @relation(fields: [organizationId], references: [id])
+  room          Room              @relation(fields: [roomId], references: [id])
+  stayJourney   StayJourney?
+  staySegments  StaySegment[]
+  contactLogs   GuestContactLog[]
+  paymentLogs   PaymentLog[]
   guestStayLogs GuestStayLog[]
-  noteThread   GuestStayNote[]
+  noteThread    GuestStayNote[]
 
   @@index([organizationId])
   @@index([organizationId, propertyId])
@@ -1601,15 +1637,15 @@ enum NoShowChargeStatus {
 // Eventos esperados v1.0.0: CREATED, CANCELLED, RESTORED, MODIFIED, ANONYMIZED.
 // Futuros: CFDI_E_ISSUED (v1.0.2), CHANNEX_ACK (Channex sprint), REFUND_PROCESSED (v1.0.1).
 model GuestStayLog {
-  id          String   @id @default(uuid())
-  stayId      String   @map("stay_id")
-  event       String
-  actorId     String?  @map("actor_id")
-  actorType   String   @default("USER") @map("actor_type")
-  metadata    Json?
-  occurredAt  DateTime @default(now()) @map("occurred_at")
+  id         String   @id @default(uuid())
+  stayId     String   @map("stay_id")
+  event      String
+  actorId    String?  @map("actor_id")
+  actorType  String   @default("USER") @map("actor_type")
+  metadata   Json?
+  occurredAt DateTime @default(now()) @map("occurred_at")
 
-  stay        GuestStay @relation(fields: [stayId], references: [id])
+  stay GuestStay @relation(fields: [stayId], references: [id])
 
   @@index([stayId, occurredAt])
   @@index([event])
@@ -1625,10 +1661,10 @@ model GuestStayLog {
 // Editable hasta 5 minutos post-creación por el mismo autor (anti-typo); no
 // hay delete — si la nota está mal, se agrega otra nota corrigiendo.
 model GuestStayNote {
-  id        String   @id @default(uuid())
-  stayId    String   @map("stay_id")
-  authorId  String   @map("author_id")
-  content   String   @db.Text
+  id        String    @id @default(uuid())
+  stayId    String    @map("stay_id")
+  authorId  String    @map("author_id")
+  content   String    @db.Text
   // Channel hint para filtrado UI: 'GENERAL' | 'GUEST_REQUEST' | 'HOUSEKEEPING' | 'INTERNAL'
   // Default GENERAL. No enum — patrón "espiral" §95 para evolución sin migration.
   channel   String   @default("GENERAL")
@@ -1641,7 +1677,7 @@ model GuestStayNote {
   createdAt DateTime @default(now()) @map("created_at")
   editedAt  DateTime? @map("edited_at")
 
-  stay   GuestStay @relation(fields: [stayId], references: [id])
+  stay GuestStay @relation(fields: [stayId], references: [id])
 
   @@index([stayId, createdAt])
   @@index([stayId, kind])
@@ -2890,16 +2926,16 @@ model MaintenanceTicketLog {
 // CFDI 4.0 Art. 20 CFF: usa FIX del día de la operación.
 // Patrón inmutable: una vez fetched, nunca se reescribe (alineado §28).
 model ExchangeRate {
-  id              String   @id @default(uuid())
-  organizationId  String   @map("organization_id")
-  baseCurrency    String   @map("base_currency")     // 'USD'
-  quoteCurrency   String   @map("quote_currency")    // 'MXN'
-  rate            Decimal  @db.Decimal(12, 6)
-  source          String   // 'BANXICO_SF43718' | 'OPEN_EXCHANGE' | 'MANUAL'
-  effectiveDate   DateTime @db.Date @map("effective_date")
-  fetchedAt       DateTime @default(now()) @map("fetched_at")
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  baseCurrency   String   @map("base_currency") // 'USD'
+  quoteCurrency  String   @map("quote_currency") // 'MXN'
+  rate           Decimal  @db.Decimal(12, 6)
+  source         String // 'BANXICO_SF43718' | 'OPEN_EXCHANGE' | 'MANUAL'
+  effectiveDate  DateTime @map("effective_date") @db.Date
+  fetchedAt      DateTime @default(now()) @map("fetched_at")
 
-  organization    Organization @relation(fields: [organizationId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
 
   @@unique([organizationId, baseCurrency, quoteCurrency, effectiveDate, source])
   @@index([effectiveDate])
@@ -2911,21 +2947,647 @@ model ExchangeRate {
 // Se persiste como spread relativo O como rate absoluto editable.
 // Visible en dashboard al recepcionista junto al rate oficial Banxico.
 model PropertyFxRate {
-  id                  String    @id @default(uuid())
-  propertyId          String    @map("property_id")
-  baseCurrency        String    @map("base_currency")     // 'USD'
-  quoteCurrency       String    @map("quote_currency")    // 'MXN'
-  rate                Decimal   @db.Decimal(12, 6)
+  id                 String    @id @default(uuid())
+  propertyId         String    @map("property_id")
+  baseCurrency       String    @map("base_currency") // 'USD'
+  quoteCurrency      String    @map("quote_currency") // 'MXN'
+  rate               Decimal   @db.Decimal(12, 6)
   // Spread relativo: rate = official * (1 + spreadFromOfficial)
   // null = override absoluto sin tracking del spread.
-  spreadFromOfficial  Decimal?  @db.Decimal(5, 4) @map("spread_from_official")
-  validFrom           DateTime  @db.Date @map("valid_from")
-  validTo             DateTime? @db.Date @map("valid_to")
-  updatedById         String    @map("updated_by_id")
-  updatedAt           DateTime  @updatedAt @map("updated_at")
+  spreadFromOfficial Decimal?  @map("spread_from_official") @db.Decimal(5, 4)
+  validFrom          DateTime  @map("valid_from") @db.Date
+  validTo            DateTime? @map("valid_to") @db.Date
+  updatedById        String    @map("updated_by_id")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
 
-  property            Property  @relation(fields: [propertyId], references: [id])
+  property Property @relation(fields: [propertyId], references: [id])
 
   @@index([propertyId, baseCurrency, quoteCurrency, validFrom])
   @@map("property_fx_rates")
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// ── Sprint LEARNING-CORE 2026-05-21 — Zenix Learning (LMS Add-On/DLC) ──
+// ═════════════════════════════════════════════════════════════════════════
+//
+// Add-On de capacitación del PMS. Justificación legal: LFT México Art. 153-A
+// a 153-X obliga al patrón a capacitar y conservar evidencia (DC-3 individual).
+// NOM-035-STPS-2018 multa 250-5000 UMA por trabajador. Equivalentes LATAM:
+// SENA (CO), INA (CR), SUNAFIL (PE), INTECAP/INFOP/INSAFORP-INCAF/INADEH (CA).
+//
+// Fase 1 (este sprint): solo formato nativo Zenix (HTML5/audio/video/PDF).
+// Fase 2 (v1.1.x): SCORM 1.2/2004 + xAPI + cmi5.
+//
+// Multi-tenant: organizationId denormalizado en todas las business tables
+// (§66 paridad). Reporting compliance se agrupa por legalEntityId (la razón
+// social es la que audita STPS — §64 paridad).
+//
+// Gamificación: ligera Fase 1 (badges + streaks opt-in + progress).
+// Roadmap a profunda documentado en docs/zenix-learning/08-gamification-roadmap.md.
+//
+// Decisiones §128-§137 reservadas para el cierre del sprint.
+// ═════════════════════════════════════════════════════════════════════════
+
+enum LearningCourseStatus {
+  DRAFT // editable por content team, invisible para learners
+  PUBLISHED // publicado, enrollable
+  RETIRED // ya no enrollable; los que ya están enrolled lo completan
+}
+
+enum LearningCourseTier {
+  CORE // incluido en DLC L1 (los 3 cursos MVP)
+  PRO // requiere DLC L2 (Fase 2 — SCORM/xAPI)
+  MARKETPLACE // L3 — cursos pagados per-unit (Fase 2)
+  CUSTOM // L4 — producido custom por ZaharDev consulting
+  GIFT // hook comercial — bundle con PMS sin DLC activo
+}
+
+enum LearningLessonType {
+  HTML5_NATIVE // Fase 1 — JSON con bloques de contenido + quiz inline
+  VIDEO_MP4 // Fase 1 — video MP4 o HLS
+  AUDIO_MP3 // Fase 1 — audio para hands-busy learners (§9 doc 07)
+  PDF_DOCUMENT // Fase 1 — visualizador PDF readonly
+  SCORM_12 // Fase 2 v1.1.x
+  SCORM_2004 // Fase 2 v1.1.x
+  XAPI_PACKAGE // Fase 2 v1.1.x
+  CMI5_AU // Fase 2 v1.1.x
+}
+
+enum LearningEnrollmentStatus {
+  NOT_STARTED // staff fue enrollado, aún no abre
+  IN_PROGRESS // abrió ≥1 lección
+  COMPLETED // aprobó el examen final
+  FAILED // agotó re-takes sin aprobar
+  EXPIRED // recertificación vencida — requiere re-enroll
+  CANCELLED // unenrolled (raro, requiere supervisor + reason)
+}
+
+enum LearningAssessmentResult {
+  PASSED
+  FAILED
+  IN_PROGRESS // examen abierto, no submitted aún
+  ABANDONED // dejó el examen sin submit (timeout o navigate away)
+}
+
+enum LearningCertificateType {
+  ZENIX_INTERNAL // certificado emitido por Zenix Learning
+  STPS_DC3 // formato DC-3 STPS México (LFT Art. 153-U)
+  AHLEI_ALIGNED // alineado al estándar AHLEI pero no oficial
+  EXTERNAL_PARTNER // emitido por partner externo (v1.2 marketplace)
+}
+
+enum LearningContentLanguage {
+  ES_MX // español neutro LATAM-MX
+  ES_419 // español neutro LATAM
+  EN_US
+  PT_BR // futuro
+}
+
+enum LearningCourseCategory {
+  COMPLIANCE_LEGAL // LFT, STPS, NOM
+  COMPLIANCE_SANITATION // Distintivo H, ISO 22000, HACCP
+  FRONT_OFFICE // recepción
+  HOUSEKEEPING // limpieza
+  FOOD_BEVERAGE // A&B (futuro)
+  REVENUE_MANAGEMENT // RM
+  LEADERSHIP // supervisores
+  SAFETY_SECURITY // emergencias
+  GUEST_SERVICE // servicio al huésped
+  TECHNOLOGY // PMS, OTAs, channel managers
+}
+
+// ── Catálogo + estructura curricular ──────────────────────────────────
+
+// LearningCourse — entidad master del LMS.
+// organizationId/brandId/legalEntityId/propertyId NULL = catálogo global Zenix
+// (CORE/PRO/MARKETPLACE/GIFT). Populated = curso CUSTOM scoped al cliente.
+model LearningCourse {
+  id             String  @id @default(uuid())
+  organizationId String? @map("organization_id")
+  brandId        String? @map("brand_id")
+  legalEntityId  String? @map("legal_entity_id")
+  propertyId     String? @map("property_id")
+
+  slug             String                  @unique
+  title            String
+  shortDescription String                  @map("short_description") @db.VarChar(280)
+  longDescription  String?                 @map("long_description") @db.Text
+  category         LearningCourseCategory
+  tier             LearningCourseTier      @default(CORE)
+  language         LearningContentLanguage @default(ES_MX)
+  status           LearningCourseStatus    @default(DRAFT)
+
+  // §129 (reservado) — versionado audit-grade: LFT 153-U exige certificar contra
+  // una versión específica de contenido. LearningEnrollment.contentVersionPin
+  // snapshotea la versión al momento del enroll.
+  contentVersion String    @default("1.0.0") @map("content_version")
+  publishedAt    DateTime? @map("published_at")
+  retiredAt      DateTime? @map("retired_at")
+
+  // Compliance metadata
+  certificateType       LearningCertificateType @default(ZENIX_INTERNAL) @map("certificate_type")
+  stpsRegisteredAt      DateTime?               @map("stps_registered_at")
+  stpsAgentCode         String?                 @map("stps_agent_code")
+  // null = no expira; 12 = Distintivo H anual; 24 = NOM-035 bianual
+  recertificationMonths Int?                    @map("recertification_months")
+
+  // Pedagogía (doc 07)
+  estimatedHours  Decimal  @map("estimated_hours") @db.Decimal(5, 2)
+  // Bloom levels target del curso para SRS y targeting:
+  // ["REMEMBER","UNDERSTAND","APPLY","ANALYZE","EVALUATE","CREATE"]
+  bloomLevels     String[] @map("bloom_levels")
+  prerequisites   String[] // courseIds requeridos antes
+  passingScore    Decimal  @default(75.00) @map("passing_score") @db.Decimal(5, 2)
+  maxAttempts     Int      @default(3) @map("max_attempts")
+  retakeWaitHours Int      @default(48) @map("retake_wait_hours")
+
+  // Hook comercial — curso elegible para regalar al cerrar PMS (§11 docs/zenix-learning/11)
+  isGiftEligible Boolean @default(false) @map("is_gift_eligible")
+
+  thumbnailUrl String? @map("thumbnail_url")
+  metadata     Json? // tags + keywords para fuzzy search pg_trgm
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdById String?  @map("created_by_id")
+
+  organization Organization? @relation(fields: [organizationId], references: [id])
+  brand        Brand?        @relation(fields: [brandId], references: [id])
+  legalEntity  LegalEntity?  @relation(fields: [legalEntityId], references: [id])
+  property     Property?     @relation(fields: [propertyId], references: [id])
+  createdBy    Staff?        @relation("LearningCoursesCreated", fields: [createdById], references: [id])
+
+  modules         LearningModule[]
+  assessment      LearningAssessment?
+  enrollments     LearningEnrollment[]
+  assignmentRules LearningAssignmentRule[]
+
+  @@index([organizationId, status])
+  @@index([category, tier, status])
+  @@index([legalEntityId])
+  @@index([slug])
+  @@map("learning_courses")
+}
+
+model LearningModule {
+  id               String  @id @default(uuid())
+  courseId         String  @map("course_id")
+  order            Int
+  title            String
+  description      String?
+  estimatedMinutes Int     @map("estimated_minutes")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  course  LearningCourse   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessons LearningLesson[]
+
+  @@unique([courseId, order])
+  @@index([courseId])
+  @@map("learning_modules")
+}
+
+model LearningLesson {
+  id              String             @id @default(uuid())
+  moduleId        String             @map("module_id")
+  order           Int
+  title           String
+  type            LearningLessonType
+  durationMinutes Int                @map("duration_minutes")
+
+  // Fase 1 — contenido nativo
+  // contentJson estructura: [{ kind:'text', body }, { kind:'image', url, alt },
+  //   { kind:'quiz', questions:[{q, options:[], correct:idx, explain}] }, ...]
+  contentJson    Json?   @map("content_json")
+  audioUrl       String? @map("audio_url")
+  videoUrl       String? @map("video_url")
+  pdfUrl         String? @map("pdf_url")
+  transcriptText String? @map("transcript_text") @db.Text
+
+  // Fase 2 — SCORM/xAPI metadata
+  externalPackageUrl      String? @map("external_package_url")
+  externalPackageManifest Json?   @map("external_package_manifest")
+  externalLrsEndpoint     String? @map("external_lrs_endpoint")
+
+  // Quiz adaptativo (doc 07 §7 Flow): banco mayor que el sample → anti-cheat
+  quizPoolSize Int?  @map("quiz_pool_size")
+  quizPoolJson Json? @map("quiz_pool_json")
+
+  isOptional Boolean  @default(false) @map("is_optional")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  module          LearningModule           @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  attempts        LearningAttempt[]
+  progressEntries LearningLessonProgress[]
+
+  @@unique([moduleId, order])
+  @@index([moduleId])
+  @@map("learning_lessons")
+}
+
+// LearningAssessment — examen final del curso (separado del quiz por lección).
+// 1:1 con LearningCourse.
+model LearningAssessment {
+  id                  String  @id @default(uuid())
+  courseId            String  @unique @map("course_id")
+  // questionBank: pool grande (≥3x questionsPerAttempt) para shuffle
+  questionBank        Json    @map("question_bank")
+  questionsPerAttempt Int     @default(40) @map("questions_per_attempt")
+  durationMinutes     Int     @default(60) @map("duration_minutes")
+  shuffleQuestions    Boolean @default(true) @map("shuffle_questions")
+  shuffleOptions      Boolean @default(true) @map("shuffle_options")
+  showResultDetail    Boolean @default(true) @map("show_result_detail")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  course LearningCourse @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@map("learning_assessments")
+}
+
+// ── Enrollment + progreso ─────────────────────────────────────────────
+
+model LearningEnrollment {
+  id             String  @id @default(uuid())
+  staffId        String  @map("staff_id")
+  courseId       String  @map("course_id")
+  organizationId String  @map("organization_id") // denormalizado §66
+  legalEntityId  String? @map("legal_entity_id") // para emisión DC-3 (§64)
+  propertyId     String? @map("property_id")
+
+  status           LearningEnrollmentStatus @default(NOT_STARTED)
+  enrolledAt       DateTime                 @default(now()) @map("enrolled_at")
+  enrolledById     String?                  @map("enrolled_by_id") // null = self; populated = manager assign / rule
+  // ASSIGNED_BY_MANAGER | ASSIGNMENT_RULE | SELF_ENROLL | GIFT_AT_ACTIVATION | RECERTIFICATION
+  enrollmentReason String?                  @map("enrollment_reason")
+
+  startedAt             DateTime? @map("started_at")
+  completedAt           DateTime? @map("completed_at")
+  expiresAt             DateTime? @map("expires_at") // calculado de course.recertificationMonths
+  totalTimeSpentMinutes Int       @default(0) @map("total_time_spent_minutes")
+
+  finalScore   Decimal? @map("final_score") @db.Decimal(5, 2)
+  attemptsUsed Int      @default(0) @map("attempts_used")
+
+  certificateId String? @unique @map("certificate_id")
+
+  // §129 (reservado) — snapshot de versión al enroll. Audit fiscal LFT.
+  contentVersionPin String @default("1.0.0") @map("content_version_pin")
+
+  course       LearningCourse       @relation(fields: [courseId], references: [id])
+  staff        Staff                @relation("LearningEnrollmentStaff", fields: [staffId], references: [id])
+  enrolledBy   Staff?               @relation("LearningEnrollmentEnrolledBy", fields: [enrolledById], references: [id])
+  organization Organization         @relation(fields: [organizationId], references: [id])
+  legalEntity  LegalEntity?         @relation(fields: [legalEntityId], references: [id])
+  property     Property?            @relation(fields: [propertyId], references: [id])
+  certificate  LearningCertificate? @relation(fields: [certificateId], references: [id])
+
+  attempts       LearningAttempt[]
+  lessonProgress LearningLessonProgress[]
+  logs           LearningEnrollmentLog[]
+
+  // permite re-enroll a nueva versión cuando recertifica
+  @@unique([staffId, courseId, contentVersionPin])
+  @@index([staffId, status])
+  @@index([legalEntityId, status]) // reporting STPS per-LegalEntity
+  @@index([propertyId, status])
+  @@index([expiresAt]) // scheduler de recertificación
+  @@index([completedAt])
+  @@map("learning_enrollments")
+}
+
+// Progreso per-lesson — append-only (timestamps acumulan via update)
+model LearningLessonProgress {
+  id           String @id @default(uuid())
+  enrollmentId String @map("enrollment_id")
+  lessonId     String @map("lesson_id")
+
+  startedAt        DateTime? @map("started_at")
+  completedAt      DateTime? @map("completed_at")
+  timeSpentSeconds Int       @default(0) @map("time_spent_seconds")
+  bookmarkPosition Int?      @map("bookmark_position") // segundo del video / párrafo del HTML5
+
+  enrollment LearningEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  lesson     LearningLesson     @relation(fields: [lessonId], references: [id])
+
+  @@unique([enrollmentId, lessonId])
+  @@index([enrollmentId])
+  @@map("learning_lesson_progress")
+}
+
+// Intentos de quiz/examen — append-only (§14 PaymentLog paridad)
+model LearningAttempt {
+  id              String    @id @default(uuid())
+  enrollmentId    String    @map("enrollment_id")
+  lessonId        String?   @map("lesson_id") // null = examen final
+  attemptNumber   Int       @map("attempt_number")
+  startedAt       DateTime  @default(now()) @map("started_at")
+  submittedAt     DateTime? @map("submitted_at")
+  durationSeconds Int?      @map("duration_seconds")
+
+  // Snapshot audit-grade — preguntas servidas + respuestas dadas
+  questionsAsked   Json                     @map("questions_asked")
+  answersGiven     Json                     @map("answers_given")
+  questionsCorrect Int                      @default(0) @map("questions_correct")
+  questionsTotal   Int                      @default(0) @map("questions_total")
+  scorePct         Decimal                  @default(0) @map("score_pct") @db.Decimal(5, 2)
+  result           LearningAssessmentResult @default(IN_PROGRESS)
+
+  enrollment LearningEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  lesson     LearningLesson?    @relation(fields: [lessonId], references: [id])
+
+  @@index([enrollmentId, attemptNumber])
+  @@index([lessonId])
+  @@map("learning_attempts")
+}
+
+// Log inmutable de eventos — append-only (§128 reservado)
+// Eventos: ENROLLED | STARTED | LESSON_COMPLETED | ATTEMPT_SUBMITTED | PASSED |
+//          FAILED | CERTIFICATE_ISSUED | EXPIRED | RECERTIFIED | MANAGER_REMINDED
+model LearningEnrollmentLog {
+  id           String   @id @default(uuid())
+  enrollmentId String   @map("enrollment_id")
+  event        String
+  metadata     Json?
+  actorId      String?  @map("actor_id") // null = system/scheduler
+  occurredAt   DateTime @default(now()) @map("occurred_at")
+
+  enrollment LearningEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  actor      Staff?             @relation("LearningEnrollmentLogActor", fields: [actorId], references: [id])
+
+  @@index([enrollmentId, occurredAt])
+  @@map("learning_enrollment_logs")
+}
+
+// ── Certificados (DC-3 + Zenix + AHLEI-aligned) ───────────────────────
+
+// §131 (reservado) — serialNumber UNIQUE con prefix ZNX-LRN-{yyyy}-{NNNNNN}.
+// Verificación pública sin auth en GET /v1/learning/certificates/:serialNumber.
+model LearningCertificate {
+  id            String  @id @default(uuid())
+  staffId       String  @map("staff_id")
+  courseId      String  @map("course_id")
+  legalEntityId String? @map("legal_entity_id")
+
+  type         LearningCertificateType
+  serialNumber String                  @unique @map("serial_number")
+  issuedAt     DateTime                @default(now()) @map("issued_at")
+  expiresAt    DateTime?               @map("expires_at")
+
+  // DC-3 STPS specific (LFT Art. 153-U)
+  dc3RegistroSTPS      String?  @map("dc3_registro_stps")
+  dc3InstructorNombre  String?  @map("dc3_instructor_nombre")
+  dc3InstructorCURP    String?  @map("dc3_instructor_curp")
+  dc3HorasTotales      Decimal? @map("dc3_horas_totales") @db.Decimal(5, 2)
+  dc3LugarFecha        Json?    @map("dc3_lugar_fecha")
+  dc3CertificadoPdfUrl String?  @map("dc3_certificado_pdf_url")
+  // URL pública con QR para que auditor STPS verifique sin credenciales
+  dc3VerificationUrl   String   @map("dc3_verification_url")
+
+  staff       Staff                @relation("LearningCertificateStaff", fields: [staffId], references: [id])
+  legalEntity LegalEntity?         @relation(fields: [legalEntityId], references: [id])
+  enrollments LearningEnrollment[]
+
+  @@index([staffId, type])
+  @@index([legalEntityId, issuedAt]) // bulk export para SIRCE
+  @@index([serialNumber])
+  @@map("learning_certificates")
+}
+
+// ── Asignación automática (estilo SF Assignment Profiles mejorado §133) ─
+
+// §133 (reservado) — propagación SÍNCRONA al apply (no espera scheduler).
+// Dry-run preview obligatorio antes de activar.
+model LearningAssignmentRule {
+  id             String  @id @default(uuid())
+  organizationId String  @map("organization_id")
+  legalEntityId  String? @map("legal_entity_id")
+  propertyId     String? @map("property_id")
+
+  name        String
+  description String?
+  isActive    Boolean @default(true) @map("is_active")
+
+  // Reglas matching — Staff que cumpla TODAS estas condiciones se enrolla
+  matchRole           String[]  @map("match_role") // ['RECEPTIONIST','SUPERVISOR']
+  matchDepartment     String[]  @map("match_department") // ['FRONT_OFFICE','HOUSEKEEPING']
+  matchPropertyType   String[]  @map("match_property_type") // ['HOSTAL','HOTEL']
+  matchHireDateAfter  DateTime? @map("match_hire_date_after")
+  matchHireDateBefore DateTime? @map("match_hire_date_before")
+
+  // Qué se asigna
+  courseId         String @map("course_id")
+  enrollWithinDays Int    @default(0) @map("enroll_within_days")
+  deadlineDays     Int?   @map("deadline_days")
+
+  lastRunAt               DateTime? @map("last_run_at")
+  totalEnrolledByThisRule Int       @default(0) @map("total_enrolled_by_this_rule")
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  createdById String?  @map("created_by_id")
+
+  organization Organization   @relation(fields: [organizationId], references: [id])
+  legalEntity  LegalEntity?   @relation(fields: [legalEntityId], references: [id])
+  property     Property?      @relation(fields: [propertyId], references: [id])
+  course       LearningCourse @relation(fields: [courseId], references: [id])
+  createdBy    Staff?         @relation("LearningAssignmentRulesCreated", fields: [createdById], references: [id])
+
+  @@index([organizationId, isActive])
+  @@map("learning_assignment_rules")
+}
+
+// ── Gamificación Fase 1 ligera (doc 08) — opt-in §132 ─────────────────
+
+model LearningBadge {
+  id          String  @id @default(uuid())
+  code        String  @unique // FIRST_LESSON | COURSE_COMPLETE | 10_LESSONS | DISTINTIVO_H_CERT
+  name        String
+  description String
+  iconUrl     String? @map("icon_url")
+  category    String // MILESTONE | CERTIFICATION | DEDICATION
+
+  // Condición declarativa — ejemplos:
+  //   { "type": "courses_completed", "count": 3 }
+  //   { "type": "lessons_in_streak", "days": 7 }
+  //   { "type": "certificate_earned", "courseSlug": "distintivo-h-nom-035" }
+  conditionJson Json @map("condition_json")
+
+  awards LearningBadgeAward[]
+
+  @@map("learning_badges")
+}
+
+model LearningBadgeAward {
+  id        String   @id @default(uuid())
+  staffId   String   @map("staff_id")
+  badgeId   String   @map("badge_id")
+  awardedAt DateTime @default(now()) @map("awarded_at")
+  context   Json? // { courseId, enrollmentId }
+
+  staff Staff         @relation("LearningBadgeAwardStaff", fields: [staffId], references: [id])
+  badge LearningBadge @relation(fields: [badgeId], references: [id])
+
+  @@unique([staffId, badgeId]) // 1 vez por badge
+  @@index([staffId])
+  @@map("learning_badge_awards")
+}
+
+// Streaks opt-in (§52 paridad — gamificación opcional)
+// §132 (reservado) — gamificationOptIn default false. Crowding-out prevention.
+model LearningStreak {
+  staffId           String    @id @map("staff_id")
+  currentStreak     Int       @default(0) @map("current_streak")
+  longestStreak     Int       @default(0) @map("longest_streak")
+  lastActiveDate    DateTime? @map("last_active_date") @db.Date
+  gamificationOptIn Boolean   @default(false) @map("gamification_opt_in")
+
+  staff Staff @relation("LearningStreakStaff", fields: [staffId], references: [id])
+
+  @@map("learning_streaks")
+}
+
+// Preferencias per-staff (extiende StaffPreferences existente)
+// §135 (reservado) — audioFirst cambia layout default a Spotify-style mini-player.
+// §136 (reservado) — max 2 push/día (incluye learning + otros).
+model LearningPreferences {
+  staffId           String                  @id @map("staff_id")
+  preferredLanguage LearningContentLanguage @default(ES_MX) @map("preferred_language")
+  audioFirst        Boolean                 @default(false) @map("audio_first") // hands-busy users
+  emailReminders    Boolean                 @default(true) @map("email_reminders")
+  pushReminders     Boolean                 @default(true) @map("push_reminders")
+  weeklyDigestDay   String                  @default("MONDAY") @map("weekly_digest_day")
+  reminderHourLocal Int                     @default(9) @map("reminder_hour_local") // 9 AM local
+  receivePeerNudges Boolean                 @default(false) @map("receive_peer_nudges")
+
+  staff Staff @relation("LearningPreferencesStaff", fields: [staffId], references: [id])
+
+  @@map("learning_preferences")
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// ── DLC Subscription model (2026-05-21) — genérico para Learning + futuros ─
+// ═════════════════════════════════════════════════════════════════════════
+//
+// Justificación del modelo (doc 14):
+//   - Cada cliente puede tener N DLCs activos (LEARNING_CORE, BOOKING_ENGINE,
+//     POS, PROCURE, etc.). Cada uno con su lifecycle independiente.
+//   - Lifecycle: ACTIVE → SUSPENDED → GRACE_PERIOD → ARCHIVED.
+//     Data preservada en GRACE_PERIOD (30d) y ARCHIVED (5 años LFT compliance).
+//   - Activación: manual (Zenix Activate wizard) o Stripe webhook
+//     (Fase 1.4 + v1.0.1 PAY-CORE).
+//   - Reactivación: cliente cancela y luego vuelve → su data está intacta.
+//   - DLCGuard valida @RequiresDLC('LEARNING_CORE') en endpoints. Excepción
+//     a los Public (e.g. certificate verify §131 sigue accesible sin DLC).
+//
+// Decisiones §138-§144 reservadas (doc 14):
+//   §138 TenantDLC.status determina autorización runtime (no Stripe directo)
+//   §139 GRACE_PERIOD default 30 días configurable per-DLC
+//   §140 ARCHIVED preserva data ≥5 años (LFT Art. 30 CFF)
+//   §141 Reactivación post-ARCHIVED crea NUEVO row preservando histórico
+//   §142 DLCGuard fail-soft con 402 Payment Required + mensaje accionable
+//   §143 Stripe webhook → DLCService.syncFromStripe (idempotency-key)
+//   §144 Curso GIFT crea TenantDLC tier=LEARNING_GIFT auto en Activate
+// ═════════════════════════════════════════════════════════════════════════
+
+enum DLCCode {
+  LEARNING_CORE // L1 — Zenix Learning DLC base (3 cursos MVP)
+  LEARNING_PRO  // L2 — + SCORM/xAPI + course authoring (Fase 2 v1.1.x)
+  LEARNING_GIFT // L0 — curso de regalo al cierre PMS (no recurrente)
+  BOOKING_ENGINE // Direct Booking Engine (v1.x BOOKING-ENGINE sprint)
+  POS         // Punto de venta hotelero (v1.3+)
+  PROCURE     // Compras + inventario (v1.4+)
+  STAY_ACCESS // Guest App + NFC keys (v1.5+)
+  PEOPLE      // HR módulo (v1.7+)
+  BOOKS       // Contabilidad (v1.8+)
+}
+
+enum DLCStatus {
+  ACTIVE       // funcionando, billing al día, endpoints disponibles
+  SUSPENDED    // pago fallido / admin suspendió. Endpoints 402. Data preserved.
+  GRACE_PERIOD // tras suspensión / cancelación cliente. 30d default antes de ARCHIVED.
+  ARCHIVED     // off por >30d. Data preservada en BD por compliance. Endpoints 404+UI link "Reactivar".
+  PURGED       // hard-deleted post 5 años. Solo se llega aquí via cron retention policy.
+}
+
+enum DLCBillingMode {
+  ONE_TIME_GIFT    // curso regalo, sin recurrencia
+  FLAT_MONTHLY     // tarifa fija mensual
+  PER_STAFF_ACTIVE // §137 — billing per staff con login últimos 30d (Learning, People)
+  PER_TRANSACTION  // futuro POS / Booking Engine
+}
+
+// TenantDLC — UNA fila por (organizationId, dlcCode). Si cliente cancela y
+// reactiva, se UPSERTea cambiando status. El histórico vive en TenantDLCLog.
+model TenantDLC {
+  id             String         @id @default(uuid())
+  organizationId String         @map("organization_id")
+  dlcCode        DLCCode        @map("dlc_code")
+  status         DLCStatus      @default(ACTIVE)
+  billingMode    DLCBillingMode @map("billing_mode")
+  pricePerUnit   Decimal?       @map("price_per_unit") @db.Decimal(10, 2)
+
+  // Lifecycle timestamps (§139, §140)
+  activatedAt       DateTime  @default(now()) @map("activated_at")
+  suspendedAt       DateTime? @map("suspended_at")
+  gracePeriodEndsAt DateTime? @map("grace_period_ends_at")
+  archivedAt        DateTime? @map("archived_at")
+  reactivatedAt     DateTime? @map("reactivated_at")
+
+  // Audit
+  activatedById      String? @map("activated_by_id")
+  cancellationReason String? @map("cancellation_reason") @db.Text
+  suspensionReason   String? @map("suspension_reason")
+
+  // Stripe integration (§143) — pobladas en Fase 1.4 PAY-CORE
+  stripeSubscriptionId     String? @map("stripe_subscription_id")
+  stripeSubscriptionItemId String? @map("stripe_subscription_item_id")
+  stripeCustomerId         String? @map("stripe_customer_id")
+
+  // DLC-specific config (e.g. para LEARNING_CORE: { giftCourseSlug: 'distintivo-h' })
+  metadata Json?
+
+  // Scope selectivo per-property (2026-05-21 — pregunta multi-hotelero).
+  // null = DLC activo para TODAS las properties de la org (caso default).
+  // Array poblado = SOLO esas properties tienen acceso. Útil para:
+  //   - Caso B: cliente con 4 hoteles compra Learning pero NO quiere que
+  //     aparezca en hotel 3 (filtro UI + DLCGuard bloqueo).
+  //   - Caso C: cliente compra Learning solo para 1 de sus 4 hoteles
+  //     (billing impacto: per-staff-active §137 se restringe a esos propertyIds).
+  // Decisión §147 reservada: si el array contiene propertyIds que NO pertenecen
+  // a la organizationId, DLCService.activate() lanza ConflictException.
+  scopedPropertyIds String[] @default([]) @map("scoped_property_ids")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization Organization   @relation(fields: [organizationId], references: [id])
+  activatedBy  Staff?         @relation("TenantDlcActivatedBy", fields: [activatedById], references: [id])
+  logs         TenantDLCLog[]
+
+  @@unique([organizationId, dlcCode])
+  @@index([organizationId, status])
+  @@index([status, gracePeriodEndsAt]) // scheduler para auto-archive
+  @@index([dlcCode, status])
+  @@map("tenant_dlcs")
+}
+
+// TenantDLCLog — append-only audit (§128 paridad).
+// Eventos: ACTIVATED | SUSPENDED | GRACE_PERIOD_STARTED | REACTIVATED |
+//          TIER_CHANGED | ARCHIVED | STRIPE_SYNC | METADATA_UPDATED
+model TenantDLCLog {
+  id          String   @id @default(uuid())
+  tenantDlcId String   @map("tenant_dlc_id")
+  event       String
+  metadata    Json?
+  actorId     String?  @map("actor_id")
+  occurredAt  DateTime @default(now()) @map("occurred_at")
+
+  tenantDlc TenantDLC @relation(fields: [tenantDlcId], references: [id], onDelete: Cascade)
+  actor     Staff?    @relation("TenantDlcLogActor", fields: [actorId], references: [id])
+
+  @@index([tenantDlcId, occurredAt])
+  @@map("tenant_dlc_logs")
 }

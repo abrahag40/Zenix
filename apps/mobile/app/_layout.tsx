@@ -1,8 +1,9 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Stack, useRouter, useSegments } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useAuthStore } from '../src/store/auth'
 import { requestNotificationPermissions, registerForPushNotificationsAsync, setupNotificationListeners } from '../src/notifications'
 import { startSyncManager, stopSyncManager } from '../src/syncManager'
@@ -70,6 +71,20 @@ export default function RootLayout() {
   const { token } = useAuthStore()
   const segments = useSegments()
   const router = useRouter()
+
+  // Sprint LEARNING-CORE Fase 1.2 — QueryClient global para hooks Learning.
+  // Pattern web paridad. Defaults conservadores para mobile: retry=1 (red flaky),
+  // staleTime 30s (balance freshness vs requests). Cada hook puede override.
+  const [queryClient] = useState(() => new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: 1,
+        staleTime: 30_000,
+        // Mobile-specific: refetchOnReconnect ya es default true en RQ v5,
+        // crítico cuando el housekeeping pierde wifi entre cuartos.
+      },
+    },
+  }))
 
   /**
    * Reactive auth-aware routing.
@@ -146,6 +161,7 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
+        <QueryClientProvider client={queryClient}>
         {/* ErrorBoundary lives at the root so any render-time exception
             anywhere in the app surfaces a branded fallback (instead of
             React unmounting the whole tree to a blank screen). */}
@@ -170,6 +186,7 @@ export default function RootLayout() {
         </ErrorBoundary>
         {/* Status bar matches dark canvas — light icons. */}
         <StatusBar style="light" />
+        </QueryClientProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   )

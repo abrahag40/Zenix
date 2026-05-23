@@ -93,6 +93,10 @@ const NAV: NavItem[] = [
     ],
   },
   { kind: 'leaf', to: '/reports',       icon: '📊', label: 'Reportes' },
+  // Sprint LEARNING-CORE Fase 1.1 — visible para todos los roles.
+  // Si DLC LEARNING_CORE no activo, la página muestra empty state con
+  // CTA hacia /settings/dlc (paridad §142 DLCGuard accionable).
+  { kind: 'leaf', to: '/learning',      icon: '🎓', label: 'Aprendizaje' },
   { kind: 'leaf', to: '/settings/rooms', icon: '⚙️', label: 'Configuración' },
 ]
 

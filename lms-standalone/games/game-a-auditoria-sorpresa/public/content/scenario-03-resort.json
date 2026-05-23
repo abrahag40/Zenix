@@ -1,0 +1,266 @@
+{
+  "id": "scenario-03-resort",
+  "version": "2026.05.1",
+  "title": "Cocina central de resort",
+  "difficulty": "alta",
+  "bloomLevel": "ANALIZAR_EVALUAR",
+  "tilemap": "assets/tilemaps/cocina-resort.json",
+  "timeLimitSeconds": 720,
+  "hintsAvailable": 3,
+  "passThreshold": 0.8,
+  "narrativeIntro": "Cocina central de un resort de 300 habitaciones que abastece 4 puntos de venta. Es la auditoría completa: los 28 puntos críticos de las 11 áreas están presentes. Algunos cumplen, otros no. Un solo punto crítico incumplido falla la certificación — exactamente como en la realidad. Audita con el mismo rigor que una Unidad de Verificación.",
+  "items": [
+    {
+      "id": "p-1-1-termometro",
+      "x": 120, "y": 180, "sprite": "recepcion-termometro-calibrado",
+      "area": "Recepción", "criticalPoint": "1.1", "compliant": true,
+      "question": "Recepción verifica cada entrega con termómetro calibrado (0°C en agua con hielo al inicio de turno). ¿Cumple?",
+      "correctAnswer": "CUMPLE",
+      "explanation": "Verificación de temperatura con termómetro calibrado por turno: refrigerados ≤4°C, congelados ≤-18°C, calientes ≥60°C. Cumple el punto 1.1.",
+      "source": "NMX-F-605 punto 1.1", "fineIfMissed": 0, "critical": false
+    },
+    {
+      "id": "p-1-2-empaque-oxidado",
+      "x": 180, "y": 140, "sprite": "lata-abollada-oxido",
+      "area": "Recepción", "criticalPoint": "1.2", "compliant": false,
+      "question": "Se aceptó una entrega de latas con abolladuras críticas y óxido, sin etiqueta de caducidad legible. ¿Cumple?",
+      "correctAnswer": "NO_CUMPLE",
+      "explanation": "El punto 1.2 exige empaque íntegro (sin perforaciones, abolladuras críticas u óxido) y etiqueta de caducidad legible con lote identificable. Latas abolladas/oxidadas se rechazan y documentan: abolladuras críticas pueden indicar Clostridium botulinum.",
+      "source": "NMX-F-605 punto 1.2", "fineIfMissed": 11000, "critical": true
+    },
+    {
+      "id": "p-1-3-bitacora-recepcion",
+      "x": 240, "y": 200, "sprite": "bitacora-recepcion-completa",
+      "area": "Recepción", "criticalPoint": "1.3", "compliant": true,
+      "question": "La bitácora de recepción registra cada entrega: producto, proveedor, fecha, hora, temperatura, condición, decisión y firma, conservada >1 año. ¿Cumple?",
+      "correctAnswer": "CUMPLE",
+      "explanation": "Registro completo de cada entrega con conservación ≥1 año es el punto 1.3. Trazabilidad sostenida — cumple.",
+      "source": "NMX-F-605 punto 1.3", "fineIfMissed": 0, "critical": false
+    },
+    {
+      "id": "p-2-1-crudo-sobre-cocido",
+      "x": 340, "y": 130, "sprite": "camara-crudo-arriba",
+      "area": "Almacenamiento", "criticalPoint": "2.1", "compliant": false,
+      "question": "En la cámara fría, carne molida cruda está sobre charolas de pasta cocida sin separación. ¿Cumple?",
+      "correctAnswer": "NO_CUMPLE",
+      "explanation": "El punto 2.1 exige crudos abajo / cocidos arriba con distancia mínima 15 cm sin tapa. Crudo sobre cocido = goteo de jugos y cross-contamination directa (E. coli, Salmonella).",
+      "source": "NMX-F-605 punto 2.1", "fineIfMissed": 15000, "critical": true
+    },
+    {
+      "id": "p-2-2-fifo",
+      "x": 400, "y": 120, "sprite": "almacen-fifo-etiquetado",
+      "area": "Almacenamiento", "criticalPoint": "2.2", "compliant": true,
+      "question": "El almacén rota por FIFO con etiquetas de fecha de ingreso visibles y bitácora de rotación semanal. ¿Cumple?",
+      "correctAnswer": "CUMPLE",
+      "explanation": "First In, First Out documentado con etiquetas y rotación registrada es el punto 2.2. Cumple.",
+      "source": "NMX-F-605 punto 2.2", "fineIfMissed": 0, "critical": false
+    },
+    {
+      "id": "p-2-3-cajas-piso",
+      "x": 460, "y": 180, "sprite": "sacos-harina-piso",
+      "area": "Almacenamiento", "criticalPoint": "2.3", "compliant": false,
+      "question": "Sacos de harina y cajas de verdura están apilados directamente en el piso del almacén seco, pegados a la pared. ¿Cumple?",
+      "correctAnswer": "NO_CUMPLE",
+      "explanation": "El punto 2.3 exige elevación ≥15 cm del piso y ≥10 cm de la pared (humedad, plagas, inspección visual). Producto en piso pegado a pared incumple ambos.",
+      "source": "NMX-F-605 punto 2.3", "fineIfMissed": 8000, "critical": true
+    },
+    {
+      "id": "p-2-4-seco-humedad",
+      "x": 520, "y": 220, "sprite": "almacen-seco-humedo",
+      "area": "Almacenamiento", "criticalPoint": "2.4", "compliant": false,
+      "question": "El almacén seco no tiene termómetro/higrómetro visible y se siente húmedo; no hay bitácora de temperatura. ¿Cumple?",
+      "correctAnswer": "NO_CUMPLE",
+      "explanation": "El punto 2.4 exige seco 15-25°C con humedad <60%, termómetros visibles en cada cámara y bitácora cada 4 horas. Sin medición ni registro y con humedad alta = incumplimiento (riesgo de moho y micotoxinas).",
+      "source": "NMX-F-605 punto 2.4", "fineIfMissed": 9000, "critical": true
+    },
+    {
+      "id": "p-3-1-msds",
+      "x": 600, "y": 480, "sprite": "msds-carpeta-visible",
+      "area": "Sustancias químicas", "criticalPoint": "3.1", "compliant": true,
+      "question": "Cada químico tiene su Hoja de Seguridad (MSDS) en español, en carpeta visible, y el personal sabe dónde está. ¿Cumple?",
+      "correctAnswer": "CUMPLE",
+      "explanation": "MSDS accesible por producto, en español, ubicación visible y conocida por el personal es el punto 3.1. Cumple.",
+      "source": "NMX-F-605 punto 3.1", "fineIfMissed": 0, "critical": false
+    },
+    {
+      "id": "p-3-2-quimico-sobre-alimento",
+      "x": 660, "y": 440, "sprite": "desengrasante-sobre-arroz",
+      "area": "Sustancias químicas", "criticalPoint": "3.2", "compliant": false,
+      "question": "Un bidón de desengrasante está sobre el estante de costales de arroz, en el pasillo de tránsito de comida. ¿Cumple?",
+      "correctAnswer": "NO_CUMPLE",
+      "explanation": "El punto 3.2 exige separación física química/alimento: bodega o estante apartado, NUNCA sobre alimentos ni en pasillo de tránsito de comida. Químico sobre arroz = riesgo de derrame y contaminación química.",
+      "source": "NMX-F-605 punto 3.2 + NOM-018-STPS GHS", "fineIfMissed": 14000, "critical": true
+    },
+    {
+      "id": "p-4-1-refri-7c",
+      "x": 360, "y": 280, "sprite": "refri-marca-7c",
+      "area": "Refrigeración", "criticalPoint": "4.1", "compliant": false,
+      "question": "Un refrigerador marca 7°C en su termómetro independiente; el staff dice 'está descalibrado, en realidad enfría más'. ¿Cumple?",
+      "correctAnswer": "NO_CUMPLE",
+      "explanation": "El termómetro es la verdad, no la corazonada. Si marca 7°C, opera a 7°C (zona de peligro) hasta calibrar o reparar. El punto 4.1 exige 0-4°C verificado. Debe escalarse y monitorearse.",
+      "source": "NMX-F-605 punto 4.1", "fineIfMissed": 12000, "critical": true
+    },
+    {
+      "id": "p-4-2-ventilacion",
+      "x": 420, "y": 320, "sprite": "refri-ventilacion-ok",
+      "area": "Refrigeración", "criticalPoint": "4.2", "compliant": true,
+      "question": "Los refrigeradores están cargados al ~75% con circulación de aire visible entre alimentos. ¿Cumple?",
+      "correctAnswer": "CUMPLE",
+      "explanation": "Carga 70-80% máximo con ventilación interna sin obstrucciones es el punto 4.2. Cumple.",
+      "source": "NMX-F-605 punto 4.2", "fineIfMissed": 0, "critical": false
+    },
+    {
+      "id": "p-4-3-hielo-acumulado",
+      "x": 300, "y": 320, "sprite": "congelador-escarcha-sello-roto",
+      "area": "Refrigeración", "criticalPoint": "4.3", "compliant": false,
+      "question": "El congelador tiene escarcha acumulada >2 cm, sello de puerta dañado con condensación, y no se descongela desde hace 8 meses. ¿Cumple?",
+      "correctAnswer": "NO_CUMPLE",
+      "explanation": "El punto 4.3 exige limpieza profunda mensual, descongelación (>5 mm de hielo = pérdida de eficiencia) y sello íntegro. Sello roto + 8 meses sin mantenimiento fue causa del brote de S. aureus de 52 huéspedes.",
+      "source": "NMX-F-605 punto 4.3", "fineIfMissed": 13000, "critical": true
+    },
+    {
+      "id": "p-5-1-pollo-interna",
+      "x": 600, "y": 260, "sprite": "termometro-pollo-75c",
+      "area": "Cocina", "criticalPoint": "5.1", "compliant": true,
+      "question": "El cocinero verifica el pollo con termómetro de aguja en el centro: marca 76°C antes de servir. ¿Cumple?",
+      "correctAnswer": "CUMPLE",
+      "explanation": "Pollo ≥75°C interno medido en el centro es el punto 5.1. 76°C cumple y destruye Campylobacter y Salmonella.",
+      "source": "NMX-F-605 punto 5.1 + FDA Food Code 3-401.11", "fineIfMissed": 0, "critical": false
+    },
+    {
+      "id": "p-5-2-tabla-compartida",
+      "x": 660, "y": 300, "sprite": "tabla-roja-vegetales",
+      "area": "Cocina", "criticalPoint": "5.2", "compliant": false,
+      "question": "El cocinero corta vegetales para ensalada sobre la tabla ROJA que acaba de usar para carne cruda, sin lavarla. ¿Cumple?",
+      "correctAnswer": "NO_CUMPLE",
+      "explanation": "El punto 5.2 exige tablas y utensilios separados por código de colores SIN compartir. Cortar vegetales listos-para-comer sobre la tabla de carne cruda = cross-contamination directa, aunque las tablas de colores existan.",
+      "source": "NMX-F-605 punto 5.2", "fineIfMissed": 12000, "critical": true
+    },
+    {
+      "id": "p-5-3-recalentado-lento",
+      "x": 560, "y": 340, "sprite": "olla-recalentado-tibio",
+      "area": "Cocina", "criticalPoint": "5.3", "compliant": false,
+      "question": "Una olla de guiso se recalienta a fuego bajo desde la mañana; lleva 3 horas pasando lentamente por temperaturas tibias. ¿Cumple?",
+      "correctAnswer": "NO_CUMPLE",
+      "explanation": "El punto 5.3 exige recalentado a ≥74°C internos en ≤2 horas. El recalentado lento mantiene el alimento en zona de peligro por horas, permitiendo multiplicación bacteriana y formación de toxinas.",
+      "source": "NMX-F-605 punto 5.3", "fineIfMissed": 11000, "critical": true
+    },
+    {
+      "id": "p-5-4-sanitizado-superficies",
+      "x": 720, "y": 340, "sprite": "mesa-sanitizada-tira",
+      "area": "Cocina", "criticalPoint": "5.4", "compliant": true,
+      "question": "Las superficies y cuchillos se sanitizan con producto EPA-registered entre cada cambio de producto, con concentración medida por tira de prueba. ¿Cumple?",
+      "correctAnswer": "CUMPLE",
+      "explanation": "Higiene de superficies + sanitización entre productos con concentración medida es el punto 5.4. Cumple.",
+      "source": "NMX-F-605 punto 5.4 + EPA Sanitizer Use", "fineIfMissed": 0, "critical": false
+    },
+    {
+      "id": "p-6-1-agua-pozo",
+      "x": 140, "y": 360, "sprite": "toma-agua-pozo",
+      "area": "Agua y hielo", "criticalPoint": "6.1", "compliant": false,
+      "question": "El resort usa agua de pozo propio para preparación, sin certificación de potabilidad ni prueba de cloro residual. ¿Cumple?",
+      "correctAnswer": "NO_CUMPLE",
+      "explanation": "El punto 6.1 exige agua potable certificada (cloro residual 0.2-1.5 ppm) o purificadores certificados con bitácora de filtros. Agua de pozo sin certificación NO es aceptable para consumo ni preparación.",
+      "source": "NMX-F-605 punto 6.1", "fineIfMissed": 13000, "critical": true
+    },
+    {
+      "id": "p-6-2-maquina-hielo-moho",
+      "x": 200, "y": 300, "sprite": "maquina-hielo-moho",
+      "area": "Agua y hielo", "criticalPoint": "6.2", "compliant": false,
+      "question": "La máquina de hielo tiene moho visible en el interior y el staff sigue sirviendo hielo de ella. ¿Cumple?",
+      "correctAnswer": "NO_CUMPLE",
+      "explanation": "El punto 6.2 exige máquina sanitizada mensual y manipulación higiénica. Moho = colonización microbiana; debe detenerse el uso, sanitizar y certificar antes de volver a servir. El alcohol de las bebidas NO esteriliza el hielo.",
+      "source": "NMX-F-605 punto 6.2 + CDC Ice Safety", "fineIfMissed": 10000, "critical": true
+    },
+    {
+      "id": "p-7-1-sanitario-ventilacion",
+      "x": 820, "y": 180, "sprite": "sanitario-transicion-ok",
+      "area": "Sanitarios", "criticalPoint": "7.1", "compliant": true,
+      "question": "El sanitario del staff tiene anteroom de transición hacia la cocina y extractor mecánico funcional. ¿Cumple?",
+      "correctAnswer": "CUMPLE",
+      "explanation": "Sanitario sin acceso directo a cocina (puerta de transición) + ventilación adecuada es el punto 7.1. Cumple.",
+      "source": "NMX-F-605 punto 7.1", "fineIfMissed": 0, "critical": false
+    },
+    {
+      "id": "p-7-2-sin-jabon",
+      "x": 880, "y": 220, "sprite": "lavabo-sin-jabon",
+      "area": "Sanitarios", "criticalPoint": "7.2", "compliant": false,
+      "question": "El lavabo del sanitario tiene papel y agua, pero el dispensador de jabón está vacío desde la mañana. ¿Cumple?",
+      "correctAnswer": "NO_CUMPLE",
+      "explanation": "El punto 7.2 exige jabón + papel + agua + secador disponibles SIEMPRE y juntos. Sin jabón, el lavado de manos no elimina la carga microbiana — punto crítico incumplido aunque el resto esté presente.",
+      "source": "NMX-F-605 punto 7.2 + CDC Hand Hygiene", "fineIfMissed": 6000, "critical": true
+    },
+    {
+      "id": "p-8-1-bote-sin-tapa",
+      "x": 860, "y": 460, "sprite": "bote-sin-tapa-cocina",
+      "area": "Manejo de basura", "criticalPoint": "8.1", "compliant": false,
+      "question": "El bote de basura de la cocina no tiene tapa y se ve sucio por dentro, sin bolsa interior cambiada. ¿Cumple?",
+      "correctAnswer": "NO_CUMPLE",
+      "explanation": "El punto 8.1 exige contenedor con tapa hermética (de pedal), bolsa interior cambiada antes del 75% y lavado/desinfección diaria. Bote abierto y sucio atrae plagas y dispersa aerosoles sobre el alimento.",
+      "source": "NMX-F-605 punto 8.1", "fineIfMissed": 7000, "critical": true
+    },
+    {
+      "id": "p-8-2-basura-frecuencia",
+      "x": 900, "y": 400, "sprite": "bodega-basura-cerrada",
+      "area": "Manejo de basura", "criticalPoint": "8.2", "compliant": true,
+      "question": "La basura se retira de la cocina cada 2-3 horas a una bodega cerrada, ventilada y separada del área de alimentos. ¿Cumple?",
+      "correctAnswer": "CUMPLE",
+      "explanation": "Retiro ≥2 veces por turno + sitio intermedio cerrado, ventilado y separado es el punto 8.2. Cumple.",
+      "source": "NMX-F-605 punto 8.2", "fineIfMissed": 0, "critical": false
+    },
+    {
+      "id": "p-9-1-grietas-selladas",
+      "x": 760, "y": 120, "sprite": "pared-sellada-malla-ok",
+      "area": "Control de plagas", "criticalPoint": "9.1", "compliant": true,
+      "question": "Las ventanas tienen malla íntegra, las grietas están selladas y las puertas tienen burletes con gap ≤6 mm. ¿Cumple?",
+      "correctAnswer": "CUMPLE",
+      "explanation": "Barreras físicas + sellado de aberturas íntegros es el punto 9.1. Cumple.",
+      "source": "NMX-F-605 punto 9.1 + EPA IPM", "fineIfMissed": 0, "critical": false
+    },
+    {
+      "id": "p-9-2-cartones-cucaracha",
+      "x": 820, "y": 380, "sprite": "cartones-apilados-cucaracha",
+      "area": "Control de plagas", "criticalPoint": "9.2", "compliant": false,
+      "question": "Detrás de la cocina hay cartones vacíos apilados, se ve una cucaracha y las trampas de monitoreo no se revisan desde hace meses. ¿Cumple?",
+      "correctAnswer": "NO_CUMPLE",
+      "explanation": "El punto 9.2 exige programa documentado con empresa certificada COFEPRIS, bitácora de productos/áreas y trampas monitoreadas semanalmente. Cartón acumulado (atrayente), cucaracha visible (población oculta) y trampas sin revisar = incumplimiento sistémico.",
+      "source": "NMX-F-605 punto 9.2 + EPA IPM", "fineIfMissed": 13000, "critical": true
+    },
+    {
+      "id": "p-10-1-uniforme-joyeria",
+      "x": 440, "y": 420, "sprite": "cocinero-reloj-aretes",
+      "area": "Personal", "criticalPoint": "10.1", "compliant": false,
+      "question": "Un cocinero manipula alimentos con reloj, aretes y uñas con esmalte; la red de cabello deja el flequillo descubierto. ¿Cumple?",
+      "correctAnswer": "NO_CUMPLE",
+      "explanation": "El punto 10.1 prohíbe joyería (salvo banda matrimonial lisa), uñas con esmalte y exige red que cubra todo el cabello. Aretes y uñas esmaltadas son riesgo físico (cuerpo extraño) y microbiológico.",
+      "source": "NMX-F-605 punto 10.1 + ISO 22000:2018", "fineIfMissed": 5000, "critical": true
+    },
+    {
+      "id": "p-10-2-exclusion-salud",
+      "x": 380, "y": 460, "sprite": "staff-herida-abierta",
+      "area": "Personal", "criticalPoint": "10.2", "compliant": false,
+      "question": "Un manipulador tiene una herida abierta infectada en el dedo y sigue emplatando sin guante ni evaluación del supervisor. ¿Cumple?",
+      "correctAnswer": "NO_CUMPLE",
+      "explanation": "El punto 10.2 excluye de la manipulación a personal con heridas infectadas/abiertas (entre otros síntomas). La herida infectada es foco de S. aureus; requiere guante + tarea sin contacto directo o exclusión, decidida por el supervisor.",
+      "source": "NMX-F-605 punto 10.2 + LFT Art. 487", "fineIfMissed": 12000, "critical": true
+    },
+    {
+      "id": "p-10-3-capacitacion",
+      "x": 320, "y": 240, "sprite": "expediente-capacitacion-ok",
+      "area": "Personal", "criticalPoint": "10.3", "compliant": true,
+      "question": "El expediente muestra capacitación inicial de 10h por instructor SECTUR-CONOCER, 80% del personal operativo + 100% de mandos, renovada en el último año, con bitácora firmada. ¿Cumple?",
+      "correctAnswer": "CUMPLE",
+      "explanation": "Capacitación documentada en manejo higiénico (≥10h inicial, cobertura 80%/100%, renovación anual, bitácora) es el punto 10.3. Cumple.",
+      "source": "NMX-F-605 punto 10.3 + LFT Art. 153-D", "fineIfMissed": 0, "critical": false
+    },
+    {
+      "id": "p-11-1-bar-hielo-mano",
+      "x": 260, "y": 500, "sprite": "bar-hielo-mano-fruta",
+      "area": "Bar", "criticalPoint": "11.1", "compliant": false,
+      "question": "En el bar agarran hielo con la mano, cortan fruta con el cuchillo recién usado en carne y la cristalería se lava con agua tibia sin sanitizante. ¿Cumple?",
+      "correctAnswer": "NO_CUMPLE",
+      "explanation": "El punto 11.1 exige que el bar aplique las MISMAS reglas que cocina: hielo con pala, fruta con cuchillo dedicado + agua potable, cristalería lavada a ≥75°C + sanitizante, higiene del manipulador igual que cocina. Aquí se incumplen las tres.",
+      "source": "NMX-F-605 punto 11.1", "fineIfMissed": 10000, "critical": true
+    }
+  ]
+}

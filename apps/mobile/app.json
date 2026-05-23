@@ -14,7 +14,7 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.zenix.pms",
       "infoPlist": {
-        "UIBackgroundModes": ["remote-notification"]
+        "UIBackgroundModes": ["remote-notification", "audio"]
       }
     },
     "android": {
