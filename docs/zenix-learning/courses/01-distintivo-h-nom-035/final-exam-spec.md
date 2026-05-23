@@ -114,13 +114,16 @@ Aprobado si:
 
 ## 3. Anti-cheating ligero (Fase 1.3)
 
+> **Nota arquitectónica:** la permutación aleatoria de preguntas + opciones es **estándar universal del engine LMS Zenix** (`QuizRandomizerService`), NO una feature específica de este examen final. Aplica a TODOS los quizzes del LMS: Module Quizzes, exámenes finales, knowledge checks, mini-quizzes dentro de games. Ver [doc 21 §1.1.bis Quiz Randomization Standard](../../21-lms-architecture-content-separation.md#11bis-quiz-randomization-standard).
+
 ### 3.1 Mecanismos implementados
 
 | Mecanismo | Implementación | Justificación |
 |-----------|----------------|----------------|
 | **Foto del rostro al iniciar** | Webcam captura imagen al inicio del examen | Identificación del usuario. Eliminable per GDPR a solicitud. |
-| **Permutación aleatoria de preguntas** | Cada candidato recibe orden distinto | Previene compartir respuestas en orden |
-| **Permutación aleatoria de opciones** | Las 4 opciones (a/b/c/d) se barajean por pregunta | Previene memorización por letra ("la respuesta es siempre c") |
+| **Permutación aleatoria de preguntas** (universal) | `QuizRandomizerService.randomize()` — Fisher-Yates con seed determinístico por `attemptId` | Estándar del engine, aplica a TODOS los quizzes del LMS. Sin excepción. |
+| **Permutación aleatoria de opciones a/b/c/d** (universal) | Idem — barajea opciones por pregunta. Server valida por `option.id`, NO por letra mostrada | Previene memorización por letra ("la respuesta es siempre c"). Estándar engine. |
+| **Selección aleatoria del banco** | 60 preguntas de banco 180, balanceando críticas/menores por módulo | Específico de exámenes que extraen de banco más grande |
 | **Detección de focus-leave** | Si el browser pierde focus >5 seg, se registra en interactionLog | Señal forense, NO penalización automática |
 | **Time tracking** | Tiempo por pregunta + tiempo total | Detección de respuestas demasiado rápidas (<2 seg sugiere conocimiento previo del banco) |
 | **Sin retroceder** | Una vez respondida, NO se puede modificar respuesta | Previene búsqueda externa entre preguntas |

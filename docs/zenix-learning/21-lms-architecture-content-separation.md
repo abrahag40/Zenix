@@ -42,6 +42,11 @@ Ubicación: `apps/api/src/learning/` + `apps/web/src/learning/` + `apps/mobile/s
 │  ├─ Scenario branching (decision tree)                        │
 │  ├─ SRS (Spaced Repetition SM-2 Woźniak 1995)                │
 │  ├─ ELO adaptive difficulty (Csikszentmihalyi flow zone)     │
+│  ├─ PERMUTACIÓN UNIVERSAL (§ Quiz Randomization Standard)    │
+│  │   ├─ Aleatorización de orden de preguntas por candidato   │
+│  │   ├─ Aleatorización de orden de opciones a/b/c/d          │
+│  │   ├─ Fisher-Yates shuffle con seed per attempt            │
+│  │   └─ Aplica a TODOS los quizzes: module + final + práctica│
 │  └─ Anti-cheating: webcam snapshot, focus-leave detection    │
 ├──────────────────────────────────────────────────────────────┤
 │  ProgressTracker                                              │
@@ -75,6 +80,144 @@ Ubicación: `apps/api/src/learning/` + `apps/web/src/learning/` + `apps/mobile/s
 - **Cero hard-coded course content.** El engine NUNCA contiene strings de lessons, ni preguntas, ni respuestas. Si el engine sabe la respuesta correcta de una pregunta, el engine necesita actualizarse cada vez que cambia una pregunta → anti-patrón.
 - **Versionado independiente del contenido.** El engine es `v1.0.0`. Los cursos son `MX-DH-2026.05.1`, `MX-DH-2026.06.1`. Una corrección de typo en el syllabus de DH → bump versión del CONTENT, sin tocar el engine.
 - **Backwards-compatible con versiones de content antiguas.** Un curso `2026.05.1` enrollado por un staff que no completó debe seguir reproduciéndose en el engine `v1.5.0` lanzado un año después. Pattern Netflix: si grabaron Stranger Things S1 con códecs 2016, el player 2026 sigue reproduciéndolo.
+- **Permutación universal de quizzes (§Quiz Randomization Standard, regla no negociable).** Ver detalle en sección 1.1.bis abajo.
+
+---
+
+### 1.1.bis Quiz Randomization Standard — regla universal del LMS Zenix
+
+> **Decisión fundacional 2026-05-22:** todos los quizzes del LMS Zenix (Module Quizzes + Examen Final + Knowledge Checks + Quizzes adaptativos SRS + Diagnósticos previos) DEBEN aplicar permutación aleatoria de preguntas Y permutación aleatoria de opciones a/b/c/d. **Sin excepción, sin opt-out, sin configuración per curso.**
+
+#### Por qué es regla del engine, no del contenido
+
+El **contenido** (la pregunta, las opciones, la respuesta correcta) es responsabilidad del creador del curso. La **forma en que se presentan** al aprendiz es responsabilidad del engine. Si dejáramos la randomización al creador del curso:
+- Algunos cursos lo harían (los bien diseñados)
+- Otros NO (los apurados o de menor calidad)
+- Inconsistencia entre cursos → señal de falta de seriedad del LMS
+- Posibilidad de "trampa interna" del creador (poner respuesta siempre en C)
+
+Centralizar en el engine garantiza que **TODO quiz** del LMS opera con el mismo estándar mínimo de anti-cheating, sin importar quién haya producido el curso (Zenix interno, AHLEI partner futuro, cliente enterprise con curso custom, marketplace v1.5+).
+
+#### Las 4 dimensiones de randomización obligatorias
+
+| Dimensión | Implementación | Aplicabilidad |
+|-----------|----------------|----------------|
+| **1. Orden de preguntas** | Fisher-Yates shuffle del array de preguntas seleccionadas | TODOS los quizzes con ≥2 preguntas |
+| **2. Orden de opciones (a/b/c/d)** | Fisher-Yates shuffle del array de opciones por pregunta | TODAS las preguntas multiple choice |
+| **3. Selección de preguntas del banco** | Sampling sin reemplazo, balanceando críticas/menores per módulo | Quizzes que extraen de banco más grande (Module Quizzes + Final Exam) |
+| **4. Seed determinístico por intento** | `seed = hash(attemptId)` → mismo aprendiz reproduce mismo orden si refresca, distinto aprendiz tiene orden distinto | Todos |
+
+#### Algoritmo canónico — `apps/api/src/learning/services/quiz-randomizer.service.ts`
+
+```typescript
+// Servicio universal — usado por TODOS los quiz players del LMS
+
+import { createHash } from 'crypto';
+
+interface RandomizedQuestion {
+  id: string;
+  questionText: string;
+  options: Array<{
+    id: string;        // ID estable del option original
+    text: string;
+    displayLetter: 'a' | 'b' | 'c' | 'd';  // letra mostrada (puede diferir del original)
+  }>;
+  // NOTA: el frontend NO recibe cuál es la respuesta correcta.
+  // El backend resuelve scoring comparando option.id, no la letra mostrada.
+}
+
+@Injectable()
+export class QuizRandomizerService {
+  /**
+   * Aplica las 4 dimensiones de randomización obligatorias del LMS Zenix.
+   * NUNCA debe ser bypassed por configuración per-quiz o per-course.
+   */
+  randomize(
+    questions: Question[],
+    attemptId: string,
+  ): RandomizedQuestion[] {
+    const seed = this.hashToSeed(attemptId);
+    const rng = this.seededRng(seed);
+    
+    // Dimensión 1: orden de preguntas
+    const shuffledQuestions = this.fisherYates(questions, rng);
+    
+    return shuffledQuestions.map(q => ({
+      id: q.id,
+      questionText: q.text,
+      // Dimensión 2: orden de opciones (letra mostrada se recalcula)
+      options: this.fisherYates(q.options, rng).map((opt, idx) => ({
+        id: opt.id,
+        text: opt.text,
+        displayLetter: ['a', 'b', 'c', 'd'][idx] as 'a' | 'b' | 'c' | 'd',
+      })),
+    }));
+  }
+
+  private hashToSeed(attemptId: string): number {
+    // Seed determinístico → mismo attemptId siempre produce mismo orden
+    // (útil si el aprendiz refresca la página)
+    const hash = createHash('sha256').update(attemptId).digest('hex');
+    return parseInt(hash.slice(0, 8), 16);
+  }
+
+  private seededRng(seed: number): () => number {
+    // Mulberry32 PRNG — rápido, suficientemente uniforme para randomización
+    return () => {
+      seed |= 0;
+      seed = (seed + 0x6D2B79F5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  private fisherYates<T>(arr: T[], rng: () => number): T[] {
+    const result = [...arr];
+    for (let i = result.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [result[i], result[j]] = [result[j], result[i]];
+    }
+    return result;
+  }
+}
+```
+
+#### Reglas no negociables del estándar
+
+1. **TODA presentación de quiz al aprendiz pasa por `QuizRandomizerService.randomize()`** — sin excepción.
+2. **El frontend NUNCA recibe la respuesta correcta marcada.** Scoring es server-side comparando `option.id` (no la letra mostrada).
+3. **Seed determinístico por `attemptId`** — si el aprendiz refresca la página, ve el MISMO orden (no se re-baraja durante la sesión, eso desorientaría). Pero un nuevo intento (`attemptId` distinto) recibe orden distinto.
+4. **Cada `LearningQuizAttempt` almacena la permutación aplicada en `metadata.shuffleSeed`** — esto permite reproducir el orden mostrado durante auditoría / investigación de cheating.
+5. **Validación de respuestas server-side por `option.id`**, NO por letra mostrada. La letra mostrada es UX; el ID es la fuente de verdad.
+6. **Verificación de orden** en QA — test automatizado que ejecuta el mismo quiz 100 veces con 100 attemptIds distintos y verifica que el orden de preguntas Y opciones cambia entre ejecuciones (no se ha deshabilitado por bug).
+7. **Aplica a TODOS los `LearningLessonType` con quiz:** HTML5_NATIVE (knowledge check), GAME_PHASER (mini-quiz dentro del game), SCORM_2004 (Fase 2 — wrapper traduce randomización del engine al SCORM), XAPI_PACKAGE (idem).
+
+#### Por qué Fisher-Yates específicamente
+
+- **Uniformidad estadística probada** — Knuth *The Art of Computer Programming* Vol. 2 §3.4.2 demuestra que Fisher-Yates produce permutación uniforme de N! arreglos posibles.
+- **Complejidad O(n)** — eficiente incluso para banks de 500+ preguntas.
+- **Reverso shuffle a versions naive (Math.sort(() => Math.random()))** — el shuffle naive es **sesgado** (algunas permutaciones son más probables que otras), problema documentado en Chrome V8.
+- **Seed-friendly** — combinable con PRNG determinístico (Mulberry32) para reproducibilidad bajo `attemptId`.
+
+#### Anti-patrones explícitamente prohibidos
+
+1. ❌ **Quiz con preguntas en orden fijo "porque siguen el syllabus".** El syllabus es para las lessons; el quiz es validación, orden fijo facilita cheating colaborativo.
+2. ❌ **Opciones siempre en orden a/b/c/d con respuesta correcta siempre en cierta posición.** Documentado en cursos de baja calidad: "la respuesta siempre es c".
+3. ❌ **Configuración per-quiz para "deshabilitar randomización en quizzes prácticos".** Sin excepción — incluso quizzes prácticos exigen estándar mínimo.
+4. ❌ **Aleatorización en frontend con `Math.random()`.** Debe ser server-side determinístico por `attemptId` para reproducibilidad forense.
+5. ❌ **Compartir el orden entre aprendices del mismo módulo "para facilitar discusión post-quiz".** Si quieren discutir, lo hacen viendo sus preguntas individuales — el orden compartido es vector de cheating.
+
+#### Métricas de validación post-launch
+
+| Métrica | Target | Cómo medir |
+|---------|--------|-------------|
+| % de attempts con orden único de preguntas | >99% (idealmente 100% para banks ≥10 preguntas) | Análisis estadístico shuffleSeed |
+| % de attempts con orden único de opciones | >99% por pregunta | Idem |
+| Distribución de respuestas correctas por displayLetter (a/b/c/d) | ~25% cada una (uniforme) | Si una letra concentra >40%, hay bug |
+| Detección de patrones sospechosos (cheating ring) | 0 detectados en testing | Análisis correlación scoring + tiempos |
+
+---
 
 ### 1.2 Content Layer — los cursos como datos versionados
 
