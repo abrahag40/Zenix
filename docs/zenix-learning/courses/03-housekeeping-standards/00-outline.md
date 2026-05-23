@@ -197,8 +197,8 @@ El "Curso Zenix Sistema" (cómo operar el módulo de housekeeping de Zenix por r
 
 | Día | Trabajo | Entregable |
 |-----|---------|-----------|
-| 10 | Outline + Módulo 1 (Introducción a operaciones HK, 3 lessons) | ✅ Este documento + M1 |
-| 11 | Módulos 2-3-4-5 (Planning + Químicos + SOPs + Lencería, ~13 lessons) | ⏳ |
+| 10 | Outline + Módulo 1 (Introducción a operaciones HK, 3 lessons) | ✅ Completado 2026-05-22 |
+| 11 | Módulos 2-3-4-5 (Planning + Químicos + SOPs + Lencería, 13 lessons) | ✅ Completado 2026-05-22 |
 | 12 | Módulos 6-7-8-9-10 (Sustainability + Bioseguridad + Maintenance + QA + Seguridad personal, ~12 lessons) | ⏳ |
 | 13 | Question banks Cursos 2+3 + specs examen final + cleanup + handover | ⏳ |
 
@@ -221,4 +221,5 @@ El "Curso Zenix Sistema" (cómo operar el módulo de housekeeping de Zenix por r
 
 ## Bitácora
 
-- **2026-05-22** (Día 10) — Outline Curso 3 creado. 10 módulos · ~28 lessons · ~28h. Bibliografía AHLEI CHHE + CDC HAI + OSHA + EPA List N/K + Distintivo H cross + NIOSH ergonomía. Principio editorial fundacional: CERO terminología Zenix interna (curso portable sobre estándares industriales). Game F "Room Inspector" como capstone M9 (Fase 1.5). Disclaimer AHLEI CHHE obligatorio en cada lesson. Módulo 1 redactado a continuación.
+- **2026-05-22** (Día 10) — Outline Curso 3 creado. 10 módulos · ~28 lessons · ~28h. Bibliografía AHLEI CHHE + CDC HAI + OSHA + EPA List N/K + Distintivo H cross + NIOSH ergonomía. Principio editorial fundacional: CERO terminología Zenix interna (curso portable sobre estándares industriales). Game F "Room Inspector" como capstone M9 (Fase 1.5). Disclaimer AHLEI CHHE obligatorio en cada lesson. Módulo 1 redactado (3 lessons).
+- **2026-05-22** (Día 11) — Módulos 2 + 3 + 4 + 5 redactados completos (13 lessons). M2 Planning/forecasting/productividad (forecast + par stock PAR3 + benchmark MPI + sobrecarga=NOM-035). M3 Químicos/SDS/seguridad (cloramina + pH/tipos + código colores trapos + SDS 16 secciones + EPP + EPA disinfectants + dwell time). M4 SOPs limpieza (top-down + clean-to-dirty + back-out + bath strip + bed making 7 capas + dusting + terminal vs stayover + deep cleaning frecuencias). M5 Lencería/lavandería (sangre agua fría coagula + temperaturas CDC + clasificación + biohazard linens + EPP + precauciones universales). Bibliografía expandida: AHLEI CHHE SOPs + CDC Environmental Services + CDC Universal Precautions + OSHA Bloodborne Pathogens + NOM-018-STPS + EPA + química proteínas/pH + NOM-035 cross. 13 casos documentados. **Curso 3 al ~57% (16 de 28 lessons).**
