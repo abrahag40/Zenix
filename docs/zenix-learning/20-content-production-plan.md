@@ -313,14 +313,17 @@ Cada curso publica (`status: PUBLISHED`) cuando pasa este checklist:
 | 4 | Módulos 4-5 Curso 1 (higiene manipulador + limpieza vs desinfección + códigos) | 7 lessons | ✅ Completado 2026-05-22 Día 4 |
 | 5 | Módulos 6-7-8 Curso 1 (NOM-035 marco+5 factores+violencia / Guías I/II/III / Política+evidencia+plan acción) | 9 lessons → **🎉 Curso 1 COMPLETO 100%** | ✅ Completado 2026-05-22 Día 5 |
 | 6 | Question bank 300 preguntas (ratio 5×) + spec examen final + caso práctico foto-evidencia + spec generador certificado co-branded + endpoint /verify HMAC + Quiz Randomization Standard universal del engine | Cierre Curso 1 + estándar engine | ✅ Completado 2026-05-22 Día 6 |
-| 4 final | Módulos 6-8 Curso 1 (NOM-035 + Guías + Política) | ~9 lessons + question bank 60 preguntas | ⏳ |
-| 5-8 | **Curso 2: Front Office Excellence** (AHLEI CFDR-aligned, sin terminología Zenix) | ~25 lessons + 40 preguntas | ⏳ |
-| 9-12 | **Curso 3: Housekeeping Standards Premium** (AHLEI CHHE-aligned, sin terminología Zenix) | ~27 lessons + 50 preguntas | ⏳ |
-| 13 | **Generador certificados co-branded** + endpoint público `/verify/cert/:id` + cleanup | Producción-ready | ⏳ |
+| 7 | Outline Curso 2 Front Office Excellence (9 módulos · ~27 lessons, AHLEI CFDR, CERO terminología Zenix) + Módulo 1 (industria + rol estratégico recepción) | Outline + 3 lessons | ✅ Completado 2026-05-22 Día 7 |
+| 8 | Módulos 2-3-4 Curso 2 (Tecnología recepción + Pre-arrival + Check-in, ~10 lessons, Game D capstone) | ~10 lessons | ⏳ |
+| 9 | Módulos 5-9 Curso 2 (Folio/PCI + Check-out/disputas + Servicio/LEARN + Seguridad/datos + No-shows) + question bank 200 preguntas | ~14 lessons + banco | ⏳ |
+| 10-12 | **Curso 3: Housekeeping Standards Premium** (AHLEI CHHE-aligned, sin terminología Zenix) | ~27 lessons + question bank | ⏳ |
+| 13 | Cleanup + handover producción-ready | Producción-ready | ⏳ |
 
-**Total entregable Fase 1.3:** ~80 lessons + 150 preguntas + sistema de certificación + 23 docs en `docs/zenix-learning/`.
+**Total entregable Fase 1.3:** ~82 lessons (3 cursos) + 3 question banks (ratio 5×) + sistema de certificación universal + 24 docs en `docs/zenix-learning/`.
 
-**Ubicación cursos producidos:** `docs/zenix-learning/courses/01-distintivo-h-nom-035/` (Curso 1, slug confirmado).
+**Ubicación cursos producidos:**
+- `docs/zenix-learning/courses/01-distintivo-h-nom-035/` (Curso 1 — 🎉 COMPLETO 100%)
+- `docs/zenix-learning/courses/02-front-office-excellence/` (Curso 2 — Día 7 outline + M1)
 
 ---
 
@@ -392,3 +395,4 @@ Cada curso publica (`status: PUBLISHED`) cuando pasa este checklist:
   2. `final-exam-spec.md` con especificación completa del examen final (60 preguntas + caso práctico foto-evidencia Hotel Sol y Mar ficticio) + algoritmo selección aleatoria del banco + reglas aprobación + política re-takes + UX wireframes + mapping schema Prisma.
   3. `certificate-generation-spec.md` con sistema completo emisión PDF co-branded balanceado (Hotel emisor formal + Zenix plataforma) + HMAC-SHA256 self-contained verification per-LegalEntity + endpoint público `/verify/cert/:id` sin DB query + QR + microinteracción PixiJS confetti respetando `prefers-reduced-motion` + plantilla A4 horizontal + 12 anti-patrones prohibidos + roadmap fases ZENIX_INTERNAL → STPS_DC3 → AHLEI_ALIGNED → Multi-país LATAM.
   4. **Quiz Randomization Standard universal del engine LMS** (doc 21 §1.1.bis) — Fisher-Yates server-side determinístico por attemptId, aplica a TODOS los quizzes de TODOS los cursos sin excepción ni opt-out per-curso. Algoritmo canónico documentado con Mulberry32 PRNG + 7 reglas no negociables + 5 anti-patrones prohibidos + métricas validación post-launch.
+- **2026-05-22** (Día 7 producción) — **Arranque Curso 2 Front Office Excellence.** Outline completo (9 módulos · ~27 lessons · ~20h · AHLEI CFDR-aligned + CONOCER EC0124). Principio editorial fundacional aplicado: CERO terminología Zenix interna (curso portable sobre estándares industriales; Módulo 2 enseña PMS/channel managers/GDS en términos genéricos de industria, NO cómo operar Zenix). Disclaimer AHLEI obligatorio en cada lesson. Game D "Front Desk Rush" como capstone M4 (Fase 1.5). Módulo 1 redactado completo (3 lessons): rol estratégico recepción (5 áreas/30 competencias AHLEI vs "dar llaves") + ciclo del huésped Kotler 5 fases + tipología establecimientos + FOH/BOH + rol coordinador single-point-of-contact. Bibliografía: AHLEI CFDR + Kotler Marketing for Hospitality + Cornell School of Hotel Administration 2014 (1 punto rating = +11.2% ADR) + SiteMinder + Oaky + Cialdini + Heskett Service Profit Chain + Hofstede. 2 casos documentados (Playa del Carmen ROI 19× capacitación recepción + comparativa Hotel A/B coordinación $1.4M MXN).
