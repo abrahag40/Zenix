@@ -7,6 +7,12 @@ import {
   ChannexAvailabilityEntry,
   ChannexRestrictionEntry,
 } from '../channex.gateway'
+import {
+  CHANNEX_AVAILABILITY_CHANGED,
+  CHANNEX_RESTRICTION_UPDATED,
+  ChannexAvailabilityChangedEvent,
+  ChannexRestrictionUpdatedEvent,
+} from './channex-outbound-events'
 
 /**
  * ChannexOutboundBuilderService — D-CHX-OUT-1, AP-2.2 mitigation.
@@ -47,11 +53,8 @@ export class ChannexOutboundBuilderService {
    * activar/expirar Block, etc. El payload trae el delta exacto (no full
    * recompute) — alineado con AP-3 (delta-only).
    */
-  @OnEvent('channex.availability.changed')
-  async onAvailabilityChanged(args: {
-    propertyId: string
-    entries: ChannexAvailabilityEntry[]
-  }): Promise<void> {
+  @OnEvent(CHANNEX_AVAILABILITY_CHANGED)
+  async onAvailabilityChanged(args: ChannexAvailabilityChangedEvent): Promise<void> {
     if (!args.entries || args.entries.length === 0) return
     await this.enqueue({
       propertyId: args.propertyId,
@@ -69,11 +72,8 @@ export class ChannexOutboundBuilderService {
    * payload trae entries del shape ChannexRestrictionEntry — AT LEAST ONE
    * restriction field debe estar populated (Channex requirement).
    */
-  @OnEvent('channex.restriction.updated')
-  async onRestrictionUpdated(args: {
-    propertyId: string
-    entries: ChannexRestrictionEntry[]
-  }): Promise<void> {
+  @OnEvent(CHANNEX_RESTRICTION_UPDATED)
+  async onRestrictionUpdated(args: ChannexRestrictionUpdatedEvent): Promise<void> {
     if (!args.entries || args.entries.length === 0) return
     await this.enqueue({
       propertyId: args.propertyId,

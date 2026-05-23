@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common'
+import { EventEmitter2 } from '@nestjs/event-emitter'
 import { PrismaService } from '../../prisma/prisma.service'
 
 // UTC day boundary helper — independiente de la TZ del runtime del server.
@@ -11,6 +12,10 @@ import {
   ChannexGateway,
   ChannexInventoryUpdate,
 } from '../../integrations/channex/channex.gateway'
+import {
+  CHANNEX_AVAILABILITY_CHANGED,
+  ChannexAvailabilityChangedEvent,
+} from '../../integrations/channex/outbound/channex-outbound-events'
 
 // ── AvailabilityService ─────────────────────────────────────────────────────
 //
@@ -89,6 +94,7 @@ export class AvailabilityService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly channex: ChannexGateway,
+    private readonly events: EventEmitter2,
   ) {}
 
   /**
@@ -411,15 +417,30 @@ export class AvailabilityService {
       })
       if (!settings?.channexPropertyId) return
 
-      await this.channex.pushInventory({
-        channexPropertyId: settings.channexPropertyId,
-        roomTypeId: room.channexRoomTypeId,
-        dateFrom: n.from.toISOString().slice(0, 10),
-        dateTo: n.to.toISOString().slice(0, 10),
-        delta,
-        reason: n.reason,
-        traceId: n.traceId,
-      })
+      // Sprint CHANNEX-OUTBOUND-CERT Day 3 — refactor AP-2.2.
+      // Antes: `await this.channex.pushInventory(...)` direct desde el save
+      // handler (violación cert AP-2.2 — Channex caído bloqueaba el save).
+      // Ahora: emit domain event → OutboxBuilder enqueue → Worker drain.
+      // Save handler retorna inmediato; resiliente a outages de Channex.
+      //
+      // Absolute model (hotel: 1 unit per room_type):
+      //   delta=+1 (release)    → availability=1 absolute
+      //   delta=-1 (reservation) → availability=0 absolute
+      // Para hostel dorms con multi-unit, computeAndPushInventory ya usa el
+      // path correcto con compute absoluto per date.
+      const event: ChannexAvailabilityChangedEvent = {
+        propertyId: room.propertyId,
+        entries: [
+          {
+            propertyId: settings.channexPropertyId,
+            roomTypeId: room.channexRoomTypeId,
+            dateFrom: n.from.toISOString().slice(0, 10),
+            dateTo: n.to.toISOString().slice(0, 10),
+            availability: delta > 0 ? 1 : 0,
+          },
+        ],
+      }
+      this.events.emit(CHANNEX_AVAILABILITY_CHANGED, event)
     } catch (err) {
       this.logger.error(
         `notifyChannex (delta=${delta}) failed trace=${n.traceId}: ${(err as Error).message}`,
@@ -536,12 +557,24 @@ export class AvailabilityService {
         entries.push({ date: date.toISOString().slice(0, 10), available })
       }
 
-      await this.channex.pushAbsoluteAvailability({
-        channexPropertyId,
-        roomTypeId: channexRoomTypeId,
-        entries,
-        traceId,
-      })
+      // Sprint CHANNEX-OUTBOUND-CERT Day 3 — refactor AP-2.2.
+      // Antes: direct push (best-effort fire-and-forget). Ahora emit event
+      // → OutboxBuilder enqueue → Worker drain con rate limit + retry.
+      // Misma data, distinto path: save handler ya no bloquea en Channex.
+      const event: ChannexAvailabilityChangedEvent = {
+        propertyId: room.propertyId,
+        entries: entries.map((e) => ({
+          propertyId: channexPropertyId,
+          roomTypeId: channexRoomTypeId,
+          date: e.date,
+          availability: e.available,
+        })),
+      }
+      this.events.emit(CHANNEX_AVAILABILITY_CHANGED, event)
+      this.logger.debug(
+        `[computeAndPushInventory] emitted channex.availability.changed ` +
+          `roomId=${roomId} entries=${entries.length} trace=${traceId}`,
+      )
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
       this.logger.error(`[computeAndPushInventory] roomId=${roomId}: ${msg}`)
