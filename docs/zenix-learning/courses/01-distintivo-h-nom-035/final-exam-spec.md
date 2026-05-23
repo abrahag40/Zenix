@@ -16,7 +16,7 @@
 | **Tiempo límite** | 90 minutos (1.5 minutos por pregunta promedio + 30 min para caso práctico) |
 | **Score mínimo aprobación** | ≥80% global (48/60 preguntas correctas mínimo) **+ 100% en ítems críticos** |
 | **Re-takes permitidos** | 3 intentos con espera 7d → 14d → re-tomar curso completo |
-| **Banco origen** | 180 preguntas (`question-bank.md`) — selección aleatoria 60 |
+| **Banco origen** | **300 preguntas** (`question-bank.md`) — selección aleatoria 60 (ratio 5× alineado a ServSafe Manager) |
 
 ---
 
@@ -24,15 +24,17 @@
 
 | Módulo | Preguntas en banco | Preguntas en examen | % del examen | Críticas mínimas |
 |--------|---------------------|---------------------|----------------|------------------|
-| **M1** Marco normativo DH | 15 | 5 | 8.3% | 2 |
-| **M2** Zona de peligro + 5 ETAs | 25 | 8 | 13.3% | 3 |
-| **M3** 11 áreas + 28 puntos críticos | 30 | 12 | 20.0% | 5 |
-| **M4** Higiene del manipulador | 20 | 7 | 11.7% | 3 |
-| **M5** Limpieza/desinfección/códigos | 30 | 8 | 13.3% | 3 |
-| **M6** NOM-035 marco + 5 factores | 25 | 8 | 13.3% | 3 |
-| **M7** Guías Referencia I/II/III | 15 | 5 | 8.3% | 2 |
-| **M8** Política + plan + protocolo | 20 | 7 | 11.7% | 3 |
-| **TOTAL** | **180** | **60** | **100%** | **24 ítems críticos** |
+| **M1** Marco normativo DH | 25 | 5 | 8.3% | 2 |
+| **M2** Zona de peligro + 5 ETAs | 40 | 8 | 13.3% | 3 |
+| **M3** 11 áreas + 28 puntos críticos | 50 | 12 | 20.0% | 5 |
+| **M4** Higiene del manipulador | 35 | 7 | 11.7% | 3 |
+| **M5** Limpieza/desinfección/códigos | 50 | 8 | 13.3% | 3 |
+| **M6** NOM-035 marco + 5 factores | 40 | 8 | 13.3% | 3 |
+| **M7** Guías Referencia I/II/III | 25 | 5 | 8.3% | 2 |
+| **M8** Política + plan + protocolo | 35 | 7 | 11.7% | 3 |
+| **TOTAL** | **300** | **60** | **100%** | **24 ítems críticos** |
+
+**Ratio anti-cheat:** **5×** sobre las 60 preguntas del examen (alineado a ServSafe Manager + ABMP CMTBC standards). Cada candidato recibe permutación única + 1.7% probabilidad de repetición entre intentos consecutivos.
 
 **Distribución 40 Distintivo H + 20 NOM-035:**
 - Distintivo H (M1-M5): **40 preguntas** (66.7% del examen, refleja peso curricular)
