@@ -200,7 +200,7 @@ El "Curso Zenix Sistema" (cómo operar el módulo de housekeeping de Zenix por r
 | 10 | Outline + Módulo 1 (Introducción a operaciones HK, 3 lessons) | ✅ Completado 2026-05-22 |
 | 11 | Módulos 2-3-4-5 (Planning + Químicos + SOPs + Lencería, 13 lessons) | ✅ Completado 2026-05-22 |
 | 12 | Módulos 6-7-8-9-10 (Sustainability + Bioseguridad + Maintenance + QA + Seguridad personal, 12 lessons) → **🎉 Curso 3 COMPLETO 100% (28 lessons)** | ✅ Completado 2026-05-22 |
-| 13 | Question banks Cursos 2+3 + specs examen final + cleanup + handover | ⏳ |
+| 13 | Question banks Cursos 2+3 + specs examen final + cleanup + handover | ✅ Completado 2026-05-22 — **🎉 SPRINT FASE 1.3 COMPLETO** |
 
 ---
 
