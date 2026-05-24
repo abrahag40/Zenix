@@ -5,8 +5,10 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
+    "prebuild": "rm -rf dist && find src -name '*.d.ts' -o -name '*.d.ts.map' -o -name '*.js' -o -name '*.js.map' | xargs -r rm -f",
     "build": "tsc --outDir dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "guard:no-stray-artifacts": "test -z \"$(find src \\( -name '*.d.ts' -o -name '*.js' \\) -print -quit)\" || (echo '❌ Stray build artifacts in src/. Run: npm run prebuild' && exit 1)"
   },
   "devDependencies": {
     "typescript": "*"

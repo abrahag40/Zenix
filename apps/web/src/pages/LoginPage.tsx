@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
 import { useAuthStore } from '../store/auth'
-import type { AuthResponse } from '@zenix/shared'
+import { postLoginRoute, type AuthResponse } from '@zenix/shared'
 
 export function LoginPage() {
   const [email, setEmail]       = useState('')
@@ -27,25 +27,12 @@ export function LoginPage() {
         { skipAuth: true },
       )
       setAuth(data)
-      // ── Post-login routing decision (Day 9) ──────────────────────────
-      // Hierarchy 5-tier Nova (§160):
-      //   PLATFORM / PARTNER_ADMIN / PARTNER_MEMBER → Nova shell
-      //   ORG_OWNER → /nova/dashboard (también ve Nova)
-      //   ORG_STAFF → /dashboard PMS (legacy app)
-      //
-      // Razón: consultor sin property/org no puede usar el dashboard PMS
-      // (las queries fallan con 401 sin tenant scope), y se desloguea por
-      // el 401-handler global.
-      const tier = data.user.actorTier
-      const isNovaTier =
-        tier === 'PLATFORM' ||
-        tier === 'PARTNER_ADMIN' ||
-        tier === 'PARTNER_MEMBER' ||
-        tier === 'ORG_OWNER'
-
-      // Respeta returnTo si está set y es válido para el tier.
-      const fallback = isNovaTier ? '/nova/clientes' : '/dashboard'
-      const target = returnToParam ?? fallback
+      // Post-login routing: función pura en @zenix/shared con test exhaustivo
+      // de la matriz tier × returnTo (ver post-login-route.spec.ts apps/api).
+      const target = postLoginRoute({
+        tier: data.user.actorTier,
+        returnTo: returnToParam,
+      })
       navigate(target, { replace: true })
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Error de conexión')

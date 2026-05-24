@@ -471,6 +471,23 @@ Sin este sign-off = no es GA. Es RC (release candidate).
 
 ---
 
+## 8.5. Regression guards activos — Day 9 sandbox testing capturó 4 bugs
+
+Durante el sandbox testing del Day 9 Nova shell, 4 bugs runtime escaparon de typecheck + unit tests. Cada uno ahora tiene su guard automático:
+
+| Bug | Guard | Archivo |
+|---|---|---|
+| DI module-scoped (TenantContextService faltante en ChannexManagementModule) | **AppModule bootstrap smoke** — Test.createTestingModule({ imports: [AppModule] }).compile() falla si grafo no resuelve | `apps/api/src/app-bootstrap.spec.ts` |
+| Build artifacts stray en `packages/shared/src/` | **`prebuild` script + `guard:no-stray-artifacts`** — rm + find que falla con exit 1 si hay `.d.ts`/`.js` en src/ | `packages/shared/package.json` + `.gitignore` |
+| Login routing PLATFORM → /dashboard PMS → 401 loop | **`postLoginRoute` pura + spec exhaustivo matriz tier × returnTo** (24 tests) | `packages/shared/src/post-login-route.ts` + `apps/api/src/post-login-route.spec.ts` |
+| `JwtStrategy.validate` solo buscaba Staff, no User Nova | **6 unit tests directos del strategy** cubren Staff/User happy/inactive/null combos | `apps/api/src/auth/strategies/jwt.strategy.spec.ts` |
+
+**Lección registrada en `CLAUDE.md` como nuevo anti-pattern:** cuando un servicio NestJS inyecta una dep cross-module, DEBE haber al menos un test que pase por `Test.createTestingModule` con el `AppModule` real — el patrón `new Service(mocks)` pasa typecheck pero bypasea el grafo DI. Los unit tests de los Days 5-7 (310+ specs verdes) NO atrapaban DI bugs por esta razón.
+
+**Bootstrap test corre en cada PR** vía CI (incluido en `npx jest` default). Costo: 30s wall-clock. Beneficio: imposible mergear código con grafo DI roto. Detección: garantizada (verificado revirtiendo el fix temporalmente — el test falla con el mensaje exacto del bug original).
+
+---
+
 ## 9. Tu acción inmediata como CEO
 
 **1. Aprueba el sprint OPS-α (10 días-dev)** pre-v1.0.0 GA. No es negociable — sin esto vas a producción a ciegas.
