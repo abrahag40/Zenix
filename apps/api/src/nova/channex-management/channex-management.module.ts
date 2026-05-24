@@ -16,10 +16,15 @@ import { Module } from '@nestjs/common'
 import { PrismaModule } from '../../prisma/prisma.module'
 import { AuditLogService } from '../audit/audit-log.service'
 import { NovaModule } from '../nova.module'
+import { ChannelPausesController } from './channel-pauses/channel-pauses.controller'
+import { ChannelPausesService } from './channel-pauses/channel-pauses.service'
+import { MappingsController } from './mappings/mappings.controller'
+import { MappingsService } from './mappings/mappings.service'
 import { RateCalendarController } from './rate-calendar/rate-calendar.controller'
 import { RateCalendarService } from './rate-calendar/rate-calendar.service'
 import { ChannexRatePlansController } from './rate-plans/rate-plans.controller'
 import { ChannexRatePlansService } from './rate-plans/rate-plans.service'
+import { RestrictionsController } from './restrictions/restrictions.controller'
 import { ChannexRoomTypesController } from './room-types/room-types.controller'
 import { ChannexRoomTypesService } from './room-types/room-types.service'
 
@@ -29,12 +34,17 @@ import { ChannexRoomTypesService } from './room-types/room-types.service'
     ChannexRoomTypesController,
     ChannexRatePlansController,
     RateCalendarController, // Day 6 — Rate Calendar Matrix
+    RestrictionsController, // Day 7 — Restrictions dedicated tab
+    ChannelPausesController, // Day 7 — Channel pause/unpause (Cloudbeds snooze pattern)
+    MappingsController, // Day 7 — Room↔Channex mapping wizard
   ],
   providers: [
     AuditLogService,
     ChannexRoomTypesService,
     ChannexRatePlansService,
     RateCalendarService,
+    ChannelPausesService,
+    MappingsService,
   ],
   exports: [AuditLogService],
 })
