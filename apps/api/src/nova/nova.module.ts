@@ -20,10 +20,11 @@ import { Module } from '@nestjs/common'
 import { PrismaModule } from '../prisma/prisma.module'
 import { AccessControlService } from './access-control/access-control.service'
 import { NovaActingOrgGuard } from './guards/nova-acting-org.guard'
+import { NovaTiersGuard } from './guards/nova-tiers.guard'
 
 @Module({
   imports: [PrismaModule],
-  providers: [AccessControlService, NovaActingOrgGuard],
-  exports: [AccessControlService, NovaActingOrgGuard],
+  providers: [AccessControlService, NovaActingOrgGuard, NovaTiersGuard],
+  exports: [AccessControlService, NovaActingOrgGuard, NovaTiersGuard],
 })
 export class NovaModule {}
