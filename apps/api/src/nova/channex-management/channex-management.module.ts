@@ -14,6 +14,7 @@
  */
 import { Module } from '@nestjs/common'
 import { PrismaModule } from '../../prisma/prisma.module'
+import { TenantContextService } from '../../common/tenant-context.service'
 import { AuditLogService } from '../audit/audit-log.service'
 import { NovaModule } from '../nova.module'
 import { ChannelPausesController } from './channel-pauses/channel-pauses.controller'
@@ -39,6 +40,10 @@ import { ChannexRoomTypesService } from './room-types/room-types.service'
     MappingsController, // Day 7 — Room↔Channex mapping wizard
   ],
   providers: [
+    // TenantContextService es app-level (registrado en app.module.ts) pero
+    // NestJS DI es module-scoped — cada module que lo inyecta debe declararlo.
+    // Pattern usado en blocks/checkouts/maintenance/rooms modules.
+    TenantContextService,
     AuditLogService,
     ChannexRoomTypesService,
     ChannexRatePlansService,
