@@ -14,9 +14,7 @@ export function LoginPage() {
   const [searchParams] = useSearchParams()
 
   const reason   = searchParams.get('reason')
-  // Where to send the user after a successful login.
-  // Defaults to the Dashboard, the post-login landing for every role.
-  const returnTo = searchParams.get('returnTo') ?? '/dashboard'
+  const returnToParam = searchParams.get('returnTo')
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -29,8 +27,26 @@ export function LoginPage() {
         { skipAuth: true },
       )
       setAuth(data)
-      // Return to the exact page the user was on before the session expired
-      navigate(returnTo, { replace: true })
+      // ── Post-login routing decision (Day 9) ──────────────────────────
+      // Hierarchy 5-tier Nova (§160):
+      //   PLATFORM / PARTNER_ADMIN / PARTNER_MEMBER → Nova shell
+      //   ORG_OWNER → /nova/dashboard (también ve Nova)
+      //   ORG_STAFF → /dashboard PMS (legacy app)
+      //
+      // Razón: consultor sin property/org no puede usar el dashboard PMS
+      // (las queries fallan con 401 sin tenant scope), y se desloguea por
+      // el 401-handler global.
+      const tier = data.user.actorTier
+      const isNovaTier =
+        tier === 'PLATFORM' ||
+        tier === 'PARTNER_ADMIN' ||
+        tier === 'PARTNER_MEMBER' ||
+        tier === 'ORG_OWNER'
+
+      // Respeta returnTo si está set y es válido para el tier.
+      const fallback = isNovaTier ? '/nova/clientes' : '/dashboard'
+      const target = returnToParam ?? fallback
+      navigate(target, { replace: true })
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Error de conexión')
     } finally {
