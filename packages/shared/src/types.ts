@@ -116,6 +116,18 @@ export interface AuthResponse {
       | 'ECO_LODGE'
       | 'VACATION_RENTAL'
       | null
+    // ── Nova fields (Day 9) — empujados al frontend para drivear shell UX ──
+    // Sin esto, el web tendría que decodear el JWT manualmente. Mejor
+    // exponerlos en /auth/login response explícitos.
+    /** ActorTier resuelto server-side. ORG_STAFF = sigue en /app.zenix.com. */
+    actorTier?: ActorTier
+    /** Set si actorTier ∈ { PLATFORM, PARTNER_* }. */
+    partnerMemberId?: string
+    /** Inline ≤20 orgs. Si null = overflow, frontend consulta endpoint clients. */
+    assignedOrgIds?: string[]
+    /** organizationId del User row. Set para ORG_OWNER + ORG_STAFF; null para
+     *  PLATFORM y consultores (no tienen org propia). */
+    organizationId?: string | null
   }
 }
 

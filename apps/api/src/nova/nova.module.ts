@@ -19,12 +19,15 @@
 import { Module } from '@nestjs/common'
 import { PrismaModule } from '../prisma/prisma.module'
 import { AccessControlService } from './access-control/access-control.service'
+import { NovaClientsController } from './clients/clients.controller'
+import { NovaClientsService } from './clients/clients.service'
 import { NovaActingOrgGuard } from './guards/nova-acting-org.guard'
 import { NovaTiersGuard } from './guards/nova-tiers.guard'
 
 @Module({
   imports: [PrismaModule],
-  providers: [AccessControlService, NovaActingOrgGuard, NovaTiersGuard],
+  controllers: [NovaClientsController], // Day 9 — landing /nova/clientes
+  providers: [AccessControlService, NovaActingOrgGuard, NovaTiersGuard, NovaClientsService],
   exports: [AccessControlService, NovaActingOrgGuard, NovaTiersGuard],
 })
 export class NovaModule {}
