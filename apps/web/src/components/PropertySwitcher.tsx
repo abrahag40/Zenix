@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, ChevronDown } from 'lucide-react'
-import toast from 'react-hot-toast'
+import { toast } from 'sonner'
 import { api } from '../api/client'
 import { useAuthStore } from '../store/auth'
 import { usePropertyStore } from '../store/property'

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import toast from 'react-hot-toast'
+import { toast } from 'sonner'
 import { TrendingUp, TrendingDown, Minus, RefreshCw, Save, AlertTriangle } from 'lucide-react'
 import { api } from '@/api/client'
 import { usePropertyStore } from '@/store/property'

@@ -17,7 +17,7 @@
  */
 import { useState, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import toast from 'react-hot-toast'
+import { toast } from 'sonner'
 import { format } from 'date-fns'
 import { tasksOverridesApi, type WalkInPayload } from '../../api/tasks-overrides.api'
 import { api } from '../../api/client'
