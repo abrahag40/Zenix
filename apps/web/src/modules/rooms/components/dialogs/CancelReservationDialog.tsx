@@ -3,7 +3,6 @@ import { format, differenceInDays } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { X, AlertTriangle, User, Building2, Globe, AlertCircle, ChevronDown, ChevronUp, ExternalLink, RadioTower } from 'lucide-react'
 import { DialogActions } from '../shared/DialogActions'
-import { TypeToConfirmGate } from '@/components/TypeToConfirmGate'
 import type { GuestStayBlock } from '../../types/timeline.types'
 import type { CancelStayInput } from '../../hooks/useGuestStays'
 import { useModalDismiss } from '../../hooks/useModalDismiss'
@@ -99,18 +98,10 @@ export function CancelReservationDialog({
   // canal), por lo tanto no se exige el checkbox — el botón cancela solo el
   // estado local; el operador maneja la cancelación real en el portal.
   const requiresOtaForcingFunction = otaCancelTriggersPush && !isAirbnb
-
-  // Type-to-confirm: requerido cuando la cancel impacta material — paid
-  // amount > 0 (refund flow + chargeback risk) O push a OTA real (no Airbnb).
-  // Para admin-error (step 1→2) NO se exige (ya hay step extra como friction).
-  const isHighStakes = !isAdminError && (Number(stay.amountPaid ?? 0) > 0 || requiresOtaForcingFunction)
-  const [typeConfirmed, setTypeConfirmed] = useState(false)
-
   const canConfirm =
     !!initiator &&
     (!isAdminError || step === 2) &&
-    (!requiresOtaForcingFunction || otaConfirmed) &&
-    (!isHighStakes || typeConfirmed)
+    (!requiresOtaForcingFunction || otaConfirmed)
 
   return (
     <div
@@ -321,26 +312,6 @@ export function CancelReservationDialog({
                 <li>• Queda registrado con tu usuario</li>
               </ul>
             </div>
-          )}
-
-          {/* Type-to-confirm gate — solo cuando la cancel es high-stakes
-              (saldo pagado > 0 O push real a OTA). El operador debe teclear
-              el nombre del huésped para confirmar — reduce mis-clicks ~95%
-              (GitHub Eng 2018 + Kahneman 2011 Sistema 2 activation). */}
-          {isHighStakes && (!isAdminError || step === 2) && initiator && (
-            <TypeToConfirmGate
-              confirmationText={stay.guestName}
-              label={
-                <>
-                  Para cancelar, escribe el nombre del huésped:{' '}
-                  <span className="font-medium text-slate-900">{stay.guestName}</span>
-                </>
-              }
-              onMatchChange={setTypeConfirmed}
-              disabled={isPending}
-              compact
-              autoFocus={false}
-            />
           )}
         </div>
 
