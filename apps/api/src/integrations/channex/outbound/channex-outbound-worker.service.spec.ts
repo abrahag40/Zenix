@@ -43,9 +43,14 @@ describe('ChannexOutboundWorker', () => {
   let prisma: {
     channexOutboundQueue: { findUnique: jest.Mock; update: jest.Mock }
     property: { findUnique: jest.Mock }
+    guestStay: { updateMany: jest.Mock }
     $queryRaw: jest.Mock
   }
-  let gateway: { pushAvailability: jest.Mock; pushRestrictions: jest.Mock }
+  let gateway: {
+    pushAvailability: jest.Mock
+    pushRestrictions: jest.Mock
+    cancelBookingAtChannex: jest.Mock
+  }
   let bucket: { consume: jest.Mock }
   let notif: { raiseDeadLetter: jest.Mock }
 
@@ -58,11 +63,15 @@ describe('ChannexOutboundWorker', () => {
       property: {
         findUnique: jest.fn().mockResolvedValue({ organizationId: 'org-1' }),
       },
+      guestStay: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
       $queryRaw: jest.fn().mockResolvedValue([]),
     }
     gateway = {
       pushAvailability: jest.fn().mockResolvedValue(undefined),
       pushRestrictions: jest.fn().mockResolvedValue(undefined),
+      cancelBookingAtChannex: jest.fn().mockResolvedValue({ ok: true, status: 200 }),
     }
     bucket = {
       consume: jest.fn().mockReturnValue({ ok: true }),
@@ -113,6 +122,85 @@ describe('ChannexOutboundWorker', () => {
 
     expect(gateway.pushRestrictions).toHaveBeenCalledTimes(1)
     expect(gateway.pushAvailability).not.toHaveBeenCalled()
+  })
+
+  it('dispatch by kind: BOOKING_CANCEL → cancelBookingAtChannex + stay sync timestamp (Sprint CHANNEX-UX-E2-E3)', async () => {
+    prisma.$queryRaw.mockResolvedValueOnce([{ id: 'out-cancel-1' }])
+    prisma.channexOutboundQueue.findUnique.mockResolvedValue(
+      makeRow({
+        id: 'out-cancel-1',
+        kind: 'BOOKING_CANCEL',
+        payload: {
+          channexBookingId: 'chx-booking-xyz',
+          stayId: 'stay-1',
+          channexOtaName: 'booking_com',
+          reason: 'Huésped solicitó',
+        },
+      }),
+    )
+
+    const result = await worker.drain()
+
+    expect(result.succeeded).toBe(1)
+    expect(gateway.cancelBookingAtChannex).toHaveBeenCalledWith('chx-booking-xyz', 'Huésped solicitó')
+    expect(gateway.pushAvailability).not.toHaveBeenCalled()
+    expect(gateway.pushRestrictions).not.toHaveBeenCalled()
+    // Chip post-push: stay.channexLastSyncAt actualizado para BookingDetailSheet
+    expect(prisma.guestStay.updateMany).toHaveBeenCalledWith({
+      where: { id: 'stay-1' },
+      data: { channexLastSyncAt: expect.any(Date) },
+    })
+  })
+
+  it('BOOKING_CANCEL sin reason → cancelBookingAtChannex con reason undefined', async () => {
+    prisma.$queryRaw.mockResolvedValueOnce([{ id: 'out-cancel-2' }])
+    prisma.channexOutboundQueue.findUnique.mockResolvedValue(
+      makeRow({
+        id: 'out-cancel-2',
+        kind: 'BOOKING_CANCEL',
+        payload: {
+          channexBookingId: 'chx-booking-abc',
+          stayId: 'stay-2',
+          channexOtaName: 'expedia',
+          reason: null,
+        },
+      }),
+    )
+
+    await worker.drain()
+
+    expect(gateway.cancelBookingAtChannex).toHaveBeenCalledWith('chx-booking-abc', undefined)
+  })
+
+  it('BOOKING_CANCEL → 404 terminal (Channex booking ya purged) → DEAD_LETTER + AppNotif', async () => {
+    prisma.$queryRaw.mockResolvedValueOnce([{ id: 'out-cancel-3' }])
+    prisma.channexOutboundQueue.findUnique.mockResolvedValue(
+      makeRow({
+        id: 'out-cancel-3',
+        kind: 'BOOKING_CANCEL',
+        payload: {
+          channexBookingId: 'chx-booking-purged',
+          stayId: 'stay-3',
+          channexOtaName: 'airbnb',
+          reason: null,
+        },
+      }),
+    )
+    gateway.cancelBookingAtChannex.mockRejectedValueOnce(
+      new ChannexHttpError('cancelBookingAtChannex chx-booking-purged HTTP 404: Not Found', 404),
+    )
+
+    const result = await worker.drain()
+
+    expect(result.deadLetter).toBe(1)
+    expect(notif.raiseDeadLetter).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'BOOKING_CANCEL',
+        httpStatus: 404,
+      }),
+    )
+    // El stay NO debe marcarse synced si el push falló
+    expect(prisma.guestStay.updateMany).not.toHaveBeenCalled()
   })
 
   it('token bucket exhausted → DEFERRED (no Gateway call, no attempt counter++)', async () => {

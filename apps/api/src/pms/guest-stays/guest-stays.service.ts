@@ -10,7 +10,9 @@ import { EventEmitter2 } from '@nestjs/event-emitter'
 import { PrismaService } from '../../prisma/prisma.service'
 import {
   CHANNEX_AVAILABILITY_CHANGED,
+  CHANNEX_BOOKING_CANCEL_REQUESTED,
   ChannexAvailabilityChangedEvent,
+  ChannexBookingCancelRequestedEvent,
 } from '../../integrations/channex/outbound/channex-outbound-events'
 import { TenantContextService } from '../../common/tenant-context.service'
 import { EmailService } from '../../common/email/email.service'
@@ -3428,6 +3430,23 @@ export class GuestStaysService {
       guestName:  stay.guestName,
       initiator:  dto.initiator,
     })
+
+    // Sprint CHANNEX-UX-E2-E3 §150 (D-CHX-UX-E2.1) — push CRS al canal.
+    // Solo si la cancel ORIGINA en el PMS (HOTEL/ADMIN_ERROR). Cancels que
+    // vienen de OTA/SYSTEM/GUEST ya fueron orquestados por el canal (caso
+    // CHANNEX_WEBHOOK) o por procesos internos que no deben rebotar al CRS.
+    // Si no hay channexBookingId, el stay es direct → nada que sincronizar.
+    const isPmsOriginatedCancel = dto.initiator === 'HOTEL' || dto.initiator === 'ADMIN_ERROR'
+    if (stay.channexBookingId && isPmsOriginatedCancel) {
+      const cancelEvent: ChannexBookingCancelRequestedEvent = {
+        propertyId:       stay.propertyId,
+        stayId,
+        channexBookingId: stay.channexBookingId,
+        channexOtaName:   stay.channexOtaName,
+        reason:           dto.reason ?? null,
+      }
+      this.events.emit(CHANNEX_BOOKING_CANCEL_REQUESTED, cancelEvent)
+    }
 
     // Notif al SUPERVISOR — paridad industria (Cloudbeds/Opera notifican,
     // Mews tiene feature request 2yr abierta). Self-suppress aplicado en

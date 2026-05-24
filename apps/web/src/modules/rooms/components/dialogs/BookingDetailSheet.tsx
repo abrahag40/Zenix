@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import toast from 'react-hot-toast'
+import { toast } from 'sonner'
 import { useSoftLock } from '@/hooks/useSoftLock'
 import { useShakeOnInvalid } from '@/hooks/useShakeOnInvalid'
 import { useMaintenanceTickets } from '../../../maintenance/hooks/useMaintenanceTickets'
@@ -40,13 +40,13 @@ import {
   Split as SplitIcon,
 } from 'lucide-react'
 
-import { format, differenceInDays, differenceInHours, startOfDay } from 'date-fns'
+import { format, differenceInDays, differenceInHours, formatDistanceToNowStrict, startOfDay } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { cn } from '@/lib/utils'
 
 import {
   STAY_STATUS_COLORS,
-  OTA_ACCENT_COLORS,
+  resolveOtaDisplay,
 } from '../../utils/timeline.constants'
 
 import { getStayStatus } from '../../utils/timeline.utils'
@@ -966,7 +966,10 @@ export function BookingDetailSheet({
 
   const status = getStayStatus(stay.checkIn, stay.checkOut, stay.actualCheckout, stay.actualCheckin, stay.noShowAt)
   const statusColors = STAY_STATUS_COLORS[status]
-  const otaColor = OTA_ACCENT_COLORS[stay.source] ?? OTA_ACCENT_COLORS.other
+  // Sprint CHANNEX-UX-E2-E3 §149 — resolveOtaDisplay unifica channex slug + legacy
+  // source en un solo brand chip (color oficial Booking navy / Airbnb coral / etc.)
+  const otaMeta = resolveOtaDisplay(stay.channexOtaName, stay.source)
+  const otaColor = otaMeta.color
 
   const isNoShow  = !!stay.noShowAt
   const canRevert = isNoShow && differenceInHours(new Date(), stay.noShowAt!) < 48
@@ -1089,13 +1092,19 @@ export function BookingDetailSheet({
                   </span>
                 )}
 
-                {/* Chip 2 — OTA (origen de la reserva) */}
-                {stay.otaName && (
+                {/* Chip 2 — OTA brand chip (color + label oficial del canal).
+                    Sprint CHANNEX-UX-E2-E3 §149: usa Channex slug si está, sino
+                    fallback a source legacy. Color/label/textTone vienen de
+                    resolveOtaDisplay → coherencia visual con marketing del OTA. */}
+                {(stay.channexOtaName || stay.otaName) && (
                   <span
-                    className="text-[11px] font-semibold px-2 py-0.5 rounded-full text-white whitespace-nowrap shadow-[0_1px_2px_rgba(0,0,0,0.08)]"
-                    style={{ backgroundColor: otaColor }}
+                    className="text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap shadow-[0_1px_2px_rgba(0,0,0,0.08)]"
+                    style={{
+                      backgroundColor: otaColor,
+                      color: otaMeta.textTone === 'light' ? '#FFFFFF' : '#0F172A',
+                    }}
                   >
-                    {stay.otaName}
+                    {otaMeta.label}
                   </span>
                 )}
 
@@ -1417,8 +1426,12 @@ export function BookingDetailSheet({
                 </div>
 
                 {/* IDs adicionales — bookingRef + ID interno ya viven en el header.
-                    Aquí mostramos solo IDs externos (OTA, PMS legacy distinto) cuando aplican. */}
-                {(stay.otaReservationId || (stay.pmsReservationId && stay.pmsReservationId !== stay.bookingRef)) && (
+                    Aquí mostramos solo IDs externos (OTA, PMS legacy distinto) cuando aplican.
+                    Sprint CHANNEX-UX-E2-E3: ahora también renderiza cuando hay
+                    `channexBookingId` (reservas OTA vía Channex sin otaReservationId
+                    legacy). El operador necesita ver Channex ID + chip sync incluso
+                    si la OTA no expone su propio ID interno (caso común Booking.com). */}
+                {(stay.otaReservationId || stay.channexBookingId || (stay.pmsReservationId && stay.pmsReservationId !== stay.bookingRef)) && (
                   <div className="space-y-1.5">
                     <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                       IDs externos
@@ -1455,26 +1468,22 @@ export function BookingDetailSheet({
                           <CopyableId value={stay.channexBookingId} />
                         </div>
                       )}
-                      {stay.channexLastSyncAt && (
-                        <div className="flex items-center justify-between px-3 py-2.5 border-t border-slate-100">
-                          <span className="text-xs text-slate-400 font-mono uppercase tracking-wide">
-                            Última sync OTA
-                          </span>
-                          <span className="text-xs text-slate-600">
-                            {new Date(stay.channexLastSyncAt).toLocaleString('es-MX', {
-                              dateStyle: 'short',
-                              timeStyle: 'short',
-                            })}
-                          </span>
-                        </div>
-                      )}
+                      {/* Sprint CHANNEX-UX-E2-E3 §151 (D-CHX-UX-E2.2)
+                          Chip dinámico de sync con OTA. Estados:
+                            - cancelled + syncedAfterCancel: verde "✓ Cancelado en {ota} hace Xs"
+                            - cancelled + NO syncedAfterCancel: amber "⏳ Sincronizando con {ota}…"
+                            - active + lastSyncAt: gris sutil "Última sync hace Xs"
+                          Reemplaza al row "Última sync OTA" plano para alinearse
+                          con Cloudbeds chip-pattern (queja #1 cross-PMS: silent fail). */}
+                      <ChannexSyncChip stay={stay} />
+
                       {stay.paymentModel === 'OTA_COLLECT' && (
                         <div className="flex items-center justify-between px-3 py-2.5 border-t border-slate-100 bg-blue-50/40">
                           <span className="text-xs text-blue-900 font-medium uppercase tracking-wide">
                             Pago por OTA
                           </span>
                           <span className="text-xs text-blue-800">
-                            Cobrado por {stay.channexOtaName ?? stay.otaName ?? 'OTA'} · folio marca PAID
+                            Cobrado por {otaMeta.label} · folio marca PAID
                           </span>
                         </div>
                       )}
@@ -2395,4 +2404,71 @@ export function BookingDetailSheet({
     />
     </>
   )
+}
+
+// ─── Sprint CHANNEX-UX-E2-E3 §151 (D-CHX-UX-E2.2) ─────────────────────────
+// Chip de sincronización con OTA via Channex. Reemplaza al row "Última sync"
+// plano para que el operador SEPA si el push CRS llegó al canal.
+//
+// Estados:
+//   1. Stay cancelado + syncedAfterCancel    → verde "✓ Cancelado en {ota} hace Xs"
+//   2. Stay cancelado + NO syncedAfterCancel → amber "⏳ Sincronizando con {ota}…"
+//   3. Stay activo + lastSyncAt              → gris sutil "Última sync hace Xs"
+//
+// Caso 2 ocurre durante la ventana entre cancelStay y el worker dispatch
+// (típicamente <30s). El SSE `channex:cancel-acked` re-fetch el stay → el
+// chip flippea a verde sin recargar la página.
+function ChannexSyncChip({ stay }: { stay: GuestStayBlock }) {
+  const otaName = resolveOtaDisplay(stay.channexOtaName, stay.source).label
+  const lastSync = stay.channexLastSyncAt ? new Date(stay.channexLastSyncAt) : null
+  const cancelledAt = stay.cancelledAt ? new Date(stay.cancelledAt) : null
+  const syncedAfterCancel =
+    cancelledAt !== null && lastSync !== null && lastSync.getTime() >= cancelledAt.getTime()
+
+  // Caso 1 — cancelado + acked por Channex
+  if (cancelledAt && syncedAfterCancel && lastSync) {
+    return (
+      <div className="flex items-center justify-between px-3 py-2.5 border-t border-emerald-100 bg-emerald-50/50">
+        <span className="text-xs text-emerald-900 font-medium uppercase tracking-wide">
+          Sincronización OTA
+        </span>
+        <span className="text-xs text-emerald-800 inline-flex items-center gap-1">
+          <span aria-hidden>✓</span>
+          Cancelado en {otaName} hace{' '}
+          {formatDistanceToNowStrict(lastSync, { locale: es })}
+        </span>
+      </div>
+    )
+  }
+
+  // Caso 2 — cancelado pero el push aún no acknowledged
+  if (cancelledAt && !syncedAfterCancel) {
+    return (
+      <div className="flex items-center justify-between px-3 py-2.5 border-t border-amber-100 bg-amber-50/50">
+        <span className="text-xs text-amber-900 font-medium uppercase tracking-wide">
+          Sincronización OTA
+        </span>
+        <span className="text-xs text-amber-800 inline-flex items-center gap-1">
+          <span aria-hidden className="inline-block animate-pulse">⏳</span>
+          Sincronizando con {otaName}…
+        </span>
+      </div>
+    )
+  }
+
+  // Caso 3 — stay activo con history previo (ej: extensión)
+  if (lastSync) {
+    return (
+      <div className="flex items-center justify-between px-3 py-2.5 border-t border-slate-100">
+        <span className="text-xs text-slate-400 font-mono uppercase tracking-wide">
+          Última sync OTA
+        </span>
+        <span className="text-xs text-slate-600">
+          hace {formatDistanceToNowStrict(lastSync, { locale: es })}
+        </span>
+      </div>
+    )
+  }
+
+  return null
 }

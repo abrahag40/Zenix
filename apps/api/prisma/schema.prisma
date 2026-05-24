@@ -1533,6 +1533,7 @@ enum ChannexOutboxStatus {
 enum ChannexOutboundKind {
   AVAILABILITY        // POST /api/v1/availability — count per [property, room_type, date]
   RATES_RESTRICTIONS  // POST /api/v1/restrictions — rates + min/max stay + CTA/CTD + stop_sell per [property, rate_plan, date]
+  BOOKING_CANCEL      // PUT /api/v1/bookings/:id status=cancelled — manual cancel from PMS, propagates to OTA (Sprint CHANNEX-UX-E2-E3 §150)
 }
 
 enum ChannexOutboundStatus {

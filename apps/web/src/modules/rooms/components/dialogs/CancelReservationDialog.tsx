@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { format, differenceInDays } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { X, AlertTriangle, User, Building2, Globe, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { X, AlertTriangle, User, Building2, Globe, AlertCircle, ChevronDown, ChevronUp, ExternalLink, RadioTower } from 'lucide-react'
 import { DialogActions } from '../shared/DialogActions'
 import type { GuestStayBlock } from '../../types/timeline.types'
 import type { CancelStayInput } from '../../hooks/useGuestStays'
 import { useModalDismiss } from '../../hooks/useModalDismiss'
+import { resolveOtaDisplay } from '../../utils/timeline.constants'
+
+const AIRBNB_PORTAL_URL = 'https://www.airbnb.com/hosting/reservations'
 
 interface CancelReservationDialogProps {
   stay: GuestStayBlock
@@ -43,13 +45,29 @@ export function CancelReservationDialog({
   const [reason, setReason] = useState<string>('')
   const [step, setStep] = useState<1 | 2>(1)
   const [showDetails, setShowDetails] = useState(false)
+  // Sprint CHANNEX-UX-E2-E3 §152 (D-CHX-UX-E2.3) — forcing function checkbox
+  // requerido cuando el cancel dispara push a OTA (otaCancelTriggersPush below).
+  const [otaConfirmed, setOtaConfirmed] = useState(false)
 
   const nights = differenceInDays(stay.checkOut, stay.checkIn)
   const total = Number(stay.totalAmount ?? stay.ratePerNight * nights)
   const isAdminError = initiator === 'ADMIN_ERROR'
 
+  // ── Channex OTA detection ──────────────────────────────────────────────
+  // Sprint CHANNEX-UX-E2-E3. La push CRS sólo se dispara cuando:
+  //   1. El stay tiene channexBookingId mapeado.
+  //   2. El cancel ORIGINA en el PMS (HOTEL o ADMIN_ERROR). Cancels que el
+  //      huésped hizo en la OTA (initiator=OTA/GUEST) NO rebotan al canal —
+  //      ya fueron orquestados por Channex.
+  const hasChannexLink = !!stay.channexBookingId
+  const otaCancelTriggersPush =
+    hasChannexLink && (initiator === 'HOTEL' || initiator === 'ADMIN_ERROR')
+  const otaLabel = resolveOtaDisplay(stay.channexOtaName, stay.source).label
+  const isAirbnb = stay.channexOtaName === 'airbnb'
+
   // Dirty-state detection — Apple HIG: confirm before discarding work.
-  const isDirty = initiator !== null || reasonCode !== '' || reason.trim() !== '' || step === 2
+  const isDirty =
+    initiator !== null || reasonCode !== '' || reason.trim() !== '' || step === 2 || otaConfirmed
 
   const { requestClose: handleCloseRequest, onBackdropClick, dialogElement: discardPrompt } = useModalDismiss({
     isDirty,
@@ -73,7 +91,17 @@ export function CancelReservationDialog({
     })
   }
 
-  const canConfirm = !!initiator && (!isAdminError || step === 2)
+  // Forcing function: si la cancelación va a propagar a OTA (Booking/Expedia/etc.),
+  // el operador debe checkbox-confirmar antes de habilitar el botón. Apple HIG
+  // destructive confirmation. Sin esto, Mews silent-fail pattern (queja #1
+  // cross-PMS). Excepción Airbnb: no hay push (cancel manual en extranet del
+  // canal), por lo tanto no se exige el checkbox — el botón cancela solo el
+  // estado local; el operador maneja la cancelación real en el portal.
+  const requiresOtaForcingFunction = otaCancelTriggersPush && !isAirbnb
+  const canConfirm =
+    !!initiator &&
+    (!isAdminError || step === 2) &&
+    (!requiresOtaForcingFunction || otaConfirmed)
 
   return (
     <div
@@ -82,7 +110,7 @@ export function CancelReservationDialog({
     >
       <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px] pointer-events-none" />
 
-      <div className="relative z-10 w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden max-h-[85vh] flex flex-col">
+      <div className={`relative z-10 w-full ${otaCancelTriggersPush ? 'max-w-md' : 'max-w-sm'} bg-white rounded-2xl shadow-2xl overflow-hidden max-h-[85vh] flex flex-col`}>
         {/* Header stripe rojo apagado */}
         <div className="h-1 bg-rose-500/70 flex-shrink-0" />
 
@@ -204,6 +232,71 @@ export function CancelReservationDialog({
                     : 'Una vez confirmada no se podrá restaurar (si vuelve, crea reserva nueva).'}
                 </p>
               )}
+
+              {/* ─── SINCRONIZACIÓN OTA — Sprint CHANNEX-UX-E2-E3 §151-§152 ─── */}
+              {otaCancelTriggersPush && !isAirbnb && (
+                <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2.5 space-y-2">
+                  <div className="flex items-start gap-2">
+                    <RadioTower className="h-3.5 w-3.5 text-sky-600 mt-0.5 flex-shrink-0" />
+                    <div className="space-y-0.5">
+                      <p className="text-[11px] font-semibold text-sky-900">
+                        Sincronización con {otaLabel}
+                      </p>
+                      <p className="text-[11px] text-sky-800 leading-snug">
+                        Al confirmar, Zenix enviará la cancelación a{' '}
+                        <span className="font-semibold">{otaLabel}</span> vía Channex
+                        en tiempo real. El inventario se liberará allá en ~5-15s; verás
+                        un chip <span className="font-semibold">✓ Sincronizado</span> en
+                        la reserva una vez que el canal acuse recibo.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {otaCancelTriggersPush && isAirbnb && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 space-y-2">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="h-3.5 w-3.5 text-amber-600 mt-0.5 flex-shrink-0" />
+                    <div className="space-y-1.5">
+                      <p className="text-[11px] font-semibold text-amber-900">
+                        Airbnb requiere cancelación desde su extranet
+                      </p>
+                      <p className="text-[11px] text-amber-800 leading-snug">
+                        Por política del canal (vigente desde 2022), Airbnb no permite
+                        cancelar reservas desde un PMS externo. Cancela primero en
+                        Airbnb; al volver, Zenix detectará el webhook automáticamente.
+                      </p>
+                      <a
+                        href={AIRBNB_PORTAL_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-900 hover:text-amber-700 underline"
+                      >
+                        Abrir Airbnb extranet
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Forcing function — sólo cuando hay push real (no Airbnb que va a portal) */}
+              {otaCancelTriggersPush && !isAirbnb && (
+                <label className="flex items-start gap-2 px-1 py-1 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={otaConfirmed}
+                    onChange={(e) => setOtaConfirmed(e.target.checked)}
+                    className="mt-0.5 h-3.5 w-3.5 rounded border-slate-300 text-slate-900 focus:ring-1 focus:ring-slate-900/20"
+                    disabled={isPending}
+                  />
+                  <span className="text-[11px] text-slate-700 leading-snug">
+                    Confirmo que entiendo que esto liberará el inventario en{' '}
+                    <span className="font-semibold">{otaLabel}</span>.
+                  </span>
+                </label>
+              )}
             </>
           )}
 
@@ -222,12 +315,21 @@ export function CancelReservationDialog({
           )}
         </div>
 
-        {/* Actions footer — fixed bottom */}
+        {/* Actions footer — fixed bottom.
+            Sprint CHANNEX-UX-E2-E3 §150: label dinámico cuando dispara push CRS. */}
         <DialogActions
           onCancel={() => step === 2 ? setStep(1) : handleCloseRequest()}
           cancelLabel={step === 2 ? 'Atrás' : 'Cancelar acción'}
           onConfirm={handleSubmit}
-          confirmLabel={step === 2 ? 'Confirmar' : (isAdminError ? 'Continuar' : 'Confirmar')}
+          confirmLabel={
+            step === 2
+              ? 'Confirmar'
+              : isAdminError
+                ? 'Continuar'
+                : otaCancelTriggersPush && !isAirbnb
+                  ? `Cancelar y notificar a ${otaLabel}`
+                  : 'Confirmar'
+          }
           tone="destructive"
           isPending={isPending}
           confirmDisabled={!canConfirm}

@@ -170,11 +170,30 @@ export class ChannexOutboundWorker {
 
     // 3. Dispatch a Gateway según kind
     try {
-      const payload = row.payload as { entries: unknown[] }
       if (row.kind === 'AVAILABILITY') {
+        const payload = row.payload as { entries: unknown[] }
         await this.gateway.pushAvailability(payload.entries as ChannexAvailabilityEntry[])
-      } else {
+      } else if (row.kind === 'RATES_RESTRICTIONS') {
+        const payload = row.payload as { entries: unknown[] }
         await this.gateway.pushRestrictions(payload.entries as ChannexRestrictionEntry[])
+      } else if (row.kind === 'BOOKING_CANCEL') {
+        // Sprint CHANNEX-UX-E2-E3 §150 — propaga manual cancel a OTA via CRS.
+        const payload = row.payload as {
+          channexBookingId: string
+          stayId: string
+          reason?: string | null
+        }
+        await this.gateway.cancelBookingAtChannex(
+          payload.channexBookingId,
+          payload.reason ?? undefined,
+        )
+        // Best-effort: marca el stay como sincronizado para que el chip
+        // "✓ Cancelado en {ota} hace Xs" aparezca en BookingDetailSheet.
+        // Si el stay fue purged entre encolar y procesar, el update es no-op.
+        await this.prisma.guestStay.updateMany({
+          where: { id: payload.stayId },
+          data: { channexLastSyncAt: new Date() },
+        })
       }
 
       // 4. Success
@@ -200,7 +219,7 @@ export class ChannexOutboundWorker {
   private async handleError(
     id: string,
     attempts: number,
-    kind: 'AVAILABILITY' | 'RATES_RESTRICTIONS',
+    kind: 'AVAILABILITY' | 'RATES_RESTRICTIONS' | 'BOOKING_CANCEL',
     propertyId: string,
     organizationId: string | null,
     err: unknown,

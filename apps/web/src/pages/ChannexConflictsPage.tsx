@@ -20,7 +20,7 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { StaffRole } from '@zenix/shared'
-import toast from 'react-hot-toast'
+import { toast } from 'sonner'
 import { api } from '../api/client'
 import { useAuthStore } from '../store/auth'
 

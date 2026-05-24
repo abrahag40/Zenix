@@ -80,6 +80,60 @@ describe('ChannexOutboundBuilderService', () => {
     })
   })
 
+  describe('@OnEvent channex.booking.cancel.requested — Sprint CHANNEX-UX-E2-E3 §150', () => {
+    it('persiste row BOOKING_CANCEL con priority 80 (entre AVAILABILITY y RATES_RESTRICTIONS)', async () => {
+      await svc.onBookingCancelRequested({
+        propertyId: 'p1',
+        stayId: 'stay-1',
+        channexBookingId: 'chx-booking-xyz',
+        channexOtaName: 'booking_com',
+        reason: 'Huésped solicitó cancelación',
+      })
+
+      const call = prisma.channexOutboundQueue.create.mock.calls[0][0]
+      expect(call.data.kind).toBe('BOOKING_CANCEL')
+      expect(call.data.priority).toBe(80)
+      expect(call.data.status).toBe('PENDING')
+      expect(call.data.payload).toEqual({
+        channexBookingId: 'chx-booking-xyz',
+        stayId: 'stay-1',
+        channexOtaName: 'booking_com',
+        reason: 'Huésped solicitó cancelación',
+      })
+      expect(call.data.payloadHash).toMatch(/^[a-f0-9]{64}$/)
+    })
+
+    it('channexBookingId vacío → no-op (no insert, stay direct sin OTA)', async () => {
+      await svc.onBookingCancelRequested({
+        propertyId: 'p1',
+        stayId: 'stay-2',
+        channexBookingId: '',
+        channexOtaName: null,
+        reason: null,
+      })
+      expect(prisma.channexOutboundQueue.create).not.toHaveBeenCalled()
+    })
+
+    it('dedup: cancel duplicado del mismo channexBookingId en <5s → skip', async () => {
+      prisma.channexOutboundQueue.findFirst.mockResolvedValueOnce({ id: 'queue-existing' })
+
+      const result = await svc.enqueue({
+        propertyId: 'p1',
+        kind: 'BOOKING_CANCEL',
+        priority: 80,
+        payload: {
+          channexBookingId: 'chx-booking-xyz',
+          stayId: 'stay-1',
+          channexOtaName: 'booking_com',
+          reason: 'dup',
+        },
+      })
+
+      expect(result.deduped).toBe(true)
+      expect(prisma.channexOutboundQueue.create).not.toHaveBeenCalled()
+    })
+  })
+
   describe('dedup (anti-flood AP-2.x)', () => {
     it('skip si row con mismo payloadHash existe PENDING <5s', async () => {
       prisma.channexOutboundQueue.findFirst.mockResolvedValueOnce({ id: 'queue-existing' })

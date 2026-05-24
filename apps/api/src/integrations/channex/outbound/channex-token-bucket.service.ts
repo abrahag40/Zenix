@@ -42,7 +42,7 @@ export class ChannexTokenBucketService {
    * El worker usa el `retryAfterMs` para programar `nextAttemptAt` del row
    * (en vez de reintentar inmediato y saturar el bucket).
    */
-  consume(propertyId: string, kind: 'AVAILABILITY' | 'RATES_RESTRICTIONS'): TokenConsumeResult {
+  consume(propertyId: string, kind: 'AVAILABILITY' | 'RATES_RESTRICTIONS' | 'BOOKING_CANCEL'): TokenConsumeResult {
     const key = `${propertyId}::${kind}`
     const now = Date.now()
     const state = this.buckets.get(key) ?? {
@@ -82,7 +82,7 @@ export class ChannexTokenBucketService {
    * Snapshot para observabilidad — usado por la admin UI Day 6.
    * NO cleans state, solo reporta.
    */
-  inspect(propertyId: string, kind: 'AVAILABILITY' | 'RATES_RESTRICTIONS'): BucketSnapshot {
+  inspect(propertyId: string, kind: 'AVAILABILITY' | 'RATES_RESTRICTIONS' | 'BOOKING_CANCEL'): BucketSnapshot {
     const key = `${propertyId}::${kind}`
     const state = this.buckets.get(key)
     if (!state) {

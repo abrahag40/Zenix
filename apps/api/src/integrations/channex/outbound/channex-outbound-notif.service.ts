@@ -32,7 +32,7 @@ export class ChannexOutboundNotifService {
     organizationId: string
     propertyId: string
     outboundQueueId: string
-    kind: 'AVAILABILITY' | 'RATES_RESTRICTIONS'
+    kind: 'AVAILABILITY' | 'RATES_RESTRICTIONS' | 'BOOKING_CANCEL'
     attempts: number
     lastError: string
     httpStatus: number | null
@@ -46,7 +46,13 @@ export class ChannexOutboundNotifService {
     const titlePrefix = isDataIntegrity
       ? '⚠ DATA INTEGRITY — Channex sync impossible'
       : 'Channex sync failed'
-    const title = `${titlePrefix} — ${args.kind === 'AVAILABILITY' ? 'disponibilidad' : 'tarifas/restricciones'}`
+    const kindLabel =
+      args.kind === 'AVAILABILITY'
+        ? 'disponibilidad'
+        : args.kind === 'RATES_RESTRICTIONS'
+          ? 'tarifas/restricciones'
+          : 'cancelación de reserva OTA'
+    const title = `${titlePrefix} — ${kindLabel}`
     const body = isDataIntegrity
       ? `Una property tiene null organizationId o falta del DB. Esto es ` +
         `un BUG schema, no Channex down. Contacta ops para revisar ` +

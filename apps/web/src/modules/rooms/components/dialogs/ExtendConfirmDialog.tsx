@@ -248,17 +248,18 @@ export function ExtendConfirmDialog({
             </p>
           </div>
 
-          {/* OTA advisory */}
+          {/* OTA advisory — Channex push real-time */}
           {isOta && (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex gap-2.5">
-              <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+            <div className="bg-sky-50 border border-sky-200 rounded-xl p-3 flex gap-2.5">
+              <AlertTriangle className="h-4 w-4 text-sky-600 shrink-0 mt-0.5" />
               <div>
-                <p className="text-xs font-semibold text-amber-800">
+                <p className="text-xs font-semibold text-sky-800">
                   Reserva vía {otaName ?? source}
                 </p>
-                <p className="text-[11px] text-amber-700 mt-0.5 leading-snug">
-                  Próximamente el PMS sincronizará automáticamente con todas las OTAs vía
-                  Channel Manager. Por ahora, refleja el cambio en la extranet de {otaName ?? source}.
+                <p className="text-[11px] text-sky-700 mt-0.5 leading-snug">
+                  Al confirmar, Zenix sincronizará automáticamente el nuevo rango con{' '}
+                  <span className="font-semibold">{otaName ?? source}</span> vía Channex en
+                  tiempo real. Verás un chip de confirmación una vez que el canal acuse recibo.
                 </p>
               </div>
             </div>

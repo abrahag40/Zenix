@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { startOfDay } from 'date-fns'
-import toast from 'react-hot-toast'
+import { toast } from 'sonner'
 import { api, ApiError } from '@/api/client'
 import { guestStaysApi } from '../api/guest-stays.api'
 import type { NewStayData } from '../components/dialogs/CheckInDialog'
@@ -53,6 +53,13 @@ function adaptStay(raw: Record<string, unknown>): GuestStayBlock {
     cancelInitiator:      raw.cancelInitiator as GuestStayBlock['cancelInitiator'],
     cancelReason:         raw.cancelReason as string | undefined,
     cancelReasonCode:     raw.cancelReasonCode as string | undefined,
+    // Sprint CHANNEX-INBOUND + CHANNEX-UX-E2-E3 §149-§152 — Channel Manager fields
+    // surfaced en BookingDetailSheet (chip sync) + CancelReservationDialog (push CRS).
+    channexBookingId:     (raw.channexBookingId as string | null | undefined) ?? null,
+    channexOtaName:       (raw.channexOtaName as string | null | undefined) ?? null,
+    channexConflict:      (raw.channexConflict as boolean | undefined) ?? false,
+    channexLastSyncAt:    raw.channexLastSyncAt ? new Date(raw.channexLastSyncAt as string) : null,
+    paymentModel:         raw.paymentModel as GuestStayBlock['paymentModel'],
   }
 }
 

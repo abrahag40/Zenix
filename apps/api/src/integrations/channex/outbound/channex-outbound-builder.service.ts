@@ -9,8 +9,10 @@ import {
 } from '../channex.gateway'
 import {
   CHANNEX_AVAILABILITY_CHANGED,
+  CHANNEX_BOOKING_CANCEL_REQUESTED,
   CHANNEX_RESTRICTION_UPDATED,
   ChannexAvailabilityChangedEvent,
+  ChannexBookingCancelRequestedEvent,
   ChannexRestrictionUpdatedEvent,
 } from './channex-outbound-events'
 
@@ -84,15 +86,44 @@ export class ChannexOutboundBuilderService {
   }
 
   /**
+   * Listener: cancel manual de reserva OTA desde PMS (cancelInitiator=HOTEL)
+   * → encola row BOOKING_CANCEL. Worker dispatch llama
+   * `gateway.cancelBookingAtChannex(channexBookingId)` (PUT /bookings/:id
+   * status=cancelled).
+   *
+   * Priority 80: entre AVAILABILITY (100) y RATES_RESTRICTIONS (50). El push
+   * de cancel debe llegar rápido para liberar inventario en la OTA, pero NO
+   * preempt el broadcast de availability (que es lo que evita overbooking
+   * en TODAS las propiedades, no solo la cancelada).
+   *
+   * Sprint CHANNEX-UX-E2-E3 §150 (D-CHX-UX-E2.1).
+   */
+  @OnEvent(CHANNEX_BOOKING_CANCEL_REQUESTED)
+  async onBookingCancelRequested(args: ChannexBookingCancelRequestedEvent): Promise<void> {
+    if (!args.channexBookingId) return
+    await this.enqueue({
+      propertyId: args.propertyId,
+      kind: 'BOOKING_CANCEL',
+      priority: 80,
+      payload: {
+        channexBookingId: args.channexBookingId,
+        stayId: args.stayId,
+        channexOtaName: args.channexOtaName,
+        reason: args.reason,
+      },
+    })
+  }
+
+  /**
    * Core enqueue logic con dedup. Pública para que el FullSyncOrchestrator
    * (Day 4) la use directo sin emitir event (full sync no es delta — se
    * salta el path de events).
    */
   async enqueue(args: {
     propertyId: string
-    kind: 'AVAILABILITY' | 'RATES_RESTRICTIONS'
+    kind: 'AVAILABILITY' | 'RATES_RESTRICTIONS' | 'BOOKING_CANCEL'
     priority: number
-    payload: { entries: unknown[] }
+    payload: Record<string, unknown>
   }): Promise<{ outboxId: string | null; deduped: boolean }> {
     const payloadHash = ChannexOutboundBuilderService.hashPayload(
       args.kind,
@@ -131,33 +162,41 @@ export class ChannexOutboundBuilderService {
       select: { id: true },
     })
 
+    const entries = args.payload.entries as unknown[] | undefined
+    const sizeHint = Array.isArray(entries) ? `entries=${entries.length}` : 'single'
     this.logger.log(
       `[Channex outbound] enqueued ${args.kind} property=${args.propertyId} ` +
-        `entries=${args.payload.entries.length} row=${row.id}`,
+        `${sizeHint} row=${row.id}`,
     )
     return { outboxId: row.id, deduped: false }
   }
 
   /**
-   * SHA-256 hash sobre kind + propertyId + entries normalizadas (sorted keys).
-   * Determinístico: misma data produce mismo hash → dedup confiable.
+   * SHA-256 hash sobre kind + propertyId + payload normalizado (sorted keys
+   * recursivo). Determinístico: misma data produce mismo hash → dedup confiable
+   * para AVAILABILITY/RATES_RESTRICTIONS (con `entries`) y BOOKING_CANCEL
+   * (payload arbitrario).
    *
    * Static + exported para que specs puedan verificar hash equality sin DI.
    */
   static hashPayload(
     kind: string,
     propertyId: string,
-    payload: { entries: unknown[] },
+    payload: Record<string, unknown>,
   ): string {
-    const normalized = JSON.stringify({
-      kind,
-      propertyId,
-      entries: payload.entries.map((e) =>
-        // Sort keys per entry para que { a:1, b:2 } y { b:2, a:1 } produzcan
-        // el mismo hash.
-        JSON.parse(JSON.stringify(e, Object.keys(e as object).sort())),
-      ),
-    })
+    const sortKeys = (value: unknown): unknown => {
+      if (Array.isArray(value)) return value.map(sortKeys)
+      if (value && typeof value === 'object') {
+        return Object.keys(value as object)
+          .sort()
+          .reduce<Record<string, unknown>>((acc, k) => {
+            acc[k] = sortKeys((value as Record<string, unknown>)[k])
+            return acc
+          }, {})
+      }
+      return value
+    }
+    const normalized = JSON.stringify({ kind, propertyId, payload: sortKeys(payload) })
     return createHash('sha256').update(normalized).digest('hex')
   }
 }

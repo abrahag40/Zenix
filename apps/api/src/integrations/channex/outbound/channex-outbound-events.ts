@@ -62,6 +62,25 @@ export interface ChannexRestrictionUpdatedEvent {
 }
 
 /**
+ * Emitido cuando recepción cancela manualmente una reserva OTA desde el PMS
+ * (cancelInitiator=HOTEL) y el stay tiene `channexBookingId` mapeado. Builder
+ * lo escucha y persiste row kind=BOOKING_CANCEL priority=80 (entre AVAILABILITY
+ * y RATES_RESTRICTIONS — la cancel debe propagarse rápido para liberar
+ * inventario en la OTA, pero no preempt la avail count broadcast).
+ *
+ * Sprint CHANNEX-UX-E2-E3 §150 (D-CHX-UX-E2.1).
+ *
+ * Event name: `channex.booking.cancel.requested`
+ */
+export interface ChannexBookingCancelRequestedEvent {
+  propertyId: string
+  stayId: string
+  channexBookingId: string
+  channexOtaName: string | null
+  reason: string | null
+}
+
+/**
  * Event name constants — imports en services para emit():
  *
  *   import { CHANNEX_AVAILABILITY_CHANGED } from '...'
@@ -71,3 +90,4 @@ export interface ChannexRestrictionUpdatedEvent {
  */
 export const CHANNEX_AVAILABILITY_CHANGED = 'channex.availability.changed' as const
 export const CHANNEX_RESTRICTION_UPDATED = 'channex.restriction.updated' as const
+export const CHANNEX_BOOKING_CANCEL_REQUESTED = 'channex.booking.cancel.requested' as const
