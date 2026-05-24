@@ -652,6 +652,221 @@ export class ChannexGateway {
     )
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Channex CRUD extensions — Sprint NOVA-CHANNEX-COMMAND-CENTER Day 4
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // Métodos de gestión del catálogo Channex (room types + rate plans + channels).
+  // Llamados desde controllers del Command Center (Days 5-7), nunca directamente
+  // desde frontend ni desde otros módulos PMS (Hexagonal — channex es la
+  // integración, dominio no la conoce, ver §141 D-CHX-OUT-3 CLAUDE.md).
+  //
+  // Todos los métodos:
+  //   · Requieren CHANNEX_API_KEY set (requireEnabled())
+  //   · Usan header `user-api-key` Channex (NO HMAC, ver §131 D-CHX3)
+  //   · Lanzan ChannexHttpError con status code en cualquier non-2xx
+  //   · NO escriben a Zenix DB — eso es responsabilidad del controller (write-through)
+  //   · NO emiten events — el controller maneja audit + outbound triggers
+  //
+  // Cert tests cubiertos por estos métodos:
+  //   · Test 9-10 (ARI batching) — pushAvailability/pushRestrictions (ya existían)
+  //   · Test 11 (booking revisions feed) — listBookingRevisionsFeed (ya existía)
+  //   · Test 12 (rate limits) — TokenBucket maneja, no gateway concern
+  //   · Test 13 (delta-only) — pattern del outbox, no gateway concern
+  //
+  // Cert tests pendientes (Day 4 NO los cubre):
+  //   · Tests 2-8 (rates per channel) — pending sprint RATES-METRICS-COMPSET-CORE
+
+  // ─── Room Types CRUD ──────────────────────────────────────────────────────
+
+  async listRoomTypes(propertyId: string): Promise<ChannexRoomType[]> {
+    this.requireEnabled('listRoomTypes')
+    const url = `${this.baseUrl}/room_types?filter%5Bproperty_id%5D=${encodeURIComponent(propertyId)}`
+    const res = await fetch(url, {
+      headers: { 'user-api-key': this.apiKey! },
+    })
+    if (!res.ok) {
+      throw new ChannexHttpError(`listRoomTypes HTTP ${res.status}`, res.status)
+    }
+    const json = (await res.json()) as { data: Array<{ id: string; attributes: ChannexRoomType }> }
+    return json.data.map((d) => ({ ...d.attributes, id: d.id }))
+  }
+
+  async createRoomType(input: ChannexRoomTypeCreateInput): Promise<ChannexRoomType> {
+    this.requireEnabled('createRoomType')
+    const body = {
+      room_type: {
+        property_id: input.propertyId,
+        title: input.title,
+        count_of_rooms: input.countOfRooms,
+        occ_adults: input.occAdults,
+        occ_children: input.occChildren ?? 0,
+        occ_infants: input.occInfants ?? 0,
+        default_occupancy: input.defaultOccupancy ?? input.occAdults,
+        room_kind: input.roomKind ?? 'room',
+      },
+    }
+    const res = await fetch(`${this.baseUrl}/room_types`, {
+      method: 'POST',
+      headers: {
+        'user-api-key': this.apiKey!,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new ChannexHttpError(`createRoomType HTTP ${res.status}: ${text}`, res.status)
+    }
+    const json = (await res.json()) as { data: { id: string; attributes: ChannexRoomType } }
+    this.logger.log(`[Channex] createRoomType OK id=${json.data.id} title="${input.title}"`)
+    return { ...json.data.attributes, id: json.data.id }
+  }
+
+  async updateRoomType(id: string, input: ChannexRoomTypeUpdateInput): Promise<ChannexRoomType> {
+    this.requireEnabled('updateRoomType')
+    const body: { room_type: Record<string, unknown> } = { room_type: {} }
+    if (input.title !== undefined) body.room_type.title = input.title
+    if (input.countOfRooms !== undefined) body.room_type.count_of_rooms = input.countOfRooms
+    if (input.occAdults !== undefined) body.room_type.occ_adults = input.occAdults
+    if (input.occChildren !== undefined) body.room_type.occ_children = input.occChildren
+    if (input.occInfants !== undefined) body.room_type.occ_infants = input.occInfants
+    if (input.defaultOccupancy !== undefined) body.room_type.default_occupancy = input.defaultOccupancy
+
+    const res = await fetch(`${this.baseUrl}/room_types/${id}`, {
+      method: 'PUT',
+      headers: {
+        'user-api-key': this.apiKey!,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new ChannexHttpError(`updateRoomType HTTP ${res.status}: ${text}`, res.status)
+    }
+    const json = (await res.json()) as { data: { id: string; attributes: ChannexRoomType } }
+    this.logger.log(`[Channex] updateRoomType OK id=${id}`)
+    return { ...json.data.attributes, id: json.data.id }
+  }
+
+  async deleteRoomType(id: string): Promise<void> {
+    this.requireEnabled('deleteRoomType')
+    const res = await fetch(`${this.baseUrl}/room_types/${id}`, {
+      method: 'DELETE',
+      headers: { 'user-api-key': this.apiKey! },
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new ChannexHttpError(`deleteRoomType ${id} HTTP ${res.status}: ${text}`, res.status)
+    }
+    this.logger.log(`[Channex] deleteRoomType OK id=${id}`)
+  }
+
+  // ─── Rate Plans CRUD ──────────────────────────────────────────────────────
+
+  async listRatePlans(propertyId: string): Promise<ChannexRatePlan[]> {
+    this.requireEnabled('listRatePlans')
+    const url = `${this.baseUrl}/rate_plans?filter%5Bproperty_id%5D=${encodeURIComponent(propertyId)}`
+    const res = await fetch(url, {
+      headers: { 'user-api-key': this.apiKey! },
+    })
+    if (!res.ok) {
+      throw new ChannexHttpError(`listRatePlans HTTP ${res.status}`, res.status)
+    }
+    const json = (await res.json()) as { data: Array<{ id: string; attributes: ChannexRatePlan }> }
+    return json.data.map((d) => ({ ...d.attributes, id: d.id }))
+  }
+
+  async createRatePlan(input: ChannexRatePlanCreateInput): Promise<ChannexRatePlan> {
+    this.requireEnabled('createRatePlan')
+    const body = {
+      rate_plan: {
+        property_id: input.propertyId,
+        room_type_id: input.roomTypeId,
+        title: input.title,
+        currency: input.currency,
+        sell_mode: input.sellMode ?? 'per_room',
+        rate_mode: input.rateMode ?? 'manual',
+        options: [
+          {
+            occupancy: input.occupancy ?? 2,
+            is_primary: true,
+            rate: input.rateCents, // Channex usa cents (e.g. 7000 = $70.00)
+          },
+        ],
+      },
+    }
+    const res = await fetch(`${this.baseUrl}/rate_plans`, {
+      method: 'POST',
+      headers: {
+        'user-api-key': this.apiKey!,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new ChannexHttpError(`createRatePlan HTTP ${res.status}: ${text}`, res.status)
+    }
+    const json = (await res.json()) as { data: { id: string; attributes: ChannexRatePlan } }
+    this.logger.log(`[Channex] createRatePlan OK id=${json.data.id} title="${input.title}"`)
+    return { ...json.data.attributes, id: json.data.id }
+  }
+
+  async updateRatePlan(id: string, input: ChannexRatePlanUpdateInput): Promise<ChannexRatePlan> {
+    this.requireEnabled('updateRatePlan')
+    const body: { rate_plan: Record<string, unknown> } = { rate_plan: {} }
+    if (input.title !== undefined) body.rate_plan.title = input.title
+    if (input.currency !== undefined) body.rate_plan.currency = input.currency
+    if (input.sellMode !== undefined) body.rate_plan.sell_mode = input.sellMode
+    if (input.rateMode !== undefined) body.rate_plan.rate_mode = input.rateMode
+
+    const res = await fetch(`${this.baseUrl}/rate_plans/${id}`, {
+      method: 'PUT',
+      headers: {
+        'user-api-key': this.apiKey!,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new ChannexHttpError(`updateRatePlan HTTP ${res.status}: ${text}`, res.status)
+    }
+    const json = (await res.json()) as { data: { id: string; attributes: ChannexRatePlan } }
+    this.logger.log(`[Channex] updateRatePlan OK id=${id}`)
+    return { ...json.data.attributes, id: json.data.id }
+  }
+
+  async deleteRatePlan(id: string): Promise<void> {
+    this.requireEnabled('deleteRatePlan')
+    const res = await fetch(`${this.baseUrl}/rate_plans/${id}`, {
+      method: 'DELETE',
+      headers: { 'user-api-key': this.apiKey! },
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new ChannexHttpError(`deleteRatePlan ${id} HTTP ${res.status}: ${text}`, res.status)
+    }
+    this.logger.log(`[Channex] deleteRatePlan OK id=${id}`)
+  }
+
+  // ─── Channels (read-only via list; pause/unpause emulado via restrictions) ──
+
+  async listChannels(propertyId: string): Promise<ChannexChannel[]> {
+    this.requireEnabled('listChannels')
+    const url = `${this.baseUrl}/channels?filter%5Bproperty_id%5D=${encodeURIComponent(propertyId)}`
+    const res = await fetch(url, {
+      headers: { 'user-api-key': this.apiKey! },
+    })
+    if (!res.ok) {
+      throw new ChannexHttpError(`listChannels HTTP ${res.status}`, res.status)
+    }
+    const json = (await res.json()) as { data: Array<{ id: string; attributes: ChannexChannel }> }
+    return json.data.map((d) => ({ ...d.attributes, id: d.id }))
+  }
+
   private requireEnabled(op: string): void {
     if (!this.enabled) {
       throw new ChannexHttpError(`[Channex] ${op} called but CHANNEX_API_KEY not set`, 503)
@@ -801,4 +1016,72 @@ function generateDateRange(from: string, to: string): string[] {
     current.setUTCDate(current.getUTCDate() + 1)
   }
   return dates
+}
+
+// ── CRUD types — Sprint NOVA-CHANNEX-COMMAND-CENTER Day 4 ──────────────────
+
+export interface ChannexRoomType {
+  id?: string
+  title: string
+  count_of_rooms: number
+  occ_adults: number
+  occ_children: number
+  occ_infants: number
+  default_occupancy: number
+  room_kind?: string
+}
+
+export interface ChannexRoomTypeCreateInput {
+  propertyId: string
+  title: string
+  countOfRooms: number
+  occAdults: number
+  occChildren?: number
+  occInfants?: number
+  defaultOccupancy?: number
+  roomKind?: 'room' | 'dorm'
+}
+
+export interface ChannexRoomTypeUpdateInput {
+  title?: string
+  countOfRooms?: number
+  occAdults?: number
+  occChildren?: number
+  occInfants?: number
+  defaultOccupancy?: number
+}
+
+export interface ChannexRatePlan {
+  id?: string
+  title: string
+  currency: string
+  sell_mode: string
+  rate_mode: string
+  options: Array<{ occupancy: number; is_primary: boolean; rate: string }>
+}
+
+export interface ChannexRatePlanCreateInput {
+  propertyId: string
+  roomTypeId: string
+  title: string
+  currency: string
+  // rate in cents (Channex API expects integer cents, e.g. 7000 = $70.00)
+  rateCents: number
+  occupancy?: number
+  sellMode?: 'per_room' | 'per_person'
+  rateMode?: 'manual' | 'derived'
+}
+
+export interface ChannexRatePlanUpdateInput {
+  title?: string
+  currency?: string
+  sellMode?: 'per_room' | 'per_person'
+  rateMode?: 'manual' | 'derived'
+}
+
+export interface ChannexChannel {
+  id?: string
+  title: string
+  channel: string         // 'booking_com' | 'expedia' | 'airbnb' | ...
+  is_active: boolean
 }
