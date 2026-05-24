@@ -8,6 +8,12 @@ import {
 } from '@nestjs/common'
 import { EventEmitter2 } from '@nestjs/event-emitter'
 import { PrismaService } from '../../prisma/prisma.service'
+import {
+  CHANNEX_AVAILABILITY_CHANGED,
+  CHANNEX_BOOKING_CANCEL_REQUESTED,
+  ChannexAvailabilityChangedEvent,
+  ChannexBookingCancelRequestedEvent,
+} from '../../integrations/channex/outbound/channex-outbound-events'
 import { TenantContextService } from '../../common/tenant-context.service'
 import { EmailService } from '../../common/email/email.service'
 import { CreateGuestStayDto } from './dto/create-guest-stay.dto'
@@ -1063,21 +1069,23 @@ export class GuestStaysService {
       this.logger.warn(`[EarlyCheckout] notification failed: ${err?.message}`),
     )
 
-    // Liberar noches liberadas en Channex (best-effort, NO await dentro de tx)
+    // Sprint CHANNEX-OUTBOUND-CERT Day 5 — refactor AP-2.2.
+    // Antes: direct pushInventory desde save handler (Channex caído bloqueaba).
+    // Ahora: emit event → OutboxBuilder enqueue → Worker drain con retry.
     const propSettings = stay.room?.property?.settings
     const channexRoomTypeId = (stay.room as any)?.channexRoomTypeId as string | null | undefined
     if (propSettings?.channexPropertyId && channexRoomTypeId) {
-      void this.channex.pushInventory({
-        channexPropertyId: propSettings.channexPropertyId,
-        roomTypeId:        channexRoomTypeId,
-        dateFrom:          toLocalDate(now, tz),
-        dateTo:            toLocalDate(stay.scheduledCheckout, tz),
-        delta:             +1,  // release freed nights
-        reason:            'RELEASE',
-        traceId:           `early_checkout_${stayId}`,
-      }).catch((err: Error) =>
-        this.logger.warn(`[EarlyCheckout] Channex push failed (non-critical): ${err?.message}`),
-      )
+      const event: ChannexAvailabilityChangedEvent = {
+        propertyId: stay.propertyId,
+        entries: [{
+          propertyId: propSettings.channexPropertyId,
+          roomTypeId: channexRoomTypeId,
+          dateFrom:   toLocalDate(now, tz),
+          dateTo:     toLocalDate(stay.scheduledCheckout, tz),
+          availability: 1,  // release: hotel model 1-unit room → 1 available
+        }],
+      }
+      this.events.emit(CHANNEX_AVAILABILITY_CHANGED, event)
     }
 
     this.logger.log(
@@ -1760,17 +1768,18 @@ export class GuestStaysService {
     if (propertySettings?.channexPropertyId && channexRoomTypeId) {
       const tz        = propertySettings.timezone ?? 'UTC'
       const localDate = toLocalDate(new Date(), tz)
-      this.channex.pushInventory({
-        channexPropertyId: propertySettings.channexPropertyId,
-        roomTypeId:        channexRoomTypeId,
-        dateFrom:          localDate,
-        dateTo:            toLocalDate(stay.scheduledCheckout, tz),
-        delta:             -1,  // re-ocupar unidad
-        reason:            'RESERVATION',
-        traceId:           `noshow_revert_${stayId}`,
-      }).catch((err: Error) =>
-        this.logger.error(`[revertNoShow] Channex push failed stay=${stayId}: ${err.message}`)
-      )
+      // Sprint CHANNEX-OUTBOUND-CERT Day 5 — refactor AP-2.2
+      const event: ChannexAvailabilityChangedEvent = {
+        propertyId: stay.propertyId,
+        entries: [{
+          propertyId: propertySettings.channexPropertyId,
+          roomTypeId: channexRoomTypeId,
+          dateFrom:   localDate,
+          dateTo:     toLocalDate(stay.scheduledCheckout, tz),
+          availability: 0,  // re-occupy: hotel model → 0 available
+        }],
+      }
+      this.events.emit(CHANNEX_AVAILABILITY_CHANGED, event)
     }
 
     this.logger.log(`No-show revertido: stay=${stayId}`)
@@ -3421,6 +3430,23 @@ export class GuestStaysService {
       guestName:  stay.guestName,
       initiator:  dto.initiator,
     })
+
+    // Sprint CHANNEX-UX-E2-E3 §150 (D-CHX-UX-E2.1) — push CRS al canal.
+    // Solo si la cancel ORIGINA en el PMS (HOTEL/ADMIN_ERROR). Cancels que
+    // vienen de OTA/SYSTEM/GUEST ya fueron orquestados por el canal (caso
+    // CHANNEX_WEBHOOK) o por procesos internos que no deben rebotar al CRS.
+    // Si no hay channexBookingId, el stay es direct → nada que sincronizar.
+    const isPmsOriginatedCancel = dto.initiator === 'HOTEL' || dto.initiator === 'ADMIN_ERROR'
+    if (stay.channexBookingId && isPmsOriginatedCancel) {
+      const cancelEvent: ChannexBookingCancelRequestedEvent = {
+        propertyId:       stay.propertyId,
+        stayId,
+        channexBookingId: stay.channexBookingId,
+        channexOtaName:   stay.channexOtaName,
+        reason:           dto.reason ?? null,
+      }
+      this.events.emit(CHANNEX_BOOKING_CANCEL_REQUESTED, cancelEvent)
+    }
 
     // Notif al SUPERVISOR — paridad industria (Cloudbeds/Opera notifican,
     // Mews tiene feature request 2yr abierta). Self-suppress aplicado en

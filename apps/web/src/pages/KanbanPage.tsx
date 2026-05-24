@@ -21,7 +21,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
-import toast from 'react-hot-toast'
+import { toast } from 'sonner'
 import { differenceInCalendarDays, format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { api } from '../api/client'

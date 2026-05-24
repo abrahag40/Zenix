@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { Toaster } from 'react-hot-toast'
+// Sprint CHANNEX-UX-E2-E3 — single toast lib (Sonner bottom-right richColors).
+// Previously dual stack (react-hot-toast top-right + sonner bottom-right)
+// generaba dos UIs distintos para el mismo concepto. Estandarizado a Sonner.
 import { Toaster as SonnerToaster } from 'sonner'
 import { useAuthStore } from './store/auth'
 import { Sidebar } from './components/Sidebar'
@@ -15,6 +17,8 @@ import { CheckoutsPage } from './pages/CheckoutsPage'
 import { ReportsPage } from './pages/ReportsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { DiscrepanciesPage } from './pages/DiscrepanciesPage'
+import ChannexConflictsPage from './pages/ChannexConflictsPage'
+import ChannexAdminPage from './pages/ChannexAdminPage'
 import { BlocksPage } from './pages/BlocksPage'
 import { MaintenancePage } from './pages/MaintenancePage'
 import { ReservationDetailPage } from './pages/ReservationDetailPage'
@@ -86,6 +90,8 @@ export default function App() {
           <Route path="/kanban"          element={<ProtectedLayout><KanbanPage /></ProtectedLayout>} />
           <Route path="/checkouts"       element={<ProtectedLayout><CheckoutsPage /></ProtectedLayout>} />
           <Route path="/discrepancies"   element={<ProtectedLayout><DiscrepanciesPage /></ProtectedLayout>} />
+          <Route path="/channex/conflicts" element={<ProtectedLayout><ChannexConflictsPage /></ProtectedLayout>} />
+          <Route path="/settings/channex" element={<ProtectedLayout><ChannexAdminPage /></ProtectedLayout>} />
           <Route path="/blocks"          element={<ProtectedLayout><BlocksPage /></ProtectedLayout>} />
           <Route path="/maintenance"     element={<ProtectedLayout><MaintenancePage /></ProtectedLayout>} />
           <Route path="/reports"         element={<ProtectedLayout><ReportsPage /></ProtectedLayout>} />
@@ -94,8 +100,31 @@ export default function App() {
           <Route path="*"                element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </BrowserRouter>
-      <Toaster position="top-right" toastOptions={{ className: 'text-sm' }} />
-      <SonnerToaster richColors position="bottom-right" />
+      <SonnerToaster
+        position="bottom-right"
+        richColors
+        closeButton
+        expand
+        gap={10}
+        toastOptions={{
+          classNames: {
+            // Tarjeta base — bordes redondeados consistentes con resto del sistema,
+            // shadow elevation +2 (Apple HIG depth), padding cómodo.
+            toast:
+              'rounded-xl shadow-[0_10px_30px_rgba(15,23,42,0.10),0_2px_8px_rgba(15,23,42,0.06)] border border-slate-200/70 backdrop-blur-sm',
+            title: 'text-[13px] font-semibold tracking-tight',
+            description: 'text-[12px] text-slate-600 leading-snug',
+            // Action button — patrón shadcn primary chico, no el botón "OK" plano
+            // de Sonner default. Diferenciador visual claro de la card.
+            actionButton:
+              '!bg-slate-900 !text-white !font-medium !text-[11px] !px-3 !py-1.5 !rounded-md hover:!bg-slate-700 transition-colors',
+            cancelButton:
+              '!bg-transparent !text-slate-600 !text-[11px] !font-medium !px-2 !py-1.5 hover:!text-slate-900',
+            closeButton:
+              '!border-slate-200 !bg-white hover:!bg-slate-50 !text-slate-500',
+          },
+        }}
+      />
       {/* Sprint Mx-1B-W3 W3.6 — TicketDetailDrawer global. Cualquier
           componente (NotificationBell, BookingDetailSheet, TimelineScheduler,
           KanbanPage, etc.) puede abrirlo via useMaintenanceDrawer.open(id)

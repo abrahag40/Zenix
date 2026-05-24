@@ -33,10 +33,15 @@
  *   - El StayJourneyEvent.actorId = null indica origen de sistema.
  */
 import { Injectable, Logger } from '@nestjs/common'
+import { EventEmitter2 } from '@nestjs/event-emitter'
 import { Cron } from '@nestjs/schedule'
 import { PrismaService } from '../../prisma/prisma.service'
 import { GuestStaysService } from './guest-stays.service'
 import { ChannexGateway } from '../../integrations/channex/channex.gateway'
+import {
+  CHANNEX_AVAILABILITY_CHANGED,
+  ChannexAvailabilityChangedEvent,
+} from '../../integrations/channex/outbound/channex-outbound-events'
 
 function toDateString(date: Date): string {
   return date.toISOString().split('T')[0]
@@ -69,6 +74,7 @@ export class NightAuditScheduler {
     private readonly prisma: PrismaService,
     private readonly guestStaysService: GuestStaysService,
     private readonly channex: ChannexGateway,
+    private readonly events: EventEmitter2,
   ) {}
 
   /**
@@ -177,21 +183,22 @@ export class NightAuditScheduler {
             settings.propertyId,
           )
 
-          // Notificar a Channex.io que la unidad quedó libre — best-effort (§31).
-          // Solo si la propiedad y la habitación tienen IDs de Channex configurados.
+          // Sprint CHANNEX-OUTBOUND-CERT Day 5 — refactor AP-2.2.
+          // Antes: direct pushInventory desde el scheduler. Ahora emit event
+          // → OutboxBuilder enqueue → Worker drain con rate limit + retry.
           const channexRoomTypeId = stay.room?.channexRoomTypeId
           if (settings.channexPropertyId && channexRoomTypeId) {
-            this.channex.pushInventory({
-              channexPropertyId: settings.channexPropertyId,
-              roomTypeId:        channexRoomTypeId,
-              dateFrom:          localDate,
-              dateTo:            toDateString(stay.scheduledCheckout),
-              delta:             +1,  // liberar unidad
-              reason:            'RELEASE',
-              traceId:           `noshow_audit_${stay.id}`,
-            }).catch((err: Error) =>
-              this.logger.error(`[NightAudit] Channex push failed stay=${stay.id}: ${err.message}`)
-            )
+            const event: ChannexAvailabilityChangedEvent = {
+              propertyId: settings.propertyId,
+              entries: [{
+                propertyId: settings.channexPropertyId,
+                roomTypeId: channexRoomTypeId,
+                dateFrom:   localDate,
+                dateTo:     toDateString(stay.scheduledCheckout),
+                availability: 1,  // release hotel model
+              }],
+            }
+            this.events.emit(CHANNEX_AVAILABILITY_CHANGED, event)
           }
 
           processed++

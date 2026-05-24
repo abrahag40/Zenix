@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import toast from 'react-hot-toast'
+import { toast } from 'sonner'
 import { subDays, addDays, differenceInDays, startOfDay, format, parseISO, differenceInCalendarDays as diffDays } from 'date-fns'
 import { useTimelineStore } from '../../stores/timeline.store'
 import { TIMELINE } from '../../utils/timeline.constants'

@@ -99,20 +99,78 @@ export const STAY_STATUS_COLORS = {
 
 export type StayStatusKey = keyof typeof STAY_STATUS_COLORS
 
-// ─── OTA accent colors (left border stripe) ─────────────────
+// ─── OTA accent colors (left border stripe + chip background) ─────────────
+// Colores oficiales del brand de cada canal — coherencia visual con marketing
+// del OTA. Sin estos, todos los OTAs se ven igual (queja Cloudbeds 2024).
 export const OTA_ACCENT_COLORS: Record<string, string> = {
   'walk-in':      '#64748B',
   'direct':       '#059669',
-  'booking':      '#003580',
-  'expedia':      '#B45309',
-  'airbnb':       '#E11D48',
+  'booking':      '#003580', // Booking.com navy
+  'expedia':      '#FFC72C', // Expedia yellow — adjusted for text contrast below
+  'airbnb':       '#FF5A5F', // Airbnb coral
   'hotels_com':   '#C2001A',
   'agoda':        '#5C3B8C',
-  'tripadvisor':  '#34E0A1',
+  'tripadvisor':  '#00AA6C',
   'hostelworld':  '#F97316',
   'despegar':     '#0055A5',
   'google':       '#4285F4',
   'other':        '#7C3AED',
+}
+
+// ─── OTA name normalization + display label ─────────────────────────────────
+// Sprint CHANNEX-UX-E2-E3 §149-§152.
+// Channex emite slugs `booking_com`, `airbnb`, `expedia`, etc. — distintos del
+// `source` legacy (`booking`, `airbnb`, etc.) que usaban reservas direct/manual.
+// Este helper unifica ambos a una clave canónica para lookup de color + label.
+const OTA_DISPLAY: Record<string, { key: string; label: string }> = {
+  // Channex slugs
+  booking_com:    { key: 'booking',     label: 'Booking.com' },
+  expedia:        { key: 'expedia',     label: 'Expedia' },
+  airbnb:         { key: 'airbnb',      label: 'Airbnb' },
+  hostelworld:    { key: 'hostelworld', label: 'Hostelworld' },
+  agoda:          { key: 'agoda',       label: 'Agoda' },
+  hotels_com:     { key: 'hotels_com',  label: 'Hotels.com' },
+  despegar:       { key: 'despegar',    label: 'Despegar' },
+  tripadvisor:    { key: 'tripadvisor', label: 'Tripadvisor' },
+  google:         { key: 'google',      label: 'Google' },
+  // Legacy source labels (direct/walk-in reservations)
+  booking:        { key: 'booking',     label: 'Booking.com' },
+  direct:         { key: 'direct',      label: 'Directa' },
+  'walk-in':      { key: 'walk-in',     label: 'Walk-in' },
+  other:          { key: 'other',       label: 'Otra OTA' },
+  OTA:            { key: 'other',       label: 'OTA' },
+}
+
+export interface OtaDisplayMeta {
+  key:       string
+  label:     string
+  color:     string
+  /** Text color hint: 'light' (white text) or 'dark' (slate text) for AA contrast. */
+  textTone:  'light' | 'dark'
+}
+
+/**
+ * Single source of truth para chip + accent del OTA. Usa preferentemente
+ * `channexOtaName` (slug de Channex) → fallback a `source` legacy → fallback
+ * a 'other'. Devuelve color + label + tone para que el chip tenga contraste
+ * AA contra el background (Expedia yellow #FFC72C necesita texto slate;
+ * Booking navy necesita texto blanco).
+ */
+export function resolveOtaDisplay(
+  channexOtaName?: string | null,
+  legacySource?: string | null,
+): OtaDisplayMeta {
+  const raw = (channexOtaName ?? legacySource ?? 'other').toString().toLowerCase()
+  const entry = OTA_DISPLAY[raw] ?? OTA_DISPLAY.other
+  const color = OTA_ACCENT_COLORS[entry.key] ?? OTA_ACCENT_COLORS.other
+  // Light backgrounds (Expedia yellow, Tripadvisor green-lite) → dark text.
+  // Resto → texto blanco. Heurística: convertir hex a luminancia relativa.
+  const r = parseInt(color.slice(1, 3), 16)
+  const g = parseInt(color.slice(3, 5), 16)
+  const b = parseInt(color.slice(5, 7), 16)
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+  const textTone: 'light' | 'dark' = luminance > 0.6 ? 'dark' : 'light'
+  return { key: entry.key, label: entry.label, color, textTone }
 }
 
 export const STATUS_DOT_COLORS: Record<string, string> = {

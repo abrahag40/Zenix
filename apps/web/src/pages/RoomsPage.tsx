@@ -20,7 +20,7 @@
 
 import { useCallback, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import toast from 'react-hot-toast'
+import { toast } from 'sonner'
 import { format } from 'date-fns'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'

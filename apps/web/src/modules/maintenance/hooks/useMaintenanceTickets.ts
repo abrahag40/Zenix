@@ -6,7 +6,7 @@
  * `maintenance:ticket:*` — el supervisor ve cambios en tiempo real sin refresh.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import toast from 'react-hot-toast'
+import { toast } from 'sonner'
 import type {
   AddMaintenanceCommentInput,
   AddMaintenancePhotoInput,

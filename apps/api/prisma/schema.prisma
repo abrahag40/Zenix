@@ -300,6 +300,10 @@ enum PaymentStatus {
 //                     payment_collect=ota). `confirmCheckin` skip guard BALANCE_UNPAID
 //                     y marca folio "paid via OTA virtual card / pending reconciliation".
 //   HYBRID_DEPOSIT  — depósito previo + saldo en hotel. balance = total − depositReceived.
+//                     RESERVED — ningún codepath productivo lo setea en v1.0.x.
+//                     Habilitar cuando se implemente parse de Channex booking.deposits[]
+//                     (Booking.com partial prepayment / Genius pre-arrival deposit pattern).
+//                     Cert audit D3 (2026-05-22): preservado por roadmap, no removido.
 enum PaymentModel {
   HOTEL_COLLECT
   OTA_COLLECT
@@ -1097,6 +1101,26 @@ model PropertySettings {
   // Channex.io channel manager (Sprint 8): ID de la propiedad en Channex para push de inventario.
   // Opcional — sin él, pushInventory() es no-op (fail-soft).
   channexPropertyId             String?         @map("channex_property_id")
+  // ── Channex inbound (Sprint CHANNEX-INBOUND, D-CHX3) ─────────────────────
+  // HMAC-SHA256 secret per-property para verificar webhooks entrantes.
+  // Rotation cada 90d via Zenix Activate (§77-§80). NUNCA en .env / repo.
+  channexWebhookSecret          String?         @map("channex_webhook_secret")
+  // D-CHX6 pull reconciliación nocturna toggle + last run timestamp.
+  channexPullEnabled            Boolean         @default(true) @map("channex_pull_enabled")
+  channexPullLastRunAt          DateTime?       @map("channex_pull_last_run_at")
+  // Cert audit A4 fix (2026-05-22): cierra fail-open de ChannexAuthGuard.
+  // Default TRUE en producción: webhook sin secret configurado → 401.
+  // Solo sandbox/dev pueden setear FALSE para onboarding rápido pre-secret.
+  // El gate cerrado evita vector de inyección documentado en audit P1-1.
+  channexWebhookSecretRequired  Boolean         @default(true) @map("channex_webhook_secret_required")
+  // ── Channex OUTBOUND-CERT — D-CHX-OUT-7 full-sync idempotency ──────────
+  // Cron runs daily but only ACTS si: (now - channexLastFullSyncAt) >= 23h
+  // AND hora local IN [windowStart, windowEnd). Default 03:00-05:00.
+  // Hard-coded en arquitectura para hacer AP-3 (timer-based full-sync)
+  // estructuralmente imposible.
+  channexLastFullSyncAt         DateTime?       @map("channex_last_full_sync_at")
+  channexFullSyncWindowStart    Int             @default(3) @map("channex_full_sync_window_start")
+  channexFullSyncWindowEnd      Int             @default(5) @map("channex_full_sync_window_end")
   // ── Sprint 8H — Housekeeping scheduling ───────────────────────────────────
   // Hora local (0-23) a la que el MorningRosterScheduler genera el roster del día.
   // Default 7 = 7:00 AM. Configurable per-property porque hostels vacacionales LATAM
@@ -1373,6 +1397,25 @@ model GuestStay {
   anonymizedAt          DateTime?  @map("anonymized_at")
   // ──────────────────────────────────────────────────────────────────────
 
+  // ── Channex inbound (Sprint CHANNEX-INBOUND, D-CHX2) ─────────────────────
+  // Idempotency key for OTA webhook deliveries. UNIQUE — replays no duplican.
+  // channexRevision tracks payload version for modify/cancel ordering.
+  // channexConflict = true marca stays con overlap pendientes de resolución
+  // humana (D-CHX5). AvailabilityService NO los excluye — siguen visibles
+  // como "reservas en disputa" hasta que un humano decida.
+  channexBookingId      String?    @unique @map("channex_booking_id")
+  channexRevision       Int?       @map("channex_revision")
+  channexConflict       Boolean    @default(false) @map("channex_conflict")
+  channexLastSyncAt     DateTime?  @map("channex_last_sync_at")
+  channexOtaName        String?    @map("channex_ota_name")  // booking.com | expedia | airbnb | hostelworld | ...
+  // Cert audit C9 fix (2026-05-22) — virtual card persistence Booking.com Genius.
+  // Channex envía guarantee.card_number MASKED (e.g. "****1234"), is_virtual,
+  // expiration_date, meta.virtual_card_*. Persistimos para chargeback evidence
+  // Visa CRR §5.9.2. PCI-safe: nunca PAN clear-text (Channex pre-enmascara).
+  // Shape: { cardType, masked, expirationDate, isVirtual, meta:{...virtualCard*...} }
+  channexGuaranteeMeta  Json?      @map("channex_guarantee_meta")
+  // ──────────────────────────────────────────────────────────────────────
+
   organization Organization      @relation(fields: [organizationId], references: [id])
   room         Room              @relation(fields: [roomId], references: [id])
   stayJourney  StayJourney?
@@ -1381,6 +1424,7 @@ model GuestStay {
   paymentLogs  PaymentLog[]
   guestStayLogs GuestStayLog[]
   noteThread   GuestStayNote[]
+  channexWebhookLogs ChannexWebhookLog[]
 
   @@index([organizationId])
   @@index([organizationId, propertyId])
@@ -1388,7 +1432,176 @@ model GuestStay {
   @@index([paymentStatus])
   @@index([noShowAt])
   @@index([cancelledAt])
+  @@index([channexConflict])
   @@map("guest_stays")
+}
+
+// ===================== CHANNEX INBOUND (Sprint CHANNEX-INBOUND) =====================
+//
+// Append-only audit log of every webhook received from Channex.io.
+// D-CHX4: inmutable — fiscal-grade trace para chargeback Visa §5.9.2.
+// Cubre los 4 event types: booking_new, booking_modify, booking_cancel,
+// availability_modify. Cada delivery deja entry, incluso si auth header
+// inválido (signatureValid=false) para forense de intentos de inyección.
+//
+// IMPORTANTE — Channex NO firma payloads con HMAC. El campo signatureValid
+// captura el resultado del custom-header bearer token (PropertySettings
+// .channexWebhookSecret) que NOSOTROS configuramos al registrar el webhook
+// en Channex. La verdadera autenticación inbound ocurre cuando llamamos de
+// vuelta a Channex con user-api-key para hacer pull de la revision.
+
+model ChannexWebhookLog {
+  id               String   @id @default(uuid())
+  propertyId       String   @map("property_id")
+  eventType        String   @map("event_type")  // booking_new | booking_modify | booking_cancel | availability_modify
+  channexBookingId String?  @map("channex_booking_id")
+  channexRevision  Int?     @map("channex_revision")
+  payload          Json
+  signatureValid   Boolean  @map("signature_valid")
+  receivedAt       DateTime @default(now()) @map("received_at")
+  processedAt      DateTime? @map("processed_at")
+  // 'created' | 'updated' | 'cancelled' | 'conflict' | 'rejected' | 'pending' | 'unassigned'
+  result           String?
+  errorMessage     String?  @map("error_message")
+  resultingStayId  String?  @map("resulting_stay_id")
+
+  resultingStay    GuestStay? @relation(fields: [resultingStayId], references: [id])
+
+  @@index([propertyId, receivedAt])
+  @@index([channexBookingId])
+  @@index([eventType])
+  @@map("channex_webhook_logs")
+}
+
+// ===================== CHANNEX OUTBOX (Sprint CHANNEX-INBOUND, D-CHX10) =====================
+//
+// Postgres-based async queue para procesamiento de webhooks Channex.
+// Patrón "transactional outbox" — el webhook controller persiste en
+// MISMA transacción ChannexWebhookLog + ChannexOutbox(PENDING). Esto
+// garantiza que cada webhook recibido tendrá un job de procesamiento
+// (no se pierde si crashea el worker antes de procesar).
+//
+// Por qué Postgres y no Redis/BullMQ en v1.0.0:
+//   - Evita dependencia Redis (dispararía fase 2 de infra antes de tiempo
+//     según §73-§75 CLAUDE.md — Vercel+Render+Neon es la fase 1).
+//   - Suficiente para 1-10 properties (<100 webhooks/día típico).
+//   - LISTEN/NOTIFY o cron 30s polling. Empezamos con cron por simplicidad.
+//
+// Status machine:
+//   PENDING       → recién encolado por el webhook controller
+//   IN_PROGRESS   → worker tomó el row (UPDATE ... WHERE status=PENDING
+//                   FOR UPDATE SKIP LOCKED → no race entre workers)
+//   SUCCEEDED     → pull+save+ack completados; terminal
+//   FAILED        → reintento programado en nextAttemptAt (backoff expo)
+//   DEAD_LETTER   → max attempts (5) excedido; requiere acción humana
+//
+// Auditabilidad: cada transición se loggea en el campo `lastError` y
+// `attempts` se incrementa atómicamente. Append-only en spirit (no
+// borramos rows SUCCEEDED — los purgamos en cron nocturno post-30d
+// para no inflar la tabla).
+
+enum ChannexOutboxStatus {
+  PENDING
+  IN_PROGRESS
+  SUCCEEDED
+  FAILED
+  DEAD_LETTER
+}
+
+// ===================== CHANNEX OUTBOUND (Sprint CHANNEX-OUTBOUND-CERT) =====================
+//
+// Estructuralmente separa AVAILABILITY (POST /availability) de
+// RATES_RESTRICTIONS (POST /restrictions, que incluye tanto rates como
+// CTA/CTD/min_stay/max_stay/stop_sell según docs Channex). La separación
+// hace AP-2.8 (mixed payload) imposible — el worker drena cada kind como
+// mensaje HTTP separado.
+//
+// Anti-patterns mitigated:
+//   · AP-3 (full-sync timer) → solo FullSyncOrchestrator puede setear
+//     payload completo, y respeta channexLastFullSyncAt 24h gate.
+//   · AP-4 (per-date loops) → payload.entries es array; el worker batch.
+//   · AP-2.2 (direct API call) → save handlers emiten event → builder
+//     persiste row → worker async drena. Save no se bloquea si Channex cae.
+//   · AP-2.8 → kind separa los dos endpoints estructuralmente.
+//
+// payloadHash sirve para dedup: si el mismo delta llega 2× en 5s por un
+// double-click del recepcionista, solo encolamos uno (anti-flood).
+//
+// priority: AVAILABILITY=100 (Channex doc dice "push these updates to the
+// front of the queue"), RATES_RESTRICTIONS=50.
+
+enum ChannexOutboundKind {
+  AVAILABILITY        // POST /api/v1/availability — count per [property, room_type, date]
+  RATES_RESTRICTIONS  // POST /api/v1/restrictions — rates + min/max stay + CTA/CTD + stop_sell per [property, rate_plan, date]
+  BOOKING_CANCEL      // PUT /api/v1/bookings/:id status=cancelled — manual cancel from PMS, propagates to OTA (Sprint CHANNEX-UX-E2-E3 §150)
+}
+
+enum ChannexOutboundStatus {
+  PENDING
+  IN_PROGRESS
+  SUCCEEDED
+  FAILED
+  DEAD_LETTER
+}
+
+model ChannexOutboundQueue {
+  id              String                  @id @default(uuid())
+  propertyId      String                  @map("property_id")
+  kind            ChannexOutboundKind
+  // Delta-only payload (AP-3): { entries: [{...}] }. NUNCA dump completo
+  // salvo el FullSyncOrchestrator que tiene su propia idempotencia 24h.
+  payload         Json
+  status          ChannexOutboundStatus   @default(PENDING)
+  // AVAILABILITY=100, RATES_RESTRICTIONS=50 (Channex prioriza avail)
+  priority        Int                     @default(50)
+  attempts        Int                     @default(0)
+  lastError       String?                 @map("last_error")
+  // Backoff: tras 429 respeta Retry-After; tras 5xx 2^attempts seconds
+  nextAttemptAt   DateTime                @default(now()) @map("next_attempt_at")
+  // Lock holder identifier (hostname:pid) para multi-worker debug
+  lockedAt        DateTime?               @map("locked_at")
+  lockedBy        String?                 @map("locked_by")
+  processedAt     DateTime?               @map("processed_at")
+  // Anti-flood: SHA-256 del payload (kind+propertyId+entries normalizadas).
+  // Si llega outro row con mismo hash en estado PENDING/IN_PROGRESS, lo
+  // descartamos como duplicado.
+  payloadHash     String                  @map("payload_hash")
+  createdAt       DateTime                @default(now()) @map("created_at")
+  updatedAt       DateTime                @updatedAt @map("updated_at")
+
+  // Worker pickup query: WHERE status IN (PENDING, FAILED) AND nextAttemptAt <= NOW()
+  // ORDER BY priority DESC, nextAttemptAt ASC
+  @@index([status, priority, nextAttemptAt])
+  @@index([propertyId, status])
+  @@index([payloadHash])
+  @@map("channex_outbound_queue")
+}
+
+model ChannexOutbox {
+  id                String              @id @default(uuid())
+  propertyId        String              @map("property_id")
+  eventType         String              @map("event_type")
+  channexBookingId  String?             @map("channex_booking_id")
+  channexRevisionId String?             @map("channex_revision_id")
+  webhookLogId      String?             @map("webhook_log_id")  // FK informal a ChannexWebhookLog
+  status            ChannexOutboxStatus @default(PENDING)
+  attempts          Int                 @default(0)
+  lastError         String?             @map("last_error")
+  // Cuando este row está disponible para procesarse. Permite backoff
+  // exponencial: tras un FAILED se actualiza a now() + 2^attempts segundos.
+  nextAttemptAt     DateTime            @default(now()) @map("next_attempt_at")
+  // Lock holder identifier (hostname:pid) — debug + force-release manual.
+  lockedBy          String?             @map("locked_by")
+  lockedAt          DateTime?           @map("locked_at")
+  processedAt       DateTime?           @map("processed_at")
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+
+  // Query principal del worker: pick the oldest PENDING/FAILED ready to run.
+  @@index([status, nextAttemptAt])
+  @@index([propertyId, status])
+  @@index([channexBookingId])
+  @@map("channex_outbox")
 }
 
 // ===================== PRE-CHECKIN QUALITY SYSTEM =====================

@@ -772,6 +772,12 @@ export type SseEventType =
   | 'maintenance:ticket:photo-added'
   | 'maintenance:ticket:photo-deleted'
   | 'maintenance:ticket:sla-breach'     // scheduler detectó SLA vencido
+  // Sprint CHANNEX-INBOUND — webhooks OTA → PMS
+  | 'channex:stay:created'              // booking_new procesado, GuestStay creado
+  | 'channex:stay:modified'             // booking_modify aplicado (Day 4)
+  | 'channex:stay:cancelled'            // booking_cancel aplicado (Day 4)
+  | 'channex:stay:conflict'             // overlap detectado, requiere review humano (D-CHX5)
+  | 'channex:drift-detected'            // pull reconciliation encontró revision no procesada (Day 6)
 
 // ─── Offline Sync (Mobile) ────────────────────────────────────────────────────
 

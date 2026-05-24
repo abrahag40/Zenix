@@ -54,7 +54,12 @@ describe('AvailabilityService — overstayed/zombie filter', () => {
     // Pin "now" a 2026-05-19 14:00 UTC para tests determinísticos.
     Date.now = () => Date.UTC(2026, 4, 19, 14, 0, 0)
     prisma = makePrismaMock()
-    svc = new AvailabilityService(prisma as any, makeChannexMock())
+    svc = new AvailabilityService(prisma as any, makeChannexMock(), {
+      // EventEmitter2 mock — Day 3 refactor: notifyChannex ahora emite event
+      // en vez de llamar Gateway direct. Para los tests existentes que solo
+      // verifican `check()` (no notify), el emit es no-op.
+      emit: jest.fn(),
+    } as any)
   })
 
   afterEach(() => {

@@ -50,6 +50,7 @@ type NavGroup = {
     label: string
     showDiscrepancyBadge?: boolean
     showMaintenanceBadge?: boolean
+    showChannexBadge?: boolean
   }[]
 }
 type NavItem = NavLeaf | NavGroup
@@ -90,6 +91,13 @@ const NAV: NavItem[] = [
       // BookingDetailSheet + OperationalOverridesPage). Route preservada
       // por deep-links externos 2-3 semanas; eliminar después.
       { to: '/discrepancies', icon: '⚠️', label: 'Discrepancias', showDiscrepancyBadge: true },
+      // Sprint CHANNEX-INBOUND — Day 5 D-CHX5 conflict review queue.
+      // Solo visible cuando hay conflictos pendientes (showChannexBadge gate).
+      { to: '/channex/conflicts', icon: '🔁', label: 'Conflictos Channex', showChannexBadge: true },
+      // Sprint CHANNEX-OUTBOUND-CERT Day 6 — admin observability + manual full-sync.
+      // SUPERVISOR-only (gated server-side). Es donde el cert Stage 4 reviewer
+      // verifica queue counts + retry logic + DEAD_LETTER visibility en vivo.
+      { to: '/settings/channex', icon: '📡', label: 'Channex admin' },
     ],
   },
   { kind: 'leaf', to: '/reports',       icon: '📊', label: 'Reportes' },
@@ -193,6 +201,22 @@ export function AppDrawer() {
     refetchInterval: 60_000,
   })
 
+  // Sprint CHANNEX-INBOUND — Day 5 badge para conflicts pendientes.
+  // SUPERVISOR-only endpoint; el query devuelve 403 para otros roles.
+  const { data: channexConflictCount = 0 } = useQuery<number>({
+    queryKey: ['channex-conflicts-count'],
+    queryFn: async () => {
+      try {
+        const items = await api.get<Array<{ stayId: string }>>('/v1/channex/conflicts')
+        return items.length
+      } catch {
+        // 403 (non-supervisor) or 5xx — silently no-badge
+        return 0
+      }
+    },
+    refetchInterval: 60_000,
+  })
+
   // W3.4 — Badge contador "Mantenimiento" por rol.
   // Shared query (staleTime 30s + SSE invalidate) — cero overhead extra.
   const user = useAuthStore((s) => s.user)
@@ -287,10 +311,16 @@ export function AppDrawer() {
                             ? discrepancyCount
                             : c.showMaintenanceBadge
                             ? maintenanceSummary.count
+                            : c.showChannexBadge
+                            ? channexConflictCount
                             : undefined
                         }
                         badgeTooltip={
-                          c.showMaintenanceBadge ? maintenanceSummary.description : undefined
+                          c.showMaintenanceBadge
+                            ? maintenanceSummary.description
+                            : c.showChannexBadge && channexConflictCount > 0
+                            ? `${channexConflictCount} reserva${channexConflictCount === 1 ? '' : 's'} OTA requiere${channexConflictCount === 1 ? '' : 'n'} revisión`
+                            : undefined
                         }
                       />
                     ))}

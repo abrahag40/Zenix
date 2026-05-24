@@ -21,7 +21,7 @@
  *   · Toast en cada mutación (§33)
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import toast from 'react-hot-toast'
+import { toast } from 'sonner'
 import {
   X,
   CheckCircle2,

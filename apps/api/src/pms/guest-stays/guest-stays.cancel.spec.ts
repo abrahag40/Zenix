@@ -239,6 +239,97 @@ describe('GuestStaysService — cancel-archive', () => {
       )
     })
 
+    // Sprint CHANNEX-UX-E2-E3 §150 (D-CHX-UX-E2.1)
+    describe('emit channex.booking.cancel.requested', () => {
+      it('emite cuando initiator=HOTEL y stay tiene channexBookingId', async () => {
+        prismaMock.guestStay.findUnique.mockResolvedValue(
+          makeStay({
+            channexBookingId: 'chx-booking-xyz',
+            channexOtaName: 'booking_com',
+          }),
+        )
+
+        await service.cancelStay(STAY_ID, ACTOR_ID, {
+          initiator: 'HOTEL',
+          reason: 'VCC rechazada',
+        })
+
+        expect(eventsMock.emit).toHaveBeenCalledWith(
+          'channex.booking.cancel.requested',
+          expect.objectContaining({
+            stayId: STAY_ID,
+            channexBookingId: 'chx-booking-xyz',
+            channexOtaName: 'booking_com',
+            reason: 'VCC rechazada',
+          }),
+        )
+      })
+
+      it('emite cuando initiator=ADMIN_ERROR y stay tiene channexBookingId', async () => {
+        prismaMock.guestStay.findUnique.mockResolvedValue(
+          makeStay({
+            channexBookingId: 'chx-booking-zzz',
+            channexOtaName: 'expedia',
+          }),
+        )
+
+        await service.cancelStay(STAY_ID, ACTOR_ID, { initiator: 'ADMIN_ERROR' })
+
+        expect(eventsMock.emit).toHaveBeenCalledWith(
+          'channex.booking.cancel.requested',
+          expect.objectContaining({ channexBookingId: 'chx-booking-zzz' }),
+        )
+      })
+
+      it('NO emite cuando initiator=OTA (vino del canal, no debe rebotar)', async () => {
+        prismaMock.guestStay.findUnique.mockResolvedValue(
+          makeStay({
+            channexBookingId: 'chx-booking-yyy',
+            channexOtaName: 'booking_com',
+          }),
+        )
+
+        await service.cancelStay(STAY_ID, ACTOR_ID, {
+          initiator: 'OTA',
+          cancelledFromChannel: 'CHANNEX_WEBHOOK',
+        })
+
+        const cancelEmits = eventsMock.emit.mock.calls.filter(
+          (c) => c[0] === 'channex.booking.cancel.requested',
+        )
+        expect(cancelEmits).toHaveLength(0)
+      })
+
+      it('NO emite cuando initiator=GUEST (cancel vino del canal aunque la marque manualmente)', async () => {
+        prismaMock.guestStay.findUnique.mockResolvedValue(
+          makeStay({
+            channexBookingId: 'chx-booking-www',
+            channexOtaName: 'airbnb',
+          }),
+        )
+
+        await service.cancelStay(STAY_ID, ACTOR_ID, { initiator: 'GUEST' })
+
+        const cancelEmits = eventsMock.emit.mock.calls.filter(
+          (c) => c[0] === 'channex.booking.cancel.requested',
+        )
+        expect(cancelEmits).toHaveLength(0)
+      })
+
+      it('NO emite cuando stay NO tiene channexBookingId (direct booking)', async () => {
+        prismaMock.guestStay.findUnique.mockResolvedValue(
+          makeStay({ channexBookingId: null, channexOtaName: null }),
+        )
+
+        await service.cancelStay(STAY_ID, ACTOR_ID, { initiator: 'HOTEL' })
+
+        const cancelEmits = eventsMock.emit.mock.calls.filter(
+          (c) => c[0] === 'channex.booking.cancel.requested',
+        )
+        expect(cancelEmits).toHaveLength(0)
+      })
+    })
+
     it('persiste metadata extensible (string fields + JSON, sin migration)', async () => {
       prismaMock.guestStay.findUnique.mockResolvedValue(makeStay())
       await service.cancelStay(STAY_ID, ACTOR_ID, {
