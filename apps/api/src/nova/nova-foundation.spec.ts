@@ -58,10 +58,11 @@ describe('Nova foundation — Day 1 schema integrity', () => {
     })
 
     it('UPDATE de audit_log lanza excepción del trigger', async () => {
+      // Status enum (audit H3 fix) — valor distinto al insertado para test
       await expect(
         prisma.auditLog.update({
           where: { id: testLogId },
-          data: { status: 'TAMPERED' },
+          data: { status: 'FAILURE' },
         }),
       ).rejects.toThrow(/append-only|D-NOVA-7/i)
     })
@@ -92,7 +93,7 @@ describe('Nova foundation — Day 1 schema integrity', () => {
             organizationId: sentinelOrgId,
             actorRealId: 'user-abraham-platform-admin',
             actorRealRole: 'PLATFORM_ADMIN',
-            onBehalfOfId: 'fake-user-id',
+            onBehalfOfId: 'user-abraham-platform-admin' /* test: any valid User id — H1 FK fix */,
             onBehalfOfRole: 'OWNER',
             // ← falta reason
             action: 'TEST_MISSING_REASON',
@@ -110,7 +111,7 @@ describe('Nova foundation — Day 1 schema integrity', () => {
             organizationId: sentinelOrgId,
             actorRealId: 'user-abraham-platform-admin',
             actorRealRole: 'PLATFORM_ADMIN',
-            onBehalfOfId: 'fake-user-id',
+            onBehalfOfId: 'user-abraham-platform-admin' /* test: any valid User id — H1 FK fix */,
             onBehalfOfRole: 'OWNER',
             reason: '   ', // whitespace-only no cuenta
             action: 'TEST_BLANK_REASON',
@@ -127,7 +128,7 @@ describe('Nova foundation — Day 1 schema integrity', () => {
           organizationId: sentinelOrgId,
           actorRealId: 'user-abraham-platform-admin',
           actorRealRole: 'PLATFORM_ADMIN',
-          onBehalfOfId: 'fake-user-id',
+          onBehalfOfId: 'user-abraham-platform-admin' /* test: any valid User id — H1 FK fix */,
           onBehalfOfRole: 'OWNER',
           reason: 'Diagnóstico de issue #123 — verificar guest stay record',
           action: 'TEST_VALID_IMPERSONATION',

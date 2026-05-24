@@ -371,6 +371,54 @@ enum PartnerMemberRole {
   TRAINEE               // shadow access, no writes
 }
 
+// ─── PartnerMemberStatus — controlled vocabulary (Audit H3 fix 2026-05-24) ───
+// Estado operativo del PartnerMember dentro de su firm.
+// Reemplaza al `status String @default("ACTIVE")` original (text libre).
+enum PartnerMemberStatus {
+  ACTIVE         // operacional, accesos completos
+  INACTIVE       // pausa temporal — sin login pero history preserved
+  OFFBOARDING   // proceso de salida en curso (compliance window)
+  SUSPENDED     // suspendido por incumplimiento (issue compliance/legal)
+}
+
+// ─── AuditLogStatus — estados de execución (Audit H3 fix) ───
+enum AuditLogStatus {
+  SUCCESS
+  FAILURE
+  PARTIAL        // operación multi-step que algunos pasaron y otros no
+}
+
+// ─── AuditLogRetention — políticas de retention (Audit H3 fix) ───
+// Drives scheduler v1.0.3 REPORTS-CORE que mueve >365d a cold storage.
+enum AuditLogRetention {
+  TRANSIENT      // 90 días — eventos de baja criticidad (UI hovers, etc.)
+  STANDARD       // 365 días default — la mayoría de operaciones
+  PERMANENT      // NUNCA expira — Visa CRR / CFDI / GDPR compliance ops
+}
+
+// ─── EngagementRole — rol dentro del client engagement (Audit H3 fix) ───
+enum EngagementRole {
+  LEAD            // responsable principal del engagement
+  CONSULTANT      // contributor operativo
+  SUPPORT         // help desk asignado al cliente
+  OBSERVER        // shadow (training, audit) — no write actions
+}
+
+// ─── AssignmentScope — alcance de PartnerClientAssignment (Audit H3 fix) ───
+enum AssignmentScope {
+  FULL            // CRUD pleno + wizard + audit
+  TIER_A_ONLY     // solo setup estructural (room types/rate plans/mappings)
+  SUPPORT_ONLY    // solo lectura + ticket creation (no edits)
+}
+
+// ─── CertificationLevel — nivel certificación Zenix Academy (Audit L1→H3 fix) ───
+enum CertificationLevel {
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
+}
+
 enum PropertyType {
   HOTEL
   HOSTAL
@@ -557,6 +605,16 @@ model User {
   // Nova foundation §163 — relación 1:1 con PartnerMember si systemRole ∈ {PARTNER_ADMIN, PARTNER_MEMBER}.
   // Si systemRole=PLATFORM_ADMIN, también vive como PartnerMember del Partner ZaharDev (isInternal=true).
   partnerMember    PartnerMember?
+  // Audit H1 fix 2026-05-24 — inverse relations para FKs ON DELETE RESTRICT
+  auditActorRealLogs       AuditLog[]                @relation("AuditLogActor")
+  auditOnBehalfOfLogs      AuditLog[]                @relation("AuditLogOnBehalfOf")
+  ratePlanMappingsCreated  ChannexRatePlanMapping[]  @relation("RatePlanMappingCreatedBy")
+  ratePlanMappingsUpdated  ChannexRatePlanMapping[]  @relation("RatePlanMappingUpdatedBy")
+  ratePlanCapsSet          RatePlanCap[]             @relation("RatePlanCapSetBy")
+  channelPausesPaused      ChannexChannelPause[]     @relation("ChannelPausePausedBy")
+  channelPausesUnpaused    ChannexChannelPause[]     @relation("ChannelPauseUnpausedBy")
+  partnerAssignmentsAssigned PartnerClientAssignment[] @relation("PartnerAssignmentAssignedBy")
+  partnerAssignmentsRevoked  PartnerClientAssignment[] @relation("PartnerAssignmentRevokedBy")
 
   @@index([organizationId])
   @@index([systemRole])
@@ -3251,7 +3309,7 @@ model Partner {
   clientAssignments   PartnerClientAssignment[]
 
   createdAt           DateTime       @default(now()) @map("created_at")
-  updatedAt           DateTime       @updatedAt @map("updated_at")
+  updatedAt           DateTime       @default(now()) @updatedAt @map("updated_at")
 
   @@index([tier])
   @@index([isInternal])
@@ -3264,10 +3322,12 @@ model PartnerMember {
   partnerId           String              @map("partner_id")
   userId              String              @unique @map("user_id")  // FK 1:1 a User
   role                PartnerMemberRole
-  status              String              @default("ACTIVE")        // ACTIVE | INACTIVE | OFFBOARDING
+  // Audit H3 fix 2026-05-24: text → enum (controlled vocabulary)
+  status              PartnerMemberStatus @default(ACTIVE)
   joinedAt            DateTime            @default(now()) @map("joined_at")
   certifiedAt         DateTime?           @map("certified_at")      // fecha cert Zenix Academy
-  certificationLevel  String?             @map("certification_level") // 'BRONZE' | 'SILVER' | 'GOLD' | 'PLATINUM'
+  // Audit L1+H3 fix: text → enum
+  certificationLevel  CertificationLevel? @map("certification_level")
 
   partner             Partner             @relation(fields: [partnerId], references: [id])
   user                User                @relation(fields: [userId], references: [id])
@@ -3283,14 +3343,19 @@ model PartnerClientAssignment {
   id                  String   @id @default(uuid())
   partnerId           String   @map("partner_id")
   organizationId      String   @map("organization_id")
-  scope               String   @default("FULL")  // FULL | TIER_A_ONLY | SUPPORT_ONLY
-  assignedById        String   @map("assigned_by_id")  // PLATFORM_ADMIN (ZaharDev) — quien aprobó
+  // Audit H3 fix 2026-05-24: text → enum
+  scope               AssignmentScope @default(FULL)
+  // Audit H1 fix: FK a users(id) ON DELETE RESTRICT
+  assignedById        String   @map("assigned_by_id")
   assignedAt          DateTime @default(now()) @map("assigned_at")
   revokedAt           DateTime? @map("revoked_at")
   revokedById         String?   @map("revoked_by_id")
 
   partner             Partner       @relation(fields: [partnerId], references: [id])
   organization        Organization  @relation(fields: [organizationId], references: [id])
+  // Audit H1 fix — FK assignedBy/revokedBy → users(id) ON DELETE RESTRICT
+  assignedBy          User          @relation("PartnerAssignmentAssignedBy", fields: [assignedById], references: [id], onDelete: Restrict)
+  revokedBy           User?         @relation("PartnerAssignmentRevokedBy", fields: [revokedById], references: [id], onDelete: Restrict)
   memberAssignments   PartnerMemberAssignment[]
 
   @@unique([partnerId, organizationId])
@@ -3301,12 +3366,13 @@ model PartnerClientAssignment {
 
 model PartnerMemberAssignment {
   // dentro del partner, qué miembros están en qué cliente engagement (N:M)
-  id                          String   @id @default(uuid())
-  partnerClientAssignmentId   String   @map("partner_client_assignment_id")
-  partnerMemberId             String   @map("partner_member_id")
-  engagementRole              String   @map("engagement_role")  // 'LEAD' | 'CONSULTANT' | 'SUPPORT' | 'OBSERVER'
-  assignedAt                  DateTime @default(now()) @map("assigned_at")
-  removedAt                   DateTime? @map("removed_at")
+  id                          String          @id @default(uuid())
+  partnerClientAssignmentId   String          @map("partner_client_assignment_id")
+  partnerMemberId             String          @map("partner_member_id")
+  // Audit H3 fix 2026-05-24: text → enum
+  engagementRole              EngagementRole  @map("engagement_role")
+  assignedAt                  DateTime        @default(now()) @map("assigned_at")
+  removedAt                   DateTime?       @map("removed_at")
 
   partnerClientAssignment     PartnerClientAssignment @relation(fields: [partnerClientAssignmentId], references: [id])
   member                      PartnerMember           @relation(fields: [partnerMemberId], references: [id])
@@ -3326,16 +3392,17 @@ model PartnerMemberAssignment {
 // GDPR Art. 17.3.b (legal obligation exception).
 
 model AuditLog {
-  id                String     @id @default(uuid())
-  organizationId    String     @map("organization_id")
+  id                String             @id @default(uuid())
+  organizationId    String             @map("organization_id")
   // Actor real — siempre el verdadero ejecutor (consultor, ZaharDev, cliente user).
-  actorRealId       String     @map("actor_real_id")
-  actorRealRole     SystemRole @map("actor_real_role")
+  // Audit H1 fix 2026-05-24: FK a users(id) ON DELETE RESTRICT — referential integrity.
+  actorRealId       String             @map("actor_real_id")
+  actorRealRole     SystemRole         @map("actor_real_role")
   // Impersonation pattern SAP-style: si actor opera "en nombre de" otro usuario,
   // estos campos lo registran. `reason` es REQUIRED via CHECK constraint
   // cuando onBehalfOfId IS NOT NULL.
-  onBehalfOfId      String?    @map("on_behalf_of_id")
-  onBehalfOfRole    SystemRole? @map("on_behalf_of_role")
+  onBehalfOfId      String?            @map("on_behalf_of_id")
+  onBehalfOfRole    SystemRole?        @map("on_behalf_of_role")
   // Acción ejecutada — naming convention 'ENTITY_VERB' uppercase.
   // Ej: 'CHANNEX_ROOM_TYPE_CREATE' | 'WIZARD_STEP_4_COMPLETED' | 'CHANNEL_PAUSE'
   action            String
@@ -3344,16 +3411,21 @@ model AuditLog {
   // Request payload completo (post-sanitization de PII si aplica)
   payload           Json
   // Response de Channex API (si la acción involucró Channex)
-  channexResponse   Json?      @map("channex_response")
-  status            String     // 'SUCCESS' | 'FAILURE' | 'PARTIAL'
+  channexResponse   Json?              @map("channex_response")
+  // Audit H3 fix 2026-05-24: text → enum (controlled vocabulary)
+  status            AuditLogStatus
   // REQUIRED si onBehalfOfId != null (CHECK constraint en migration)
   reason            String?
-  errorMessage      String?    @map("error_message")
-  // Retention policy: 'TRANSIENT' (90d) | 'STANDARD' (365d) | 'PERMANENT' (Visa/CFDI compliance)
-  retentionPolicy   String     @default("STANDARD") @map("retention_policy")
-  createdAt         DateTime   @default(now()) @map("created_at")
+  errorMessage      String?            @map("error_message")
+  // Audit H3 fix: text → enum. Drives v1.0.3 REPORTS-CORE cold storage scheduler.
+  retentionPolicy   AuditLogRetention  @default(STANDARD) @map("retention_policy")
+  createdAt         DateTime           @default(now()) @map("created_at")
 
   organization      Organization @relation(fields: [organizationId], references: [id])
+  // Audit H1 fix 2026-05-24: FK ON DELETE RESTRICT — referential integrity
+  // Compliance Visa CRR §5.9.2 + CFDI Art. 30 CFF + GDPR Art. 17.3.b
+  actorReal         User         @relation("AuditLogActor", fields: [actorRealId], references: [id], onDelete: Restrict)
+  onBehalfOf        User?        @relation("AuditLogOnBehalfOf", fields: [onBehalfOfId], references: [id], onDelete: Restrict)
 
   @@index([organizationId, createdAt])
   @@index([actorRealId, createdAt])
@@ -3388,7 +3460,8 @@ model ChannexRatePlanMapping {
   // FK lógico al room type Channex que este rate plan cubre (1 rate plan ↔ 1 room type)
   channexRoomTypeId String       @map("channex_room_type_id")
   title             String       // "BAR — Estándar"
-  currency          String       // ISO 4217: 'USD', 'MXN', ...
+  // Audit H2 fix 2026-05-24: text → CHAR(3) ISO 4217. CHECK regex en migration.
+  currency          String       @db.Char(3)
   // sell_mode: 'per_room' (rate fijo por habitación) | 'per_person' (rate × occupancy)
   sellMode          String       @map("sell_mode")
   // rate_mode: 'manual' (operador setea cada rate) | 'derived' (calculado de otro plan)
@@ -3402,12 +3475,15 @@ model ChannexRatePlanMapping {
   // restrictions. Este flag refleja el estado intencional del operador.
   isActive          Boolean      @default(true) @map("is_active")
   createdAt         DateTime     @default(now()) @map("created_at")
-  updatedAt         DateTime     @updatedAt @map("updated_at")
+  updatedAt         DateTime     @default(now()) @updatedAt @map("updated_at")
   // Audit fields — quién creó/actualizó (PARTNER_MEMBER o PLATFORM_ADMIN)
+  // Audit H1 fix 2026-05-24: FK ON DELETE RESTRICT
   createdById       String       @map("created_by_id")
   updatedById       String?      @map("updated_by_id")
 
   property          Property     @relation(fields: [propertyId], references: [id])
+  createdBy         User         @relation("RatePlanMappingCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy         User?        @relation("RatePlanMappingUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
   rateCap           RatePlanCap?
 
   @@index([propertyId, isActive])
@@ -3429,11 +3505,13 @@ model RatePlanCap {
   // Razón opcional explicando los caps. Visible al operador supervisor
   // cuando intenta editar fuera de rango (sirve de educación contextual).
   reason            String?
-  setById           String                  @map("set_by_id")  // consultor actor
+  // Audit H1 fix 2026-05-24: FK ON DELETE RESTRICT
+  setById           String                  @map("set_by_id")
   setAt             DateTime                @default(now()) @map("set_at")
-  updatedAt         DateTime                @updatedAt @map("updated_at")
+  updatedAt         DateTime                @default(now()) @updatedAt @map("updated_at")
 
   mapping           ChannexRatePlanMapping  @relation(fields: [channexMappingId], references: [id], onDelete: Cascade)
+  setBy             User                    @relation("RatePlanCapSetBy", fields: [setById], references: [id], onDelete: Restrict)
 
   @@index([setById])
   @@map("rate_plan_caps")
@@ -3462,6 +3540,9 @@ model ChannexChannelPause {
   unpauseReason       String?  @map("unpause_reason")
 
   property            Property @relation(fields: [propertyId], references: [id])
+  // Audit H1 fix 2026-05-24
+  pausedBy            User     @relation("ChannelPausePausedBy", fields: [pausedById], references: [id], onDelete: Restrict)
+  unpausedBy          User?    @relation("ChannelPauseUnpausedBy", fields: [unpausedById], references: [id], onDelete: Restrict)
 
   @@index([propertyId, pausedAt])
   @@index([channexChannelId])
