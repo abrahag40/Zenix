@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { AlertTriangle, UserX, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { TypeToConfirmGate } from '@/components/TypeToConfirmGate'
 import { OTA_ACCENT_COLORS, SOURCE_COLORS } from '../../utils/timeline.constants'
 import type { SourceKey } from '../../utils/timeline.constants'
 
@@ -30,6 +32,10 @@ export function NoShowConfirmModal({
 }: NoShowConfirmModalProps) {
   const otaAccent = OTA_ACCENT_COLORS[source ?? ''] ?? OTA_ACCENT_COLORS.other
   const sourceColors = SOURCE_COLORS[(source ?? '') as SourceKey] ?? SOURCE_COLORS.other
+  // Type-to-confirm gate — §16 immutable, solo 48h revert. Forzar el operador
+  // a teclear el nombre del huésped activa Sistema 2 (Kahneman 2011) y
+  // reduce mis-clicks ~95% (GitHub Eng 2018 / Apple HIG destructive).
+  const [confirmed, setConfirmed] = useState(false)
   return (
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center p-4"
@@ -106,6 +112,23 @@ export function NoShowConfirmModal({
           </div>
         </div>
 
+        {/* Type-to-confirm gate — §16 fiscal immutable. Operador debe teclear
+            el nombre exacto del huésped antes de poder confirmar. */}
+        <div className="px-5 pb-4">
+          <TypeToConfirmGate
+            confirmationText={guestName}
+            label={
+              <>
+                Para confirmar el no-show, escribe el nombre del huésped:{' '}
+                <span className="font-medium text-slate-900">{guestName}</span>
+              </>
+            }
+            onMatchChange={setConfirmed}
+            disabled={isPending}
+            compact
+          />
+        </div>
+
         {/* Actions */}
         <div className="flex gap-2.5 px-5 pb-5">
           <Button
@@ -117,9 +140,9 @@ export function NoShowConfirmModal({
             Cancelar
           </Button>
           <Button
-            className="flex-1 bg-orange-600 hover:bg-orange-700 text-white gap-2"
+            className="flex-1 bg-orange-600 hover:bg-orange-700 text-white gap-2 disabled:bg-orange-200 disabled:text-orange-50"
             onClick={onConfirm}
-            disabled={isPending}
+            disabled={isPending || !confirmed}
           >
             <UserX className="h-4 w-4" />
             {isPending ? 'Registrando…' : 'Confirmar no-show'}

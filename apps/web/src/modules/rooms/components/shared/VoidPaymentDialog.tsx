@@ -13,6 +13,7 @@ import { useEffect, useState } from 'react'
 import { Dialog as DialogPrimitive } from 'radix-ui'
 import { AlertTriangle, Ban, Loader2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { TypeToConfirmGate } from '@/components/TypeToConfirmGate'
 import type { PaymentLogDto } from '../../api/guest-stays.api'
 import { useDiscardConfirm } from './ConfirmDialog'
 import { DialogActions } from './DialogActions'
@@ -36,9 +37,13 @@ const REASON_SUGGESTIONS = [
 export function VoidPaymentDialog({ open, payment, isPending, onClose, onConfirm }: Props) {
   const [reasonCode, setReasonCode] = useState('')
   const [reasonNotes, setReasonNotes] = useState('')
+  // Type-to-confirm gate — anular pago crea PaymentLog negativo permanente
+  // (§28 USALI append-only). El operador debe teclear el monto exacto para
+  // forzar atención al número que va a anular.
+  const [typedAmountConfirmed, setTypedAmountConfirmed] = useState(false)
 
   useEffect(() => {
-    if (open) { setReasonCode(''); setReasonNotes('') }
+    if (open) { setReasonCode(''); setReasonNotes(''); setTypedAmountConfirmed(false) }
   }, [open])
 
   const isDirty = reasonCode !== '' || reasonNotes.trim() !== ''
@@ -58,7 +63,11 @@ export function VoidPaymentDialog({ open, payment, isPending, onClose, onConfirm
       ? `${reasonCode} — ${reasonNotes.trim()}`
       : reasonCode
 
-  const valid = reasonCode !== '' && (reasonCode !== 'Otra (especificar)' || reasonNotes.trim().length > 0)
+  const reasonValid = reasonCode !== '' && (reasonCode !== 'Otra (especificar)' || reasonNotes.trim().length > 0)
+  // El monto a teclear es el amount sin decimal trailing si es entero, con dos decimales si no.
+  // Esto matchea el display de la card "USD 50.00" → teclear "50.00".
+  const amountString = payment ? Number(payment.amount).toFixed(2) : ''
+  const valid = reasonValid && typedAmountConfirmed
 
   // Radix Dialog nesting nativo — focus scope + portal + dismiss + a11y
   // sin hacks manuales (ver fix iter 4 RegisterPaymentDialog).
@@ -159,6 +168,27 @@ export function VoidPaymentDialog({ open, payment, isPending, onClose, onConfirm
             La anulación queda registrada permanentemente (append-only USALI 12 ed).
             No se puede deshacer.
           </div>
+
+          {/* Type-to-confirm gate — operador teclea el monto exacto para
+              forzar atención al número que está anulando (§28 immutable). */}
+          {payment && reasonValid && (
+            <TypeToConfirmGate
+              confirmationText={amountString}
+              label={
+                <>
+                  Confirma el monto a anular escribiéndolo:{' '}
+                  <span className="font-medium text-slate-900">
+                    {payment.currency} {amountString}
+                  </span>
+                </>
+              }
+              onMatchChange={setTypedAmountConfirmed}
+              disabled={isPending}
+              compact
+              autoFocus={false}
+              hint="El monto debe coincidir exactamente (con dos decimales)."
+            />
+          )}
         </div>
 
         <DialogActions
