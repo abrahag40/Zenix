@@ -46,8 +46,20 @@ export class RoomsService {
     })
   }
 
+  /**
+   * Soft-delete. NUNCA hard-delete porque cascade-borraría GuestStays,
+   * StaySegments, RoomBlocks, TaskLogs, CleaningTasks asociadas — viola
+   * §28 append-only y §11 chargeback evidence preservation.
+   *
+   * Pre-Day 9 audit: hard delete activo. Fix aplicado 2026-05-24.
+   * Read paths que aún no filtran deletedAt = registered en
+   * docs/ops/known-debt-2026-05-24.md DEBT-1.
+   */
   async remove(id: string) {
     await this.findOne(id)
-    return this.prisma.room.delete({ where: { id } })
+    return this.prisma.room.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    })
   }
 }
