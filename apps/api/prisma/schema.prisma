@@ -760,6 +760,9 @@ model Property {
   channelProduction  ChannelProductionDaily[]
   // ── Sprint Mx-1 — Mantenimiento ──────────────────────────────────────────
   maintenanceTickets MaintenanceTicket[]
+  // ── Sprint NOVA-CHANNEX-COMMAND-CENTER (Day 2) ───────────────────────────
+  channexRatePlanMappings ChannexRatePlanMapping[]
+  channexChannelPauses    ChannexChannelPause[]
 
   @@index([organizationId])
   @@index([legalEntityId])
@@ -1180,6 +1183,18 @@ model PropertySettings {
   channexLastFullSyncAt         DateTime?       @map("channex_last_full_sync_at")
   channexFullSyncWindowStart    Int             @default(3) @map("channex_full_sync_window_start")
   channexFullSyncWindowEnd      Int             @default(5) @map("channex_full_sync_window_end")
+  // ── Sprint NOVA-CHANNEX-COMMAND-CENTER (Day 2) ──────────────────────────
+  // §"D-CHX-CC-6 Rate-parity threshold". Default 5% spread entre channels
+  // antes de mostrar amber alert en Rate Calendar Matrix. Configurable
+  // per-property porque mercados premium (5-star) toleran menos parity break
+  // que hostales económicos (más sensibles a undercutting de OTAs).
+  // Color logic: spread > threshold → amber; > 2× threshold → red.
+  rateParityThresholdPct        Float           @default(5.0) @map("rate_parity_threshold_pct")
+  // Master switch para mostrar el Command Center en el sidebar Nova. Default
+  // true desde el momento que se setea channexPropertyId. Permite turn-off
+  // temporal sin destruir mappings ni audit log (caso: cliente migrando de
+  // Channex a otro CM en transición controlada).
+  channexCommandCenterEnabled   Boolean         @default(true) @map("channex_command_center_enabled")
   // ── Sprint 8H — Housekeeping scheduling ───────────────────────────────────
   // Hora local (0-23) a la que el MorningRosterScheduler genera el roster del día.
   // Default 7 = 7:00 AM. Configurable per-property porque hostels vacacionales LATAM
@@ -3346,4 +3361,109 @@ model AuditLog {
   @@index([action])
   @@index([retentionPolicy, createdAt])
   @@map("audit_log")
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CHANNEX COMMAND CENTER — Day 2 schema additions
+// ═════════════════════════════════════════════════════════════════════════════
+//
+// Standalone schema para mapear Channex rate plans + restricciones + history.
+// Cuando llegue sprint RATES-METRICS-COMPSET-CORE con el modelo RatePlan
+// completo, se agrega FK `RatePlan.channexMappingId → ChannexRatePlanMapping`
+// sin tocar este schema. Pattern desacoplado intencionalmente para evitar
+// blocking del Command Center por el sprint RATES.
+
+model ChannexRatePlanMapping {
+  // Cada fila representa un Rate Plan creado en Channex API (POST /rate_plans).
+  // Zenix DB es write-through cache: el consultor crea via Command Center →
+  // Channex API request → on success → upsert aquí. Sirve de:
+  //   1. Fuente cliente-side para queries fast (sin hit Channex API cada vez)
+  //   2. Hook para futuro RatePlan model (RATES sprint agrega FK)
+  //   3. Source para Rate Calendar Matrix aggregator (Day 6)
+  id                String       @id @default(uuid())
+  organizationId    String       @map("organization_id")
+  propertyId        String       @map("property_id")
+  // UUID del rate plan en Channex (e.g. "4aea6806-f0fe-4517-9642-b67600cc01ff")
+  channexRatePlanId String       @unique @map("channex_rate_plan_id")
+  // FK lógico al room type Channex que este rate plan cubre (1 rate plan ↔ 1 room type)
+  channexRoomTypeId String       @map("channex_room_type_id")
+  title             String       // "BAR — Estándar"
+  currency          String       // ISO 4217: 'USD', 'MXN', ...
+  // sell_mode: 'per_room' (rate fijo por habitación) | 'per_person' (rate × occupancy)
+  sellMode          String       @map("sell_mode")
+  // rate_mode: 'manual' (operador setea cada rate) | 'derived' (calculado de otro plan)
+  rateMode          String       @default("manual") @map("rate_mode")
+  // Rate base default cuando se crea — útil para "reset to default" + auto-detect
+  // de "rate plan recién creado" en el calendar (no requiere consulta a Channex)
+  defaultRate       Decimal      @db.Decimal(10, 2) @map("default_rate")
+  defaultOccupancy  Int          @default(2) @map("default_occupancy")
+  // Flag para desactivar rate plan sin borrarlo de Channex (preserva history).
+  // En Channex no existe "deactivate" — emulamos con stop_sell=true en
+  // restrictions. Este flag refleja el estado intencional del operador.
+  isActive          Boolean      @default(true) @map("is_active")
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @updatedAt @map("updated_at")
+  // Audit fields — quién creó/actualizó (PARTNER_MEMBER o PLATFORM_ADMIN)
+  createdById       String       @map("created_by_id")
+  updatedById       String?      @map("updated_by_id")
+
+  property          Property     @relation(fields: [propertyId], references: [id])
+  rateCap           RatePlanCap?
+
+  @@index([propertyId, isActive])
+  @@index([channexRoomTypeId])
+  @@map("channex_rate_plan_mappings")
+}
+
+// ─── RatePlanCap — Salesforce Permission Set pattern (§"D-CHX-CC-9") ────────
+// Consultor (PLATFORM_ADMIN o PARTNER_ADMIN/MEMBER tier A) define floor + ceiling
+// del rate. Supervisor (ORG_OWNER / MANAGER) puede editar rates dentro de caps;
+// intento fuera → 400 con mensaje claro. Pattern Salesforce Permission Set
+// donde admin define grants y user opera dentro de ellos.
+
+model RatePlanCap {
+  id                String                  @id @default(uuid())
+  channexMappingId  String                  @unique @map("channex_mapping_id")
+  rateCapMin        Decimal?                @db.Decimal(10, 2) @map("rate_cap_min")
+  rateCapMax        Decimal?                @db.Decimal(10, 2) @map("rate_cap_max")
+  // Razón opcional explicando los caps. Visible al operador supervisor
+  // cuando intenta editar fuera de rango (sirve de educación contextual).
+  reason            String?
+  setById           String                  @map("set_by_id")  // consultor actor
+  setAt             DateTime                @default(now()) @map("set_at")
+  updatedAt         DateTime                @updatedAt @map("updated_at")
+
+  mapping           ChannexRatePlanMapping  @relation(fields: [channexMappingId], references: [id], onDelete: Cascade)
+
+  @@index([setById])
+  @@map("rate_plan_caps")
+}
+
+// ─── ChannexChannelPause — history log de pause/unpause (§"D-CHX-CC-7") ─────
+// Channex API no expone "pause channel" nativo — emulamos via stop_sell=true en
+// restrictions per rate plan. Esta tabla registra cada pause/unpause action
+// para audit + restore al unpause (guardar previous state).
+// Pattern Cloudbeds "Snooze channel".
+
+model ChannexChannelPause {
+  id                  String   @id @default(uuid())
+  propertyId          String   @map("property_id")
+  channexChannelId    String   @map("channex_channel_id")
+  channelName         String   @map("channel_name")  // 'booking_com', 'expedia', etc.
+  pausedAt            DateTime @default(now()) @map("paused_at")
+  pausedById          String   @map("paused_by_id")  // actor
+  pauseReason         String?  @map("pause_reason")
+  // JSON snapshot del estado pre-pause (stop_sell per rate_plan, restrictions)
+  // — usado para restore exacto al unpause. Sin esto, unpause podría dejar
+  // ratesplans con stop_sell=true que el operador NO había seteado antes.
+  preState            Json?    @map("pre_state")
+  unpausedAt          DateTime? @map("unpaused_at")
+  unpausedById        String?  @map("unpaused_by_id")
+  unpauseReason       String?  @map("unpause_reason")
+
+  property            Property @relation(fields: [propertyId], references: [id])
+
+  @@index([propertyId, pausedAt])
+  @@index([channexChannelId])
+  @@map("channex_channel_pauses")
 }
