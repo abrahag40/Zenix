@@ -19,6 +19,11 @@ const prisma = new PrismaClient()
 const PROPERTY_ID = 'prop-hotel-tulum-001'
 const PLATFORM_ADMIN_USER_ID = 'user-abraham-platform-admin'
 
+// ─── Helper: ejecutar SQL crudo (bypass Prisma) para tests defense-in-depth ───
+async function rawSql<T = unknown>(query: string, ...params: unknown[]): Promise<T[]> {
+  return (await prisma.$queryRawUnsafe(query, ...params)) as T[]
+}
+
 describe('Channex CRUD schema — Day 2 integrity', () => {
   beforeAll(async () => {
     const seeded = await prisma.channexRatePlanMapping.count({
@@ -245,6 +250,59 @@ describe('Channex CRUD schema — Day 2 integrity', () => {
         where: { propertyId: PROPERTY_ID },
         data: { rateParityThresholdPct: 5 },
       })
+    })
+  })
+
+  // ── 5b. Hardening: raw SQL inserts respetan CHECK constraints (defense-in-depth) ──
+  // 2026-05-24 hot-fix nova_schema_hardening: agregamos DEFAULT CURRENT_TIMESTAMP
+  // a updated_at en tablas con @updatedAt Prisma, para que inserts SQL directos
+  // (ops scripts, hot-fixes, admin tools) fallen SÓLO por la regla de negocio
+  // intencional (CHECK) y no por columna técnica omitida.
+
+  describe('Day 2 hot-fix: updated_at DEFAULT CURRENT_TIMESTAMP', () => {
+    let testMappingId: string
+
+    beforeAll(async () => {
+      const m = await prisma.channexRatePlanMapping.findFirstOrThrow({
+        where: { propertyId: PROPERTY_ID, title: 'BAR — Estándar' },
+      })
+      testMappingId = m.id
+    })
+
+    afterEach(async () => {
+      await prisma.ratePlanCap.deleteMany({ where: { channexMappingId: testMappingId } })
+    })
+
+    it('raw INSERT a rate_plan_caps sin updated_at → CHECK constraint sí enforce (no fail por updated_at)', async () => {
+      // Inserto raw SQL sin especificar updated_at — el default debe aplicar.
+      // Como cap_min > cap_max, esperamos que falle por CHECK, NO por updated_at.
+      await expect(
+        rawSql(
+          `INSERT INTO rate_plan_caps (id, channex_mapping_id, rate_cap_min, rate_cap_max, set_by_id)
+           VALUES (gen_random_uuid(), $1, 500, 100, 'user-abraham-platform-admin')`,
+          testMappingId,
+        ),
+      ).rejects.toThrow(/min_lte_max|check constraint/i)
+    })
+
+    it('raw INSERT a rate_plan_caps válido sin updated_at → OK con default', async () => {
+      const result = await rawSql<{ id: string; updated_at: Date }>(
+        `INSERT INTO rate_plan_caps (id, channex_mapping_id, rate_cap_min, rate_cap_max, set_by_id)
+         VALUES (gen_random_uuid(), $1, 60, 200, 'user-abraham-platform-admin')
+         RETURNING id, updated_at`,
+        testMappingId,
+      )
+      expect(result[0].id).toBeDefined()
+      expect(result[0].updated_at).toBeDefined()
+    })
+
+    it('Default verified: updated_at column tiene CURRENT_TIMESTAMP default', async () => {
+      const rows = await rawSql<{ column_default: string }>(
+        `SELECT column_default FROM information_schema.columns
+         WHERE table_name=$1 AND column_name='updated_at'`,
+        'rate_plan_caps',
+      )
+      expect(rows[0].column_default).toBe('CURRENT_TIMESTAMP')
     })
   })
 
