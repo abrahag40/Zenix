@@ -50,7 +50,20 @@ describe('AuthService.switchProperty — MT-3 authorization gate', () => {
       },
     }
     const jwtMock = { sign: jest.fn().mockReturnValue('signed.jwt.token') }
-    return new AuthService(prismaMock as any, jwtMock as any)
+    // Nova foundation Day 3 — AccessControlService inyectado en AuthService.
+    // Mock minimal: resolveLegacyStaff es la única ruta que AuthService.switchProperty
+    // o el path legacy de login usa. resolveActor + trimAssignedOrgsForJwt mockeados
+    // por defaults para el caso happy (no Nova user).
+    const aclMock = {
+      resolveLegacyStaff: jest.fn().mockReturnValue({
+        tier: 'ORG_STAFF',
+        partnerMemberId: null,
+        assignedOrgIds: [],
+      }),
+      resolveActor: jest.fn(),
+      trimAssignedOrgsForJwt: jest.fn().mockReturnValue([]),
+    }
+    return new AuthService(prismaMock as any, jwtMock as any, aclMock as any)
   }
 
   const actor: JwtPayload = {

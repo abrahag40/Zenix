@@ -68,7 +68,23 @@ export interface JwtPayload {
   brandId?: string
   /** Scope efectivo de la sesión. Ausente = 'PROPERTY' por backwards-compat. */
   scope?: TenantScope
+
+  // ─── Nova foundation (Sprint NOVA-CHANNEX-COMMAND-CENTER, §169 D-NOVA-11) ──
+  /** Tier en la hierarchy 5-tier Nova. Ausente = 'PROPERTY' por backwards-compat
+   *  (tokens emitidos pre-Nova). Endpoints Nova requieren actorTier explícito. */
+  actorTier?: ActorTier
+  /** Set sólo si actorTier ∈ { 'PLATFORM', 'PARTNER' }. Vincula al PartnerMember row. */
+  partnerMemberId?: string
+  /** Set sólo si actorTier ∈ { 'PLATFORM', 'PARTNER' }. Orgs cliente accesibles al consultor.
+   *  Max 20 inline; si excede, queda undefined y server resuelve via Redis cache key
+   *  `partner_member:{id}:assigned_orgs` (§169 D-NOVA-11). PLATFORM_ADMIN ignora este array
+   *  (acceso pleno por definición). */
+  assignedOrgIds?: string[]
 }
+
+/** Hierarchy 5-tier Nova (§160 D-NOVA-2). Determinada server-side al login según
+ *  User.systemRole + PartnerMember presence + UserPropertyRole legacy. */
+export type ActorTier = 'PLATFORM' | 'PARTNER_ADMIN' | 'PARTNER_MEMBER' | 'ORG_OWNER' | 'ORG_STAFF'
 
 export interface AuthResponse {
   accessToken: string
