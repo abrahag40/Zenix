@@ -548,3 +548,235 @@ Checklist final antes de pedir live screenshare:
 - Airbnb-specific features (Listing Promotions, CoHost Payout) — v1.1+
 - Brand-level multi-property sync — v1.0.5 multi-tenant
 - Webhook log stats API (Channex 2026-04-13) — nice-to-have post-cert
+
+---
+
+## FASE E — UI/UX functional gaps (post audit relación 2026-05-22)
+
+> Audit Channex × Zenix UI/UX detectó 18 gaps donde la **infraestructura
+> backend existe pero falta UX operacional** para completar el caso de uso.
+> 3 son cert blockers reales (operacionalmente — un piloto fallaría sin
+> ellos aunque el reviewer técnico apruebe la cert).
+
+### E1. **Extensión OTA stay → push CRS a Channex** 🔴 P0
+**Audit ref**: GAP #9
+**Caso de uso**: Guest OTA llamó al hotel y pidió quedarse 2 noches más. Recepcionista usa `extendNewRoom`/`extendSameRoom` desde BookingDetailSheet. **Channex NO se entera** → OTA revende la habitación → overbooking real.
+
+**Lo que falta**:
+- Gateway nuevo: `ChannexGateway.updateBookingDates(bookingId, newCheckOut, newRate?)` que llame `PUT /api/v1/bookings/:id` con nuevo departure_date + rates per night
+- Hook en `StayJourneyService.extendSameRoom`, `extendNewRoom`: si parent stay tiene `channexBookingId` → push update
+- UI: modal de confirmación de extensión muestra warning "Esta reserva vino de Booking.com — Channex será notificado del cambio"
+- Audit log entry `CHANNEX_EXTENSION_PUSHED` con response status
+- Si Channex push falla (5xx/4xx) → outbox row + retry (mismo patrón que CANCEL_AT_OTA outbound-first B3)
+
+**Estimado**: 2 días-dev
+**Criterio validación**: extender reserva Booking.com test → Channex sandbox refleja nueva departure_date
+
+---
+
+### E2. **Cancel manual OTA stay → push CRS** 🔴 P0
+**Audit ref**: GAP #11
+**Caso de uso**: Recepcionista cancela desde BookingDetailSheet (NO desde `/channex/conflicts`) una reserva con channexBookingId. **Channex NO se entera** → OTA factura comisión + reseña 1★ porque guest no fue notificado.
+
+**Lo que falta**:
+- En `GuestStaysService.cancelStay`: si `stay.channexBookingId` exists → preguntar "¿Notificar Channex/OTA?" con default YES
+- Reusar `gateway.cancelBookingAtChannex` (ya existe del CANCEL_AT_OTA flow)
+- Mismo ordering B3: Channex push PRIMERO, local cancel DESPUÉS
+- UI: CancelReservationDialog muestra checkbox "Notificar a [OTA name]" preselected (con warning si paymentModel=OTA_COLLECT)
+- Audit log
+
+**Estimado**: 1 día-dev
+
+---
+
+### E3. **Multi-room family booking auto-process** 🔴 P0
+**Audit ref**: GAP #8 = B1 surgical plan
+**Caso de uso**: Booking.com permite reservar 2-3 habitaciones bajo el mismo customer. Hoy Zenix marca como `MULTI_ROOM_BOOKING` conflict → supervisor debe crear las habs adicionales manualmente.
+
+**Lo que falta**:
+- BookingNewHandler: detectar `revision.rooms.length > 1` → iterar y crear N stays linkadas
+- Schema: `GuestStay.groupBookingId String?` field para agrupar
+- Calendar: mostrar visual de grupo (mismo color stripe + tooltip "Family booking de 3 habs")
+- BookingDetailSheet: mostrar "Stays vinculadas: Hab A1, A2, A3"
+- Cancel propagation: cancel del parent cancela todas las stays del grupo
+
+**Estimado**: 3-4 días-dev (incluye journey wiring per room)
+
+---
+
+### E4. UI guiada "OTA pidió extender post-checkin" 🟠 P1
+**Audit ref**: GAP #1
+**Caso de uso**: BookingModifyHandler detecta date change en guest checked-in → notif "DATE_CHANGE_POST_CHECKIN". Supervisor debe decidir manualmente.
+
+**Lo que falta**:
+- Pantalla en `/channex/conflicts` con sub-action "Honor extension" (crea segment) o "Reject" (mantener fechas + log)
+- Diff visual: dates previas → propuestas
+- Rate comparison
+
+**Estimado**: 1-2 días-dev
+
+---
+
+### E5. Modification history en BookingDetailSheet 🟠 P1
+**Audit ref**: GAP #2
+**Caso de uso**: OTA modifica una reserva (cambio de pax, dates, contact). Hoy supervisor NO ve qué cambió.
+
+**Lo que falta**:
+- Nuevo tab "Historial" en BookingDetailSheet
+- Query `GuestStayLog` con event in ['MODIFIED', 'CHANNEX_MODIFIED']
+- Diff visual: campo X anterior → nuevo
+- Filtro: solo OTA changes
+
+**Estimado**: 1 día-dev
+
+---
+
+### E6. UI guiada "OTA canceló guest in-house" 🟠 P1
+**Audit ref**: GAP #3 = C5 surgical plan
+**Caso de uso**: OTA cancela reserva con guest ya checked-in. Supervisor decide: comp / early-checkout / disputar.
+
+**Lo que falta**:
+- 3 botones explícitos en `/channex/conflicts` para conflict reason `CANCEL_GUEST_ALREADY_CHECKED_IN`:
+  - "Comp la estadía" (razón obligatoria + audit)
+  - "Early checkout" (refund calculation)
+  - "Disputar con OTA" (link extranet + log evidence)
+- Cada acción crea `GuestStayLog` event específico
+
+**Estimado**: 2-3 días-dev
+
+---
+
+### E7. Channel status panel 🟠 P1
+**Audit ref**: GAP #6
+**Caso de uso**: Supervisor necesita saber qué OTAs están conectados sin esperar el deactivate notif.
+
+**Lo que falta**:
+- Sección "Canales conectados" en `/settings/channex` admin page
+- Lista de OTAs con badge "Connected" / "Disconnected" + last activity timestamp
+- History de activate/deactivate events
+
+**Estimado**: 1 día-dev
+
+---
+
+### E8. Refund flow para OTA cancels 🟠 P1
+**Audit ref**: GAP #4
+**Caso de uso**: OTA cancela reserva con amountPaid > 0. `requiresFiscalReview=true` se setea pero no hay UI para procesar el refund.
+
+**Lo que falta**:
+- v1.0.1 PAY-CORE territory — defer
+- UI placeholder en /channex/conflicts: "Refund pendiente — gestionar en v1.0.1 PAY-CORE"
+
+**Estimado**: 2 días-dev (v1.0.1)
+
+---
+
+### E9. Room move pushe a Channex 🟠 P1
+**Audit ref**: GAP #10
+**Caso de uso**: Recepcionista mueve guest OTA de "Standard" a "Deluxe Suite" (cambia room_type_id). Channex no se entera.
+
+**Lo que falta**:
+- Detectar cambio de channexRoomTypeId en MoveRoom flow
+- Push availability update para AMBOS room types (libera el anterior, ocupa el nuevo)
+- Push booking dates update con nuevo room_type_id
+
+**Estimado**: 1 día-dev
+
+---
+
+### E10. No-show charge Booking.com virtual card 🟠 P1
+**Audit ref**: GAP #12
+**Caso de uso**: Guest no se presenta. Booking.com tiene policy que permite charge contra virtual card. Zenix marca no-show pero no notifica ni cobra.
+
+**Lo que falta**:
+- ChannexGateway.markBookingNoShowAtChannex(bookingId)
+- Charge flow contra channexGuaranteeMeta.meta.virtual_card_*
+- AppNotif "Booking.com no-show charge processed"
+
+**Estimado**: 2 días-dev
+
+---
+
+### E11. Folio segmentation OTA-paid vs direct-extra 🟠 P1
+**Audit ref**: GAP #17
+**Caso de uso**: Guest OTA extiende 2 noches. Folio debe distinguir noches OTA (PAID) vs noches direct (PENDING).
+
+**Lo que falta**:
+- StaySegment.paymentSource: 'OTA' | 'DIRECT'
+- Folio UI agrupa por source
+- Checkout flow cobra solo segments DIRECT
+
+**Estimado**: 1-2 días-dev (v1.0.1 PAY-CORE)
+
+---
+
+### E12. Virtual card incidentals charge 🟠 P1
+**Audit ref**: GAP #16
+**Caso de uso**: OTA Genius virtual card con $200 disponibles para incidentals. Guest consume minibar. Hotel debe cobrar contra esa card.
+
+**Lo que falta**:
+- UI muestra "Virtual card · activa X-Y · balance available $N" en BookingDetailSheet
+- Charge flow integrado con `channexGuaranteeMeta.meta.virtual_card_current_balance`
+- Audit del charge
+
+**Estimado**: 2-3 días-dev (v1.0.1+ PAY-CORE)
+
+---
+
+### E13. OTA payout reconciliation 🟠 P1
+**Audit ref**: GAP #15
+**Caso de uso**: Booking.com paga al hotel mensualmente vía bank transfer. Zenix debe matchear payout report con reservas.
+
+**Lo que falta**:
+- Importar CSV de Booking.com payouts
+- Match per booking_id
+- Discrepancy report
+
+**Estimado**: 3-4 días-dev (v1.0.1+)
+
+---
+
+### E14. Historial de outbound pushes 🟡 P2
+**Audit ref**: GAP #5
+**Caso de uso**: Supervisor curioso de qué pushea Channex de su lado.
+
+**Lo que falta**:
+- Tab "Outbound history" en /settings/channex
+- Query ChannexOutboundQueue ordenado por createdAt desc
+- Filter por status
+
+**Estimado**: 1 día-dev
+
+---
+
+### Resumen Fase E
+
+| Sub-fase | Items | Severidad | Días total |
+|---|---|---|---|
+| **E1-E3** | Push CRS extension + cancel + multi-room | 🔴 P0 cert blockers ops | **6-7d** |
+| **E4-E7** | UX guiada operacional | 🟠 P1 | 5-7d |
+| **E8-E13** | Financial flows OTA | 🟠 P1 (v1.0.1 PAY-CORE) | 12-15d |
+| **E14** | Outbound history | 🟡 P2 | 1d |
+
+**Pre-cert Stage 4 obligatorio**: E1 + E2 + E3 + E5 (modification history) + E7 (channel status) = **8-9 días-dev adicionales** al surgical plan original.
+
+**Post-cert v1.0.1+**: E8-E13 financial flows.
+
+### Calendario integrado revisado
+
+```
+Semana   │ Plan original         │ Fase E nueva                     │ Total
+─────────┼───────────────────────┼─────────────────────────────────┼──────
+1-5      │ A1 RATES sprint       │                                  │
+6        │ A2-A6 + Fase C        │                                  │
+7        │ B1, B2, B3            │ E3 multi-room (B1 alias)        │
+8        │ Fase C continúa       │ E1 extension push                │
+         │                       │ E2 cancel push                   │
+9        │ Fase D + Stage 4 req │ E5 modification history          │
+         │                       │ E7 channel status panel          │
+10       │                       │ E4 + E6 UX guiada operacional   │
+─────────┼───────────────────────┼─────────────────────────────────┼──────
+         │ Stage 4 cert request                                     │
+```
+
+Total: 9-10 semanas calendar (vs 8-10 original).
