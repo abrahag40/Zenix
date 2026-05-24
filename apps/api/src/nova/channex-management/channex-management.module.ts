@@ -16,6 +16,8 @@ import { Module } from '@nestjs/common'
 import { PrismaModule } from '../../prisma/prisma.module'
 import { AuditLogService } from '../audit/audit-log.service'
 import { NovaModule } from '../nova.module'
+import { RateCalendarController } from './rate-calendar/rate-calendar.controller'
+import { RateCalendarService } from './rate-calendar/rate-calendar.service'
 import { ChannexRatePlansController } from './rate-plans/rate-plans.controller'
 import { ChannexRatePlansService } from './rate-plans/rate-plans.service'
 import { ChannexRoomTypesController } from './room-types/room-types.controller'
@@ -23,11 +25,16 @@ import { ChannexRoomTypesService } from './room-types/room-types.service'
 
 @Module({
   imports: [PrismaModule, NovaModule],
-  controllers: [ChannexRoomTypesController, ChannexRatePlansController],
+  controllers: [
+    ChannexRoomTypesController,
+    ChannexRatePlansController,
+    RateCalendarController, // Day 6 — Rate Calendar Matrix
+  ],
   providers: [
     AuditLogService,
     ChannexRoomTypesService,
     ChannexRatePlansService,
+    RateCalendarService,
   ],
   exports: [AuditLogService],
 })

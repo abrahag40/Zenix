@@ -852,6 +852,59 @@ export class ChannexGateway {
     this.logger.log(`[Channex] deleteRatePlan OK id=${id}`)
   }
 
+  // ─── Restrictions read (Day 6 — Rate Calendar Matrix aggregator) ──────────
+  //
+  // GET /api/v1/restrictions?filter[property_id]=...&filter[rate_plan_id]=...
+  //                          &filter[date_from]=YYYY-MM-DD&filter[date_to]=YYYY-MM-DD
+  //
+  // Channex devuelve rates + restrictions per [rate_plan, date]. Usado por
+  // RateCalendarService para armar el grid `días × rate plans × rate fields`.
+  //
+  // Si rate plan + fecha NO tiene restrictions seteadas, Channex retorna
+  // entry vacío para esa fecha O simplemente no lo incluye en la lista — el
+  // aggregator hace fallback a `defaultRate` del mapping local en ese caso.
+  //
+  // Best-effort fail-soft: lecturas no deben romper el aggregator. Devuelve
+  // `{ fromChannex: false, rows: [] }` si Channex está caído — el caller
+  // arma la matriz solo con defaults locales.
+
+  async listRestrictions(params: {
+    propertyId: string
+    ratePlanId?: string
+    dateFrom: string // YYYY-MM-DD
+    dateTo: string // YYYY-MM-DD
+  }): Promise<{ fromChannex: boolean; rows: ChannexRestrictionRow[] }> {
+    if (!this.enabled) return { fromChannex: false, rows: [] }
+    const qs = new URLSearchParams()
+    qs.set('filter[property_id]', params.propertyId)
+    if (params.ratePlanId) qs.set('filter[rate_plan_id]', params.ratePlanId)
+    qs.set('filter[date_from]', params.dateFrom)
+    qs.set('filter[date_to]', params.dateTo)
+
+    try {
+      const res = await fetch(`${this.baseUrl}/restrictions?${qs.toString()}`, {
+        headers: {
+          'user-api-key': this.apiKey!,
+          'Content-Type': 'application/json',
+        },
+      })
+      if (!res.ok) {
+        const text = await res.text()
+        this.logger.warn(`[Channex] listRestrictions HTTP ${res.status}: ${text}`)
+        return { fromChannex: false, rows: [] }
+      }
+      const json = (await res.json()) as {
+        data?: Array<{ attributes: ChannexRestrictionRow }>
+      }
+      const rows = (json.data ?? []).map((d) => d.attributes)
+      return { fromChannex: true, rows }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      this.logger.warn(`[Channex] listRestrictions failed: ${msg} — using local defaults`)
+      return { fromChannex: false, rows: [] }
+    }
+  }
+
   // ─── Channels (read-only via list; pause/unpause emulado via restrictions) ──
 
   async listChannels(propertyId: string): Promise<ChannexChannel[]> {
@@ -1084,4 +1137,20 @@ export interface ChannexChannel {
   title: string
   channel: string         // 'booking_com' | 'expedia' | 'airbnb' | ...
   is_active: boolean
+}
+
+// ─── Restriction read row (Day 6 — Rate Calendar Matrix) ───────────────────
+// Forma de cada entry retornada por GET /restrictions. Channex pone TODOS los
+// campos opcionales — solo aparecen los que el operador realmente seteó.
+export interface ChannexRestrictionRow {
+  property_id: string
+  rate_plan_id: string
+  date: string                       // YYYY-MM-DD
+  rate?: string | number             // string en JSON Channex (e.g. "70.00")
+  min_stay_arrival?: number
+  min_stay_through?: number
+  max_stay?: number
+  closed_to_arrival?: boolean
+  closed_to_departure?: boolean
+  stop_sell?: boolean
 }
