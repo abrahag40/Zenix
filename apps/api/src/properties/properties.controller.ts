@@ -30,9 +30,14 @@ export class PropertiesController {
     return this.service.update(id, dto)
   }
 
+  /**
+   * Soft-delete con type-to-confirm.
+   * Body: `{ confirmation: "<exact-property-name>" }` — backend valida.
+   * Sin el header de confirmation o mismatch → 400.
+   */
   @Delete(':id')
   @Roles(StaffRole.SUPERVISOR)
-  remove(@Param('id') id: string) {
-    return this.service.remove(id)
+  remove(@Param('id') id: string, @Body() body?: { confirmation?: string }) {
+    return this.service.remove(id, body?.confirmation)
   }
 }

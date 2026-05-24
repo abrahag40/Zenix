@@ -12,13 +12,15 @@
  */
 import { PropertiesService } from './properties.service'
 
-describe('PropertiesService.remove — soft-delete regression guard', () => {
+describe('PropertiesService.remove — soft-delete + type-to-confirm regression guard', () => {
+  const PROPERTY = { id: 'p-1', name: 'Hotel Boutique Tulum' }
+
   function build() {
     const prisma: any = {
       property: {
-        findFirst: jest.fn().mockResolvedValue({ id: 'p-1', name: 'Tulum' }),
-        findUnique: jest.fn().mockResolvedValue({ id: 'p-1', name: 'Tulum' }),
-        update: jest.fn().mockResolvedValue({ id: 'p-1', deletedAt: new Date() }),
+        findFirst: jest.fn().mockResolvedValue(PROPERTY),
+        findUnique: jest.fn().mockResolvedValue(PROPERTY),
+        update: jest.fn().mockResolvedValue({ ...PROPERTY, deletedAt: new Date() }),
         delete: jest.fn(),
         findMany: jest.fn().mockResolvedValue([]),
       },
@@ -27,19 +29,38 @@ describe('PropertiesService.remove — soft-delete regression guard', () => {
     return { service: new PropertiesService(prisma, tenant), prisma }
   }
 
-  it('remove() usa prisma.property.update con deletedAt, NUNCA delete', async () => {
+  it('remove() con confirmation exacto → soft-delete (update con deletedAt)', async () => {
     const { service, prisma } = build()
-    await service.remove('p-1')
+    await service.remove('p-1', 'Hotel Boutique Tulum')
 
-    // El sello del soft-delete: update llamado con deletedAt timestamp.
     expect(prisma.property.update).toHaveBeenCalledWith({
       where: { id: 'p-1' },
       data: expect.objectContaining({ deletedAt: expect.any(Date) }),
     })
-
-    // CRÍTICO: prisma.property.delete NUNCA debe invocarse — cascade-borraría
-    // PaymentLogs, AuditLogs, CFDIs (evidence chargeback Visa + USALI).
     expect(prisma.property.delete).not.toHaveBeenCalled()
+  })
+
+  it('remove() SIN confirmation → BadRequestException', async () => {
+    const { service, prisma } = build()
+    await expect(service.remove('p-1')).rejects.toThrow(/requiere "confirmation"/)
+    expect(prisma.property.update).not.toHaveBeenCalled()
+    expect(prisma.property.delete).not.toHaveBeenCalled()
+  })
+
+  it('remove() con confirmation mal escrita → BadRequestException', async () => {
+    const { service, prisma } = build()
+    await expect(service.remove('p-1', 'hotel tulum')).rejects.toThrow(/no coincide/)
+    expect(prisma.property.update).not.toHaveBeenCalled()
+  })
+
+  it('remove() es CASE-SENSITIVE (forzar atención del operador)', async () => {
+    const { service } = build()
+    await expect(service.remove('p-1', 'HOTEL BOUTIQUE TULUM')).rejects.toThrow(/no coincide/)
+  })
+
+  it('remove() con confirmation con espacios trailing → BadRequest (exacto)', async () => {
+    const { service } = build()
+    await expect(service.remove('p-1', 'Hotel Boutique Tulum ')).rejects.toThrow(/no coincide/)
   })
 
   it('findAll filtra deletedAt:null (no expone Properties archivadas)', async () => {

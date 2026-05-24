@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import { StaffRole, JwtPayload } from '@zenix/shared'
 import { PrismaService } from '../prisma/prisma.service'
 import { TenantContextService } from '../common/tenant-context.service'
@@ -58,16 +58,34 @@ export class PropertiesService {
   }
 
   /**
-   * Soft-delete. NUNCA hard-delete una Property porque cascade-borraría
-   * Rooms, GuestStays, PaymentLogs, AuditLogs, CFDIs — evidence chargeback
+   * Soft-delete con doble verificación (GitHub-style type-to-confirm).
+   *
+   * NUNCA hard-delete una Property porque cascade-borraría Rooms,
+   * GuestStays, PaymentLogs, AuditLogs, CFDIs — evidence chargeback
    * Visa CRR §5.9.2 + USALI 12 ed append-only fiscal.
    *
-   * Pre-Day 9 audit: este método hacía `prisma.property.delete()` directo.
-   * Si un SUPERVISOR clickeaba "borrar property" → catástrofe silenciosa.
-   * Migration completa de cascade integrity en SCHEMA-INTEGRITY sprint.
+   * Requiere `confirmation` = nombre exacto de la Property. El frontend
+   * pide al user teclear el nombre antes de habilitar el botón, pero ESTE
+   * guard es la defensa real — un atacante con curl o un dev bypaseando
+   * el modal NO puede ejecutar el delete sin conocer + escribir el nombre.
+   *
+   * Pre-Day 9 audit: este método hacía `prisma.property.delete()` directo
+   * sin confirmation. Hard-delete + cascade catastrófico.
    */
-  async remove(id: string) {
-    await this.findOne(id)
+  async remove(id: string, confirmation?: string) {
+    const property = await this.findOne(id)
+
+    if (confirmation === undefined || confirmation === null) {
+      throw new BadRequestException(
+        `Eliminar property requiere "confirmation" en el body con el nombre exacto de la property ("${property.name}").`,
+      )
+    }
+    if (confirmation !== property.name) {
+      throw new BadRequestException(
+        `El texto de confirmación no coincide. Esperado: "${property.name}". Recibido: "${confirmation}". (Case-sensitive — escribir exacto.)`,
+      )
+    }
+
     return this.prisma.property.update({
       where: { id },
       data: { deletedAt: new Date() },

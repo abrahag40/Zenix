@@ -49,10 +49,11 @@ export class RoomsController {
     return this.service.update(id, dto)
   }
 
+  /** Soft-delete con type-to-confirm — body `{ confirmation: "<room.number>" }`. */
   @Delete('rooms/:id')
   @TenantResource({ model: 'room', paramName: 'id' })
   @Roles(StaffRole.SUPERVISOR)
-  remove(@Param('id') id: string) {
-    return this.service.remove(id)
+  remove(@Param('id') id: string, @Body() body?: { confirmation?: string }) {
+    return this.service.remove(id, body?.confirmation)
   }
 }

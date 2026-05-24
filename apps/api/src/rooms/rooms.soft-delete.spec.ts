@@ -20,13 +20,25 @@ describe('RoomsService.remove — soft-delete regression guard', () => {
     return { service: new RoomsService(prisma, tenant), prisma }
   }
 
-  it('remove() usa update con deletedAt, NUNCA delete', async () => {
+  it('remove() con confirmation exacto → soft-delete', async () => {
     const { service, prisma } = build()
-    await service.remove('r-1')
+    await service.remove('r-1', '101')
     expect(prisma.room.update).toHaveBeenCalledWith({
       where: { id: 'r-1' },
       data: expect.objectContaining({ deletedAt: expect.any(Date) }),
     })
     expect(prisma.room.delete).not.toHaveBeenCalled()
+  })
+
+  it('remove() SIN confirmation → BadRequestException', async () => {
+    const { service, prisma } = build()
+    await expect(service.remove('r-1')).rejects.toThrow(/requiere "confirmation"/)
+    expect(prisma.room.update).not.toHaveBeenCalled()
+  })
+
+  it('remove() con confirmation mismatch → BadRequestException', async () => {
+    const { service, prisma } = build()
+    await expect(service.remove('r-1', '102')).rejects.toThrow(/no coincide/)
+    expect(prisma.room.update).not.toHaveBeenCalled()
   })
 })
