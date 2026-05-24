@@ -27,11 +27,25 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: JwtPayload): Promise<JwtPayload> {
+    // Path 1 — Staff legacy (recepcionistas/supervisores/housekeepers).
     const staff = await this.prisma.staff.findUnique({
       where: { id: payload.sub },
       select: { id: true, active: true },
     })
-    if (!staff || !staff.active) throw new UnauthorizedException()
+    if (staff) {
+      if (!staff.active) throw new UnauthorizedException()
+      return payload
+    }
+
+    // Path 2 — Nova User (Day 3+) — PLATFORM_ADMIN / PARTNER_* / ORG_OWNER.
+    // Estos usuarios viven en `users` table (no `staff`). Sin este lookup, sus
+    // JWTs eran rechazados con 401 silencioso → frontend hacía auto-logout en
+    // loop infinito (bug reportado durante Day 9 sandbox testing).
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: { id: true, isActive: true },
+    })
+    if (!user || !user.isActive) throw new UnauthorizedException()
     return payload
   }
 }
