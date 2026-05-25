@@ -39,6 +39,7 @@ import { useNovaStore } from '../../store/nova'
 import { ConfirmDialog } from '../../modules/rooms/components/shared/ConfirmDialog'
 import { RateCalendarMatrix } from '../components/RateCalendarMatrix'
 import { PropertyPicker } from '../components/PropertyPicker'
+import { Chip, StatusChip } from '../components/Chip'
 import type { ReactNode } from 'react'
 import {
   listPropertiesOfActingOrg,
@@ -184,11 +185,7 @@ export function NovaChannexPage() {
               >
                 <span className="inline-flex items-center gap-1.5">
                   {t.label}
-                  {t.badge && (
-                    <span className="text-[9px] uppercase tracking-wide bg-slate-100 text-slate-500 rounded px-1 py-0.5">
-                      {t.badge}
-                    </span>
-                  )}
+                  {t.badge && <Chip variant="progress" intent="subtle" size="sm">{t.badge}</Chip>}
                 </span>
               </button>
             ))}
@@ -358,7 +355,7 @@ function StatusTab({ propertyId }: { propertyId: string }) {
                   <tr key={i} className="border-t border-slate-100">
                     <td className="py-1.5 pr-3 font-mono text-slate-700">{q.kind}</td>
                     <td className="py-1.5 pr-3">
-                      <StatusPill status={q.status} />
+                      <StatusChip status={q.status} />
                     </td>
                     <td className="py-1.5 text-right tabular-nums font-medium">{q.count}</td>
                   </tr>
@@ -392,22 +389,8 @@ function StatusTab({ propertyId }: { propertyId: string }) {
   )
 }
 
-function StatusPill({ status }: { status: string }) {
-  const map: Record<string, string> = {
-    PENDING: 'bg-amber-50 text-amber-700 border-amber-200',
-    IN_PROGRESS: 'bg-blue-50 text-blue-700 border-blue-200',
-    SUCCEEDED: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-    FAILED: 'bg-red-50 text-red-700 border-red-200',
-    DEAD_LETTER: 'bg-red-100 text-red-800 border-red-300 font-semibold',
-    DEFERRED: 'bg-slate-100 text-slate-600 border-slate-200',
-  }
-  const cls = map[status] ?? 'bg-slate-50 text-slate-600 border-slate-200'
-  return (
-    <span className={`inline-flex items-center text-[10px] font-medium uppercase tracking-wide rounded-full border px-2 py-0.5 ${cls}`}>
-      {status}
-    </span>
-  )
-}
+// StatusPill local removido — ahora viene del primitive Chip.tsx (StatusChip).
+// Las semánticas se mapean en STATUS_VARIANT_MAP central.
 
 interface StatCardProps {
   label: string
@@ -1086,9 +1069,7 @@ function ComingSoonTab({ tab }: { tab: string }) {
   const d = detail[tab] ?? { day: 'pronto', what: '—' }
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-10 text-center">
-      <div className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-0.5 inline-block">
-        {d.day}
-      </div>
+      <Chip variant="progress" intent="tonal" size="md">{d.day}</Chip>
       <p className="mt-2 text-[13px] text-slate-600">{d.what}</p>
     </div>
   )

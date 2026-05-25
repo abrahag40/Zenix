@@ -18,6 +18,7 @@ import { Search, Building2, CircleDashed, CheckCircle2, AlertCircle } from 'luci
 import { NovaShell } from '../NovaShell'
 import { listClients, type NovaClientRow } from '../../api/nova'
 import { useNovaStore } from '../../store/nova'
+import { StatusChip } from '../components/Chip'
 
 export function NovaClientsPage() {
   const navigate = useNavigate()
@@ -145,7 +146,18 @@ export function NovaClientsPage() {
 
                 {/* Status footer chip */}
                 <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between">
-                  <StatusChip status={c.status} />
+                  <StatusChip
+                    status={c.status}
+                    label={
+                      c.status === 'ACTIVE'
+                        ? 'Activo'
+                        : c.status === 'ONBOARDING'
+                          ? 'Onboarding'
+                          : c.status === 'SUSPENDED'
+                            ? 'Suspendido'
+                            : c.status
+                    }
+                  />
                   <span className="text-[11px] text-slate-400">
                     {c.activatedAt
                       ? `Activo desde ${new Date(c.activatedAt).toLocaleDateString('es-MX', { year: 'numeric', month: 'short' })}`
@@ -170,18 +182,4 @@ function initials(name: string): string {
     .join('')
 }
 
-function StatusChip({ status }: { status: string }) {
-  const map: Record<string, { label: string; cls: string }> = {
-    ACTIVE: { label: 'Activo', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-    ONBOARDING: { label: 'Onboarding', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
-    SUSPENDED: { label: 'Suspendido', cls: 'bg-red-50 text-red-700 border-red-200' },
-  }
-  const def = map[status] ?? { label: status, cls: 'bg-slate-50 text-slate-600 border-slate-200' }
-  return (
-    <span
-      className={`inline-flex items-center text-[10px] font-medium uppercase tracking-wide rounded-full border px-2 py-0.5 ${def.cls}`}
-    >
-      {def.label}
-    </span>
-  )
-}
+// StatusChip local removido — ahora viene del primitive Chip.tsx

@@ -27,6 +27,7 @@ import {
   Settings,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import { Chip } from './Chip'
 
 interface NavItem {
   label: string
@@ -77,9 +78,7 @@ export function NovaSidebar() {
                 <item.icon className="h-4 w-4 shrink-0" aria-hidden />
                 <span className="flex-1 truncate">{item.label}</span>
                 {item.badge && (
-                  <span className="text-[9px] uppercase tracking-wide bg-slate-100 text-slate-500 rounded px-1 py-0.5">
-                    {item.badge}
-                  </span>
+                  <Chip variant="progress" intent="subtle" size="sm">{item.badge}</Chip>
                 )}
               </NavLink>
             </li>
