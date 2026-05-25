@@ -77,9 +77,11 @@ export interface PropertyRow {
 
 /** Lista properties de la actingOrg (consultor) o de la propia org (ORG_OWNER). */
 export function listPropertiesOfActingOrg(): Promise<PropertyRow[]> {
-  // El backend ya filtra por organizationId via TenantContext middleware.
-  // Para Nova consultor, el header X-Acting-Organization-Id setea el scope.
-  return api.get<PropertyRow[]>('/v1/properties', {
+  // El backend ya filtra por organizationId via TenantContext middleware +
+  // PropertiesService.findAll usando getActingOrgIdOrThrow (Day 11 fix).
+  // Header X-Acting-Organization-Id define el scope para tier Nova consultor.
+  // Path es /properties (legacy, sin /v1), no /v1/properties.
+  return api.get<PropertyRow[]>('/properties', {
     headers: novaHeaders({ requireActingOrg: true }),
   })
 }

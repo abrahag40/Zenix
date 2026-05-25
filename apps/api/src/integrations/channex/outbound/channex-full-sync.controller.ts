@@ -2,6 +2,7 @@ import { Controller, Get, NotFoundException, Param, Post } from '@nestjs/common'
 import { JwtPayload, StaffRole } from '@zenix/shared'
 import { CurrentUser } from '../../../common/decorators/current-user.decorator'
 import { Roles } from '../../../common/decorators/roles.decorator'
+import { NovaTiers } from '../../../nova/guards/nova-tiers.guard'
 import { PrismaService } from '../../../prisma/prisma.service'
 import { ChannexAdminService } from './channex-admin.service'
 import { ChannexFullSyncOrchestrator } from './channex-full-sync.orchestrator'
@@ -22,7 +23,15 @@ import { ChannexFullSyncOrchestrator } from './channex-full-sync.orchestrator'
  * Log structured con actorId — visible en /settings/channex (Day 6).
  */
 @Controller('v1/admin/channex')
+// SUPERVISOR del cliente (legacy Staff tier=ORG_STAFF + role=SUPERVISOR)
+// puede operar su propio Channex. AND Roles Nova (PLATFORM, PARTNER_*,
+// ORG_OWNER) también, vía @NovaTiers.
+//
+// Day 11 fix: el RolesGuard hace OR entre @Roles y @NovaTiers — si CUALQUIERA
+// pasa, el guard allow. Sin esto, Abraham (PLATFORM) recibía 403 al abrir
+// el tab Status del Channex Command Center.
 @Roles(StaffRole.SUPERVISOR)
+@NovaTiers('PLATFORM', 'PARTNER_ADMIN', 'PARTNER_MEMBER', 'ORG_OWNER')
 export class ChannexFullSyncController {
   constructor(
     private readonly prisma: PrismaService,

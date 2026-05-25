@@ -21,12 +21,20 @@ export class PropertiesService {
   }
 
   findAll() {
-    const orgId = this.tenant.getOrganizationId()
+    // Nova fix (Day 11): usar getActingOrgIdOrThrow para que el consultor
+    // PLATFORM/PARTNER_* respete el header X-Acting-Organization-Id (scope
+    // del cliente seleccionado en TenantSwitcher). Para ORG_OWNER/ORG_STAFF,
+    // este helper retorna su propia organizationId (backward-compat).
+    //
+    // Bug pre-fix: getOrganizationId() leía del JWT → Abraham (PLATFORM con
+    // organizationId=null) recibía '' → query returned 0 properties incluso
+    // si el cliente tenía properties.
+    //
+    // §28 + §11 — filtra soft-deleted para no romper queries downstream
+    // (calendar, reports, channex sync, audit). Filas preservadas para
+    // evidence chargeback Visa CRR §5.9.2 + append-only logs cascade.
+    const orgId = this.tenant.getActingOrgIdOrThrow()
     return this.prisma.property.findMany({
-      // §28 + §11 — filtra soft-deleted Properties para no romper queries
-      // downstream (calendar, reports, channex sync, audit). Las filas siguen
-      // existiendo para preservar evidence chargeback Visa CRR §5.9.2 +
-      // append-only PaymentLog/AuditLog cascade integrity.
       where: { organizationId: orgId, deletedAt: null },
       orderBy: { name: 'asc' },
     })
