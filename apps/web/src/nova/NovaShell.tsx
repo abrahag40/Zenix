@@ -52,19 +52,30 @@ export function NovaShell({ title, actions, children }: NovaShellProps) {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div className="min-h-screen bg-slate-50 flex flex-col antialiased">
       {/* ImpersonationBanner sticky por encima de todo */}
       <ImpersonationBanner />
 
-      {/* Layout: sidebar lateral + main column */}
+      {/* Layout: sidebar dark + main column light */}
       <div className="flex flex-1 min-h-0">
         <NovaSidebar />
 
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex-1 flex flex-col min-w-0 bg-slate-50">
+          {/* Subtle ambient gradient en el main bg — preserva personalidad
+              warm sin agresión visual. Linear/Notion usan tonal subtle bg. */}
+          <div
+            className="absolute inset-0 pointer-events-none opacity-50"
+            style={{
+              background:
+                'radial-gradient(1200px circle at 100% 0%, rgba(99,102,241,0.04) 0%, transparent 50%),' +
+                'radial-gradient(800px circle at 0% 100%, rgba(16,185,129,0.03) 0%, transparent 50%)',
+            }}
+            aria-hidden
+          />
           <NovaTopbar title={title} actions={actions} />
 
-          <main className="flex-1 overflow-y-auto">
-            <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <main className="relative flex-1 overflow-y-auto">
+            <div className="max-w-screen-2xl mx-auto px-5 sm:px-7 lg:px-9 py-7">
               {children}
             </div>
           </main>

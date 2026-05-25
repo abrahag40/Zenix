@@ -1,8 +1,28 @@
 /**
- * NovaSidebar — sidebar lateral del Nova shell.
+ * NovaSidebar — dark sidebar Linear-style.
  *
- * Refactor 2026-05-25 con design system: typography jerárquica + Chip
- * primitive + brand logo con gradient + subtle border separators.
+ * Refactor 2026-05-25: bg-slate-950 con accent emerald, glass nav items.
+ * Patrón inspirado en Linear / Notion / Vercel dashboards — sidebar oscuro
+ * + main content blanco da contraste fuerte y personalidad inmediata.
+ *
+ * ─── Decisiones cromáticas ──────────────────────────────────────────────
+ *
+ * bg-slate-950: casi-negro warm. Itten 1961: hue cool muy oscuro reduce
+ * la sensación de "frío clínico" del black puro. Linear usa #0F0F0F equivalente.
+ *
+ * Nav items:
+ *   - idle: text-slate-400 + icon-slate-500 (deference Apple HIG — el
+ *     contenido principal del main panel domina, el chrome del sidebar
+ *     se difumina)
+ *   - hover: text-slate-100 + bg-white/[0.04] (glass micro-tint, no flat fill)
+ *   - active: text-white + gradient emerald-500/15 → transparent + ring sutil
+ *     emerald-500/20. Icon emerald-400.
+ *
+ * Glow del brand: shadow emerald solo en logo + active nav indicator —
+ * NO en sidebar bg (sería abrumador en dashboard largo).
+ *
+ * Footer hint: text-slate-500 muy sutil — Apple HIG quaternary label en
+ * surface oscura.
  */
 import { NavLink } from 'react-router-dom'
 import {
@@ -15,7 +35,7 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { Chip } from './Chip'
-import { Title, Caption } from '../design-system'
+import { cn } from '@/lib/utils'
 
 interface NavItem {
   label: string
@@ -35,27 +55,44 @@ const NAV: NavItem[] = [
 
 export function NovaSidebar() {
   return (
-    <aside className="hidden md:flex flex-col w-60 shrink-0 border-r border-slate-200/70 bg-white">
+    <aside className="hidden md:flex flex-col w-60 shrink-0 bg-slate-950 text-slate-300 relative overflow-hidden">
+      {/* Subtle ambient gradient — barely visible warmth en el top */}
+      <div
+        className="absolute inset-0 opacity-100 pointer-events-none"
+        style={{
+          background:
+            'radial-gradient(800px circle at 0% 0%, rgba(16,185,129,0.06) 0%, transparent 50%)',
+        }}
+        aria-hidden
+      />
+
       {/* Brand */}
-      <div className="h-14 flex items-center px-4 border-b border-slate-200/70">
+      <div className="relative h-14 flex items-center px-4 border-b border-white/[0.06]">
         <div className="flex items-center gap-2.5">
           <div
-            className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 via-emerald-600 to-emerald-800 flex items-center justify-center text-white text-[13px] font-bold shadow-[0_4px_12px_-4px_rgba(16,185,129,0.5)]"
+            className={cn(
+              'w-8 h-8 rounded-lg flex items-center justify-center font-bold text-[13px]',
+              'bg-gradient-to-br from-emerald-400 via-emerald-500 to-emerald-700',
+              'text-white',
+              'shadow-[0_0_0_1px_rgba(16,185,129,0.3),0_8px_24px_-8px_rgba(16,185,129,0.6)]',
+            )}
             aria-hidden
           >
             N
           </div>
-          <div>
-            <Title className="leading-none">Zenix Nova</Title>
-            <Caption tone="tertiary" className="leading-tight">
+          <div className="leading-tight">
+            <div className="text-[14px] font-semibold tracking-tight text-white">
+              Zenix Nova
+            </div>
+            <div className="text-[10px] text-slate-500 tracking-wide">
               Consultor workspace
-            </Caption>
+            </div>
           </div>
         </div>
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 overflow-y-auto py-3">
+      <nav className="relative flex-1 overflow-y-auto py-3">
         <ul className="space-y-0.5 px-2">
           {NAV.map((item) => (
             <li key={item.to}>
@@ -63,19 +100,30 @@ export function NovaSidebar() {
                 to={item.to}
                 end={item.to === '/nova/dashboard'}
                 className={({ isActive }) =>
-                  'flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors group ' +
-                  (isActive
-                    ? 'bg-gradient-to-r from-emerald-50 to-emerald-50/0 text-emerald-800'
-                    : 'text-slate-700 hover:bg-slate-100/60')
+                  cn(
+                    'group relative flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-all duration-150',
+                    isActive
+                      ? 'text-white bg-gradient-to-r from-emerald-500/[0.15] to-emerald-500/[0.02] ring-1 ring-inset ring-emerald-500/20'
+                      : 'text-slate-400 hover:text-slate-100 hover:bg-white/[0.04]',
+                  )
                 }
               >
                 {({ isActive }) => (
                   <>
+                    {/* Active indicator vertical bar — Linear pattern */}
+                    {isActive && (
+                      <span
+                        className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r-full bg-gradient-to-b from-emerald-400 to-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"
+                        aria-hidden
+                      />
+                    )}
                     <item.icon
-                      className={
-                        'h-4 w-4 shrink-0 transition-colors ' +
-                        (isActive ? 'text-emerald-600' : 'text-slate-500 group-hover:text-slate-700')
-                      }
+                      className={cn(
+                        'h-4 w-4 shrink-0 transition-colors',
+                        isActive
+                          ? 'text-emerald-400'
+                          : 'text-slate-500 group-hover:text-slate-300',
+                      )}
                       aria-hidden
                     />
                     <span className="flex-1 truncate">{item.label}</span>
@@ -90,16 +138,22 @@ export function NovaSidebar() {
             </li>
           ))}
         </ul>
+
+        {/* Section divider for futuro grouping (e.g. Admin · Ops · Reports) */}
+        {/* <div className="my-3 border-t border-white/[0.05]" /> */}
       </nav>
 
-      {/* Footer hint */}
-      <div className="p-3 border-t border-slate-200/70">
-        <Caption tone="quaternary" className="block leading-snug">
-          Nova v1.0 — Phase 1
-        </Caption>
-        <Caption tone="quaternary" className="block leading-snug">
-          Cliente: <span className="font-mono">app.zenix.com</span>
-        </Caption>
+      {/* Footer */}
+      <div className="relative p-3 border-t border-white/[0.06]">
+        <div className="flex items-center gap-1.5 mb-1">
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(16,185,129,0.6)] animate-pulse" />
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
+            Nova v1.0
+          </span>
+        </div>
+        <div className="text-[10px] text-slate-500 leading-snug">
+          Phase 1 · Cliente en <span className="font-mono text-slate-400">app.zenix.com</span>
+        </div>
       </div>
     </aside>
   )

@@ -2,6 +2,45 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Typography foundation — Inter Variable con OpenType features ─────────── */
+/* Pattern Linear / Vercel / Stripe / Notion. Inter es la sans-serif geometric
+   con mejor legibilidad on-screen para dashboards data-heavy. OpenType features
+   activadas en body global:
+   - 'cv11' — single-storey 'a' (más Apple-like, San Francisco-like)
+   - 'ss01' — alternate stylistic set (más geometric)
+   - 'ss03' — round quotes
+   - 'cv02' — open '4'
+   - 'tnum' OFF en body (numerals proporcionales para texto), pero las
+     classes Tailwind `tabular-nums` la activan donde se necesita data fixed-width
+*/
+@layer base {
+  html,
+  body {
+    font-family:
+      'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+      Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: 'cv11', 'ss01', 'ss03', 'cv02';
+    text-rendering: optimizeLegibility;
+  }
+  code,
+  kbd,
+  pre,
+  samp,
+  .font-mono {
+    font-family:
+      'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
+      monospace;
+    font-feature-settings: 'tnum', 'zero', 'ss01';
+  }
+  /* Tabular numerals para data dashboards — opcional override por componente */
+  .tabular-nums {
+    font-feature-settings: 'tnum', 'cv11', 'ss01';
+    font-variant-numeric: tabular-nums;
+  }
+}
+
 /* ── Spring easing curves ─────────────────────────────────────────────────── */
 /* Used via [animation-timing-function:var(--ease-spring)] to avoid the      */
 /* Tailwind JIT comma-inside-cubic-bezier scanner bug with variant prefixes.  */
