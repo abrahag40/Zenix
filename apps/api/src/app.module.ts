@@ -20,6 +20,7 @@ import { ChannexModule } from './integrations/channex/channex.module'
 import { ChannexInboundModule } from './integrations/channex/inbound/channex-inbound.module'
 import { ChannexOutboundModule } from './integrations/channex/outbound/channex-outbound.module'
 import { ChannexManagementModule } from './nova/channex-management/channex-management.module'
+import { WizardModule } from './nova/wizard/wizard.module'
 import { AvailabilityModule } from './pms/availability/availability.module'
 import { AccessControlModule } from './common/access-control/access-control.module'
 import { SettingsModule } from './settings/settings.module'
@@ -79,6 +80,7 @@ import { PropertyScopeGuard } from './common/guards/property-scope.guard'
     ChannexInboundModule, // Sprint CHANNEX-INBOUND — webhooks OTA → PMS
     ChannexOutboundModule, // Sprint CHANNEX-OUTBOUND-CERT — PMS → Channex ARI push
     ChannexManagementModule, // Sprint NOVA-CHANNEX-COMMAND-CENTER Day 5 — Channex CRUD endpoints
+    WizardModule, // Sprint NOVA-CHANNEX-COMMAND-CENTER Day 16 — Wizard Zenix Activate (health-checks + activate)
     AvailabilityModule,
     AccessControlModule,
     SettingsModule,

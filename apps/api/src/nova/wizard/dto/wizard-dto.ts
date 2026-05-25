@@ -1,0 +1,187 @@
+/**
+ * DTOs for Wizard Zenix Activate endpoints (Day 16).
+ *
+ * Schema-validated input para los 4 health-checks + activación final.
+ * Validación class-validator alineada con frontend wizard store
+ * (apps/web/src/store/wizard.ts).
+ */
+import {
+  IsArray,
+  IsBoolean,
+  IsEmail,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Length,
+  Matches,
+  MaxLength,
+  Min,
+  MinLength,
+  ValidateNested,
+} from 'class-validator'
+import { Type } from 'class-transformer'
+
+// ─── Health-check DTOs ────────────────────────────────────────────────
+
+export class HealthCheckChannexDto {
+  /** propertyId Channex a probar. Si vacío, lista properties accesibles
+   *  con la api-key configurada. */
+  @IsOptional()
+  @IsString()
+  @Length(8, 64)
+  channexPropertyId?: string
+}
+
+export class HealthCheckStripeDto {
+  /** Stripe Connect account id del cliente (acct_...). Stub Day 16. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  connectAccountId?: string
+}
+
+export class HealthCheckPacDto {
+  /** Adapter id elegido en Step 3 (MX_FACTURAMA / MX_SW_SAPIEN / CO_DIAN...). */
+  @IsString()
+  @MaxLength(40)
+  pacAdapter!: string
+
+  /** Tax ID (RFC/NIT/RUC) — para echo en mock response. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  taxId?: string
+}
+
+export class HealthCheckSmtpDto {
+  /** Email del Org Owner — destinatario del test email. */
+  @IsEmail()
+  toAddress!: string
+}
+
+// ─── Activate DTO ─────────────────────────────────────────────────────
+
+export class WizardPropertyDto {
+  @IsString()
+  @MinLength(2)
+  @MaxLength(120)
+  name!: string
+
+  @IsIn(['HOTEL', 'HOSTAL', 'BOUTIQUE', 'GLAMPING', 'ECO_LODGE', 'VACATION_RENTAL'])
+  type!: 'HOTEL' | 'HOSTAL' | 'BOUTIQUE' | 'GLAMPING' | 'ECO_LODGE' | 'VACATION_RENTAL'
+
+  /** IANA timezone — e.g. 'America/Cancun'. */
+  @IsString()
+  @MaxLength(60)
+  timezone!: string
+
+  /** Stable city id del catálogo LATAM. Null = free text. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  cityId?: string | null
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  cityFreeText?: string
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  cityDisplay?: string
+}
+
+export class WizardActivateDto {
+  // Step 1 — Customer Account
+  @IsString() @MinLength(2) @MaxLength(120)
+  organizationName!: string
+
+  @IsString()
+  @MinLength(3)
+  @MaxLength(40)
+  @Matches(/^[a-z0-9-]+$/, {
+    message: 'slug debe contener solo letras minúsculas, números y guiones',
+  })
+  organizationSlug!: string
+
+  @IsString() @Length(2, 2)
+  organizationCountryCode!: string
+
+  @IsString() @MaxLength(60)
+  organizationTimezone!: string
+
+  // Step 2 — Brand (opcional)
+  @IsBoolean()
+  brandEnabled!: boolean
+
+  @IsOptional() @IsString() @MaxLength(120)
+  brandName?: string
+
+  @IsOptional() @IsString() @MaxLength(500)
+  brandLogoUrl?: string
+
+  // Step 3 — LegalEntity
+  @IsString() @MinLength(2) @MaxLength(180)
+  legalEntityName!: string
+
+  @IsString() @MinLength(3) @MaxLength(20)
+  legalEntityTaxId!: string
+
+  @IsString() @MaxLength(40)
+  legalEntityRegime!: string
+
+  @IsString() @Length(3, 3)
+  legalEntityBaseCurrency!: string
+
+  @IsString() @MaxLength(40)
+  legalEntityPacAdapter!: string
+
+  // Step 4 — Properties (N items, min 1)
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => WizardPropertyDto)
+  properties!: WizardPropertyDto[]
+
+  // Step 5 — Inventory template
+  @IsIn(['HOSTAL', 'BOUTIQUE', 'CABAÑAS', 'BUSINESS', 'CUSTOM'])
+  inventoryTemplate!: 'HOSTAL' | 'BOUTIQUE' | 'CABAÑAS' | 'BUSINESS' | 'CUSTOM'
+
+  // Step 6 — Org Owner
+  @IsEmail()
+  @MaxLength(180)
+  orgOwnerEmail!: string
+
+  @IsString() @MinLength(2) @MaxLength(120)
+  orgOwnerName!: string
+
+  // Step 7 — health-check override (PAC warning aceptado por consultor)
+  @IsOptional()
+  @IsBoolean()
+  pacOverrideAccepted?: boolean
+}
+
+// ─── Response types ───────────────────────────────────────────────────
+
+export interface HealthCheckResponse {
+  status: 'success' | 'warning' | 'error'
+  message: string
+  latencyMs: number
+  /** Detail adicional para debug (no leak credentials). */
+  detail?: Record<string, unknown>
+}
+
+export interface WizardActivateResponse {
+  organizationId: string
+  legalEntityId: string
+  brandId: string | null
+  propertyIds: string[]
+  orgOwnerUserId: string
+  /** Setup link para el Org Owner. Incluye token JWT-style 72h. */
+  ownerSetupLink: string
+  /** Timestamp ISO de creación. */
+  activatedAt: string
+  /** Auditoría queued — true cuando AuditLog entry escribió OK. */
+  auditLogged: boolean
+}

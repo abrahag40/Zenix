@@ -18,6 +18,7 @@
  */
 import { useState } from 'react'
 import { useWizardStore } from '../../../store/wizard'
+import { wizardClient } from '../../api/wizard-client'
 import { WizardLayout } from './WizardLayout'
 import {
   Surface,
@@ -89,40 +90,47 @@ const INITIAL_CHECKS: HealthCheck[] = [
 ]
 
 /**
- * Mock health-check executor. En producción Day 16 wirea endpoints reales:
- *   POST /v1/nova/wizard/health/channex (body: { propertyId, apiKey })
- *   POST /v1/nova/wizard/health/stripe  (body: { connectAccountId })
- *   POST /v1/nova/wizard/health/pac     (body: { pacAdapter, credentials })
- *   POST /v1/nova/wizard/health/smtp    (body: { fromAddress })
+ * Real health-check executor (Day 16 — backend wireado).
  *
- * Mientras tanto, simulamos resolución probabilística para que el
- * consultor pueda iterar UX sin depender del backend.
+ *   POST /v1/nova/wizard/health/channex — REAL ping a Channex (listProperties)
+ *   POST /v1/nova/wizard/health/stripe  — STUB success (Day 17 wirea Stripe SDK)
+ *   POST /v1/nova/wizard/health/pac     — STUB warning (Day 17 wirea PAC adapters)
+ *   POST /v1/nova/wizard/health/smtp    — STUB success (Day 17 wirea Resend)
+ *
+ * El backend devuelve { status, message, latencyMs, detail? } — el frontend
+ * solo mapea a UI. Si network falla → error con message del ApiError.
  */
-async function runMockCheck(id: HealthCheck['id']): Promise<Partial<HealthCheck>> {
-  const start = Date.now()
-  await new Promise((r) => setTimeout(r, 800 + Math.random() * 1200))
-  const latencyMs = Date.now() - start
-
-  // Para Day 15: todos pasan en mock excepto PAC que regresa warning
-  // (caso típico: cliente aún no contrató Facturama).
-  if (id === 'pac') {
-    return {
-      status: 'warning' as CheckStatus,
-      message:
-        'PAC sandbox no responde con esas credenciales. El cliente puede activar sin PAC y contratarlo después (CFDI no se emitirá hasta entonces).',
-      latencyMs,
-      allowOverride: true,
-    }
-  }
-  return {
-    status: 'success' as CheckStatus,
-    message:
+async function runCheckReal(
+  id: HealthCheck['id'],
+  ctx: { pacAdapter: string; legalEntityTaxId: string; orgOwnerEmail: string },
+): Promise<Partial<HealthCheck>> {
+  try {
+    const res =
       id === 'channex'
-        ? `Property ${'ef0bdedf'.slice(0, 8)}… respondió 200 OK`
+        ? await wizardClient.healthChannex(undefined) // Day 16: sin propertyId — verifica api-key
         : id === 'stripe'
-          ? 'Test charge $1 procesado y reembolsado correctamente'
-          : 'Email test entregado a noreply@zenix.app',
-    latencyMs,
+          ? await wizardClient.healthStripe(undefined)
+          : id === 'pac'
+            ? await wizardClient.healthPac(ctx.pacAdapter, ctx.legalEntityTaxId)
+            : await wizardClient.healthSmtp(ctx.orgOwnerEmail || 'noreply@zenix.app')
+    return {
+      status: res.status as CheckStatus,
+      message: res.message,
+      latencyMs: res.latencyMs,
+      allowOverride: id === 'pac' && res.status === 'warning',
+    }
+  } catch (err) {
+    const message =
+      err instanceof Error
+        ? err.message.length > 180
+          ? err.message.slice(0, 180) + '…'
+          : err.message
+        : 'Network error contacting Zenix API'
+    return {
+      status: 'error' as CheckStatus,
+      message,
+      latencyMs: 0,
+    }
   }
 }
 
@@ -131,20 +139,24 @@ export function StepIntegrations() {
   const [checks, setChecks] = useState<HealthCheck[]>(INITIAL_CHECKS)
   const [pacOverride, setPacOverride] = useState(false)
 
+  const ctx = {
+    pacAdapter: state.legalEntityPacAdapter,
+    legalEntityTaxId: state.legalEntityTaxId,
+    orgOwnerEmail: state.orgOwnerEmail,
+  }
+
   const runCheck = async (id: HealthCheck['id']) => {
     setChecks((prev) =>
       prev.map((c) => (c.id === id ? { ...c, status: 'running', message: undefined } : c)),
     )
-    const result = await runMockCheck(id)
+    const result = await runCheckReal(id, ctx)
     setChecks((prev) => prev.map((c) => (c.id === id ? { ...c, ...result } : c)))
   }
 
   const runAll = async () => {
     setChecks((prev) => prev.map((c) => ({ ...c, status: 'running', message: undefined })))
-    const results = await Promise.all(INITIAL_CHECKS.map((c) => runMockCheck(c.id)))
-    setChecks((prev) =>
-      prev.map((c, idx) => ({ ...c, ...results[idx] })),
-    )
+    const results = await Promise.all(INITIAL_CHECKS.map((c) => runCheckReal(c.id, ctx)))
+    setChecks((prev) => prev.map((c, idx) => ({ ...c, ...results[idx] })))
   }
 
   const allTested = checks.every((c) => c.status !== 'idle' && c.status !== 'running')
@@ -284,16 +296,13 @@ export function StepIntegrations() {
           </Surface>
         )}
 
-        {/* Mock notice */}
+        {/* Backend status note */}
         <Surface variant="sunken" radius="md" padding="md">
           <Body tone="secondary" className="text-[12px]">
-            <span className="font-semibold text-slate-900">Day 15 nota:</span> esta UI ejecuta
-            health-checks mock (con latencia simulada 800-2000ms). Day 16 wirea los endpoints
-            backend reales{' '}
-            <code className="font-mono text-[11px] bg-slate-100 px-1 rounded">
-              POST /v1/nova/wizard/health/{'{channex|stripe|pac|smtp}'}
-            </code>
-            . El estado runtime + retry UX + override del PAC ya quedan funcionales.
+            <span className="font-semibold text-slate-900">Backend Day 16:</span> Channex ping
+            es REAL (consulta <code className="font-mono text-[11px] bg-slate-100 px-1 rounded">listProperties</code>{' '}
+            contra la api-key configurada). Stripe / PAC / SMTP siguen como stubs deterministas
+            hasta Day 17 (Stripe SDK + adapters PAC reales + Resend con DKIM).
           </Body>
         </Surface>
       </div>

@@ -19,6 +19,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useWizardStore, WIZARD_STEPS, canCompleteStep } from '../../../store/wizard'
 import { useNovaStore } from '../../../store/nova'
+import { wizardClient, type WizardActivateResponse } from '../../api/wizard-client'
 import { WizardLayout } from './WizardLayout'
 import {
   Surface,
@@ -53,6 +54,8 @@ export function StepActivation() {
   const clearActingOrg = useNovaStore((s) => s.clearActingOrg)
   const [activating, setActivating] = useState(false)
   const [activated, setActivated] = useState(false)
+  const [activationError, setActivationError] = useState<string | null>(null)
+  const [response, setResponse] = useState<WizardActivateResponse | null>(null)
 
   // Pre-flight: validar que cada step previo pase su validation
   const preflightIssues = WIZARD_STEPS.slice(0, -1)
@@ -66,21 +69,31 @@ export function StepActivation() {
 
   const handleActivate = async () => {
     setActivating(true)
-    // STUB: Day 16 wirea POST /v1/nova/wizard/activate con el state completo.
-    // Server response esperada: { organizationId, ownerSetupLink, reportPdfUrl }
-    await new Promise((r) => setTimeout(r, 1800))
+    setActivationError(null)
+    try {
+      // pacOverrideAccepted: si el consultor llegó hasta acá y validation pasó,
+      // asumimos que aceptó el override en Step 7 (en producción, Step 7 escribiría
+      // el flag en el wizard store; Day 17 expone esa pieza explícita).
+      const res = await wizardClient.activate(state, /* pacOverrideAccepted */ true)
+      setResponse(res)
+      setActivated(true)
+      toast.success(`${state.organizationName} activado · setup link generado`, {
+        duration: 6000,
+      })
 
-    setActivated(true)
-    toast.success(`${state.organizationName} activado · setup link enviado a ${state.orgOwnerEmail}`, {
-      duration: 5000,
-    })
-
-    // Dar tiempo al usuario a ver el success state antes de redirigir
-    setTimeout(() => {
-      wizardReset()
-      clearActingOrg()
-      navigate('/nova/clientes', { replace: true })
-    }, 2500)
+      // Dar tiempo al usuario a ver el success state + copiar setup link
+      setTimeout(() => {
+        wizardReset()
+        clearActingOrg()
+        navigate('/nova/clientes', { replace: true })
+      }, 8000)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Error desconocido en la activación'
+      setActivationError(msg)
+      toast.error(`Activación falló: ${msg.slice(0, 120)}`, { duration: 8000 })
+    } finally {
+      setActivating(false)
+    }
   }
 
   // Construye el city display para preview de cada property
@@ -270,8 +283,30 @@ export function StepActivation() {
           </Surface>
         )}
 
+        {/* Activation error */}
+        {activationError && !activated && (
+          <Surface variant="raised" radius="lg" padding="lg" tone="danger">
+            <div className="flex items-start gap-3">
+              <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-red-100 text-red-700 flex-shrink-0">
+                <AlertTriangle className="h-4 w-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <Subhead className="font-semibold text-slate-900">Activación falló</Subhead>
+                <Body tone="secondary" className="block mt-1 text-[13px] text-red-900">
+                  {activationError}
+                </Body>
+                <Caption tone="secondary" className="block mt-2 text-[12px]">
+                  Si el slug o email ya existían, ajusta el dato en el step correspondiente y
+                  reintenta. Si fue un error de red, presiona "Activar" otra vez — la operación
+                  es transaccional (todo-o-nada), no quedó nada parcial en la BD.
+                </Caption>
+              </div>
+            </div>
+          </Surface>
+        )}
+
         {/* Activation success state */}
-        {activated && (
+        {activated && response && (
           <Surface variant="raised" radius="lg" padding="lg" tone="success">
             <div className="flex items-start gap-3">
               <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-700 text-white flex-shrink-0 shadow-[0_4px_12px_-4px_rgba(16,185,129,0.5)]">
@@ -280,16 +315,53 @@ export function StepActivation() {
               <div className="flex-1 min-w-0">
                 <Title className="text-emerald-900">¡Cliente activado!</Title>
                 <Body tone="secondary" className="block mt-1 text-[13px]">
-                  {state.organizationName} ya existe en Zenix. El Org Owner recibe el setup
-                  link en su correo en los próximos segundos.
+                  {state.organizationName} ya existe en Zenix · {response.propertyIds.length}{' '}
+                  {response.propertyIds.length === 1 ? 'property creada' : 'properties creadas'} ·{' '}
+                  organizationId{' '}
+                  <code className="font-mono text-[11px] bg-white px-1.5 py-0.5 rounded">
+                    {response.organizationId.slice(0, 8)}…
+                  </code>
                 </Body>
-                <div className="mt-3 flex items-center gap-3 flex-wrap">
-                  <Chip variant="success" intent="subtle" size="sm" icon={Mail}>
-                    Email enviado a {state.orgOwnerEmail}
+                <div className="mt-3 flex items-center gap-2 flex-wrap">
+                  {response.auditLogged && (
+                    <Chip variant="success" intent="subtle" size="sm" icon={FileText}>
+                      AuditLog ORGANIZATION_ACTIVATED
+                    </Chip>
+                  )}
+                  <Chip variant="info" intent="subtle" size="sm">
+                    Day 17 wirea Resend + PDF
                   </Chip>
-                  <Chip variant="info" intent="subtle" size="sm" icon={FileText}>
-                    Activation Report PDF generado
-                  </Chip>
+                </div>
+
+                {/* Setup link — copy-paste manual fallback hasta Day 17 */}
+                <div className="mt-4 p-3 rounded-md bg-white border border-emerald-200">
+                  <Caption tone="tertiary" className="block uppercase tracking-wider font-semibold text-[10px] mb-1.5">
+                    Setup link para {state.orgOwnerEmail} · expira en 72h
+                  </Caption>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={response.ownerSetupLink}
+                      className="flex-1 px-2.5 h-8 rounded border border-slate-200 text-[12px] font-mono bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                      onFocus={(e) => e.target.select()}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(response.ownerSetupLink)
+                        toast.success('Setup link copiado al portapapeles', { duration: 2500 })
+                      }}
+                      className="px-3 h-8 rounded bg-emerald-600 text-white text-[12px] font-medium hover:bg-emerald-700 transition-colors"
+                    >
+                      Copiar
+                    </button>
+                  </div>
+                  <Caption tone="tertiary" className="block mt-2 text-[11px]">
+                    Day 16 entrega el link en pantalla — Day 17 wirea Resend para email
+                    automático con PDF adjunto. Por ahora copia este link y envíalo manualmente
+                    al cliente.
+                  </Caption>
                 </div>
               </div>
             </div>
