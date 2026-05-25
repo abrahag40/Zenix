@@ -37,6 +37,7 @@ import {
 import { NovaShell } from '../NovaShell'
 import { useNovaStore } from '../../store/nova'
 import { ConfirmDialog } from '../../modules/rooms/components/shared/ConfirmDialog'
+import { RateCalendarMatrix } from '../components/RateCalendarMatrix'
 import type { ReactNode } from 'react'
 import {
   listPropertiesOfActingOrg,
@@ -59,7 +60,7 @@ const TABS: { key: TabKey; label: string; badge?: string }[] = [
   { key: 'status', label: 'Status' },
   { key: 'room-types', label: 'Room Types' },
   { key: 'rate-plans', label: 'Rate Plans' },
-  { key: 'rate-calendar', label: 'Rate Calendar', badge: 'Day 11' },
+  { key: 'rate-calendar', label: 'Rate Calendar' },
   { key: 'restrictions', label: 'Restrictions', badge: 'Day 13' },
   { key: 'channels', label: 'Channels', badge: 'Day 13' },
   { key: 'mappings', label: 'Mappings', badge: 'Day 13' },
@@ -217,8 +218,8 @@ export function NovaChannexPage() {
             {activeTab === 'status' && <StatusTab propertyId={selectedPropertyId} />}
             {activeTab === 'room-types' && <RoomTypesTab propertyId={selectedPropertyId} />}
             {activeTab === 'rate-plans' && <RatePlansTab propertyId={selectedPropertyId} />}
-            {(activeTab === 'rate-calendar' ||
-              activeTab === 'restrictions' ||
+            {activeTab === 'rate-calendar' && <RateCalendarMatrix propertyId={selectedPropertyId} />}
+            {(activeTab === 'restrictions' ||
               activeTab === 'channels' ||
               activeTab === 'mappings') && <ComingSoonTab tab={activeTab} />}
           </>

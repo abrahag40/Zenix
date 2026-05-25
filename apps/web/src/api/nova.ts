@@ -209,12 +209,79 @@ export function deleteRatePlan(
   )
 }
 
+// ── Rate Calendar types (mirror del backend Day 6) ─────────────────────────
+
+export interface RateCalendarCell {
+  date: string
+  ratePlanId: string
+  rate: number | null
+  rateSource: 'CHANNEX' | 'DEFAULT' | 'UNSET'
+  minStayArrival?: number
+  minStayThrough?: number
+  maxStay?: number
+  closedToArrival?: boolean
+  closedToDeparture?: boolean
+  stopSell?: boolean
+  capViolation?: boolean
+}
+
+export interface RateCalendarRatePlanRow {
+  ratePlanId: string
+  channexRatePlanId: string
+  channexRoomTypeId: string
+  title: string
+  currency: string
+  defaultRate: number
+  defaultOccupancy: number
+  rateCapMin: number | null
+  rateCapMax: number | null
+  rateCapReason: string | null
+  cells: RateCalendarCell[]
+}
+
+export interface RateCalendarParityIssue {
+  date: string
+  channexRoomTypeId: string
+  spreadPct: number
+  minRate: number
+  maxRate: number
+  ratePlanIds: string[]
+}
+
+export interface RateCalendarMatrix {
+  propertyId: string
+  dateFrom: string
+  dateTo: string
+  currency: string
+  parityThresholdPct: number
+  fromChannex: boolean
+  ratePlans: RateCalendarRatePlanRow[]
+  parityIssues: RateCalendarParityIssue[]
+}
+
+export interface RateCalendarBulkEntry {
+  ratePlanId: string
+  date: string
+  rate?: number
+  minStayArrival?: number
+  minStayThrough?: number
+  maxStay?: number
+  closedToArrival?: boolean
+  closedToDeparture?: boolean
+  stopSell?: boolean
+}
+
+export interface BulkUpdateResult {
+  accepted: number
+  rejected: { entry: RateCalendarBulkEntry; reason: string }[]
+}
+
 export function getRateCalendar(
   propertyId: string,
   from: string,
   to: string,
-): Promise<any> {
-  return api.get(
+): Promise<RateCalendarMatrix> {
+  return api.get<RateCalendarMatrix>(
     `/v1/nova/channex/properties/${propertyId}/rate-calendar?from=${from}&to=${to}`,
     { headers: novaHeaders({ requireActingOrg: true }) },
   )
@@ -222,12 +289,28 @@ export function getRateCalendar(
 
 export function bulkUpdateRateCalendar(
   propertyId: string,
-  entries: any[],
+  entries: RateCalendarBulkEntry[],
   reason?: string,
-): Promise<any> {
-  return api.patch(
+): Promise<BulkUpdateResult> {
+  return api.patch<BulkUpdateResult>(
     `/v1/nova/channex/properties/${propertyId}/rate-calendar/bulk`,
     { entries, reason },
+    { headers: novaHeaders({ requireActingOrg: true }) },
+  )
+}
+
+export function expandTemplate(
+  propertyId: string,
+  template: {
+    ratePlanId: string
+    dateFrom: string
+    dateTo: string
+    weekdayRates: Partial<Record<'mo' | 'tu' | 'we' | 'th' | 'fr' | 'sa' | 'su', number>>
+  },
+): Promise<{ entries: RateCalendarBulkEntry[] }> {
+  return api.post<{ entries: RateCalendarBulkEntry[] }>(
+    `/v1/nova/channex/properties/${propertyId}/rate-calendar/expand-template`,
+    template,
     { headers: novaHeaders({ requireActingOrg: true }) },
   )
 }

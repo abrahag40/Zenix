@@ -303,16 +303,40 @@ Permite reports tipo "qué % de bookings vinieron directo vs OTA" para que el ho
 
 **Entregable:** cualquier sitio puede CREAR reservas y RECIBIR notificaciones.
 
-#### Sprint 1C — Settings UI + Onboarding (3-5 días)
+#### Sprint 1C — Wizard Step 5.5 + Settings UI (1-1.5 sem) — REVISADO 2026-05-24
 
-- New Settings tab "API & Webhooks" en panel admin Zenix
-- Generar/revocar API keys (plaintext mostrado solo 1 vez)
-- Configurar `allowedOrigins`
-- Suscribir webhooks (URL + events checkboxes)
-- Dashboard de uso: requests/día, % errors, last used
-- Testing tools: "Send test webhook" button + "Try API" sandbox
+**Decisión owner 2026-05-24**: la configuración del booking engine es
+**consultor-led desde el Wizard Zenix Activate**, NO self-service. Ver
+detalle completo en [BOOKING-ENGINE-wizard-integration.md](BOOKING-ENGINE-wizard-integration.md).
 
-**Entregable:** customer puede self-service activar la integración.
+**Wizard Step 5.5 — Booking Engine config** (consultor llena durante onboarding):
+- Sub-5.5.1 Slug & domain (`book.zenix.com/<slug>` + opcional CNAME custom)
+- Sub-5.5.2 Branding (logo, primaryColor, accentColor, fontFamily)
+- Sub-5.5.3 Copy & policies (heroTitle/Subtitle, cancellation policy, T&C)
+- Sub-5.5.4 Photos (hotel general + per room type, drag-and-drop a R2)
+- Sub-5.5.5 Payment policy (FULL_PREPAY / DEPOSIT_30 / DEPOSIT_50 / PAY_AT_HOTEL
+  + OXXO/SPEI/MercadoPago toggles)
+- Preview live iframe del BE con cambios al tiro
+
+**Schema additions** (ver wizard-integration doc §3):
+- `BookingEngineConfig` (1:1 con Property)
+- `BookingEnginePhoto` (N por config)
+- `RoomTypePhoto` (N por roomType)
+
+**Settings UI** (post-onboarding, para edits posteriores del consultor):
+- Tab "Booking Engine" en `/nova/channex` o Settings dedicado
+- Editar mismo schema, mismo preview live
+- "API & Webhooks" sub-tab para Tier 3 enterprise (API key + allowedOrigins
+  + webhook subscriptions)
+
+**Entregable**: consultor sale del wizard con `book.zenix.com/<slug>` LIVE
+sin que el cliente toque nada técnico.
+
+**Diferenciador comercial registrado**: cero PMS en la comparativa (Cloudbeds,
+Mews, Little Hotelier, RoomRaccoon, SiteMinder, Opera) tiene wizard end-to-end
+consultor-led para Booking Engine. Cloudbeds = self-service (cliente sufre
+12h setup), Mews = sales-led onboarding manager (4 semanas), Opera = consultor
+Oracle ($15-30k). Zenix = wizard 1 día.
 
 #### Sprint 1D — Hosted UI `book.zenix.com/{slug}` (2-3 sem)
 
