@@ -20,6 +20,8 @@ import {
   Chip,
   EmptyState,
 } from '../../design-system'
+import { CityPicker } from './CityPicker'
+import { findCityById } from '../../data/latam-cities'
 
 const TYPE_OPTIONS: Array<{
   value: WizardProperty['type']
@@ -79,6 +81,7 @@ export function StepProperties() {
         {showAddForm && (
           <AddPropertyForm
             defaultTimezone={state.organizationTimezone}
+            defaultCountryCode={state.organizationCountryCode}
             onSubmit={(data) => {
               state.addProperty(data)
               setShowAddForm(false)
@@ -151,17 +154,21 @@ function PropertyRow({
 
 function AddPropertyForm({
   defaultTimezone,
+  defaultCountryCode,
   onSubmit,
   onCancel,
 }: {
   defaultTimezone: string
+  defaultCountryCode: string
   onSubmit: (p: Omit<WizardProperty, 'tempId'>) => void
   onCancel: () => void
 }) {
   const [name, setName] = useState('')
   const [type, setType] = useState<WizardProperty['type']>('BOUTIQUE')
   const [timezone, setTimezone] = useState(defaultTimezone)
-  const [city, setCity] = useState('')
+  const [cityId, setCityId] = useState<string | null | undefined>(undefined)
+  const [cityFreeText, setCityFreeText] = useState('')
+  const [cityDisplay, setCityDisplay] = useState('')
 
   const canSubmit = name.trim().length > 0
 
@@ -229,15 +236,21 @@ function AddPropertyForm({
           />
         </Field>
 
-        <Field label="Ciudad (opcional)">
-          <input
-            type="text"
-            value={city}
-            onChange={(e) => setCity(e.target.value)}
-            placeholder='Ej: "Tulum"'
-            className="w-full px-3 h-10 rounded-lg border border-slate-300 text-[14px] focus:outline-none focus:ring-2 focus:ring-violet-500/30"
+        <div>
+          <CityPicker
+            countryCode={defaultCountryCode}
+            cityId={cityId ?? undefined}
+            freeText={cityFreeText}
+            onSelect={(c) => {
+              setCityId(c.cityId)
+              setCityFreeText(c.freeText)
+              setCityDisplay(c.displayName)
+              // Auto-set timezone si la ciudad la trae del catálogo
+              const cityRow = c.cityId ? findCityById(c.cityId) : null
+              if (cityRow?.timezone) setTimezone(cityRow.timezone)
+            }}
           />
-        </Field>
+        </div>
 
         <Field label="Timezone">
           <input
@@ -267,7 +280,16 @@ function AddPropertyForm({
         <Button
           variant="primary"
           disabled={!canSubmit}
-          onClick={() => onSubmit({ name: name.trim(), type, timezone, city: city.trim() || undefined })}
+          onClick={() =>
+            onSubmit({
+              name: name.trim(),
+              type,
+              timezone,
+              cityId: cityId ?? null,
+              cityFreeText: cityFreeText || undefined,
+              cityDisplay: cityDisplay || undefined,
+            })
+          }
         >
           Agregar property
         </Button>

@@ -89,7 +89,7 @@ export function WizardLayout({
   const validation = canCompleteStep(currentStep, state)
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col antialiased relative">
+    <div className="h-screen bg-slate-50 flex flex-col antialiased relative overflow-hidden">
       {/* Ambient gradient — wizard mode warm */}
       <div
         className="absolute inset-0 pointer-events-none"
@@ -127,10 +127,10 @@ export function WizardLayout({
         </div>
       </header>
 
-      {/* Main layout */}
-      <div className="relative flex flex-1 min-h-0">
-        {/* Steps sidebar */}
-        <aside className="hidden lg:flex flex-col w-72 shrink-0 border-r border-slate-200/70 bg-white/60 backdrop-blur-sm p-5">
+      {/* Main layout — h-screen lock: sidebar fija, main scrollea */}
+      <div className="relative flex flex-1 min-h-0 overflow-hidden">
+        {/* Steps sidebar — flex column con overflow interna si steps > viewport */}
+        <aside className="hidden lg:flex flex-col w-72 shrink-0 border-r border-slate-200/70 bg-white/60 backdrop-blur-sm p-5 overflow-y-auto">
           <Eyebrow tone="tertiary" className="block mb-3">
             Pasos
           </Eyebrow>

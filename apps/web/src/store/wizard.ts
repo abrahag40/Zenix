@@ -38,7 +38,12 @@ export interface WizardProperty {
     | 'VACATION_RENTAL'
   timezone: string
   region?: string
-  city?: string
+  /** ID estable del catálogo LATAM. Si null → user escribió libre. */
+  cityId?: string | null
+  /** Fallback free text si cityId=null (Day 15+ reconcilia con Google Places). */
+  cityFreeText?: string
+  /** Display name resuelto — sea del catálogo o free text. Para mostrar/audit. */
+  cityDisplay?: string
   channexPropertyId?: string
 }
 

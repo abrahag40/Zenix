@@ -52,15 +52,17 @@ export function NovaShell({ title, actions, children }: NovaShellProps) {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col antialiased">
+    <div className="h-screen bg-slate-50 flex flex-col antialiased overflow-hidden">
       {/* ImpersonationBanner sticky por encima de todo */}
       <ImpersonationBanner />
 
-      {/* Layout: sidebar dark + main column light */}
-      <div className="flex flex-1 min-h-0">
+      {/* Layout: sidebar dark + main column light.
+          h-screen + overflow-hidden en outer + overflow-y-auto solo en main
+          → sidebar fija, solo main scrollea. Pattern Linear/Notion. */}
+      <div className="flex flex-1 min-h-0 overflow-hidden">
         <NovaSidebar />
 
-        <div className="flex-1 flex flex-col min-w-0 bg-slate-50 relative">
+        <div className="flex-1 flex flex-col min-w-0 bg-slate-50 relative overflow-hidden">
           {/* Subtle ambient gradient — bridge tonal entre sidebar dark warm
               y main light. Emerald hint en el left edge (cerca del sidebar)
               tiende un "puente cromático" sutil que reduce el contraste
