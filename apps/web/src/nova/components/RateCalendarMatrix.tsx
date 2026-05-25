@@ -36,7 +36,7 @@
  */
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Calendar, AlertTriangle, CircleAlert, CircleDashed, ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { Calendar, AlertTriangle, CircleAlert, CircleDashed, ChevronLeft, ChevronRight, Layers } from 'lucide-react'
 import {
   getRateCalendar,
   bulkUpdateRateCalendar,
@@ -45,6 +45,8 @@ import {
   type RateCalendarRatePlanRow,
   type RateCalendarParityIssue,
 } from '../../api/nova'
+import { BulkRateEditDialog } from './BulkRateEditDialog'
+import { Button } from '../design-system'
 
 interface RateCalendarMatrixProps {
   propertyId: string
@@ -78,6 +80,7 @@ export function RateCalendarMatrix({ propertyId }: RateCalendarMatrixProps) {
   const today = useMemo(() => todayYmd(), [])
   const [dateFrom, setDateFrom] = useState(today)
   const [dateTo, setDateTo] = useState(addDays(today, 13))
+  const [bulkOpen, setBulkOpen] = useState(false)
 
   const queryKey = ['nova', 'channex', 'rate-calendar', propertyId, dateFrom, dateTo]
 
@@ -146,25 +149,51 @@ export function RateCalendarMatrix({ propertyId }: RateCalendarMatrixProps) {
           </button>
         </div>
 
-        <div className="flex items-center gap-1">
-          {[
-            { label: 'Hoy', days: 1 },
-            { label: '7 días', days: 7 },
-            { label: '14 días', days: 14 },
-            { label: '30 días', days: 30 },
-            { label: '90 días', days: 90 },
-          ].map((p) => (
-            <button
-              key={p.label}
-              type="button"
-              onClick={() => setPreset(p.days)}
-              className="px-2 py-1 text-[11px] rounded text-slate-600 hover:bg-slate-100 transition-colors"
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1">
+            {[
+              { label: 'Hoy', days: 1 },
+              { label: '7 días', days: 7 },
+              { label: '14 días', days: 14 },
+              { label: '30 días', days: 30 },
+              { label: '90 días', days: 90 },
+            ].map((p) => (
+              <button
+                key={p.label}
+                type="button"
+                onClick={() => setPreset(p.days)}
+                className="px-2 py-1 text-[11px] rounded text-slate-600 hover:bg-slate-100 transition-colors"
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          {data && data.ratePlans.length > 0 && (
+            <Button
+              variant="primary"
+              size="sm"
+              iconLeft={Layers}
+              onClick={() => setBulkOpen(true)}
             >
-              {p.label}
-            </button>
-          ))}
+              Editar en bulk
+            </Button>
+          )}
         </div>
       </div>
+
+      {/* Bulk edit dialog */}
+      {data && (
+        <BulkRateEditDialog
+          open={bulkOpen}
+          onClose={() => setBulkOpen(false)}
+          propertyId={propertyId}
+          ratePlans={data.ratePlans}
+          initialDates={{ from: dateFrom, to: dateTo }}
+          onSuccess={() => {
+            qc.invalidateQueries({ queryKey: ['nova', 'channex', 'rate-calendar', propertyId] })
+          }}
+        />
+      )}
 
       {/* Source indicator */}
       {data && !data.fromChannex && (

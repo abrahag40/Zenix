@@ -61,11 +61,17 @@ const NAV: NavItem[] = [
 export function NovaSidebar() {
   return (
     <aside
-      className="hidden md:flex flex-col w-60 shrink-0 bg-slate-900 text-slate-300 relative overflow-hidden"
+      className="hidden md:flex flex-col w-60 shrink-0 bg-slate-900 text-slate-300 relative z-10"
       style={{
-        // Right edge "soft fade" hacia el main bg slate-50 — evita la línea
-        // hard divide. Gradient overlay con feathered alpha en el último 1px.
-        boxShadow: '1px 0 0 rgba(255,255,255,0.04), 4px 0 16px -8px rgba(15,23,42,0.04)',
+        // Drop shadow real al lado derecho — depth perceptible entre sidebar
+        // y main. Stacked shadows (Apple HIG layered depth pattern):
+        //   1. Inner highlight white/[0.05] — micro edge highlight 1px
+        //   2. Close shadow oscura — define el corte (3px spread)
+        //   3. Soft ambient shadow — depth proyectada hasta 24px
+        boxShadow:
+          'inset -1px 0 0 rgba(255,255,255,0.05),' +
+          '2px 0 4px -1px rgba(15,23,42,0.10),' +
+          '6px 0 24px -4px rgba(15,23,42,0.12)',
       }}
     >
       {/* Subtle warm gradient internos — neutraliza el "cool clinical" del slate */}
