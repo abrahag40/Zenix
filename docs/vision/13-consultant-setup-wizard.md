@@ -4,7 +4,7 @@
 >
 > **Inspirado en:** SAP Activate methodology + Salesforce Setup Assistant + Workday Adaptive Implementation. **Objetivo:** experiencia 10x más simple que los grandes, manteniendo el rigor enterprise.
 >
-> **Status:** Diseño aprobado 2026-05-15. Refinamiento Nova-aligned 2026-05-23.
+> **Status:** Diseño aprobado 2026-05-15. Refinamiento Nova-aligned 2026-05-23. **Implementación frontend Day 14-15 cerrada 2026-05-25** — los 8 steps son navegables end-to-end con state durable (Zustand persist). Steps 1-6 capturan datos con validación in-context, Step 7 ejecuta 4 health-checks mock (latencia simulada 800-2000ms, retry per-check, PAC override), Step 8 ejecuta stub de activación. Backend endpoints `POST /v1/nova/wizard/activate` + 4 health-check endpoints + Puppeteer PDF generation + Resend email delivery — pendientes Day 16+.
 >
 > **Surface:** el wizard NO es app independiente — vive **dentro de Zenix Nova** (`nova.zenix.com/wizard`) como módulo. En v1.0.0 vive bajo `apps/web/src/pages/nova/wizard/*`. En v1.0.5 se extrae junto con el resto de Nova a `apps/partner` (o `apps/nova`, naming a confirmar en sprint dedicado). El cliente NUNCA accede al wizard — es herramienta interna del consultor/PLATFORM_ADMIN. El cliente recibe credenciales SOLO al activarse Step 8 (ver §3.8).
 >

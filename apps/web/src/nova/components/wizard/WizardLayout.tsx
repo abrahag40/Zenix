@@ -154,29 +154,37 @@ export function WizardLayout({
           </div>
         </aside>
 
-        {/* Step content */}
-        <main className="flex-1 overflow-y-auto relative">
-          <div className="max-w-3xl mx-auto px-5 sm:px-7 lg:px-9 py-8 pb-32">
-            {/* Step title */}
-            <div className="mb-6">
-              <Eyebrow tone="tertiary" className="text-violet-700">
-                Paso {currentIdx + 1} · {WIZARD_STEPS[currentIdx].hint}
-              </Eyebrow>
-              <Title as="h1" className="mt-1 text-[24px] tracking-[-0.02em]">
-                {title}
-              </Title>
-              {description && (
-                <Body className="mt-1.5 max-w-2xl" tone="secondary">
-                  {description}
-                </Body>
-              )}
-            </div>
+        {/* Step content column — flex column con scroll interna + footer fijo */}
+        <main className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
+          {/* Scrollable content area */}
+          <div className="flex-1 overflow-y-auto">
+            <div className="max-w-3xl mx-auto px-5 sm:px-7 lg:px-9 py-8">
+              {/* Step title */}
+              <div className="mb-6">
+                <Eyebrow tone="tertiary" className="text-violet-700">
+                  Paso {currentIdx + 1} · {WIZARD_STEPS[currentIdx].hint}
+                </Eyebrow>
+                <Title as="h1" className="mt-1 text-[24px] tracking-[-0.02em]">
+                  {title}
+                </Title>
+                {description && (
+                  <Body className="mt-1.5 max-w-2xl" tone="secondary">
+                    {description}
+                  </Body>
+                )}
+              </div>
 
-            {children}
+              {children}
+            </div>
           </div>
 
-          {/* Footer nav */}
-          <footer className="sticky bottom-0 left-0 right-0 bg-white/90 backdrop-blur-md backdrop-saturate-150 border-t border-slate-200/70 px-5 sm:px-7 lg:px-9 py-3 flex items-center justify-between gap-3">
+          {/*
+           * Footer nav — fijo al fondo de la columna (NO sticky).
+           * Vive afuera del div scrollable, así no se "sube" cuando el
+           * contenido del step es corto. Flex-shrink-0 garantiza altura
+           * estable independiente del contenido.
+           */}
+          <footer className="flex-shrink-0 bg-white/90 backdrop-blur-md backdrop-saturate-150 border-t border-slate-200/70 px-5 sm:px-7 lg:px-9 py-3 flex items-center justify-between gap-3">
             <Button
               variant="ghost"
               size="md"

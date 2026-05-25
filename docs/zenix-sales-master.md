@@ -1242,14 +1242,30 @@ Para hotelero boutique LATAM, esos tiempos y precios son inviables. Pero **Cloud
 
 ### Las 8 etapas
 
-1. **Customer Account** — Organization + plan + entitlements activados
-2. **Brand** (opcional, saltable) — logo + colors + brandbook
-3. **LegalEntity** — 1+ entidades fiscales con PAC test sandbox
-4. **Properties** — propiedades físicas con timezone + settings operativos
-5. **Inventory** — habitaciones con templates pre-cargados (HOSTAL/BOUTIQUE/CABAÑAS/BUSINESS) + bulk CSV import
-6. **Staff + Users** — staff operacional + users cross-property + invitaciones automáticas
-7. **Integrations** — Channex, Stripe, Conekta, WhatsApp Business, PAC verificado
-8. **Activación + Handover** — health checks pre-producción + PDF Activation Report + demo 30 min
+1. **Customer Account** — Organization + slug auto-derivado + country + timezone + plan + entitlements activados.
+2. **Brand** (opcional, saltable) — logo + colors + brandbook.
+3. **LegalEntity** — 1+ entidades fiscales con **validación inline RFC/NIT/RUC/cédula** según país (feedback emerald al pasar formato, amber con hint específico si no) + PAC adapter selector (Facturama / SW Sapien / DIAN UBL 2.1 / Tribu-CR / SUNAT FE) + currency base + régimen fiscal MX cuando aplica.
+4. **Properties** — propiedades físicas con **catálogo LATAM de 60 ciudades curado** (México 26 / Colombia 7 / Costa Rica 6 / Perú 6 / Argentina 6 / GT-PA-SV-HN 9) con autocompletado + auto-timezone IANA. Out-of-catalog free text persiste para v1.0.4 Google Places reconcile. Cada Property con tipo (HOTEL/HOSTAL/BOUTIQUE/GLAMPING/ECO_LODGE/VACATION_RENTAL).
+5. **Inventory** — habitaciones con **5 templates pre-cargados** (HOSTAL / BOUTIQUE / CABAÑAS / BUSINESS / CUSTOM-vacío) + preview live de RoomTypes + RatePlans antes de seleccionar + bulk CSV import.
+6. **Staff** — Org Owner email + nombre con email validation regex. Personal adicional se invita post-activación desde Nova / Settings (mantiene el wizard rápido — cada minuto extra es fricción para el consultor).
+7. **Integrations** — **4 health-checks runtime ejecutables en paralelo** (Channex API ping + Stripe test charge $1 USD con refund + PAC sandbox stamp + SMTP test email a noreply@zenix.app) con retry per-check + latencia visible + override controlado de PAC (cliente puede activar sin PAC contratado, los folios quedan con `requiresFiscalReview=true` hasta configurar Facturama/SW Sapien post-activación).
+8. **Activación + Handover** — **revisión pre-flight** del wizard (valida que cada step previo pase su `canCompleteStep` antes de habilitar el botón) + summary de toda la captura (Cliente, Brand, LegalEntity, Properties, Inventory template, Org Owner) + activación transaccional all-or-nothing + **Activation Report PDF** generado en tiempo real + **setup link single-use 72h** vía email al Org Owner + AuditLog universal append-only `ORGANIZATION_ACTIVATED`.
+
+### Diferenciadores del wizard que NINGÚN PMS LATAM tiene end-to-end
+
+| Capacidad | Cloudbeds | Mews | Opera | RoomRaccoon | Little Hotelier | **Zenix Activate** |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| **Catálogo LATAM curado para ciudades** (analytics consistency) | ❌ free text | ❌ free text | ⚠️ depende deploy | ❌ free text | ❌ free text | **✅ 60 ciudades + auto-timezone** |
+| **Validación inline RFC/NIT/RUC/cédula** | ❌ formato libre | ❌ formato libre | ⚠️ valida solo MX al timbrar | ❌ formato libre | ❌ formato libre | **✅ 4 países + feedback emerald/amber** |
+| **Health-checks runtime con override controlado** | ❌ activa a ciegas | ⚠️ asistido sin checks | ⚠️ checks tras 6-12 sem | ❌ activa a ciegas | ⚠️ algunos | **✅ 4 checks + PAC override** |
+| **Pre-flight validation step-by-step** | ❌ | ❌ | ⚠️ manual | ❌ | ❌ | **✅ cada step bloquea siguiente** |
+| **Activation Report PDF automático** | ❌ | ❌ | ✅ pero manual | ❌ | ❌ | **✅ generado en activación** |
+| **Setup link single-use 72h con 2FA roadmap** | ⚠️ password plano | ⚠️ password plano | ✅ enterprise SSO | ⚠️ password plano | ⚠️ password plano | **✅ token + reset forced + 2FA v1.0.4** |
+| **Roadmap multi-country single-flow** (Hybrid Option C) | ❌ 1 cuenta por país | ❌ 1 cuenta por país | ✅ pero $100k+ | ❌ 1 cuenta por país | ❌ 1 cuenta por país | **✅ documentado v1.0.5** |
+| **AuditLog universal append-only** del consultor que activó | ❌ | ❌ | ✅ enterprise | ❌ | ❌ | **✅ `ORGANIZATION_ACTIVATED` con actorRealId** |
+| **Wizard durable cross-session** (consultor cierra/reabre sin perder) | ❌ | ⚠️ parcial | ❌ wizard cerrado pierde | ❌ | ❌ | **✅ Zustand persist localStorage** |
+
+**Insight comercial:** los 5 competidores top de hotelería boutique LATAM optimizaron para "self-onboard rápido" (Cloudbeds, Little Hotelier) o "manual enterprise" (Opera, Mews, RoomRaccoon). Ninguno optimizó para **partner-led onboarding rápido con rigor enterprise** — exactamente el modelo SAP PartnerEdge / Salesforce Implementation Partner que Zenix replica vía Nova. Cada uno de los 9 ítems arriba es individualmente trivial; los 9 juntos forman una experiencia 10x superior que es difícil de copiar porque requiere hierarchy 5-tier (§160) + AuditLog universal (§165) + Wizard durable (§171) como infraestructura previa.
 
 ### Templates de inventario pre-cargados
 

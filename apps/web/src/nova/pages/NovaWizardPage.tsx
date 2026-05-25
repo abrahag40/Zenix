@@ -12,7 +12,10 @@ import { StepCustomerAccount } from '../components/wizard/StepCustomerAccount'
 import { StepBrand } from '../components/wizard/StepBrand'
 import { StepLegalEntity } from '../components/wizard/StepLegalEntity'
 import { StepProperties } from '../components/wizard/StepProperties'
-import { StepPlaceholder } from '../components/wizard/StepPlaceholder'
+import { StepInventory } from '../components/wizard/StepInventory'
+import { StepStaff } from '../components/wizard/StepStaff'
+import { StepIntegrations } from '../components/wizard/StepIntegrations'
+import { StepActivation } from '../components/wizard/StepActivation'
 
 export function NovaWizardPage() {
   const navigate = useNavigate()
@@ -37,33 +40,13 @@ export function NovaWizardPage() {
     case 'properties':
       return <StepProperties />
     case 'inventory':
-      return (
-        <StepPlaceholder
-          title="Inventory templates"
-          description="Selecciona el template de inventario (Hostal/Boutique/Cabañas/Business) o customiza. Day 15 wirea esto."
-        />
-      )
+      return <StepInventory />
     case 'staff':
-      return (
-        <StepPlaceholder
-          title="Staff inicial"
-          description="Captura el Org Owner del cliente (email + nombre). Recibe credenciales al activar (Step 8). Day 15."
-        />
-      )
+      return <StepStaff />
     case 'integrations':
-      return (
-        <StepPlaceholder
-          title="Integrations health-checks"
-          description="4 checks obligatorios: Channex ping + Stripe $1 + PAC sandbox + SMTP. Day 15 wirea endpoints backend."
-        />
-      )
+      return <StepIntegrations />
     case 'activation':
-      return (
-        <StepPlaceholder
-          title="Activación"
-          description="Generación del Activation Report PDF + envío de setup link 72h al Org Owner. Day 15."
-        />
-      )
+      return <StepActivation />
     default:
       return <StepCustomerAccount />
   }
