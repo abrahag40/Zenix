@@ -24,6 +24,7 @@ import { AuditLogService } from '../audit/audit-log.service'
 import { WizardController } from './wizard.controller'
 import { WizardHealthService } from './wizard-health.service'
 import { WizardActivationService } from './wizard-activation.service'
+import { ActivationEmailService } from './activation-email.service'
 import { SetupController } from './setup.controller'
 import { SetupService } from './setup.service'
 
@@ -32,7 +33,13 @@ import { SetupService } from './setup.service'
   // JWTs post-activación y haga auto-login del Org Owner.
   imports: [PrismaModule, ChannexModule, AuthModule, NovaModule],
   controllers: [WizardController, SetupController],
-  providers: [WizardHealthService, WizardActivationService, SetupService, AuditLogService],
-  exports: [WizardActivationService, SetupService],
+  providers: [
+    WizardHealthService,
+    WizardActivationService,
+    ActivationEmailService, // Day 18 — Resend wiring + welcome email
+    SetupService,
+    AuditLogService,
+  ],
+  exports: [WizardActivationService, SetupService, ActivationEmailService],
 })
 export class WizardModule {}

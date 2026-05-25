@@ -18,7 +18,9 @@
  * cambiar la interface del controller (frontend no se entera).
  */
 import { Injectable, Logger } from '@nestjs/common'
+import Stripe = require('stripe')
 import { ChannexGateway } from '../../integrations/channex/channex.gateway'
+import { ActivationEmailService } from './activation-email.service'
 import type {
   HealthCheckChannexDto,
   HealthCheckPacDto,
@@ -27,11 +29,24 @@ import type {
   HealthCheckStripeDto,
 } from './dto/wizard-dto'
 
+type StripeInstance = InstanceType<typeof Stripe>
+
 @Injectable()
 export class WizardHealthService {
   private readonly logger = new Logger(WizardHealthService.name)
+  private stripe: StripeInstance | null = null
 
-  constructor(private readonly channex: ChannexGateway) {}
+  constructor(
+    private readonly channex: ChannexGateway,
+    private readonly emailService: ActivationEmailService,
+  ) {
+    const apiKey = process.env.STRIPE_SECRET_KEY
+    if (apiKey) {
+      this.stripe = new Stripe(apiKey, { apiVersion: '2026-04-22.dahlia' })
+    } else {
+      this.logger.warn('[WizardHealth] STRIPE_SECRET_KEY no configurado — stripe check queda en modo stub')
+    }
+  }
 
   // ─── Channex (REAL) ──────────────────────────────────────────────
 
@@ -90,18 +105,53 @@ export class WizardHealthService {
     }
   }
 
-  // ─── Stripe (STUB Day 16) ────────────────────────────────────────
+  // ─── Stripe (REAL Day 18) ────────────────────────────────────────
 
   async checkStripe(_dto: HealthCheckStripeDto): Promise<HealthCheckResponse> {
     const start = Date.now()
-    await this.simulateLatency(500, 900)
-    const latencyMs = Date.now() - start
-    // Day 17 wirea: stripe.charges.create({amount: 100, currency: 'usd'}) + immediate refund
-    return {
-      status: 'success',
-      message: 'Test charge $1 USD procesado y reembolsado (stub — Day 17 wirea Stripe SDK)',
-      latencyMs,
-      detail: { stub: true, chargeId: `ch_test_${Date.now()}` },
+
+    if (!this.stripe) {
+      const latencyMs = Date.now() - start
+      return {
+        status: 'warning',
+        message:
+          'STRIPE_SECRET_KEY no configurado en el server — Stripe queda en modo stub. El cliente puede activar pero NO cobrará tarjetas hasta configurar.',
+        latencyMs,
+        detail: { stub: true },
+      }
+    }
+
+    try {
+      // Stripe best practice: usar Balance retrieve como health check.
+      // NO crear test charges reales — generan ruido en el dashboard del cliente
+      // y consumen rate-limit. Balance es read-only, idempotente, gratis.
+      // Si retrieve funciona → credenciales son válidas + cuenta accesible.
+      const balance = await this.stripe.balance.retrieve()
+      const latencyMs = Date.now() - start
+      const totalAvailable = balance.available.reduce((sum, b) => sum + b.amount, 0)
+
+      return {
+        status: 'success',
+        message: `Stripe accesible · balance ${(totalAvailable / 100).toFixed(2)} ${balance.available[0]?.currency?.toUpperCase() || 'USD'}`,
+        latencyMs,
+        detail: {
+          mode: 'live',
+          currencies: balance.available.map((b) => b.currency),
+        },
+      }
+    } catch (err) {
+      const latencyMs = Date.now() - start
+      const e = err as { type?: string; message: string }
+      this.logger.warn(`[WizardHealth] Stripe check failed: ${e.message}`)
+      return {
+        status: 'error',
+        message:
+          e.type === 'StripeAuthenticationError'
+            ? 'API key Stripe inválida. Verifica STRIPE_SECRET_KEY en server config.'
+            : `Stripe API error: ${e.message.slice(0, 120)}`,
+        latencyMs,
+        detail: { errorType: e.type },
+      }
     }
   }
 
@@ -121,18 +171,15 @@ export class WizardHealthService {
     }
   }
 
-  // ─── SMTP (STUB Day 16) ─────────────────────────────────────────
+  // ─── SMTP (REAL Day 18 — Resend) ───────────────────────────────
 
   async checkSmtp(dto: HealthCheckSmtpDto): Promise<HealthCheckResponse> {
-    const start = Date.now()
-    await this.simulateLatency(400, 800)
-    const latencyMs = Date.now() - start
-    // Day 17 wirea: Resend API con DKIM check + delivery confirmation
+    const result = await this.emailService.sendHealthCheckEmail(dto.toAddress)
     return {
-      status: 'success',
-      message: `Email test entregado a ${dto.toAddress} (stub — Day 17 wirea Resend con DKIM check)`,
-      latencyMs,
-      detail: { stub: true, recipient: dto.toAddress },
+      status: result.status,
+      message: result.message,
+      latencyMs: result.latencyMs,
+      detail: { provider: 'resend', recipient: dto.toAddress },
     }
   }
 

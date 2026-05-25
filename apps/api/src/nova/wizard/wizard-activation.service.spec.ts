@@ -108,10 +108,19 @@ function makeAuditMock() {
   } as any
 }
 
+function makeEmailMock(opts: { sent?: boolean; throws?: boolean } = {}) {
+  return {
+    sendActivationEmail: jest.fn().mockImplementation(async () => {
+      if (opts.throws) throw new Error('email service down')
+      return { sent: opts.sent ?? true, resendMessageId: 'rsd_test_1' }
+    }),
+  } as any
+}
+
 describe('WizardActivationService', () => {
   describe('pre-flight checks', () => {
     it('rejects if properties array is empty', async () => {
-      const service = new WizardActivationService(makePrismaMock(), makeAuditMock())
+      const service = new WizardActivationService(makePrismaMock(), makeAuditMock(), makeEmailMock())
       await expect(service.activate(makeDto({ properties: [] }), baseActor)).rejects.toThrow(
         BadRequestException,
       )
@@ -123,7 +132,7 @@ describe('WizardActivationService', () => {
         type: 'BOUTIQUE' as const,
         timezone: 'America/Cancun',
       }))
-      const service = new WizardActivationService(makePrismaMock(), makeAuditMock())
+      const service = new WizardActivationService(makePrismaMock(), makeAuditMock(), makeEmailMock())
       await expect(service.activate(makeDto({ properties: tooMany }), baseActor)).rejects.toThrow(
         BadRequestException,
       )
@@ -133,6 +142,7 @@ describe('WizardActivationService', () => {
       const service = new WizardActivationService(
         makePrismaMock({ slugExists: true }),
         makeAuditMock(),
+        makeEmailMock(),
       )
       await expect(service.activate(makeDto(), baseActor)).rejects.toThrow(ConflictException)
     })
@@ -141,6 +151,7 @@ describe('WizardActivationService', () => {
       const service = new WizardActivationService(
         makePrismaMock({ emailExists: true }),
         makeAuditMock(),
+        makeEmailMock(),
       )
       await expect(service.activate(makeDto(), baseActor)).rejects.toThrow(ConflictException)
     })
@@ -148,7 +159,7 @@ describe('WizardActivationService', () => {
     it('does NOT reject if same tax ID exists (multi-org with same RFC allowed)', async () => {
       // Tax ID dup is a soft warning logged, NOT a blocker
       const prisma = makePrismaMock({ taxIdExists: true })
-      const service = new WizardActivationService(prisma, makeAuditMock())
+      const service = new WizardActivationService(prisma, makeAuditMock(), makeEmailMock())
       const res = await service.activate(makeDto(), baseActor)
       expect(res.organizationId).toBe('new-org-id')
     })
@@ -158,7 +169,7 @@ describe('WizardActivationService', () => {
     it('creates Organization + LegalEntity + Property + Owner + audit entry', async () => {
       const prisma = makePrismaMock()
       const audit = makeAuditMock()
-      const service = new WizardActivationService(prisma, audit)
+      const service = new WizardActivationService(prisma, audit, makeEmailMock())
       const res = await service.activate(makeDto(), baseActor)
 
       expect(res.organizationId).toBe('new-org-id')
@@ -185,7 +196,7 @@ describe('WizardActivationService', () => {
 
     it('creates Brand when brandEnabled=true with brandName', async () => {
       const prisma = makePrismaMock()
-      const service = new WizardActivationService(prisma, makeAuditMock())
+      const service = new WizardActivationService(prisma, makeAuditMock(), makeEmailMock())
       await service.activate(
         makeDto({ brandEnabled: true, brandName: 'Tulum Collection' }),
         baseActor,
@@ -200,14 +211,42 @@ describe('WizardActivationService', () => {
     it('audit log failure does NOT throw — operación de negocio sigue', async () => {
       const prisma = makePrismaMock()
       const audit = { write: jest.fn().mockRejectedValue(new Error('audit DB down')) } as any
-      const service = new WizardActivationService(prisma, audit)
+      const service = new WizardActivationService(prisma, audit, makeEmailMock())
       const res = await service.activate(makeDto(), baseActor)
       expect(res.organizationId).toBe('new-org-id')
       expect(res.auditLogged).toBe(false)
     })
 
+    it('email failure does NOT throw — setup link queda en response', async () => {
+      const service = new WizardActivationService(
+        makePrismaMock(),
+        makeAuditMock(),
+        makeEmailMock({ throws: true }),
+      )
+      const res = await service.activate(makeDto(), baseActor)
+      expect(res.organizationId).toBe('new-org-id')
+      expect(res.emailSent).toBe(false)
+      expect(res.ownerSetupLink).toMatch(/\/setup\/[a-f0-9]{64}$/)
+    })
+
+    it('emailSent=true when Resend stub returns success', async () => {
+      const email = makeEmailMock({ sent: true })
+      const service = new WizardActivationService(makePrismaMock(), makeAuditMock(), email)
+      const res = await service.activate(makeDto(), baseActor)
+      expect(res.emailSent).toBe(true)
+      expect(email.sendActivationEmail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: 'owner@hotel-test.com',
+          ownerName: 'María Fernández',
+          organizationName: 'Hotel Test Tulum',
+          hoursUntilExpiry: 72,
+          propertyCount: 1,
+        }),
+      )
+    })
+
     it('returns setup link with 64-hex token (32 bytes)', async () => {
-      const service = new WizardActivationService(makePrismaMock(), makeAuditMock())
+      const service = new WizardActivationService(makePrismaMock(), makeAuditMock(), makeEmailMock())
       const res = await service.activate(makeDto(), baseActor)
       const token = res.ownerSetupLink.split('/setup/')[1]
       expect(token).toMatch(/^[a-f0-9]{64}$/)
@@ -217,7 +256,7 @@ describe('WizardActivationService', () => {
   describe('passes pacOverrideAccepted flag through', () => {
     it('records the override flag in pacCredentials.overrideAccepted', async () => {
       const prisma = makePrismaMock()
-      const service = new WizardActivationService(prisma, makeAuditMock())
+      const service = new WizardActivationService(prisma, makeAuditMock(), makeEmailMock())
       await service.activate(makeDto({ pacOverrideAccepted: true }), baseActor)
       expect(prisma._tx.legalEntity.create).toHaveBeenCalledWith(
         expect.objectContaining({

@@ -30,6 +30,7 @@ import * as bcrypt from 'bcrypt'
 import type { JwtPayload } from '@zenix/shared'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AuditLogService } from '../audit/audit-log.service'
+import { ActivationEmailService } from './activation-email.service'
 import type { WizardActivateDto, WizardActivateResponse } from './dto/wizard-dto'
 
 @Injectable()
@@ -39,6 +40,7 @@ export class WizardActivationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
+    private readonly emailService: ActivationEmailService,
   ) {}
 
   async activate(dto: WizardActivateDto, actor: JwtPayload): Promise<WizardActivateResponse> {
@@ -206,8 +208,34 @@ export class WizardActivationService {
     const baseUrl = process.env.APP_BASE_URL || 'https://app.zenix.com'
     const ownerSetupLink = `${baseUrl}/setup/${setupTokenRaw}`
 
+    // ── Auto-email (Day 18) — best-effort, NO bloquea ────────
+    // El consultor sigue viendo el setup link en la UI como fallback aún
+    // cuando el email se envía exitosamente. Permite copy-paste manual al
+    // cliente vía WhatsApp/Slack si por alguna razón el email no llega.
+    let emailSent = false
+    try {
+      const emailResult = await this.emailService.sendActivationEmail({
+        to: dto.orgOwnerEmail,
+        ownerName: dto.orgOwnerName,
+        organizationName: dto.organizationName,
+        setupLink: ownerSetupLink,
+        hoursUntilExpiry: 72,
+        propertyCount: dto.properties.length,
+      })
+      emailSent = emailResult.sent
+      if (!emailResult.sent) {
+        this.logger.warn(
+          `[WizardActivation] Email NO enviado (reason=${emailResult.reason}) — setup link queda como copy-paste manual.`,
+        )
+      }
+    } catch (err) {
+      this.logger.error(
+        `[WizardActivation] Email service threw unexpectedly: ${String(err)}. Setup link queda en response para copy-paste manual.`,
+      )
+    }
+
     this.logger.log(
-      `[WizardActivation] Organization "${dto.organizationName}" (${created.organizationId}) activated by actor ${actor.sub}. Setup link generated (token hash ${setupTokenHash.slice(0, 8)}…). ${dto.properties.length} properties seeded.`,
+      `[WizardActivation] Organization "${dto.organizationName}" (${created.organizationId}) activated by actor ${actor.sub}. Setup link generated (token hash ${setupTokenHash.slice(0, 8)}…). ${dto.properties.length} properties seeded. Email sent=${emailSent}.`,
     )
 
     return {
@@ -219,6 +247,7 @@ export class WizardActivationService {
       ownerSetupLink,
       activatedAt: new Date().toISOString(),
       auditLogged,
+      emailSent,
     }
   }
 

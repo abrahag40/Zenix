@@ -184,4 +184,8 @@ export interface WizardActivateResponse {
   activatedAt: string
   /** Auditoría queued — true cuando AuditLog entry escribió OK. */
   auditLogged: boolean
+  /** Email enviado al Org Owner (Day 18). false si RESEND_API_KEY no
+   *  configurado o Resend devolvió error — el frontend muestra fallback
+   *  copy-paste del setup link igual. */
+  emailSent: boolean
 }

@@ -328,15 +328,23 @@ export function StepActivation() {
                       AuditLog ORGANIZATION_ACTIVATED
                     </Chip>
                   )}
-                  <Chip variant="info" intent="subtle" size="sm">
-                    Day 17 wirea Resend + PDF
-                  </Chip>
+                  {response.emailSent ? (
+                    <Chip variant="success" intent="subtle" size="sm" icon={Mail}>
+                      Email enviado a {state.orgOwnerEmail}
+                    </Chip>
+                  ) : (
+                    <Chip variant="warning" intent="subtle" size="sm" icon={AlertTriangle}>
+                      Email no enviado — usa el link manual
+                    </Chip>
+                  )}
                 </div>
 
-                {/* Setup link — copy-paste manual fallback hasta Day 17 */}
+                {/* Setup link — siempre visible como fallback (incluso si email se envió),
+                    así el consultor puede copiarlo y mandarlo por WhatsApp/Slack si el
+                    cliente reporta que no le llegó al correo. */}
                 <div className="mt-4 p-3 rounded-md bg-white border border-emerald-200">
                   <Caption tone="tertiary" className="block uppercase tracking-wider font-semibold text-[10px] mb-1.5">
-                    Setup link para {state.orgOwnerEmail} · expira en 72h
+                    Setup link · {response.emailSent ? 'Backup manual' : 'COPIA Y ENVÍA AL CLIENTE'} · expira en 72h
                   </Caption>
                   <div className="flex items-center gap-2">
                     <input
@@ -358,8 +366,9 @@ export function StepActivation() {
                     </button>
                   </div>
                   <Caption tone="tertiary" className="block mt-2 text-[11px]">
-                    Link válido por 72 horas (single-use). Copia y envía al cliente — Day 18
-                    wirea Resend para email automático con Activation Report PDF adjunto.
+                    {response.emailSent
+                      ? 'El cliente ya recibió este link por email. Disponible aquí como respaldo si reporta que no le llegó (WhatsApp/Slack).'
+                      : 'Resend no está configurado o falló — el link NO se envió por email. Copia y mándalo manualmente al cliente.'}
                   </Caption>
                 </div>
               </div>

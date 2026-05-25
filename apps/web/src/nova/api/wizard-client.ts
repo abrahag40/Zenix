@@ -25,6 +25,10 @@ export interface WizardActivateResponse {
   ownerSetupLink: string
   activatedAt: string
   auditLogged: boolean
+  /** Day 18 — Resend auto-email del setup link al Org Owner. false si no
+   *  hay RESEND_API_KEY configurada O si Resend devolvió error. El frontend
+   *  muestra fallback copy-paste del link en ambos casos. */
+  emailSent: boolean
 }
 
 // ─── Health checks ────────────────────────────────────────────────────
