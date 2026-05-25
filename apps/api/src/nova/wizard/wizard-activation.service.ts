@@ -45,16 +45,15 @@ export class WizardActivationService {
     // Pre-flight checks fuera de la transacción para fail-fast
     await this.preflightChecks(dto)
 
-    // Generamos token PRE-transaction porque queremos persistirlo en User
-    // (Day 17 swap a User.setupToken column dedicada con expiresAt).
+    // Day 17 — Setup token persistido en User.setupTokenHash con TTL 72h.
+    //   · raw token (32 bytes hex) → email link, NUNCA en BD
+    //   · hash SHA256 → BD column, lookup O(1) (UNIQUE constraint)
+    //   · placeholderPasswordHash → bcrypt de un secret derivado del raw token,
+    //     evita que el User pueda loguear hasta activar (no se publica este hash)
     const setupTokenRaw = crypto.randomBytes(32).toString('hex')
     const setupTokenHash = crypto.createHash('sha256').update(setupTokenRaw).digest('hex')
+    const setupTokenExpiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000) // 72h
     const placeholderPasswordHash = await bcrypt.hash(`__pending_${setupTokenRaw}`, 10)
-
-    // Mantenemos el setupToken hash dentro de un campo Json de Brand
-    // temporalmente (hack Day 16) — Day 17 migra a columnas reales.
-    // En realidad lo retornamos en la response sin persistir todavía,
-    // pero anotamos en AuditLog que existe (sin el raw token, sólo el hash).
 
     const created = await this.prisma.$transaction(async (tx) => {
       // ── (1) Organization ─────────────────────────────────────
@@ -134,7 +133,7 @@ export class WizardActivationService {
         })
       }
 
-      // ── (5) Org Owner User placeholder ───────────────────────
+      // ── (5) Org Owner User placeholder + setup token ────────
       const orgOwner = await tx.user.create({
         data: {
           organizationId: org.id,
@@ -144,6 +143,9 @@ export class WizardActivationService {
           lastName: dto.orgOwnerName.split(' ').slice(1).join(' ') || '—',
           systemRole: 'ORG_OWNER',
           isActive: false, // queda PENDING_ACTIVATION
+          // Day 17 — Setup token persistido (SOLO hash, raw va al email)
+          setupTokenHash,
+          setupTokenExpiresAt,
         },
       })
 

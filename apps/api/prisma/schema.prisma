@@ -589,6 +589,16 @@ model User {
   firstName      String    @map("first_name")
   lastName       String    @map("last_name")
   isActive       Boolean   @default(true) @map("is_active")
+  // Sprint NOVA-CHANNEX-COMMAND-CENTER Day 17 — Wizard Zenix Activate setup flow.
+  // setupTokenHash: SHA256 hash del raw token enviado al Org Owner por email.
+  //   El raw token NUNCA persiste — solo el hash. Al recibir GET/POST
+  //   /v1/auth/setup/:rawToken, server hashea y compara contra esta columna.
+  // setupTokenExpiresAt: 72h desde la creación (§174 D-NOVA-16).
+  // Después de consumir el token (password set + isActive=true), ambas
+  // columnas se NULLEAN. Single-use enforcement.
+  setupTokenHash      String?   @unique @map("setup_token_hash")
+  setupTokenExpiresAt DateTime? @map("setup_token_expires_at")
+  setupTokenConsumedAt DateTime? @map("setup_token_consumed_at")
   // Nova foundation §160 D-NOVA-2 — tier en la hierarchy 5-tier.
   // Default OWNER por backward-compat con seed legacy (se migra explícitamente).
   systemRole     SystemRole @default(OWNER) @map("system_role")

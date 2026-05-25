@@ -7,6 +7,7 @@ import { Toaster as SonnerToaster } from 'sonner'
 import { useAuthStore } from './store/auth'
 import { Sidebar } from './components/Sidebar'
 import { LoginPage } from './pages/LoginPage'
+import { SetupPage } from './pages/SetupPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { RoomsPage } from './pages/RoomsPage'
 import { RoomsPage as PmsPage } from './modules/rooms/pages/RoomsPage'
@@ -87,6 +88,9 @@ export default function App() {
         <NotificationAlertsMount />
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          {/* Day 17 — Org Owner activation. Public route. Token validation
+              en backend (single-use, 72h TTL, SHA256 hashed at-rest). */}
+          <Route path="/setup/:token" element={<SetupPage />} />
           <Route path="/dashboard"       element={<ProtectedLayout><DashboardPage /></ProtectedLayout>} />
           {/* Sprint 9 D15 consolidación: /overrides y /planning → /kanban.
               Acciones operativas (confirmar salida, ad-hoc, forzar URGENT,

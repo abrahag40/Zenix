@@ -358,9 +358,8 @@ export function StepActivation() {
                     </button>
                   </div>
                   <Caption tone="tertiary" className="block mt-2 text-[11px]">
-                    Day 16 entrega el link en pantalla — Day 17 wirea Resend para email
-                    automático con PDF adjunto. Por ahora copia este link y envíalo manualmente
-                    al cliente.
+                    Link válido por 72 horas (single-use). Copia y envía al cliente — Day 18
+                    wirea Resend para email automático con Activation Report PDF adjunto.
                   </Caption>
                 </div>
               </div>
