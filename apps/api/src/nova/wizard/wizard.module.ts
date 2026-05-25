@@ -25,8 +25,12 @@ import { WizardController } from './wizard.controller'
 import { WizardHealthService } from './wizard-health.service'
 import { WizardActivationService } from './wizard-activation.service'
 import { ActivationEmailService } from './activation-email.service'
+import { ActivationReportService } from './activation-report.service'
 import { SetupController } from './setup.controller'
 import { SetupService } from './setup.service'
+import { PacAdapterRegistry } from './pac/pac-adapter.registry'
+import { MxFacturamaAdapter } from './pac/mx-facturama.adapter'
+import { MxSwSapienAdapter } from './pac/mx-sw-sapien.adapter'
 
 @Module({
   // AuthModule provee JwtModule (re-exported) para que SetupService firme
@@ -37,9 +41,20 @@ import { SetupService } from './setup.service'
     WizardHealthService,
     WizardActivationService,
     ActivationEmailService, // Day 18 — Resend wiring + welcome email
+    ActivationReportService, // Day 19 — HTML printable Activation Report
     SetupService,
     AuditLogService,
+    // Day 19 — PAC adapters Strategy pattern (§89 IFiscalAdapter)
+    MxFacturamaAdapter,
+    MxSwSapienAdapter,
+    PacAdapterRegistry,
   ],
-  exports: [WizardActivationService, SetupService, ActivationEmailService],
+  exports: [
+    WizardActivationService,
+    SetupService,
+    ActivationEmailService,
+    ActivationReportService,
+    PacAdapterRegistry,
+  ],
 })
 export class WizardModule {}

@@ -214,6 +214,8 @@ export class WizardActivationService {
     // cliente vía WhatsApp/Slack si por alguna razón el email no llega.
     let emailSent = false
     try {
+      const apiBaseUrl = process.env.NOVA_BASE_URL || baseUrl.replace('app.', 'nova.')
+      const activationReportLink = `${apiBaseUrl}/v1/nova/wizard/activation-report/${created.organizationId}`
       const emailResult = await this.emailService.sendActivationEmail({
         to: dto.orgOwnerEmail,
         ownerName: dto.orgOwnerName,
@@ -221,6 +223,7 @@ export class WizardActivationService {
         setupLink: ownerSetupLink,
         hoursUntilExpiry: 72,
         propertyCount: dto.properties.length,
+        activationReportLink,
       })
       emailSent = emailResult.sent
       if (!emailResult.sent) {

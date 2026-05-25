@@ -44,6 +44,7 @@ import {
   Users,
   Sparkles,
   Loader2,
+  ExternalLink,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -337,6 +338,15 @@ export function StepActivation() {
                       Email no enviado — usa el link manual
                     </Chip>
                   )}
+                  <a
+                    href={`/v1/nova/wizard/activation-report/${response.organizationId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-sky-50 border border-sky-200 text-sky-700 text-[11px] font-medium hover:bg-sky-100 transition-colors"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    Ver Activation Report
+                  </a>
                 </div>
 
                 {/* Setup link — siempre visible como fallback (incluso si email se envió),

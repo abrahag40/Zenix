@@ -36,6 +36,9 @@ export interface SendActivationEmailInput {
   hoursUntilExpiry: number
   /** Conteo de properties — copy ajusta singular/plural. */
   propertyCount: number
+  /** Day 19 — link al Activation Report HTML printable. Opcional para
+   *  backward-compat con tests que aún no lo pasan. */
+  activationReportLink?: string
 }
 
 export interface SendActivationEmailResult {
@@ -230,7 +233,7 @@ function renderActivationHtml(input: SendActivationEmailInput): string {
               </table>
 
               <!-- Caja informativa -->
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:#f1f5f9;border-radius:10px;padding:16px;margin:0 0 24px;">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:#f1f5f9;border-radius:10px;padding:16px;margin:0 0 16px;">
                 <tr>
                   <td style="font-size:13px;line-height:1.55;color:#475569;">
                     <strong style="color:#0f172a;">⏰ Importante:</strong> este link es <strong>single-use</strong> y expira en <strong>${input.hoursUntilExpiry} horas</strong>.
@@ -238,6 +241,22 @@ function renderActivationHtml(input: SendActivationEmailInput): string {
                   </td>
                 </tr>
               </table>
+
+              ${
+                input.activationReportLink
+                  ? `
+              <!-- Activation Report link -->
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;margin:0 0 24px;">
+                <tr>
+                  <td style="font-size:13px;line-height:1.55;color:#475569;">
+                    <strong style="color:#0f172a;">📄 Activation Report:</strong> revisa la configuración completa de tu cuenta en
+                    <a href="${escapeHtml(input.activationReportLink)}" style="color:#059669;text-decoration:none;font-weight:600;">este documento</a>
+                    (imprimible — Cmd+P / Ctrl+P → Save as PDF para tu expediente).
+                  </td>
+                </tr>
+              </table>`
+                  : ''
+              }
 
               <p style="margin:0 0 8px;font-size:13px;color:#64748b;line-height:1.55;">
                 Si el botón no funciona, copia y pega este link en tu navegador:

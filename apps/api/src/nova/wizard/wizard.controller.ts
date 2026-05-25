@@ -16,8 +16,19 @@
  * NO requiere X-Acting-Organization-Id porque al momento del wizard la
  * Organization aún NO existe — la estamos creando.
  */
-import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Get,
+  Header,
+  HttpCode,
+  Param,
+  Post,
+  Res,
+  UseGuards,
+} from '@nestjs/common'
 import { AuthGuard } from '@nestjs/passport'
+import type { Response } from 'express'
 import type { JwtPayload } from '@zenix/shared'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { NovaTiers, NovaTiersGuard } from '../guards/nova-tiers.guard'
@@ -30,6 +41,7 @@ import {
 } from './dto/wizard-dto'
 import { WizardHealthService } from './wizard-health.service'
 import { WizardActivationService } from './wizard-activation.service'
+import { ActivationReportService } from './activation-report.service'
 
 @Controller('v1/nova/wizard')
 @UseGuards(AuthGuard('jwt'), NovaTiersGuard)
@@ -38,6 +50,7 @@ export class WizardController {
   constructor(
     private readonly health: WizardHealthService,
     private readonly activation: WizardActivationService,
+    private readonly report: ActivationReportService,
   ) {}
 
   @Post('health/channex')
@@ -68,5 +81,31 @@ export class WizardController {
   @HttpCode(201)
   async activate(@Body() dto: WizardActivateDto, @CurrentUser() actor: JwtPayload) {
     return this.activation.activate(dto, actor)
+  }
+
+  /**
+   * GET /v1/nova/wizard/activation-report/:organizationId
+   *
+   * Devuelve HTML imprimible del Activation Report. El consultor lo abre,
+   * imprime con Cmd+P → "Save as PDF" para el expediente del cliente.
+   *
+   * Pattern SAP Activate "Realize Phase Sign-off Report". HTML en lugar
+   * de PDF nativo (Puppeteer) porque ADR-0001 reservó Puppeteer para
+   * SIGN-DLC (digital signatures con hash determinista — caso distinto).
+   *
+   * Content-Type text/html para que el browser renderice directamente
+   * en lugar de descargarlo. Cache headers minimal porque el report
+   * refleja el estado actual del cliente (cambios post-activate updaten).
+   */
+  @Get('activation-report/:organizationId')
+  @Header('Content-Type', 'text/html; charset=utf-8')
+  @Header('Cache-Control', 'private, max-age=0, must-revalidate')
+  async activationReport(
+    @Param('organizationId') organizationId: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const data = await this.report.getReportData(organizationId)
+    const html = this.report.renderHtml(data)
+    res.send(html)
   }
 }

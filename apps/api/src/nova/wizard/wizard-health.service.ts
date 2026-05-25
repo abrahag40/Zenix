@@ -21,6 +21,7 @@ import { Injectable, Logger } from '@nestjs/common'
 import Stripe = require('stripe')
 import { ChannexGateway } from '../../integrations/channex/channex.gateway'
 import { ActivationEmailService } from './activation-email.service'
+import { PacAdapterRegistry } from './pac/pac-adapter.registry'
 import type {
   HealthCheckChannexDto,
   HealthCheckPacDto,
@@ -39,6 +40,7 @@ export class WizardHealthService {
   constructor(
     private readonly channex: ChannexGateway,
     private readonly emailService: ActivationEmailService,
+    private readonly pacRegistry: PacAdapterRegistry,
   ) {
     const apiKey = process.env.STRIPE_SECRET_KEY
     if (apiKey) {
@@ -155,19 +157,29 @@ export class WizardHealthService {
     }
   }
 
-  // ─── PAC (STUB Day 16) ──────────────────────────────────────────
+  // ─── PAC (REAL Day 19 — adapter Strategy pattern) ─────────────
 
   async checkPac(dto: HealthCheckPacDto): Promise<HealthCheckResponse> {
-    const start = Date.now()
-    await this.simulateLatency(700, 1400)
-    const latencyMs = Date.now() - start
-    // Day 17 wirea: PAC adapter strategy (Facturama/SW Sapien/DIAN/SUNAT) con CFDI mock
-    // El caso más común al activar es "cliente aún no contrató PAC" → warning con override
+    const adapter = this.pacRegistry.find(dto.pacAdapter)
+    if (!adapter) {
+      return {
+        status: 'error',
+        message: `PAC adapter "${dto.pacAdapter}" no soportado. Adapters disponibles: ${this.pacRegistry.list().map((m) => m.id).join(', ')}`,
+        latencyMs: 0,
+      }
+    }
+
+    // Day 19: el wizard NO tiene aún la pacCredentials del cliente (esa
+    // configuración llega post-activación cuando contrate Facturama).
+    // healthCheck(null) devuelve warning con copy operativo correcto.
+    // El consultor puede activar con override; el cliente configura PAC
+    // después desde /nova/settings/legal-entities.
+    const result = await adapter.healthCheck(null)
     return {
-      status: 'warning',
-      message: `PAC sandbox ${dto.pacAdapter} no responde con esas credenciales. El cliente puede activar sin PAC y contratarlo después (los folios quedarán con requiresFiscalReview=true hasta entonces).`,
-      latencyMs,
-      detail: { stub: true, pacAdapter: dto.pacAdapter, allowOverride: true },
+      status: result.status,
+      message: result.message,
+      latencyMs: result.latencyMs,
+      detail: { pacAdapter: dto.pacAdapter, ...result.detail },
     }
   }
 
