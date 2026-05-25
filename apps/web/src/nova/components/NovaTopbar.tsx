@@ -1,21 +1,15 @@
 /**
- * Sprint NOVA-CHANNEX-COMMAND-CENTER — Day 9.
- *
  * NovaTopbar — barra superior del Nova shell.
  *
- * Contenido:
- *   - Izquierda: breadcrumb / page title (slot)
- *   - Centro/derecha: TenantSwitcher chip + user menu
- *
- * Diferencia con PMS topbar: no incluye PropertySwitcher (las properties
- * son intra-cliente — el consultor primero selecciona cliente, después
- * navega entre sus properties dentro del workspace cliente).
+ * Refactor 2026-05-25 con design system: bg surface raised, typography
+ * jerárquica (Title del page title), IconButton para logout.
  */
 import { useNavigate } from 'react-router-dom'
 import { LogOut, UserCircle2 } from 'lucide-react'
 import { useAuthStore } from '../../store/auth'
 import { useNovaStore } from '../../store/nova'
 import { TenantSwitcher } from './TenantSwitcher'
+import { Title, Caption, IconButton } from '../design-system'
 
 interface NovaTopbarProps {
   title?: string
@@ -35,43 +29,35 @@ export function NovaTopbar({ title, actions }: NovaTopbarProps) {
   }
 
   return (
-    <header className="h-14 border-b border-slate-200 bg-white flex items-center px-4 gap-3">
-      {/* Title slot */}
+    <header className="h-14 border-b border-slate-200/70 bg-white/80 backdrop-blur-md backdrop-saturate-150 sticky top-0 z-20 flex items-center px-4 gap-3">
       <div className="flex-1 min-w-0">
-        {title && (
-          <h1 className="text-[14px] font-semibold text-slate-900 truncate">{title}</h1>
-        )}
+        {title && <Title className="truncate">{title}</Title>}
       </div>
 
-      {/* Right actions */}
       <div className="flex items-center gap-2">
         {actions}
         <TenantSwitcher />
 
-        {/* User menu — minimal for Day 9; expand in Day 13+ */}
-        <div className="hidden sm:flex items-center gap-2 pl-2 border-l border-slate-200 ml-1">
+        <div className="hidden sm:flex items-center gap-2 pl-2 border-l border-slate-200/70 ml-1">
           <div className="flex items-center gap-2">
             <UserCircle2 className="h-5 w-5 text-slate-400" aria-hidden />
-            <div className="text-[12px]">
-              <div className="font-medium text-slate-900 leading-tight">
+            <div className="text-[12px] leading-tight">
+              <div className="font-medium text-slate-900">
                 {user?.name || user?.email || 'Usuario'}
               </div>
               {user?.actorTier && (
-                <div className="text-[10px] text-slate-500 leading-tight">
-                  {prettyTier(user.actorTier)}
-                </div>
+                <Caption tone="tertiary">{prettyTier(user.actorTier)}</Caption>
               )}
             </div>
           </div>
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="p-1.5 rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+          <IconButton
+            icon={LogOut}
+            size="sm"
+            variant="ghost"
             aria-label="Cerrar sesión"
+            onClick={handleLogout}
             title="Cerrar sesión"
-          >
-            <LogOut className="h-4 w-4" aria-hidden />
-          </button>
+          />
         </div>
       </div>
     </header>
