@@ -31,6 +31,8 @@ import { NovaDashboardPage } from './nova/pages/NovaDashboardPage'
 import { NovaChannexPage } from './nova/pages/NovaChannexPage'
 // Day 13 — Audit log page
 import { NovaAuditLogPage } from './nova/pages/NovaAuditLogPage'
+// Day 14 — Wizard Zenix Activate
+import { NovaWizardPage } from './nova/pages/NovaWizardPage'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -111,7 +113,7 @@ export default function App() {
           {/* Placeholders Days 10-15 — todos abren el NovaShell empty con el
               page-title. Cada uno se reemplaza por su page real al avanzar. */}
           <Route path="/nova/channex"    element={<NovaChannexPage />} />
-          <Route path="/nova/wizard"     element={<NovaDashboardPage />} />
+          <Route path="/nova/wizard"     element={<NovaWizardPage />} />
           <Route path="/nova/audit"      element={<NovaAuditLogPage />} />
           <Route path="/nova/settings"   element={<NovaDashboardPage />} />
           <Route path="*"                element={<Navigate to="/dashboard" replace />} />
