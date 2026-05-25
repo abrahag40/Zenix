@@ -54,7 +54,7 @@ const NAV: NavItem[] = [
   { label: 'Clientes', to: '/nova/clientes', icon: Building2 },
   { label: 'Channex Command', to: '/nova/channex', icon: Cable },
   { label: 'Wizard Activate', to: '/nova/wizard', icon: Sparkles, badge: 'Day 14' },
-  { label: 'Audit log', to: '/nova/audit', icon: ScrollText, badge: 'Day 13' },
+  { label: 'Audit log', to: '/nova/audit', icon: ScrollText },
   { label: 'Settings', to: '/nova/settings', icon: Settings, badge: 'WIP' },
 ]
 

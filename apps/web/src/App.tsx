@@ -29,6 +29,8 @@ import { NovaClientsPage } from './nova/pages/NovaClientsPage'
 import { NovaDashboardPage } from './nova/pages/NovaDashboardPage'
 // Day 10 — Channex Command Center
 import { NovaChannexPage } from './nova/pages/NovaChannexPage'
+// Day 13 — Audit log page
+import { NovaAuditLogPage } from './nova/pages/NovaAuditLogPage'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -110,7 +112,7 @@ export default function App() {
               page-title. Cada uno se reemplaza por su page real al avanzar. */}
           <Route path="/nova/channex"    element={<NovaChannexPage />} />
           <Route path="/nova/wizard"     element={<NovaDashboardPage />} />
-          <Route path="/nova/audit"      element={<NovaDashboardPage />} />
+          <Route path="/nova/audit"      element={<NovaAuditLogPage />} />
           <Route path="/nova/settings"   element={<NovaDashboardPage />} />
           <Route path="*"                element={<Navigate to="/dashboard" replace />} />
         </Routes>

@@ -40,6 +40,9 @@ import { ConfirmDialog } from '../../modules/rooms/components/shared/ConfirmDial
 import { RateCalendarMatrix } from '../components/RateCalendarMatrix'
 import { PropertyPicker } from '../components/PropertyPicker'
 import { Chip, StatusChip } from '../components/Chip'
+import { ChannelsTab } from '../components/channex-tabs/ChannelsTab'
+import { MappingsTab } from '../components/channex-tabs/MappingsTab'
+import { RestrictionsTab } from '../components/channex-tabs/RestrictionsTab'
 import type { ReactNode } from 'react'
 import {
   listPropertiesOfActingOrg,
@@ -63,9 +66,9 @@ const TABS: { key: TabKey; label: string; badge?: string }[] = [
   { key: 'room-types', label: 'Room Types' },
   { key: 'rate-plans', label: 'Rate Plans' },
   { key: 'rate-calendar', label: 'Rate Calendar' },
-  { key: 'restrictions', label: 'Restrictions', badge: 'Day 13' },
-  { key: 'channels', label: 'Channels', badge: 'Day 13' },
-  { key: 'mappings', label: 'Mappings', badge: 'Day 13' },
+  { key: 'restrictions', label: 'Restrictions' },
+  { key: 'channels', label: 'Channels' },
+  { key: 'mappings', label: 'Mappings' },
 ]
 
 // ── Helper: persist selected propertyId per acting org ─────────────────────
@@ -204,9 +207,9 @@ export function NovaChannexPage() {
             {activeTab === 'room-types' && <RoomTypesTab propertyId={selectedPropertyId} />}
             {activeTab === 'rate-plans' && <RatePlansTab propertyId={selectedPropertyId} />}
             {activeTab === 'rate-calendar' && <RateCalendarMatrix propertyId={selectedPropertyId} />}
-            {(activeTab === 'restrictions' ||
-              activeTab === 'channels' ||
-              activeTab === 'mappings') && <ComingSoonTab tab={activeTab} />}
+            {activeTab === 'restrictions' && <RestrictionsTab propertyId={selectedPropertyId} />}
+            {activeTab === 'channels' && <ChannelsTab propertyId={selectedPropertyId} />}
+            {activeTab === 'mappings' && <MappingsTab propertyId={selectedPropertyId} />}
           </>
         )}
       </div>

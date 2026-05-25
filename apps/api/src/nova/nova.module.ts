@@ -18,7 +18,10 @@
  */
 import { Module } from '@nestjs/common'
 import { PrismaModule } from '../prisma/prisma.module'
+import { TenantContextService } from '../common/tenant-context.service'
 import { AccessControlService } from './access-control/access-control.service'
+import { AuditLogController } from './audit/audit-log.controller'
+import { AuditLogQueryService } from './audit/audit-log-query.service'
 import { NovaClientsController } from './clients/clients.controller'
 import { NovaClientsService } from './clients/clients.service'
 import { NovaActingOrgGuard } from './guards/nova-acting-org.guard'
@@ -26,8 +29,18 @@ import { NovaTiersGuard } from './guards/nova-tiers.guard'
 
 @Module({
   imports: [PrismaModule],
-  controllers: [NovaClientsController], // Day 9 — landing /nova/clientes
-  providers: [AccessControlService, NovaActingOrgGuard, NovaTiersGuard, NovaClientsService],
+  controllers: [
+    NovaClientsController, // Day 9 — landing /nova/clientes
+    AuditLogController, // Day 13 — /v1/nova/audit-logs
+  ],
+  providers: [
+    AccessControlService,
+    NovaActingOrgGuard,
+    NovaTiersGuard,
+    NovaClientsService,
+    AuditLogQueryService,
+    TenantContextService, // Day 13 — required por AuditLogQueryService
+  ],
   exports: [AccessControlService, NovaActingOrgGuard, NovaTiersGuard],
 })
 export class NovaModule {}

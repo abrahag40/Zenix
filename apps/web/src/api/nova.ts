@@ -317,6 +317,67 @@ export function expandTemplate(
   )
 }
 
+// ── Audit log (Day 13) ─────────────────────────────────────────────────
+
+export interface AuditLogRow {
+  id: string
+  createdAt: string
+  actorRealId: string
+  actorRealRole: string
+  onBehalfOfId: string | null
+  onBehalfOfRole: string | null
+  action: string
+  target: string | null
+  status: 'SUCCESS' | 'FAILURE' | 'PARTIAL'
+  reason: string | null
+  errorMessage: string | null
+  payloadPreview: string
+}
+
+export interface AuditLogPage {
+  rows: AuditLogRow[]
+  nextCursor: string | null
+  totalThisPage: number
+}
+
+export interface AuditLogDetail extends Omit<AuditLogRow, 'payloadPreview'> {
+  payload: Record<string, unknown>
+  channexResponse?: Record<string, unknown> | null
+  retentionPolicy: string
+  organizationId: string
+}
+
+export function listAuditLogs(params: {
+  action?: string
+  actorRealId?: string
+  status?: 'SUCCESS' | 'FAILURE' | 'PARTIAL'
+  dateFrom?: string
+  dateTo?: string
+  cursor?: string
+  limit?: number
+}): Promise<AuditLogPage> {
+  const q = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '') q.set(k, String(v))
+  })
+  const qs = q.toString()
+  return api.get<AuditLogPage>(`/v1/nova/audit-logs${qs ? '?' + qs : ''}`, {
+    headers: novaHeaders({ requireActingOrg: true }),
+  })
+}
+
+export function listAuditLogActions(): Promise<{ actions: string[] }> {
+  return api.get<{ actions: string[] }>('/v1/nova/audit-logs/actions', {
+    headers: novaHeaders({ requireActingOrg: true }),
+  })
+}
+
+export function getAuditLog(id: string): Promise<AuditLogDetail | null> {
+  return api.get<AuditLogDetail | null>(`/v1/nova/audit-logs/${id}`, {
+    headers: novaHeaders({ requireActingOrg: true }),
+  })
+}
+
 export function listMappingsProposal(propertyId: string): Promise<any> {
   return api.get(`/v1/nova/channex/properties/${propertyId}/mappings/proposal`, {
     headers: novaHeaders({ requireActingOrg: true }),
