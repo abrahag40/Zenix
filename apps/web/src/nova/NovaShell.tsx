@@ -60,15 +60,21 @@ export function NovaShell({ title, actions, children }: NovaShellProps) {
       <div className="flex flex-1 min-h-0">
         <NovaSidebar />
 
-        <div className="flex-1 flex flex-col min-w-0 bg-slate-50">
-          {/* Subtle ambient gradient en el main bg — preserva personalidad
-              warm sin agresión visual. Linear/Notion usan tonal subtle bg. */}
+        <div className="flex-1 flex flex-col min-w-0 bg-slate-50 relative">
+          {/* Subtle ambient gradient — bridge tonal entre sidebar dark warm
+              y main light. Emerald hint en el left edge (cerca del sidebar)
+              tiende un "puente cromático" sutil que reduce el contraste
+              perceptible sin matar la legibilidad del content. */}
           <div
-            className="absolute inset-0 pointer-events-none opacity-50"
+            className="absolute inset-0 pointer-events-none"
             style={{
               background:
-                'radial-gradient(1200px circle at 100% 0%, rgba(99,102,241,0.04) 0%, transparent 50%),' +
-                'radial-gradient(800px circle at 0% 100%, rgba(16,185,129,0.03) 0%, transparent 50%)',
+                // Left edge: emerald hint que continúa la identidad del sidebar
+                'radial-gradient(700px circle at 0% 30%, rgba(16,185,129,0.04) 0%, transparent 55%),' +
+                // Top-right: violet ambient (color complement)
+                'radial-gradient(1000px circle at 100% 0%, rgba(99,102,241,0.035) 0%, transparent 55%),' +
+                // Bottom-right: warm soft
+                'radial-gradient(800px circle at 100% 100%, rgba(245,158,11,0.02) 0%, transparent 50%)',
             }}
             aria-hidden
           />
