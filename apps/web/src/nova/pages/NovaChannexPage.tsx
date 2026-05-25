@@ -38,6 +38,7 @@ import { NovaShell } from '../NovaShell'
 import { useNovaStore } from '../../store/nova'
 import { ConfirmDialog } from '../../modules/rooms/components/shared/ConfirmDialog'
 import { RateCalendarMatrix } from '../components/RateCalendarMatrix'
+import { PropertyPicker } from '../components/PropertyPicker'
 import type { ReactNode } from 'react'
 import {
   listPropertiesOfActingOrg,
@@ -158,25 +159,12 @@ export function NovaChannexPage() {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Building2 className="h-3.5 w-3.5 text-slate-400" />
-            <select
-              value={selectedPropertyId ?? ''}
-              onChange={(e) => onSelectProperty(e.target.value)}
-              disabled={loadingProps || properties.length === 0}
-              className="px-2.5 py-1.5 rounded-lg border border-slate-300 text-[13px] bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500 disabled:opacity-50"
-            >
-              {loadingProps && <option>Cargando properties...</option>}
-              {!loadingProps && properties.length === 0 && (
-                <option>Sin properties</option>
-              )}
-              {properties.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          <PropertyPicker
+            properties={properties}
+            selectedId={selectedPropertyId}
+            onSelect={onSelectProperty}
+            isLoading={loadingProps}
+          />
         </div>
 
         {/* Tabs */}
