@@ -67,6 +67,148 @@ export function listClients(): Promise<NovaClientRow[]> {
   return api.get<NovaClientRow[]>('/v1/nova/clients')
 }
 
+// ── Properties (de la org en scope) ───────────────────────────────────────
+
+export interface PropertyRow {
+  id: string
+  name: string
+  type: string | null
+}
+
+/** Lista properties de la actingOrg (consultor) o de la propia org (ORG_OWNER). */
+export function listPropertiesOfActingOrg(): Promise<PropertyRow[]> {
+  // El backend ya filtra por organizationId via TenantContext middleware.
+  // Para Nova consultor, el header X-Acting-Organization-Id setea el scope.
+  return api.get<PropertyRow[]>('/v1/properties', {
+    headers: novaHeaders({ requireActingOrg: true }),
+  })
+}
+
+// ── Channex Status (admin overview) ───────────────────────────────────────
+
+export interface ChannexStatusOverview {
+  propertyId: string
+  outboxQueueDepth?: { kind: string; status: string; count: number }[]
+  webhookLastReceivedAt?: string | null
+  webhookCount24h?: number
+  feedSchedulerLastRunAt?: string | null
+  fullSyncLastRunAt?: string | null
+  fullSyncNextEligibleAt?: string | null
+  deadLetterCount?: number
+  tokenBucketSnapshot?: { kind: string; remaining: number; capacity: number }[]
+  [key: string]: unknown // backend puede ir agregando campos
+}
+
+export function getChannexStatus(propertyId: string): Promise<ChannexStatusOverview> {
+  return api.get<ChannexStatusOverview>(
+    `/v1/admin/channex/status/${propertyId}`,
+    { headers: novaHeaders({ requireActingOrg: true }) },
+  )
+}
+
+// ── Room Types CRUD ───────────────────────────────────────────────────────
+
+export interface ChannexRoomTypeRow {
+  id: string
+  title: string
+  count_of_rooms: number
+  occ_adults: number
+  occ_children: number
+  occ_infants: number
+  default_occupancy: number
+  room_kind?: string
+}
+
+export function listRoomTypes(propertyId: string): Promise<ChannexRoomTypeRow[]> {
+  return api.get<ChannexRoomTypeRow[]>(
+    `/v1/nova/channex/properties/${propertyId}/room-types`,
+    { headers: novaHeaders({ requireActingOrg: true }) },
+  )
+}
+
+export function createRoomType(
+  propertyId: string,
+  input: {
+    title: string
+    countOfRooms: number
+    occAdults: number
+    occChildren?: number
+    occInfants?: number
+    defaultOccupancy?: number
+    roomKind?: 'room' | 'dorm'
+  },
+): Promise<ChannexRoomTypeRow> {
+  return api.post<ChannexRoomTypeRow>(
+    `/v1/nova/channex/properties/${propertyId}/room-types`,
+    input,
+    { headers: novaHeaders({ requireActingOrg: true }) },
+  )
+}
+
+export function deleteRoomType(
+  propertyId: string,
+  channexRoomTypeId: string,
+  opts: { force?: boolean } = {},
+): Promise<{ deleted: true }> {
+  const qs = opts.force ? '?force=true' : ''
+  return api.delete<{ deleted: true }>(
+    `/v1/nova/channex/properties/${propertyId}/room-types/${channexRoomTypeId}${qs}`,
+    { headers: novaHeaders({ requireActingOrg: true }) },
+  )
+}
+
+// ── Rate Plans CRUD ───────────────────────────────────────────────────────
+
+export interface ChannexRatePlanRow {
+  id?: string
+  mappingId?: string
+  channexRatePlanId?: string
+  channexRoomTypeId: string
+  title: string
+  currency: string
+  sellMode?: string
+  rateMode?: string
+  defaultRate?: number
+  defaultOccupancy?: number
+  isActive?: boolean
+}
+
+export function listRatePlans(propertyId: string): Promise<ChannexRatePlanRow[]> {
+  return api.get<ChannexRatePlanRow[]>(
+    `/v1/nova/channex/properties/${propertyId}/rate-plans`,
+    { headers: novaHeaders({ requireActingOrg: true }) },
+  )
+}
+
+export function createRatePlan(
+  propertyId: string,
+  input: {
+    roomTypeId: string
+    title: string
+    currency: string
+    rateCents: number
+    occupancy?: number
+    sellMode?: 'per_room' | 'per_person'
+    rateMode?: 'manual' | 'derived'
+  },
+): Promise<ChannexRatePlanRow> {
+  return api.post<ChannexRatePlanRow>(
+    `/v1/nova/channex/properties/${propertyId}/rate-plans`,
+    input,
+    { headers: novaHeaders({ requireActingOrg: true }) },
+  )
+}
+
+export function deleteRatePlan(
+  propertyId: string,
+  channexRatePlanId: string,
+): Promise<{ deleted: true }> {
+  return api.delete<{ deleted: true }>(
+    `/v1/nova/channex/properties/${propertyId}/rate-plans/${channexRatePlanId}`,
+    { headers: novaHeaders({ requireActingOrg: true }) },
+  )
+}
+
 export function getRateCalendar(
   propertyId: string,
   from: string,

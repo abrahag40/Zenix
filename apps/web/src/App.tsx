@@ -27,6 +27,8 @@ import { useNotificationAlerts } from './hooks/useNotificationAlerts'
 // Sprint NOVA-CHANNEX-COMMAND-CENTER Day 9 — Nova shell + landing
 import { NovaClientsPage } from './nova/pages/NovaClientsPage'
 import { NovaDashboardPage } from './nova/pages/NovaDashboardPage'
+// Day 10 — Channex Command Center
+import { NovaChannexPage } from './nova/pages/NovaChannexPage'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -106,7 +108,7 @@ export default function App() {
           <Route path="/nova/dashboard"  element={<NovaDashboardPage />} />
           {/* Placeholders Days 10-15 — todos abren el NovaShell empty con el
               page-title. Cada uno se reemplaza por su page real al avanzar. */}
-          <Route path="/nova/channex"    element={<NovaDashboardPage />} />
+          <Route path="/nova/channex"    element={<NovaChannexPage />} />
           <Route path="/nova/wizard"     element={<NovaDashboardPage />} />
           <Route path="/nova/audit"      element={<NovaDashboardPage />} />
           <Route path="/nova/settings"   element={<NovaDashboardPage />} />
