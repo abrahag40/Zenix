@@ -74,8 +74,13 @@ export interface WizardState {
   // Step 4 — Properties (N items)
   properties: WizardProperty[]
 
-  // Step 5 — Inventory template
+  // Step 5 — Inventory template + draft editable
   inventoryTemplate: 'HOSTAL' | 'BOUTIQUE' | 'CABAÑAS' | 'BUSINESS' | 'CUSTOM'
+  /** Room types draft — pre-poblado del template seleccionado, editable
+   *  por el consultor antes de activar. Backend materializa al activar. */
+  inventoryRoomTypes: WizardRoomTypeDraft[]
+  /** Rate plans draft — mismo patrón. */
+  inventoryRatePlans: WizardRatePlanDraft[]
 
   // Step 6 — Staff
   orgOwnerEmail: string
@@ -84,14 +89,105 @@ export interface WizardState {
   // Mutations
   setStep: (step: WizardStepKey) => void
   markCompleted: (step: WizardStepKey) => void
-  setField: <K extends keyof Omit<WizardState, 'completedSteps' | 'setStep' | 'markCompleted' | 'setField' | 'addProperty' | 'removeProperty' | 'updateProperty' | 'reset'>>(
+  setField: <K extends keyof Omit<WizardState, 'completedSteps' | 'setStep' | 'markCompleted' | 'setField' | 'addProperty' | 'removeProperty' | 'updateProperty' | 'addRoomType' | 'updateRoomType' | 'removeRoomType' | 'addRatePlan' | 'updateRatePlan' | 'removeRatePlan' | 'loadInventoryTemplate' | 'reset'>>(
     key: K,
     value: WizardState[K],
   ) => void
   addProperty: (p: Omit<WizardProperty, 'tempId'>) => void
   removeProperty: (tempId: string) => void
   updateProperty: (tempId: string, patch: Partial<WizardProperty>) => void
+  addRoomType: (rt: Omit<WizardRoomTypeDraft, 'tempId'>) => void
+  updateRoomType: (tempId: string, patch: Partial<WizardRoomTypeDraft>) => void
+  removeRoomType: (tempId: string) => void
+  addRatePlan: (rp: Omit<WizardRatePlanDraft, 'tempId'>) => void
+  updateRatePlan: (tempId: string, patch: Partial<WizardRatePlanDraft>) => void
+  removeRatePlan: (tempId: string) => void
+  /** Reemplaza inventoryRoomTypes/RatePlans con los defaults del template. */
+  loadInventoryTemplate: (template: WizardState['inventoryTemplate']) => void
   reset: () => void
+}
+
+export interface WizardRoomTypeDraft {
+  tempId: string
+  name: string
+  count: number
+  capacity: number
+  /** Base rate sugerido (currency = legalEntityBaseCurrency). Opcional —
+   *  cliente puede ajustar después en Nova / Channex / Rate plans. */
+  baseRate?: number
+}
+
+export interface WizardRatePlanDraft {
+  tempId: string
+  name: string
+  /** Etiqueta corta para descripción (BAR, Advance Purchase, etc.). */
+  shortLabel?: string
+}
+
+// Templates de inventario — semilla pre-config. El consultor puede editarlos
+// inline en Step 5 (add/remove/rename/cambiar capacity/rate) antes de activar.
+const INVENTORY_TEMPLATES: Record<
+  WizardState['inventoryTemplate'],
+  { roomTypes: Omit<WizardRoomTypeDraft, 'tempId'>[]; ratePlans: Omit<WizardRatePlanDraft, 'tempId'>[] }
+> = {
+  HOSTAL: {
+    roomTypes: [
+      { name: 'Dorm 8 camas mixto', count: 2, capacity: 8, baseRate: 350 },
+      { name: 'Dorm 6 camas femenino', count: 1, capacity: 6, baseRate: 400 },
+      { name: 'Privada doble', count: 4, capacity: 2, baseRate: 900 },
+      { name: 'Privada con baño', count: 2, capacity: 2, baseRate: 1200 },
+    ],
+    ratePlans: [
+      { name: 'BAR (Best Available)', shortLabel: 'BAR' },
+      { name: 'Non-refundable -10%', shortLabel: 'NR' },
+    ],
+  },
+  BOUTIQUE: {
+    roomTypes: [
+      { name: 'Standard Queen', count: 8, capacity: 2, baseRate: 1800 },
+      { name: 'Deluxe King', count: 6, capacity: 2, baseRate: 2400 },
+      { name: 'Junior Suite', count: 3, capacity: 3, baseRate: 3500 },
+      { name: 'Master Suite', count: 1, capacity: 4, baseRate: 5500 },
+    ],
+    ratePlans: [
+      { name: 'BAR', shortLabel: 'BAR' },
+      { name: 'Advance Purchase -15%', shortLabel: 'AP15' },
+      { name: 'Direct Member Rate', shortLabel: 'DIRECT' },
+    ],
+  },
+  CABAÑAS: {
+    roomTypes: [
+      { name: 'Cabaña 2 personas', count: 4, capacity: 2, baseRate: 2200 },
+      { name: 'Cabaña familiar 4 personas', count: 3, capacity: 4, baseRate: 3800 },
+      { name: 'Tienda glamping', count: 2, capacity: 2, baseRate: 1800 },
+    ],
+    ratePlans: [
+      { name: 'BAR', shortLabel: 'BAR' },
+      { name: 'Estancia mínima 2 noches', shortLabel: 'MIN2' },
+    ],
+  },
+  BUSINESS: {
+    roomTypes: [
+      { name: 'Standard Single', count: 12, capacity: 1, baseRate: 1500 },
+      { name: 'Standard Double', count: 10, capacity: 2, baseRate: 1900 },
+      { name: 'Executive', count: 6, capacity: 2, baseRate: 2800 },
+      { name: 'Suite ejecutiva', count: 2, capacity: 2, baseRate: 4200 },
+    ],
+    ratePlans: [
+      { name: 'BAR', shortLabel: 'BAR' },
+      { name: 'Corporate Rate', shortLabel: 'CORP' },
+      { name: 'Government Rate', shortLabel: 'GOB' },
+      { name: 'Long Stay -20% (7+ noches)', shortLabel: 'LS20' },
+    ],
+  },
+  CUSTOM: {
+    roomTypes: [],
+    ratePlans: [],
+  },
+}
+
+function makeDraftId(prefix: string): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 }
 
 const initialState = {
@@ -112,6 +208,8 @@ const initialState = {
   legalEntityPacAdapter: 'MX_FACTURAMA',
   properties: [] as WizardProperty[],
   inventoryTemplate: 'BOUTIQUE' as WizardState['inventoryTemplate'],
+  inventoryRoomTypes: [] as WizardRoomTypeDraft[],
+  inventoryRatePlans: [] as WizardRatePlanDraft[],
   orgOwnerEmail: '',
   orgOwnerName: '',
 }
@@ -153,6 +251,57 @@ export const useWizardStore = create<WizardState>()(
         set((state) => ({
           properties: state.properties.map((p) => (p.tempId === tempId ? { ...p, ...patch } : p)),
         })),
+
+      // ── Inventory drafts (Step 5) ──────────────────────────────────────
+      addRoomType: (rt) =>
+        set((state) => ({
+          inventoryRoomTypes: [
+            ...state.inventoryRoomTypes,
+            { ...rt, tempId: makeDraftId('rt') },
+          ],
+        })),
+
+      updateRoomType: (tempId, patch) =>
+        set((state) => ({
+          inventoryRoomTypes: state.inventoryRoomTypes.map((rt) =>
+            rt.tempId === tempId ? { ...rt, ...patch } : rt,
+          ),
+        })),
+
+      removeRoomType: (tempId) =>
+        set((state) => ({
+          inventoryRoomTypes: state.inventoryRoomTypes.filter((rt) => rt.tempId !== tempId),
+        })),
+
+      addRatePlan: (rp) =>
+        set((state) => ({
+          inventoryRatePlans: [
+            ...state.inventoryRatePlans,
+            { ...rp, tempId: makeDraftId('rp') },
+          ],
+        })),
+
+      updateRatePlan: (tempId, patch) =>
+        set((state) => ({
+          inventoryRatePlans: state.inventoryRatePlans.map((rp) =>
+            rp.tempId === tempId ? { ...rp, ...patch } : rp,
+          ),
+        })),
+
+      removeRatePlan: (tempId) =>
+        set((state) => ({
+          inventoryRatePlans: state.inventoryRatePlans.filter((rp) => rp.tempId !== tempId),
+        })),
+
+      loadInventoryTemplate: (template) =>
+        set(() => {
+          const tpl = INVENTORY_TEMPLATES[template]
+          return {
+            inventoryTemplate: template,
+            inventoryRoomTypes: tpl.roomTypes.map((rt) => ({ ...rt, tempId: makeDraftId('rt') })),
+            inventoryRatePlans: tpl.ratePlans.map((rp) => ({ ...rp, tempId: makeDraftId('rp') })),
+          }
+        }),
 
       reset: () => set({ ...initialState, completedSteps: new Set<WizardStepKey>() }),
     }),

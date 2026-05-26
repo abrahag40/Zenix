@@ -237,7 +237,7 @@ export function NovaAuditLogPage() {
                   </Caption>
                   {data.nextCursor && (
                     <Caption tone="quaternary">
-                      Paginación cursor implementada — UI next-page Day 14
+                      Hay más entradas · paginación próximamente
                     </Caption>
                   )}
                 </div>

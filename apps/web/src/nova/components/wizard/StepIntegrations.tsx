@@ -299,10 +299,13 @@ export function StepIntegrations() {
         {/* Backend status note */}
         <Surface variant="sunken" radius="md" padding="md">
           <Body tone="secondary" className="text-[12px]">
-            <span className="font-semibold text-slate-900">Backend Day 16:</span> Channex ping
-            es REAL (consulta <code className="font-mono text-[11px] bg-slate-100 px-1 rounded">listProperties</code>{' '}
-            contra la api-key configurada). Stripe / PAC / SMTP siguen como stubs deterministas
-            hasta Day 17 (Stripe SDK + adapters PAC reales + Resend con DKIM).
+            <span className="font-semibold text-slate-900">Estado de las integraciones:</span>{' '}
+            Channex ping consulta{' '}
+            <code className="font-mono text-[11px] bg-slate-100 px-1 rounded">listProperties</code>{' '}
+            contra la api-key configurada. Stripe usa{' '}
+            <code className="font-mono text-[11px] bg-slate-100 px-1 rounded">balance.retrieve</code>{' '}
+            (read-only, no genera ruido en el dashboard del cliente). PAC verifica credenciales
+            contra el sandbox del adapter elegido. SMTP envía un email real vía Resend.
           </Body>
         </Surface>
       </div>

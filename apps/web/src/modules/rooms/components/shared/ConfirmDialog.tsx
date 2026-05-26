@@ -139,22 +139,22 @@ export function ConfirmDialog({
         >
           <div className={cn('h-1 shrink-0', config.stripe)} />
 
-          <div className="px-5 pt-4 pb-4">
+          <div className="px-5 pt-5 pb-4">
             <div className="flex items-start gap-3">
               <div className={cn(
-                'w-8 h-8 rounded-full border flex items-center justify-center shrink-0',
+                'w-9 h-9 rounded-full border flex items-center justify-center shrink-0',
                 config.iconBg, config.iconBorder,
               )}>
-                {icon ?? <IconCmp className={cn('h-4 w-4', config.iconColor)} />}
+                {icon ?? <IconCmp className={cn('h-[18px] w-[18px]', config.iconColor)} />}
               </div>
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 pt-0.5">
                 <DialogPrimitive.Title
                   id="confirm-dialog-title"
-                  className="text-sm font-semibold text-slate-900 leading-tight"
+                  className="text-[15px] font-semibold text-slate-900 leading-tight tracking-[-0.005em]"
                 >
                   {title}
                 </DialogPrimitive.Title>
-                <DialogPrimitive.Description className="text-xs text-slate-600 mt-1 leading-snug">
+                <DialogPrimitive.Description className="text-[13px] text-slate-600 mt-1.5 leading-relaxed">
                   {message}
                 </DialogPrimitive.Description>
               </div>

@@ -166,12 +166,12 @@ export function ChannelsTab({ propertyId }: { propertyId: string }) {
         <div className="flex items-start gap-2.5">
           <AlertCircle className="h-4 w-4 text-sky-600 mt-0.5 flex-shrink-0" />
           <div>
-            <Title>Endpoint listChannels pendiente</Title>
+            <Title>Listado completo de canales pendiente</Title>
             <Callout className="mt-1" tone="secondary">
-              El backend Day 4 tiene <code className="font-mono">gateway.listChannels</code>{' '}
-              implementado pero el controller HTTP público no expuesto aún. Día 14+ wirea
-              el listado completo de canales OTA + botón pausar individual. Por ahora solo
-              vista de pausas activas + history.
+              El backend tiene <code className="font-mono">gateway.listChannels</code>{' '}
+              implementado pero el controller HTTP público aún no se expone. Próxima
+              iteración wirea el listado completo de canales OTA + botón pausar individual.
+              Por ahora solo vista de pausas activas + history.
             </Callout>
           </div>
         </div>

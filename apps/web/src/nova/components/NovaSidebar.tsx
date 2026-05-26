@@ -55,7 +55,7 @@ const NAV: NavItem[] = [
   { label: 'Channex Command', to: '/nova/channex', icon: Cable },
   { label: 'Wizard Activate', to: '/nova/wizard', icon: Sparkles },
   { label: 'Audit log', to: '/nova/audit', icon: ScrollText },
-  { label: 'Settings', to: '/nova/settings', icon: Settings, badge: 'WIP' },
+  { label: 'Settings', to: '/nova/settings', icon: Settings },
 ]
 
 export function NovaSidebar() {

@@ -727,7 +727,7 @@ function RatePlansTab({ propertyId }: { propertyId: string }) {
           </p>
           <p className="text-slate-500">
             Si quieres pausarlo temporalmente sin perderlo, usa la opción "stop sell" en
-            Restrictions (Day 13) en lugar de eliminar.
+            la pestaña Restrictions en lugar de eliminar.
           </p>
         </div>
       ),
@@ -1050,33 +1050,8 @@ function NoOrgState() {
   )
 }
 
-function ComingSoonTab({ tab }: { tab: string }) {
-  const detail: Record<string, { day: string; what: string }> = {
-    'rate-calendar': {
-      day: 'Day 11',
-      what: 'Matriz rate calendar días × rate plans, bulk PATCH, day-of-week template.',
-    },
-    restrictions: {
-      day: 'Day 13',
-      what: 'Stop sell, MLOS/MaxLOS, CTA/CTD por rate plan.',
-    },
-    channels: {
-      day: 'Day 13',
-      what: 'Pause/unpause channel (Booking, Expedia, etc.), history log.',
-    },
-    mappings: {
-      day: 'Day 13',
-      what: 'Wizard de mapeo Zenix Room ↔ Channex Room Type, health check.',
-    },
-  }
-  const d = detail[tab] ?? { day: 'pronto', what: '—' }
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 p-10 text-center">
-      <Chip variant="progress" intent="tonal" size="md">{d.day}</Chip>
-      <p className="mt-2 text-[13px] text-slate-600">{d.what}</p>
-    </div>
-  )
-}
+// ComingSoonTab eliminado — todas las pestañas (rate-calendar, restrictions,
+// channels, mappings) ya están wireadas a sus componentes reales arriba.
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Helpers

@@ -28,6 +28,7 @@ import { useNotificationAlerts } from './hooks/useNotificationAlerts'
 // Sprint NOVA-CHANNEX-COMMAND-CENTER Day 9 — Nova shell + landing
 import { NovaClientsPage } from './nova/pages/NovaClientsPage'
 import { NovaDashboardPage } from './nova/pages/NovaDashboardPage'
+import { NovaSettingsPage } from './nova/pages/NovaSettingsPage'
 // Day 10 — Channex Command Center
 import { NovaChannexPage } from './nova/pages/NovaChannexPage'
 // Day 13 — Audit log page
@@ -119,7 +120,7 @@ export default function App() {
           <Route path="/nova/channex"    element={<NovaChannexPage />} />
           <Route path="/nova/wizard"     element={<NovaWizardPage />} />
           <Route path="/nova/audit"      element={<NovaAuditLogPage />} />
-          <Route path="/nova/settings"   element={<NovaDashboardPage />} />
+          <Route path="/nova/settings"   element={<NovaSettingsPage />} />
           <Route path="*"                element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </BrowserRouter>

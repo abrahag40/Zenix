@@ -97,7 +97,7 @@ export function NovaDashboardPage() {
               accent="sky"
               label="Staff activo"
               value="—"
-              hint="Datos en Day 12+"
+              hint="Métricas pendientes — sprint REPORTS-CORE"
             />
             <StatTile
               icon={Layers}
@@ -111,7 +111,7 @@ export function NovaDashboardPage() {
               accent="indigo"
               label="Reservas 24h"
               value="—"
-              hint="Datos en Day 12+"
+              hint="Métricas pendientes — sprint REPORTS-CORE"
             />
           </div>
         </Section>

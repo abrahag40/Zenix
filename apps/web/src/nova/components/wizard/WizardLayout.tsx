@@ -19,8 +19,8 @@
  * Apple HIG pattern para multi-step wizards (Pages Document Setup,
  * macOS Migration Assistant).
  */
-import type { ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, type ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Check, ChevronLeft, ChevronRight, X, Sparkles } from 'lucide-react'
 import { useNovaStore } from '../../../store/nova'
 import {
@@ -38,6 +38,7 @@ import {
   IconButton,
   Chip,
 } from '../../design-system'
+import { ConfirmDialog } from '../../../modules/rooms/components/shared/ConfirmDialog'
 import { cn } from '@/lib/utils'
 
 interface WizardLayoutProps {
@@ -60,12 +61,44 @@ export function WizardLayout({
   nextLabel = 'Siguiente',
 }: WizardLayoutProps) {
   const state = useWizardStore()
+  const navigate = useNavigate()
   const actingOrgName = useNovaStore((s) => s.actingOrgName)
   const currentStep = state.currentStep
+  const [exitConfirmOpen, setExitConfirmOpen] = useState(false)
 
   const currentIdx = WIZARD_STEPS.findIndex((s) => s.key === currentStep)
   const isFirst = currentIdx === 0
   const isLast = currentIdx === WIZARD_STEPS.length - 1
+
+  /**
+   * ¿Hay progreso en el wizard?
+   * Heurística: cualquier campo no-vacío significa data ingresada.
+   * Si !hasProgress, salir es directo sin confirmación.
+   */
+  const hasProgress =
+    state.organizationName.trim().length > 0 ||
+    state.brandEnabled ||
+    state.legalEntityName.trim().length > 0 ||
+    state.legalEntityTaxId.trim().length > 0 ||
+    state.properties.length > 0 ||
+    state.orgOwnerEmail.trim().length > 0 ||
+    state.orgOwnerName.trim().length > 0 ||
+    state.completedSteps.size > 0
+
+  const handleExitRequest = () => {
+    if (hasProgress) {
+      setExitConfirmOpen(true)
+    } else {
+      navigate('/nova/clientes')
+    }
+  }
+
+  const handleExitConfirm = () => {
+    // Reset del wizard — la siguiente vez que se abra arranca limpio.
+    state.reset()
+    setExitConfirmOpen(false)
+    navigate('/nova/clientes')
+  }
 
   const goPrev = () => {
     if (isFirst) return
@@ -121,9 +154,14 @@ export function WizardLayout({
           <Chip variant="progress" intent="subtle" size="md">
             Paso {currentIdx + 1} de {WIZARD_STEPS.length}
           </Chip>
-          <Link to="/nova/clientes">
-            <IconButton icon={X} size="sm" variant="ghost" aria-label="Cancelar wizard" title="Cancelar wizard" />
-          </Link>
+          <IconButton
+            icon={X}
+            size="sm"
+            variant="ghost"
+            aria-label="Salir del wizard"
+            title="Salir del wizard"
+            onClick={handleExitRequest}
+          />
         </div>
       </header>
 
@@ -135,16 +173,24 @@ export function WizardLayout({
             Pasos
           </Eyebrow>
           <ol className="space-y-1">
-            {WIZARD_STEPS.map((step, idx) => (
-              <StepNavItem
-                key={step.key}
-                step={step}
-                idx={idx}
-                isActive={step.key === currentStep}
-                isCompleted={state.completedSteps.has(step.key)}
-                onClick={() => state.setStep(step.key)}
-              />
-            ))}
+            {WIZARD_STEPS.map((step, idx) => {
+              // Block forward navigation: solo se puede navegar a steps ya
+              // completados o al actual. Steps futuros quedan deshabilitados
+              // hasta que el consultor complete el step actual y avance con
+              // "Siguiente". Pattern Apple HIG / Salesforce Setup Assistant.
+              const isReachable = idx <= currentIdx || state.completedSteps.has(step.key)
+              return (
+                <StepNavItem
+                  key={step.key}
+                  step={step}
+                  idx={idx}
+                  isActive={step.key === currentStep}
+                  isCompleted={state.completedSteps.has(step.key)}
+                  isReachable={isReachable}
+                  onClick={() => isReachable && state.setStep(step.key)}
+                />
+              )
+            })}
           </ol>
 
           <div className="mt-auto pt-5 border-t border-slate-200/70">
@@ -215,6 +261,20 @@ export function WizardLayout({
           </footer>
         </main>
       </div>
+
+      {/* Exit confirmation — solo si hay progreso real (heurística hasProgress).
+       *  Copy: NN/g Krug 2014 "Omit needless words". Concisión sobre completitud —
+       *  el consultor entiende qué pierde sin un ensayo. */}
+      <ConfirmDialog
+        open={exitConfirmOpen}
+        tone="warning"
+        title="¿Descartar el wizard?"
+        message="Perderás los datos capturados. La próxima vez que lo abras empezarás desde cero."
+        confirmLabel="Descartar"
+        cancelLabel="Seguir editando"
+        onConfirm={handleExitConfirm}
+        onCancel={() => setExitConfirmOpen(false)}
+      />
     </div>
   )
 }
@@ -226,12 +286,14 @@ function StepNavItem({
   idx,
   isActive,
   isCompleted,
+  isReachable,
   onClick,
 }: {
   step: { key: WizardStepKey; label: string; hint: string }
   idx: number
   isActive: boolean
   isCompleted: boolean
+  isReachable: boolean
   onClick: () => void
 }) {
   return (
@@ -239,11 +301,15 @@ function StepNavItem({
       <button
         type="button"
         onClick={onClick}
+        disabled={!isReachable}
+        title={!isReachable ? 'Completa el paso actual primero' : undefined}
         className={cn(
           'w-full group flex items-start gap-3 px-2.5 py-2.5 rounded-lg transition-all duration-150 text-left',
           isActive
             ? 'bg-gradient-to-r from-violet-50 via-violet-50/40 to-transparent ring-1 ring-inset ring-violet-200/60'
-            : 'hover:bg-slate-100/60',
+            : isReachable
+              ? 'hover:bg-slate-100/60'
+              : 'opacity-50 cursor-not-allowed',
         )}
       >
         <div
