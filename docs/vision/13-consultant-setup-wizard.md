@@ -1,10 +1,14 @@
-# 13 · Zenix Activate — Consultant Setup Wizard
+# 13 · Zenix Activate — Setup Wizard dentro de Nova
 
-> Flujo guiado para que un consultor (ZaharDev internal o partner certificado v1.2+) onboardee un nuevo cliente Zenix en 30 min - 1 semana, dependiendo de complejidad.
+> Flujo guiado para que un PLATFORM_ADMIN (ZaharDev) o PARTNER_MEMBER certificado onboardee un nuevo cliente Zenix en 30 min - 2 semanas, dependiendo de complejidad.
 >
 > **Inspirado en:** SAP Activate methodology + Salesforce Setup Assistant + Workday Adaptive Implementation. **Objetivo:** experiencia 10x más simple que los grandes, manteniendo el rigor enterprise.
 >
-> **Status:** Diseño aprobado 2026-05-15. Implementación en v1.0.5+ como nueva app `apps/consultant`.
+> **Status:** Diseño aprobado 2026-05-15. Refinamiento Nova-aligned 2026-05-23. **Implementación frontend Day 14-15 cerrada 2026-05-25** — los 8 steps son navegables end-to-end con state durable (Zustand persist). Steps 1-6 capturan datos con validación in-context, Step 7 ejecuta 4 health-checks mock (latencia simulada 800-2000ms, retry per-check, PAC override), Step 8 ejecuta stub de activación. Backend endpoints `POST /v1/nova/wizard/activate` + 4 health-check endpoints + Puppeteer PDF generation + Resend email delivery — pendientes Day 16+.
+>
+> **Surface:** el wizard NO es app independiente — vive **dentro de Zenix Nova** (`nova.zenix.com/wizard`) como módulo. En v1.0.0 vive bajo `apps/web/src/pages/nova/wizard/*`. En v1.0.5 se extrae junto con el resto de Nova a `apps/partner` (o `apps/nova`, naming a confirmar en sprint dedicado). El cliente NUNCA accede al wizard — es herramienta interna del consultor/PLATFORM_ADMIN. El cliente recibe credenciales SOLO al activarse Step 8 (ver §3.8).
+>
+> **Doc fundacional vinculante:** [docs/architecture/NOVA-architecture.md §6](../architecture/NOVA-architecture.md#6-wizard-zenix-activate-integration). Este documento es el **manual operativo del consultor** (etapas, defaults, templates, plantillas CSV). El RBAC matrix y forcing functions canónicas viven en NOVA.
 
 ---
 
@@ -25,22 +29,28 @@ Target de tiempos:
 
 ## 2. Quién ejecuta el wizard
 
-### Niveles de acceso
+### 2.1 Niveles de acceso (Nova-aligned v1.0.0)
 
-| Tier | Quién | Customers que pueden onboarder |
-|------|-------|--------------------------------|
-| **Internal Consultant** | Staff ZaharDev | Cualquier customer |
-| **Certified Partner Gold/Platinum** (v1.2+) | Partner con certificación máxima | Customers de su pipeline |
-| **Certified Partner Silver/Bronze** (v1.2+) | Partner con certificación media | Solo single-property, plan STARTER |
-| **Customer Self-Service** (v1.3+) | El propio cliente | Trial sign-up + trial-to-paid conversion |
+**Solo `PLATFORM_ADMIN` o `PARTNER_MEMBER` con `canActivateWizard=true` y `scope=FULL` (o `TIER_A_ONLY` para configs fiscal/integration) pueden iniciar y ejecutar el wizard.** El cliente NO ejecuta el wizard — recibe el resultado al final como cuenta lista para usar.
 
-### App separada `apps/consultant`
+| Actor | Quién | Customers que pueden onboarder | Notas |
+|-------|-------|--------------------------------|-------|
+| **PLATFORM_ADMIN** | Staff ZaharDev (Partner con `isInternal=true`) | Cualquier customer | Sin restricción. 2FA obligatorio. |
+| **PARTNER_ADMIN** | Owner/managing partner consulting firm | Customers asignados al partner vía `PartnerClientAssignment` | Override de capabilities para casos extraordinarios. |
+| **LEAD_CONSULTANT** | Senior consultant (PartnerMember.role) | Customers donde tiene `PartnerMemberAssignment.scope IN (FULL, TIER_A_ONLY)` | Path típico para PRO/ENTERPRISE. 2FA obligatorio. |
+| **SOLUTION_CONSULTANT** | Mid consultant (PartnerMember.role) | Customers asignados, no puede ejecutar Step 8 final (cierra LEAD_CONSULTANT o PARTNER_ADMIN) | Hace Steps 1-7. 2FA obligatorio. |
+| **SUPPORT_L3** | Soporte técnico senior (PartnerMember.role) | Solo Steps 3 (LegalEntity PAC) y 7 (Integrations) de clientes existentes — para re-config | No inicia wizards nuevos. |
+| **SUPPORT_L2** | Soporte técnico (PartnerMember.role) | Solo Steps 4 (Properties) y 5 (Inventory) de clientes existentes — para ajustes | No inicia wizards nuevos. |
+| **SALES_REP / TRAINEE** | Sales y trainees | **Cero acceso al wizard prod.** Sandbox demo únicamente. | Demos a prospectos. |
+| **Customer Self-Service** | El propio cliente | **No habilitado en v1.0.0.** Reservado para v1.3+ trial sign-up. | — |
 
-Tech stack idéntico al `apps/web` (React + Vite + Tailwind + Radix UI) para reusar componentes. Acceso requiere:
-- `SystemRole = OWNER` (ZaharDev internal)
-- O `User.isImplementationPartner = true` (partners certificados)
-- 2FA obligatorio
-- Audit log de toda acción del wizard
+Matriz canónica de forcing function por Step ↔ Role en [NOVA §6.1](../architecture/NOVA-architecture.md#61-8-etapas-resumen--detalle-completo-en-docsvision13).
+
+### 2.2 Surface técnica
+
+Wizard vive bajo `nova.zenix.com/wizard/[organizationId]/step-N`. Guard chain: `NovaAccessGuard` (verifica `SystemRole IN (PLATFORM_ADMIN, PARTNER_ADMIN, PARTNER_MEMBER)`) → `WizardActivateGuard` (verifica `canActivateWizard=true` o role permitido per Step) → `PartnerScopeGuard` (verifica que el actor tiene `PartnerMemberAssignment` activo en la Organization target, salvo PLATFORM_ADMIN). Toda acción deja `AuditLog` entry con `domain=WIZARD`, `action=wizard.step{N}.complete`, retentionPolicy=PERMANENT en Step 8.
+
+Tech stack: React + Vite + Tailwind + Radix UI (idéntico a `apps/web`). 2FA obligatorio para LEAD_CONSULTANT / SUPPORT_L2 / SUPPORT_L3 / PARTNER_ADMIN / PLATFORM_ADMIN.
 
 ---
 
@@ -58,12 +68,16 @@ Tech stack idéntico al `apps/web` (React + Vite + Tailwind + Radix UI) para reu
 - Slug interno: `selina-group`, `hotel-monica-tulum`
 - Currency principal para billing (USD para cadenas internacionales, MXN para clientes locales MX)
 
-**Outputs:** se crea `Organization` con los entitlements aplicados.
+**Outputs:** se crea `Organization` con los entitlements aplicados + `WizardSession` row + `PartnerClientAssignment` con `status=ONBOARDING` (si el actor es PartnerMember; si es PLATFORM_ADMIN, assignment apunta al ZaharDev internal Partner).
 
-**Validaciones:**
-- Email validado con magic link enviado al final
-- Slug único globalmente
-- Plan ≥ ENTERPRISE para clientes con >5 properties anticipadas
+**Forcing functions pre-avance:**
+- Email format valid + verificación DNS MX record exists (skip si email del staff ZaharDev por convención).
+- Slug único globalmente en `organizations` table (Postgres UNIQUE).
+- Plan tier seleccionado.
+- ≥1 entitlement marcado (al menos el base PMS).
+- Contact phone WhatsApp-capable (regex E.164).
+- Plan ≥ ENTERPRISE si `expectedPropertiesCount > 5` (warning override-able solo por PLATFORM_ADMIN).
+- AuditLog entry `domain=WIZARD, action=wizard.step1.complete` creada.
 
 **Tiempo estimado:** 5 minutos.
 
@@ -85,6 +99,11 @@ Tech stack idéntico al `apps/web` (React + Vite + Tailwind + Radix UI) para reu
 - Website URL
 
 **Outputs:** se crea `Brand` + `Organization.brandId` set.
+
+**Forcing functions pre-avance:**
+- Si SKIP → `Organization.brandId = NULL` confirmado.
+- Si CREATE → Brand slug único globalmente, logo upload validado (file type PNG/SVG, max 2MB), colores hex validados.
+- AuditLog entry `domain=WIZARD, action=wizard.step2.complete` con `skipped: true|false` en `changeDelta`.
 
 **Nota importante:** Brand puede agregarse **después** sin migration. El wizard tiene un step "Skip" claramente visible.
 
@@ -127,12 +146,17 @@ Tech stack idéntico al `apps/web` (React + Vite + Tailwind + Radix UI) para reu
 - Credenciales API (encriptado al guardar)
 - **Test factura sandbox** → llama al PAC y emite una factura de prueba con datos dummy. Si responde ✅, wizard continúa. Si ❌, muestra error específico para troubleshoot.
 
-**Outputs:** se crea 1+ `LegalEntity` rows. Cada una con `fiscalRegimeId`, `pacCredentials` encriptado, `active = true` solo si el test pasó.
+**Outputs:** se crea 1+ `LegalEntity` rows. Cada una con `fiscalRegimeId`, `pacCredentials` encriptado vía `pgcrypto`, `active = true` solo si el test pasó.
 
-**Validaciones críticas:**
-- No avanzar a etapa 4 si NINGUNA LegalEntity pasó test
-- Test repetible (botón "Reintentar test")
-- Si el PAC es nuevo o no responde, opción "Skip test — finalizar más tarde" pero deja la LegalEntity en estado `active = false`
+**Forcing functions pre-avance (CRÍTICAS):**
+- Tax ID format valid per country (regex per `countryCode` — ver §3 tabla regex per país).
+- `FiscalRegime.active=true` para el país elegido. Si NO está activo en el catálogo ZaharDev → error blocking "País todavía no soportado, contactar PLATFORM_ADMIN" (solo PLATFORM_ADMIN puede activar nuevo regime en NOVA admin panel).
+- PAC credentials encrypted via `pgcrypto` antes de insert (nunca plain text en DB).
+- **PAC sandbox test obligatorio**: `WizardService.testPacEmission(legalEntityId)` llama al PAC adapter con datos dummy. Success requiere XML válido + UUID emitido. Error específico (no genérico) mostrado + botón "Reintentar test".
+- **Para v1.0.0 MX-only**: `MxCfdi40Adapter` con Facturama/SW Sapien sandbox. CO/CR/PE/etc. activan en sprints subsecuentes.
+- ≥1 LegalEntity con `active=true` antes de avanzar a Step 4.
+- Si PAC no responde tras 3 reintentos → opción "Skip — finalizar más tarde" pero `LegalEntity.active=false`. **Banner persistente** en Nova hasta resolver. Activation final (Step 8) bloqueado.
+- AuditLog entry per LegalEntity creada + per test exec (success/fail) con `retentionPolicy=PERMANENT`.
 
 **Tiempo estimado:** 10-30 minutos per país (depende de qué tan rápido el cliente envíe credenciales PAC).
 
@@ -195,11 +219,14 @@ Tech stack idéntico al `apps/web` (React + Vite + Tailwind + Radix UI) para reu
 
 **Outputs:** 1+ `Property` rows con `legalEntityId` y `organizationId` denormalizado.
 
-**Validaciones:**
-- Timezone IANA válido (lista enumerada de date-fns-tz)
-- Currency code ISO 4217 válido
+**Forcing functions pre-avance:**
+- Timezone IANA válido (lista enumerada de date-fns-tz, ej. `America/Cancun`, `America/Bogota`).
+- Currency code ISO 4217 válido (3 letras uppercase).
+- Property code uppercase 3 chars unique within Organization.
+- Si Channex se activará en Step 7: el consultor debe ingresar el `channexPropertyId` provisional (la property en Channex se crea manualmente en su dashboard en v1.0.0; v1.1+ automatiza via Channex API). **Health check:** wizard ejecuta `ChannexGateway.getProperty(channexPropertyId)` con el `user-api-key` del partner — debe retornar HTTP 200 + payload con `id` matching. Si falla, error claro: "El property ID Channex no existe o tu API key no tiene acceso. Verifica en channex.io/properties." Skip permitido (banner persistente) pero Step 7 bloqueará hasta resolver.
+- AuditLog entry per Property creada con `domain=PROPERTY, action=wizard.step4.complete`.
 
-**Tiempo estimado:** 3-5 minutos per property.
+**Tiempo estimado:** 3-5 minutos per property (+ 2-3 min si verificación Channex falla y requiere troubleshoot).
 
 ---
 
@@ -298,7 +325,14 @@ CSV importer:
 
 **Outputs:** Rooms + RoomTypes creados. Para PropertyType=HOSTAL, también se crean `Unit` rows (1 unit per bed en SHARED, 1 unit per room en PRIVATE).
 
-**Tiempo estimado:** 5-15 minutos per property con template, 1 hora si custom CSV.
+**Forcing functions pre-avance:**
+- ≥1 RoomType creado per Property.
+- ≥1 Room (con su Bed/Unit si aplica) creado per RoomType activo.
+- **Channex room type mapping obligatorio si Property tiene `channexPropertyId`:** cada `Room.channexRoomTypeId` debe verificarse via `ChannexGateway.getRoomType(channexRoomTypeId)` retornando HTTP 200. UI muestra estado per-room (✅ mapeado / ⚠️ pendiente / ❌ inválido). Si algún room queda con ❌, banner persistente; Step 7 bloqueado hasta resolver. Skip permitido pero registrado en AuditLog con warning.
+- Validation pre-importación CSV: row-level validation antes de transaction commit, preview muestra errores con línea + columna específica.
+- AuditLog entry `domain=PROPERTY, action=wizard.step5.complete` con `changeDelta` = counts de RoomTypes + Rooms + Units creados.
+
+**Tiempo estimado:** 5-15 minutos per property con template, 1 hora si custom CSV. +10 min troubleshoot promedio si Channex mappings fallan.
 
 ---
 
@@ -339,6 +373,15 @@ maria@selina.co,María Torres,HOUSEKEEPER,HOUSEKEEPING,TUL,CLEANING+SANITIZATION
 Wizard envía email con magic link a cada user/staff. Link expira 7 días. Customer puede reenviar.
 
 **Outputs:** `Staff` + `User` + `UserPropertyRole`/`LegalEntityUserRole`/`BrandUserRole` rows.
+
+**Forcing functions pre-avance:**
+- ≥1 Staff con role=`SUPERVISOR` creado per Property (single-property: 1 supervisor total; multi-property: 1 per property o 1 LegalEntityUserRole multi-property válido).
+- ≥1 Staff con role=`RECEPTIONIST` creado per Property.
+- ≥1 Staff con role=`HOUSEKEEPER` creado per Property (puede ser el mismo human con multiple roles si el operador es solo, pero la entrada de role HOUSEKEEPER debe existir).
+- Email formats valid + sin duplicados dentro de la Organization (un mismo email puede existir en orgs distintas).
+- Si se importan via CSV, transaction atómica con rollback si cualquier row falla.
+- Magic link invitations encolados en outbox (NO enviados todavía — se envían en Step 8 activation).
+- AuditLog entry `domain=USER, action=wizard.step6.complete` con counts per role + invite list (emails masked).
 
 **Tiempo estimado:** 5 minutos para single-property; 30-60 minutos para cadena con 50+ usuarios.
 
@@ -382,9 +425,19 @@ Por cada Property o LegalEntity (dependiendo del scope de la integración):
 
 **Outputs:** `PmsConfig`, `ChannelMapping`, integration credentials encryptados.
 
-**Validaciones:**
-- Cada integración tiene test de smoke (test charge, test push, test message)
-- Wizard NO permite finalizar si una integración crítica falla; permite SKIP con warning
+**Forcing functions pre-avance (4 health checks obligatorios PASS):**
+
+1. **Channex push test** — `ChannexGateway.testPush(propertyId)` ejecuta push minimal a sandbox. Success requiere HTTP 200 + UUID confirmación. Fail → error específico con HTTP code + body. Si Channex no se activa para esta property (cliente no usa OTAs), el check se marca `skipped:true` en `WizardSession.healthChecks` con razón.
+2. **Stripe test charge + refund** — `StripeAdapter.testCharge($1, refund=true)` en test mode. Success requiere `charge_id` + `refund_id` retornados. Si Stripe no se activa (solo cash/CFDI), skip permitido.
+3. **PAC test stamp** — `WizardService.testPacEmission(legalEntityId)` re-ejecutado aquí como cross-check del Step 3 (puede haber expirado el token). Success requiere XML + UUID válido del PAC del país.
+4. **SMTP test** — `MailerService.sendTestEmail(consultantEmail)` envía email a sí mismo. Success requiere SMTP 250 + delivered (en sandbox=accepted).
+
+Adicionales (warning si fallan, no bloqueante):
+- Channex webhook URL registered (`https://api.zenix.com/v1/webhooks/channex` o staging equivalente) — wizard verifica vía `ChannexGateway.getWebhookConfig`.
+- WhatsApp Business API test message (opcional, depende del plan).
+- Conekta test charge (opcional, solo MX si se activa).
+
+Cada health check escribe a `WizardSession.healthChecks` JSON field para audit. Health check failures se registran en AuditLog con `domain=INTEGRATION, action={integration}.test, outcome=FAILURE`. Skip explícito requiere reason text del consultor.
 
 **Tiempo estimado:** 30-90 minutos per property (depende de qué tan rápido el cliente provea credenciales).
 
@@ -448,7 +501,54 @@ Calendly link auto-generado con disponibilidad del consultor.
 
 **Outputs:** customer activo en producción.
 
+**Forcing functions pre-avance (Step 8 = punto de no retorno):**
+
+- TODOS los previous steps marked completed en `WizardSession.completedSteps`.
+- TODOS los health checks de §3.8 PASS ✅ o tienen explicit skip + reason text del consultor (auditeable).
+- Activation Report PDF generado vía Puppeteer pool (ver [ADR-0001](../architecture/ADR-0001-pdf-rendering.md)) + stored en R2/S3 + link incluido en email handover.
+- Magic links de invitations (encolados en Step 6) **enviados ahora** — antes de Step 8 NO se enviaron. Cliente recibe email "Tu cuenta está lista" con magic link 7-day expiry.
+- `Organization.activatedAt = now()` + `WizardSession.completedAt = now()`.
+- `PartnerClientAssignment.status` transition `ONBOARDING → ACTIVE`, `startedAt` ya estaba poblado.
+- AuditLog entry **definitiva** con `action=wizard.activate, domain=WIZARD, retentionPolicy=PERMANENT` — captura snapshot completo (org, brand, legal entities, properties, integrations status, health checks outcomes, todos los IDs).
+- Solo `PLATFORM_ADMIN` o `LEAD_CONSULTANT` con `scope=FULL` pueden ejecutar este Step. PARTNER_ADMIN puede si `canActivateWizard=true` (default true para ese role).
+
+**Política no-negociable cliente:** durante Steps 1-7 el cliente NO tiene credenciales activas. Los users fueron `invited` pero el magic link NO funciona hasta el Step 8 activate. Razón: prevenir que el cliente entre a `app.zenix.com` mientras el partner aún configura Channex/PAC/Staff, vea calendar vacío, intente crear reserva manualmente, y reporte NPS bajo desde día 1. Patrón verificado en SAP Activate ("Realize → Deploy → Run" — Deploy es el momento en que el customer recibe credenciales, no antes) y Salesforce Setup Assistant ("Provision → Configure → Go Live").
+
 **Tiempo estimado:** 15 minutos (health checks + PDF + scheduling).
+
+---
+
+## 3.bis Audit log transparency — el cliente puede auditar su propio onboarding
+
+> Decisión Nova: cada step del wizard genera entries en `AuditLog` con `domain=WIZARD`. Cuando el cliente gana credenciales en Step 8 y abre `app.zenix.com`, su perfil tiene un panel "Historial de configuración" que muestra cronología completa:
+
+```
+🟢 2026-05-24 09:14 — Step 1 completed: Organization created
+   por: María González (LEAD_CONSULTANT — TulumTech Consulting)
+   reason: "Configuración inicial Hotel Monica Tulum"
+
+🟢 2026-05-24 09:32 — Step 3 completed: LegalEntity created + PAC test passed
+   por: María González (LEAD_CONSULTANT — TulumTech Consulting)
+   detail: RFC HMT840923ABC, Facturama sandbox UUID a1b2c3...
+
+⚠️ 2026-05-24 10:15 — Step 7 partial: Channex push test ✅, Stripe ⚠️ skipped
+   por: Carlos Ramírez (SOLUTION_CONSULTANT — TulumTech Consulting)
+   reason: "Cliente activará Stripe en semana 2 post go-live"
+
+🟢 2026-05-24 11:00 — Step 8 activated: Production live
+   por: María González (LEAD_CONSULTANT — TulumTech Consulting)
+   activation report: [PDF link]
+```
+
+**Por qué importa:** transparencia construye confianza (SAP "Trust Center" pattern + Salesforce "Setup Audit Trail"). El cliente ve quién configuró qué, cuándo, y por qué. Si más tarde algo está mal configurado, el audit log permite diagnóstico sin dependencia del consultor original.
+
+**Permisos de lectura:**
+- `ORG_OWNER` ve todo el AuditLog `domain=WIZARD` de su Organization.
+- `ORG_STAFF` no ve (no es relevant para operación day-to-day, cluttering).
+- `PLATFORM_ADMIN` ve todo cross-tenant.
+- `PARTNER_ADMIN` y `PARTNER_MEMBER` ven solo de clientes asignados.
+
+Retention: `SEVEN_YEARS` default; Step 8 activation entry es `PERMANENT`.
 
 ---
 
@@ -477,10 +577,15 @@ model WizardSession {
 
 ## 5. Implementación técnica
 
-### Estructura de la app
+> **Cambio Nova v1.0.0:** la app `apps/consultant` se renombra conceptualmente a "módulo wizard dentro de Nova". En v1.0.0 vive como `apps/web/src/pages/nova/wizard/*`. En v1.0.5 se extrae junto al resto de Nova bajo `apps/partner` (naming definitivo en sprint extraction).
+
+### Estructura de la app (v1.0.0 — dentro de apps/web/nova/)
 
 ```
-apps/consultant/
+apps/web/src/pages/nova/wizard/         # v1.0.0
+└── (estructura idéntica a la documentada abajo — solo cambia el root path)
+
+apps/consultant/ → apps/partner/wizard/  # v1.0.5 extracción
 ├── src/
 │   ├── wizard/
 │   │   ├── steps/
@@ -529,15 +634,25 @@ POST   /v1/wizard/import/rooms-csv      — bulk import rooms
 POST   /v1/wizard/import/staff-csv      — bulk import staff
 ```
 
-### Authorization
+### Authorization (Nova-aligned)
 
 ```typescript
-@UseGuards(WizardConsultantGuard)
+@UseGuards(NovaAccessGuard, WizardActivateGuard, PartnerScopeGuard)
 @Controller('v1/wizard')
 export class WizardController { ... }
 
-// El guard verifica que el actor sea OWNER de ZaharDev o partner certificado activo.
-// Para single-customer setup, el customer self-service será v1.3+.
+// NovaAccessGuard       — SystemRole IN (PLATFORM_ADMIN, PARTNER_ADMIN, PARTNER_MEMBER)
+// WizardActivateGuard   — verifica PartnerMember.canActivateWizard per Step:
+//                          - Step 8 (activate): solo PARTNER_ADMIN, LEAD_CONSULTANT con canActivateWizard=true, PLATFORM_ADMIN
+//                          - Step 7 (integrations): + SOLUTION_CONSULTANT + SUPPORT_L3
+//                          - Step 3 (legal entity): + SUPPORT_L3
+//                          - Steps 4-5 (properties, inventory): + SOLUTION_CONSULTANT + SUPPORT_L2
+//                          - Steps 1-2 (customer, brand): solo PARTNER_ADMIN + LEAD_CONSULTANT + SOLUTION_CONSULTANT
+// PartnerScopeGuard     — verifica PartnerMemberAssignment(orgId, scope IN (FULL, TIER_A_ONLY))
+//                          o Partner.isInternal=true (PLATFORM_ADMIN bypass)
+// 2FA enforcement       — middleware verifica session.is2FAVerified=true para LEAD/SUPPORT_L2-L3/PARTNER_ADMIN/PLATFORM_ADMIN
+//
+// Para single-customer setup, el customer self-service será v1.3+ — NOT habilitado en v1.0.0.
 ```
 
 ---
@@ -637,4 +752,5 @@ Para v1.2+ con Partner Network, medimos:
 
 ## 10. Bitácora
 
+- **2026-05-23** — Nova-aligned refactor tras sprint Zenix Nova. Cambios clave: (1) título y header indican que el wizard vive **dentro de Nova** (`nova.zenix.com/wizard`), no es app independiente. (2) Renombrado conceptual: `apps/consultant` queda como v1.0.0 path interno (`apps/web/src/pages/nova/wizard/*`) y v1.0.5 extracción a `apps/partner/wizard/*`. (3) §2.1 quién ejecuta — tabla actualizada con tiers Nova (PLATFORM_ADMIN / PARTNER_ADMIN / LEAD_CONSULTANT / SOLUTION_CONSULTANT / SUPPORT_L1-L3 / SALES_REP / TRAINEE) y forcing function role-per-Step. Cliente self-service v1.3+ explícitamente NOT-habilitado en v1.0.0. (4) §2.2 surface técnica con guard chain (NovaAccessGuard + WizardActivateGuard + PartnerScopeGuard) y 2FA enforcement por role. (5) Cada Step (1-8) refinado con sección "Forcing functions pre-avance" específica: Step 1 valida DNS MX + slug + plan tier; Step 3 PAC sandbox emission obligatorio + `FiscalRegime.active` check; Step 4 Channex `getProperty(channexPropertyId)` ping HTTP 200; Step 5 Channex `getRoomType()` mapping verification per Room; Step 6 ≥1 SUPERVISOR + ≥1 RECEPTIONIST + ≥1 HOUSEKEEPER por property obligatorio; Step 7 los 4 health checks (Channex push + Stripe charge+refund + PAC stamp + SMTP) explícitos como PASS/skip-with-reason; Step 8 invitations enviadas SOLO ahora + PartnerClientAssignment status transition + AuditLog retentionPolicy=PERMANENT. (6) Nueva §3.bis Audit log transparency — cliente puede ver cronología completa de su onboarding en `app.zenix.com` con permisos de lectura controlados (ORG_OWNER ve todo el WIZARD domain de su org). (7) §5 estructura técnica actualizada para reflejar el path Nova-internal v1.0.0 → Nova-extracted v1.0.5. (8) Authorization guards renombrados: `WizardConsultantGuard → NovaAccessGuard + WizardActivateGuard + PartnerScopeGuard`. Schema canónico vinculante referenciado en [docs/architecture/NOVA-architecture.md §6](../architecture/NOVA-architecture.md#6-wizard-zenix-activate-integration).
 - **2026-05-15** — Documento creado. Plan de 8 etapas aprobado por Abraham. Inspirado en SAP Activate + Salesforce Setup Assistant + Workday Adaptive. Target velocity 10x más rápido que SAP/Workday para boutique/chain LATAM. Implementación en `apps/consultant` planeada para v1.0.5.

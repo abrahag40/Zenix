@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 import { TenantContextService } from '../common/tenant-context.service'
 import { CreateRoomDto } from './dto/create-room.dto'
@@ -46,8 +46,36 @@ export class RoomsService {
     })
   }
 
-  async remove(id: string) {
-    await this.findOne(id)
-    return this.prisma.room.delete({ where: { id } })
+  /**
+   * Soft-delete con type-to-confirm.
+   *
+   * Requiere `confirmation` = `Room.number` exacto. Aunque Room es menos
+   * catastrófico que Property (no cascade-borra Org), igual afecta:
+   *   - GuestStays históricos del cuarto
+   *   - PaymentLogs ligados a esos stays
+   *   - HK history (TaskLog)
+   *   - Channex mapping (deja huérfano el room_type)
+   *
+   * NUNCA hard-delete (cascade integrity, §28). Type-to-confirm previene
+   * mis-click del SUPERVISOR.
+   */
+  async remove(id: string, confirmation?: string) {
+    const room = await this.findOne(id)
+
+    if (confirmation === undefined || confirmation === null) {
+      throw new BadRequestException(
+        `Eliminar room requiere "confirmation" con el número exacto del cuarto ("${room.number}").`,
+      )
+    }
+    if (confirmation !== room.number) {
+      throw new BadRequestException(
+        `Confirmación no coincide. Esperado: "${room.number}". Recibido: "${confirmation}". (Case-sensitive.)`,
+      )
+    }
+
+    return this.prisma.room.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    })
   }
 }

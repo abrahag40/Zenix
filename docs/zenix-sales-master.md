@@ -994,6 +994,48 @@ Todos los cambios (nueva reserva, extensión, cancel, cancel parcial, room move)
 
 ---
 
+### Nova — el centro de operaciones del partner
+
+> Decisión arquitectónica aprobada 2026-05-23 Late PM. Doc fundacional [docs/architecture/NOVA-architecture.md](architecture/NOVA-architecture.md) (2016 líneas consulting-grade, ADR permanente). Vision docs actualizados: [09-partner-network.md](vision/09-partner-network.md), [11-multi-tenant-architecture.md](vision/11-multi-tenant-architecture.md), [13-consultant-setup-wizard.md](vision/13-consultant-setup-wizard.md).
+
+#### Qué es Nova
+
+**Nova** (latín *nova stella* = nueva estrella) es la interfaz dedicada del consultor y del administrador de plataforma. Vive en su propio subdominio `nova.zenix.com` — el cliente NUNCA la ve. Mientras `app.zenix.com` es el PMS operativo donde la recepción, supervisores y housekeepers trabajan día-a-día con sus huéspedes, Nova es el cockpit donde el partner ejecuta onboarding de nuevos clientes, configura integraciones críticas (Channex, Stripe, PAC, SMTP), opera workspaces de varios clientes desde una sola sesión y deja un audit trail compliance-grade de cada acción que ejecuta "en nombre del cliente".
+
+Nova implementa una **jerarquía 5-tier** alineada con el modelo SAP PartnerEdge + Salesforce SuccessFactors: PLATFORM_ADMIN (ZaharDev) > PARTNER_ADMIN (leadership del firm) > PARTNER_MEMBER (consultor / support engineer dentro del firm) > ORG_OWNER (cliente final admin) > ORG_STAFF (cliente final operativo — recepción/supervisor/housekeeper). Cada tier con scope explícito y RBAC enforced server-side por endpoint. Los tres tiers superiores viven en Nova; los dos inferiores viven en `app.zenix.com`.
+
+El **wizard "Zenix Activate"** vive dentro de Nova con 8 etapas + forcing functions per step. Step 7 valida 4 health-checks obligatorios pass (Channex API ping + Stripe $1 charge+refund + PAC sandbox stamp + SMTP test email) ANTES de permitir avanzar a Step 8 Activación. El cliente recibe credenciales SOLO al finalizar Step 8 — nunca antes — vía email setup link single-use 72h con 2FA mandatory + password reset forzado en first login. Pattern SAP Activate "Realize Phase Sign-off". Cualquier acceso del consultor al workspace cliente o acción `onBehalfOf` queda registrada en `AuditLog` universal (append-only DB-level, trigger Postgres bloquea UPDATE/DELETE) + dispara transparency notif obligatoria al ORG_OWNER (email + AppNotification in-app).
+
+#### Por qué importa para el partner program
+
+Nova habilita el modelo **SAP PartnerEdge style** donde ZaharDev escala vía partners certificados sin ser cuello de botella en cada onboarding. Un PARTNER_MEMBER con 5 clientes activos los opera desde una sola sesión Nova — sin logout/login en cada uno (dolor #1 de consultor SaaS según Salesforce Implementation Partner Survey 2024). El tenant switcher híbrido SuccessFactors-style (landing `/nova/clientes` lista filtrada + chip persistente top-bar dentro del workspace cliente) reduce el costo de switch a 1-2 clicks.
+
+El **audit trail compliance-grade** es lo que permite a ZaharDev ofrecer SLA enterprise sin riesgo legal: cada acción del consultor queda con `actorRealId` + `onBehalfOfId` + `reason` REQUIRED (CHECK constraint Postgres). Visa CRR §5.9.2 (chargeback evidence) + CFDI Art. 30 CFF (conservación 5 años) + GDPR Art. 13 (transparency notif obligatoria) + LFPDPPP Art. 16 + ISO 27001 A.9.2.5 — todos resueltos por el mismo schema. El cliente recibe email en cada acceso del consultor; ningún acto silente es posible.
+
+#### Comparativa con Cloudbeds / Mews / Opera Cloud
+
+| Capacidad | Mews | Cloudbeds | Opera Cloud | Little Hotelier | RoomRaccoon | **Zenix con Nova** |
+|-----------|:----:|:---------:|:-----------:|:---------------:|:-----------:|:------------------:|
+| Interfaz consultor/admin dedicada (vs role-gating en mismo UI) | ❌ admin role en mismo UI | ❌ admin role en mismo UI | ⚠️ "OPERA Distribution" requiere consultor Oracle | ❌ | ❌ | **✅ subdomain `nova.zenix.com`** |
+| Impersonation SAP-style con `actorRealId + onBehalfOfId + reason` | ❌ | ❌ login compartido | ⚠️ "Login as" sin reason required | ❌ | ❌ | **✅ AuditLog universal append-only** |
+| Audit log compliance-grade (Visa CRR + GDPR + ISO 27001) | ⚠️ parcial | ❌ | ✅ enterprise | ❌ | ❌ | **✅** |
+| Tenant switcher para operar N clientes en 1 sesión | ❌ logout/login | ❌ logout/login | ⚠️ "Cluster" enterprise tier | ❌ | ❌ | **✅ híbrido SuccessFactors-style** |
+| Wizard onboarding con forcing functions + health-checks pre-activación | ❌ self-onboard | ⚠️ asistido sin health-checks | ⚠️ implementation 6-12 sem | ❌ self-onboard | ⚠️ 1-4 sem | **✅ 8 steps + 4 health-checks pass mandatorio** |
+| Partner program PartnerEdge alineado (Authorized/Silver/Gold/Platinum) | ❌ reseller flat | ❌ | ✅ Oracle Partner Network | ❌ | ❌ | **✅** |
+| Multi-client dashboard view para el consultor | ❌ | ❌ | ✅ enterprise | ❌ | ❌ | **✅** |
+
+**Conclusión:** ningún PMS boutique LATAM cubre la combinación interfaz consultor dedicada + impersonation SAP-style + Partner program PartnerEdge alineado. Opera Cloud cubre 4/7 pero a precio enterprise ($15-30k engagement por implementation). Zenix con Nova entrega 7/7 al rango de pricing boutique.
+
+#### Pricing tier integration
+
+Nova queda **INCLUIDA en el plan Pro+** del cliente final (no es add-on con costo extra) — el cliente recibe el beneficio (onboarding rápido + soporte transparente + audit trail) sin pagar por Nova como producto separado, porque Nova es la herramienta interna que permite a ZaharDev y a los partners certificados entregar el servicio con calidad. El **Partner license fee** es separado: tier AUTHORIZED $0 (entry, hasta 3 clientes activos), SILVER $1,200/año (hasta 10 clientes), GOLD $3,600/año (hasta 30 clientes), PLATINUM $9,600/año (clientes ilimitados + sub-partners habilitados para white-label) — alineado con SAP PartnerEdge fee structure. Revenue share del partner: 20% del MRR del cliente referido durante los primeros 12 meses, 10% del MRR a perpetuidad mientras el partner mantenga assignment activo (pattern Salesforce AppExchange ISV).
+
+#### Diferenciador comercial documentado
+
+**Único PMS boutique LATAM con interfaz consultor dedicada + impersonation SAP-style + Partner program PartnerEdge alineado.** Los 6 PMS analizados (Mews, Cloudbeds, Opera Cloud, Little Hotelier, RoomRaccoon, Sirvoy) tratan al consultor como "un admin user más" — sin separación de UI, sin audit trail explícito de impersonation, sin tenant switcher, sin partner program con tier benefits. Zenix Nova resuelve los 4 puntos a la vez. Para ZaharDev y partners certificados es la pieza que permite escalar de "vendemos 10 hoteles directos" a "habilitamos un ecosistema de 50 partners que entregan 500 hoteles juntos" sin perder calidad ni compliance.
+
+---
+
 ## Módulo 3b — Bloqueos de Habitación (SmartBlock)
 
 > El módulo que cierra el gap entre operación y mantenimiento: cuando una habitación no puede recibir huéspedes, el sistema lo sabe antes de que alguien intente venderla.
@@ -1200,14 +1242,30 @@ Para hotelero boutique LATAM, esos tiempos y precios son inviables. Pero **Cloud
 
 ### Las 8 etapas
 
-1. **Customer Account** — Organization + plan + entitlements activados
-2. **Brand** (opcional, saltable) — logo + colors + brandbook
-3. **LegalEntity** — 1+ entidades fiscales con PAC test sandbox
-4. **Properties** — propiedades físicas con timezone + settings operativos
-5. **Inventory** — habitaciones con templates pre-cargados (HOSTAL/BOUTIQUE/CABAÑAS/BUSINESS) + bulk CSV import
-6. **Staff + Users** — staff operacional + users cross-property + invitaciones automáticas
-7. **Integrations** — Channex, Stripe, Conekta, WhatsApp Business, PAC verificado
-8. **Activación + Handover** — health checks pre-producción + PDF Activation Report + demo 30 min
+1. **Customer Account** — Organization + slug auto-derivado + country + timezone + plan + entitlements activados.
+2. **Brand** (opcional, saltable) — logo + colors + brandbook.
+3. **LegalEntity** — 1+ entidades fiscales con **validación inline RFC/NIT/RUC/cédula** según país (feedback emerald al pasar formato, amber con hint específico si no) + PAC adapter selector (Facturama / SW Sapien / DIAN UBL 2.1 / Tribu-CR / SUNAT FE) + currency base + régimen fiscal MX cuando aplica.
+4. **Properties** — propiedades físicas con **catálogo LATAM de 60 ciudades curado** (México 26 / Colombia 7 / Costa Rica 6 / Perú 6 / Argentina 6 / GT-PA-SV-HN 9) con autocompletado + auto-timezone IANA. Out-of-catalog free text persiste para v1.0.4 Google Places reconcile. Cada Property con tipo (HOTEL/HOSTAL/BOUTIQUE/GLAMPING/ECO_LODGE/VACATION_RENTAL).
+5. **Inventory** — habitaciones con **5 templates pre-cargados** (HOSTAL / BOUTIQUE / CABAÑAS / BUSINESS / CUSTOM-vacío) + preview live de RoomTypes + RatePlans antes de seleccionar + bulk CSV import.
+6. **Staff** — Org Owner email + nombre con email validation regex. Personal adicional se invita post-activación desde Nova / Settings (mantiene el wizard rápido — cada minuto extra es fricción para el consultor).
+7. **Integrations** — **4 health-checks runtime ejecutables en paralelo** (Channex API ping + Stripe test charge $1 USD con refund + PAC sandbox stamp + SMTP test email a noreply@zenix.app) con retry per-check + latencia visible + override controlado de PAC (cliente puede activar sin PAC contratado, los folios quedan con `requiresFiscalReview=true` hasta configurar Facturama/SW Sapien post-activación).
+8. **Activación + Handover** — **revisión pre-flight** del wizard (valida que cada step previo pase su `canCompleteStep` antes de habilitar el botón) + summary de toda la captura (Cliente, Brand, LegalEntity, Properties, Inventory template, Org Owner) + activación transaccional all-or-nothing + **Activation Report PDF** generado en tiempo real + **setup link single-use 72h** vía email al Org Owner + AuditLog universal append-only `ORGANIZATION_ACTIVATED`.
+
+### Diferenciadores del wizard que NINGÚN PMS LATAM tiene end-to-end
+
+| Capacidad | Cloudbeds | Mews | Opera | RoomRaccoon | Little Hotelier | **Zenix Activate** |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| **Catálogo LATAM curado para ciudades** (analytics consistency) | ❌ free text | ❌ free text | ⚠️ depende deploy | ❌ free text | ❌ free text | **✅ 60 ciudades + auto-timezone** |
+| **Validación inline RFC/NIT/RUC/cédula** | ❌ formato libre | ❌ formato libre | ⚠️ valida solo MX al timbrar | ❌ formato libre | ❌ formato libre | **✅ 4 países + feedback emerald/amber** |
+| **Health-checks runtime con override controlado** | ❌ activa a ciegas | ⚠️ asistido sin checks | ⚠️ checks tras 6-12 sem | ❌ activa a ciegas | ⚠️ algunos | **✅ 4 checks + PAC override** |
+| **Pre-flight validation step-by-step** | ❌ | ❌ | ⚠️ manual | ❌ | ❌ | **✅ cada step bloquea siguiente** |
+| **Activation Report PDF automático** | ❌ | ❌ | ✅ pero manual | ❌ | ❌ | **✅ generado en activación** |
+| **Setup link single-use 72h con 2FA roadmap** | ⚠️ password plano | ⚠️ password plano | ✅ enterprise SSO | ⚠️ password plano | ⚠️ password plano | **✅ token + reset forced + 2FA v1.0.4** |
+| **Roadmap multi-country single-flow** (Hybrid Option C) | ❌ 1 cuenta por país | ❌ 1 cuenta por país | ✅ pero $100k+ | ❌ 1 cuenta por país | ❌ 1 cuenta por país | **✅ documentado v1.0.5** |
+| **AuditLog universal append-only** del consultor que activó | ❌ | ❌ | ✅ enterprise | ❌ | ❌ | **✅ `ORGANIZATION_ACTIVATED` con actorRealId** |
+| **Wizard durable cross-session** (consultor cierra/reabre sin perder) | ❌ | ⚠️ parcial | ❌ wizard cerrado pierde | ❌ | ❌ | **✅ Zustand persist localStorage** |
+
+**Insight comercial:** los 5 competidores top de hotelería boutique LATAM optimizaron para "self-onboard rápido" (Cloudbeds, Little Hotelier) o "manual enterprise" (Opera, Mews, RoomRaccoon). Ninguno optimizó para **partner-led onboarding rápido con rigor enterprise** — exactamente el modelo SAP PartnerEdge / Salesforce Implementation Partner que Zenix replica vía Nova. Cada uno de los 9 ítems arriba es individualmente trivial; los 9 juntos forman una experiencia 10x superior que es difícil de copiar porque requiere hierarchy 5-tier (§160) + AuditLog universal (§165) + Wizard durable (§171) como infraestructura previa.
 
 ### Templates de inventario pre-cargados
 

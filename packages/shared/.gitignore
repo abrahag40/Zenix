@@ -1,0 +1,11 @@
+# Artefactos de build
+dist/
+
+# Defensive — si alguien corre `tsc` sin --outDir, NO commiteamos
+# los .d.ts/.js junto al source. Vite resuelve `@zenix/shared` al
+# source TS directamente (ver apps/web/vite.config.ts); .d.ts/.js
+# stray en src/ contaminan el resolver y rompen el frontend.
+src/**/*.d.ts
+src/**/*.d.ts.map
+src/**/*.js
+src/**/*.js.map

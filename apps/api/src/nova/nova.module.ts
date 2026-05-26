@@ -1,0 +1,46 @@
+/**
+ * Sprint NOVA-CHANNEX-COMMAND-CENTER — Day 3.
+ *
+ * NovaModule — registra services + guards de la hierarchy 5-tier Nova.
+ *
+ * Exports:
+ *   · AccessControlService — resolve actorTier + assignedOrgIds (DI everywhere)
+ *   · NovaActingOrgGuard — global @RequireActingOrg() enforcement
+ *
+ * Imports:
+ *   · PrismaModule (queries 4-tier UNION)
+ *
+ * Days futuros:
+ *   · Day 5+: agregaremos ChannexManagementModule (RoomTypes/RatePlans
+ *     controllers) que importa NovaModule para usar el guard.
+ *   · Day 9+: ImpersonationService + transparency notifs registrados aquí.
+ *   · Day 14+: WizardModule registrado aquí (Wizard Zenix Activate).
+ */
+import { Module } from '@nestjs/common'
+import { PrismaModule } from '../prisma/prisma.module'
+import { TenantContextService } from '../common/tenant-context.service'
+import { AccessControlService } from './access-control/access-control.service'
+import { AuditLogController } from './audit/audit-log.controller'
+import { AuditLogQueryService } from './audit/audit-log-query.service'
+import { NovaClientsController } from './clients/clients.controller'
+import { NovaClientsService } from './clients/clients.service'
+import { NovaActingOrgGuard } from './guards/nova-acting-org.guard'
+import { NovaTiersGuard } from './guards/nova-tiers.guard'
+
+@Module({
+  imports: [PrismaModule],
+  controllers: [
+    NovaClientsController, // Day 9 — landing /nova/clientes
+    AuditLogController, // Day 13 — /v1/nova/audit-logs
+  ],
+  providers: [
+    AccessControlService,
+    NovaActingOrgGuard,
+    NovaTiersGuard,
+    NovaClientsService,
+    AuditLogQueryService,
+    TenantContextService, // Day 13 — required por AuditLogQueryService
+  ],
+  exports: [AccessControlService, NovaActingOrgGuard, NovaTiersGuard],
+})
+export class NovaModule {}

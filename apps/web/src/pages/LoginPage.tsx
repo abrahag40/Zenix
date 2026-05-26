@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
 import { useAuthStore } from '../store/auth'
-import type { AuthResponse } from '@zenix/shared'
+import { postLoginRoute, type AuthResponse } from '@zenix/shared'
 
 export function LoginPage() {
   const [email, setEmail]       = useState('')
@@ -14,9 +14,7 @@ export function LoginPage() {
   const [searchParams] = useSearchParams()
 
   const reason   = searchParams.get('reason')
-  // Where to send the user after a successful login.
-  // Defaults to the Dashboard, the post-login landing for every role.
-  const returnTo = searchParams.get('returnTo') ?? '/dashboard'
+  const returnToParam = searchParams.get('returnTo')
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -29,8 +27,13 @@ export function LoginPage() {
         { skipAuth: true },
       )
       setAuth(data)
-      // Return to the exact page the user was on before the session expired
-      navigate(returnTo, { replace: true })
+      // Post-login routing: función pura en @zenix/shared con test exhaustivo
+      // de la matriz tier × returnTo (ver post-login-route.spec.ts apps/api).
+      const target = postLoginRoute({
+        tier: data.user.actorTier,
+        returnTo: returnToParam,
+      })
+      navigate(target, { replace: true })
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Error de conexión')
     } finally {

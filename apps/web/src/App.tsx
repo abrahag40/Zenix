@@ -7,6 +7,7 @@ import { Toaster as SonnerToaster } from 'sonner'
 import { useAuthStore } from './store/auth'
 import { Sidebar } from './components/Sidebar'
 import { LoginPage } from './pages/LoginPage'
+import { SetupPage } from './pages/SetupPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { RoomsPage } from './pages/RoomsPage'
 import { RoomsPage as PmsPage } from './modules/rooms/pages/RoomsPage'
@@ -24,6 +25,16 @@ import { MaintenancePage } from './pages/MaintenancePage'
 import { ReservationDetailPage } from './pages/ReservationDetailPage'
 import { GlobalMaintenanceDrawer } from './components/GlobalMaintenanceDrawer'
 import { useNotificationAlerts } from './hooks/useNotificationAlerts'
+// Sprint NOVA-CHANNEX-COMMAND-CENTER Day 9 — Nova shell + landing
+import { NovaClientsPage } from './nova/pages/NovaClientsPage'
+import { NovaDashboardPage } from './nova/pages/NovaDashboardPage'
+import { NovaSettingsPage } from './nova/pages/NovaSettingsPage'
+// Day 10 — Channex Command Center
+import { NovaChannexPage } from './nova/pages/NovaChannexPage'
+// Day 13 — Audit log page
+import { NovaAuditLogPage } from './nova/pages/NovaAuditLogPage'
+// Day 14 — Wizard Zenix Activate
+import { NovaWizardPage } from './nova/pages/NovaWizardPage'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -78,6 +89,9 @@ export default function App() {
         <NotificationAlertsMount />
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          {/* Day 17 — Org Owner activation. Public route. Token validation
+              en backend (single-use, 72h TTL, SHA256 hashed at-rest). */}
+          <Route path="/setup/:token" element={<SetupPage />} />
           <Route path="/dashboard"       element={<ProtectedLayout><DashboardPage /></ProtectedLayout>} />
           {/* Sprint 9 D15 consolidación: /overrides y /planning → /kanban.
               Acciones operativas (confirmar salida, ad-hoc, forzar URGENT,
@@ -97,6 +111,16 @@ export default function App() {
           <Route path="/reports"         element={<ProtectedLayout><ReportsPage /></ProtectedLayout>} />
           <Route path="/settings/:section?" element={<ProtectedLayout><SettingsPage /></ProtectedLayout>} />
           <Route path="/reservations/:id"  element={<ProtectedLayout><ReservationDetailPage /></ProtectedLayout>} />
+          {/* ── Nova (Day 9+) ──────────────────────────────────────────── */}
+          <Route path="/nova"            element={<Navigate to="/nova/clientes" replace />} />
+          <Route path="/nova/clientes"   element={<NovaClientsPage />} />
+          <Route path="/nova/dashboard"  element={<NovaDashboardPage />} />
+          {/* Placeholders Days 10-15 — todos abren el NovaShell empty con el
+              page-title. Cada uno se reemplaza por su page real al avanzar. */}
+          <Route path="/nova/channex"    element={<NovaChannexPage />} />
+          <Route path="/nova/wizard"     element={<NovaWizardPage />} />
+          <Route path="/nova/audit"      element={<NovaAuditLogPage />} />
+          <Route path="/nova/settings"   element={<NovaSettingsPage />} />
           <Route path="*"                element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </BrowserRouter>

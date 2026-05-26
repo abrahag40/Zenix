@@ -318,13 +318,105 @@ enum OrgPlan {
   ENTERPRISE
 }
 
+// ─── SystemRole — extended for Nova foundation (Sprint NOVA-CHANNEX-COMMAND-CENTER) ───
+// 2026-05-23 Late PM: agregados PLATFORM_ADMIN + PARTNER_ADMIN + PARTNER_MEMBER + ORG_OWNER
+// para hierarchy 5-tier Nova. Valores legacy (OWNER/MANAGER/RECEPTIONIST/HOUSEKEEPER/
+// TECHNICIAN/AUDITOR) se mantienen para backward-compat con código existente.
+//
+// Ver docs/architecture/NOVA-architecture.md §3 para schema completo y RBAC matrix.
+// Decisión §160 D-NOVA-2 — Hierarchy 5-tier no-negociable.
 enum SystemRole {
-  OWNER
+  // ── Tier 1: Platform (root) ──────────────────────
+  PLATFORM_ADMIN   // ZaharDev staff — único tier cross-Partner. Ver §161 D-NOVA-3.
+
+  // ── Tier 2: Partner (consulting firm) ───────────
+  PARTNER_ADMIN    // Owner del partner firm. Gestiona PartnerMembers + assignments.
+  PARTNER_MEMBER   // Consultor individual; granularidad sub-rol via PartnerMember.role.
+
+  // ── Tier 3: Organization (cliente hotelero) ─────
+  ORG_OWNER        // Dueño del hotel cliente (acceso pleno a su Org).
+
+  // ── Tier 4: legacy roles dentro de Org/Property ─
+  // Se mantienen para compatibilidad — son los ORG_STAFF de la hierarchy Nova.
+  OWNER            // legacy — alias de ORG_OWNER (compat)
   MANAGER
   RECEPTIONIST
   HOUSEKEEPER
   TECHNICIAN
   AUDITOR
+}
+
+// ─── PartnerTier — alineado con SAP PartnerEdge (§162 D-NOVA-4) ───
+// 4 valores fijos. NUNCA renombrar — comparabilidad con industry partner programs
+// (SAP/Cisco/Salesforce/Microsoft) facilita: (a) onboarding partners ex-SAP, (b)
+// marketing pitch ("ya eres Gold en SAP — califica a Gold en Zenix").
+enum PartnerTier {
+  AUTHORIZED       // entry tier: $0 annual fee, 10% revenue share
+  SILVER           // $1,200/año, 15% rev share + training credits
+  GOLD             // $3,600/año, 20% rev share + co-marketing fund
+  PLATINUM         // $9,600/año, 25% rev share + sub-partners + dedicated PM
+}
+
+// ─── PartnerMemberRole — granularidad interna del firm (§163 D-NOVA-5) ───
+// 8 valores fijos alineados con SAP S/4HANA Implementation Roles + IBM BP Program +
+// Cisco Partner Program. NUNCA cambiar nombres.
+enum PartnerMemberRole {
+  PARTNER_ADMIN         // owner firma, gestiona team interno
+  LEAD_CONSULTANT       // senior, owns engagements
+  SOLUTION_CONSULTANT   // standard implementation
+  SUPPORT_L1            // help desk básico
+  SUPPORT_L2            // escalation
+  SUPPORT_L3            // deep technical
+  SALES_REP             // demos + closing pre-venta
+  TRAINEE               // shadow access, no writes
+}
+
+// ─── PartnerMemberStatus — controlled vocabulary (Audit H3 fix 2026-05-24) ───
+// Estado operativo del PartnerMember dentro de su firm.
+// Reemplaza al `status String @default("ACTIVE")` original (text libre).
+enum PartnerMemberStatus {
+  ACTIVE         // operacional, accesos completos
+  INACTIVE       // pausa temporal — sin login pero history preserved
+  OFFBOARDING   // proceso de salida en curso (compliance window)
+  SUSPENDED     // suspendido por incumplimiento (issue compliance/legal)
+}
+
+// ─── AuditLogStatus — estados de execución (Audit H3 fix) ───
+enum AuditLogStatus {
+  SUCCESS
+  FAILURE
+  PARTIAL        // operación multi-step que algunos pasaron y otros no
+}
+
+// ─── AuditLogRetention — políticas de retention (Audit H3 fix) ───
+// Drives scheduler v1.0.3 REPORTS-CORE que mueve >365d a cold storage.
+enum AuditLogRetention {
+  TRANSIENT      // 90 días — eventos de baja criticidad (UI hovers, etc.)
+  STANDARD       // 365 días default — la mayoría de operaciones
+  PERMANENT      // NUNCA expira — Visa CRR / CFDI / GDPR compliance ops
+}
+
+// ─── EngagementRole — rol dentro del client engagement (Audit H3 fix) ───
+enum EngagementRole {
+  LEAD            // responsable principal del engagement
+  CONSULTANT      // contributor operativo
+  SUPPORT         // help desk asignado al cliente
+  OBSERVER        // shadow (training, audit) — no write actions
+}
+
+// ─── AssignmentScope — alcance de PartnerClientAssignment (Audit H3 fix) ───
+enum AssignmentScope {
+  FULL            // CRUD pleno + wizard + audit
+  TIER_A_ONLY     // solo setup estructural (room types/rate plans/mappings)
+  SUPPORT_ONLY    // solo lectura + ticket creation (no edits)
+}
+
+// ─── CertificationLevel — nivel certificación Zenix Academy (Audit L1→H3 fix) ───
+enum CertificationLevel {
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
 }
 
 enum PropertyType {
@@ -447,6 +539,10 @@ model Organization {
   brand         Brand?        @relation(fields: [brandId], references: [id])
   legalEntities LegalEntity[]
 
+  // Nova foundation §164 D-NOVA-6 — relación N:M con Partner via assignments.
+  partnerClientAssignments PartnerClientAssignment[]
+  auditLogs                AuditLog[]
+
   // Reverse relations (denormalized organizationId in all business tables)
   properties          Property[]
   users               User[]
@@ -483,24 +579,55 @@ model Organization {
 
 model User {
   id             String    @id @default(uuid())
-  organizationId String    @map("organization_id")
+  // organizationId nullable a partir de Nova: PLATFORM_ADMIN + PARTNER_MEMBER no
+  // pertenecen a una Organization cliente — pertenecen a un Partner firm.
+  // Backward-compat: ORG_OWNER + ORG_STAFF (legacy MANAGER/RECEPTIONIST/etc.)
+  // siguen teniendo organizationId NOT NULL via app-layer check.
+  organizationId String?   @map("organization_id")
   email          String    @unique
   passwordHash   String    @map("password_hash")
   firstName      String    @map("first_name")
   lastName       String    @map("last_name")
   isActive       Boolean   @default(true) @map("is_active")
+  // Sprint NOVA-CHANNEX-COMMAND-CENTER Day 17 — Wizard Zenix Activate setup flow.
+  // setupTokenHash: SHA256 hash del raw token enviado al Org Owner por email.
+  //   El raw token NUNCA persiste — solo el hash. Al recibir GET/POST
+  //   /v1/auth/setup/:rawToken, server hashea y compara contra esta columna.
+  // setupTokenExpiresAt: 72h desde la creación (§174 D-NOVA-16).
+  // Después de consumir el token (password set + isActive=true), ambas
+  // columnas se NULLEAN. Single-use enforcement.
+  setupTokenHash      String?   @unique @map("setup_token_hash")
+  setupTokenExpiresAt DateTime? @map("setup_token_expires_at")
+  setupTokenConsumedAt DateTime? @map("setup_token_consumed_at")
+  // Nova foundation §160 D-NOVA-2 — tier en la hierarchy 5-tier.
+  // Default OWNER por backward-compat con seed legacy (se migra explícitamente).
+  systemRole     SystemRole @default(OWNER) @map("system_role")
   deletedAt      DateTime? @map("deleted_at")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
-  organization     Organization          @relation(fields: [organizationId], references: [id])
+  organization     Organization?         @relation(fields: [organizationId], references: [id])
   propertyRoles    UserPropertyRole[]
   // v1.0.5 — nuevos scope levels para multi-property cross-* access
   brandRoles       BrandUserRole[]
   legalEntityRoles LegalEntityUserRole[]
   staffProfiles    Staff[]
+  // Nova foundation §163 — relación 1:1 con PartnerMember si systemRole ∈ {PARTNER_ADMIN, PARTNER_MEMBER}.
+  // Si systemRole=PLATFORM_ADMIN, también vive como PartnerMember del Partner ZaharDev (isInternal=true).
+  partnerMember    PartnerMember?
+  // Audit H1 fix 2026-05-24 — inverse relations para FKs ON DELETE RESTRICT
+  auditActorRealLogs       AuditLog[]                @relation("AuditLogActor")
+  auditOnBehalfOfLogs      AuditLog[]                @relation("AuditLogOnBehalfOf")
+  ratePlanMappingsCreated  ChannexRatePlanMapping[]  @relation("RatePlanMappingCreatedBy")
+  ratePlanMappingsUpdated  ChannexRatePlanMapping[]  @relation("RatePlanMappingUpdatedBy")
+  ratePlanCapsSet          RatePlanCap[]             @relation("RatePlanCapSetBy")
+  channelPausesPaused      ChannexChannelPause[]     @relation("ChannelPausePausedBy")
+  channelPausesUnpaused    ChannexChannelPause[]     @relation("ChannelPauseUnpausedBy")
+  partnerAssignmentsAssigned PartnerClientAssignment[] @relation("PartnerAssignmentAssignedBy")
+  partnerAssignmentsRevoked  PartnerClientAssignment[] @relation("PartnerAssignmentRevokedBy")
 
   @@index([organizationId])
+  @@index([systemRole])
   @@map("users")
 }
 
@@ -701,6 +828,9 @@ model Property {
   channelProduction  ChannelProductionDaily[]
   // ── Sprint Mx-1 — Mantenimiento ──────────────────────────────────────────
   maintenanceTickets MaintenanceTicket[]
+  // ── Sprint NOVA-CHANNEX-COMMAND-CENTER (Day 2) ───────────────────────────
+  channexRatePlanMappings ChannexRatePlanMapping[]
+  channexChannelPauses    ChannexChannelPause[]
 
   @@index([organizationId])
   @@index([legalEntityId])
@@ -1121,6 +1251,18 @@ model PropertySettings {
   channexLastFullSyncAt         DateTime?       @map("channex_last_full_sync_at")
   channexFullSyncWindowStart    Int             @default(3) @map("channex_full_sync_window_start")
   channexFullSyncWindowEnd      Int             @default(5) @map("channex_full_sync_window_end")
+  // ── Sprint NOVA-CHANNEX-COMMAND-CENTER (Day 2) ──────────────────────────
+  // §"D-CHX-CC-6 Rate-parity threshold". Default 5% spread entre channels
+  // antes de mostrar amber alert en Rate Calendar Matrix. Configurable
+  // per-property porque mercados premium (5-star) toleran menos parity break
+  // que hostales económicos (más sensibles a undercutting de OTAs).
+  // Color logic: spread > threshold → amber; > 2× threshold → red.
+  rateParityThresholdPct        Float           @default(5.0) @map("rate_parity_threshold_pct")
+  // Master switch para mostrar el Command Center en el sidebar Nova. Default
+  // true desde el momento que se setea channexPropertyId. Permite turn-off
+  // temporal sin destruir mappings ni audit log (caso: cliente migrando de
+  // Channex a otro CM en transición controlada).
+  channexCommandCenterEnabled   Boolean         @default(true) @map("channex_command_center_enabled")
   // ── Sprint 8H — Housekeeping scheduling ───────────────────────────────────
   // Hora local (0-23) a la que el MorningRosterScheduler genera el roster del día.
   // Default 7 = 7:00 AM. Configurable per-property porque hostels vacacionales LATAM
@@ -3141,4 +3283,278 @@ model PropertyFxRate {
 
   @@index([propertyId, baseCurrency, quoteCurrency, validFrom])
   @@map("property_fx_rates")
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// NOVA FOUNDATION — Sprint NOVA-CHANNEX-COMMAND-CENTER (Day 1, 2026-05-23)
+// ═════════════════════════════════════════════════════════════════════════════
+//
+// Hierarchy 5-tier: PLATFORM_ADMIN > PARTNER_ADMIN > PARTNER_MEMBER > ORG_OWNER > ORG_STAFF
+// Ver docs/architecture/NOVA-architecture.md (2016 líneas ADR fundacional).
+// Decisiones §159-§175 CLAUDE.md.
+//
+// Schema implementa modelo SAP PartnerEdge + SuccessFactors aplicado a hospitality:
+//   · Partner = firma consultora (incluye ZaharDev como isInternal=true)
+//   · PartnerMember = consultor individual con rol granular (8 valores enum)
+//   · PartnerClientAssignment = firm ↔ cliente (N:M)
+//   · PartnerMemberAssignment = member ↔ engagement (dentro del firm, N:M)
+//   · AuditLog = trail universal append-only (DB trigger + reason REQUIRED on_behalf_of)
+
+model Partner {
+  id                  String         @id @default(uuid())
+  name                String         // "ZaharDev" | "Consultoría Caribe SA de CV"
+  tier                PartnerTier    @default(AUTHORIZED)
+  countryCode         String         @map("country_code")          // primary país de operación
+  contactEmail        String         @map("contact_email")
+  contactPhone        String?        @map("contact_phone")
+  licenseValidUntil   DateTime       @map("license_valid_until")
+  parentPartnerId     String?        @map("parent_partner_id")     // sub-partner relationships (PLATINUM only)
+  // Flag reservado para ZaharDev — solo este Partner puede tener members con
+  // role PLATFORM_ADMIN. Constraint app-level + Postgres CHECK en migration.
+  isInternal          Boolean        @default(false) @map("is_internal")
+
+  parentPartner       Partner?       @relation("SubPartners", fields: [parentPartnerId], references: [id])
+  subPartners         Partner[]      @relation("SubPartners")
+  members             PartnerMember[]
+  clientAssignments   PartnerClientAssignment[]
+
+  createdAt           DateTime       @default(now()) @map("created_at")
+  updatedAt           DateTime       @default(now()) @updatedAt @map("updated_at")
+
+  @@index([tier])
+  @@index([isInternal])
+  @@index([parentPartnerId])
+  @@map("partners")
+}
+
+model PartnerMember {
+  id                  String              @id @default(uuid())
+  partnerId           String              @map("partner_id")
+  userId              String              @unique @map("user_id")  // FK 1:1 a User
+  role                PartnerMemberRole
+  // Audit H3 fix 2026-05-24: text → enum (controlled vocabulary)
+  status              PartnerMemberStatus @default(ACTIVE)
+  joinedAt            DateTime            @default(now()) @map("joined_at")
+  certifiedAt         DateTime?           @map("certified_at")      // fecha cert Zenix Academy
+  // Audit L1+H3 fix: text → enum
+  certificationLevel  CertificationLevel? @map("certification_level")
+
+  partner             Partner             @relation(fields: [partnerId], references: [id])
+  user                User                @relation(fields: [userId], references: [id])
+  clientMemberships   PartnerMemberAssignment[]
+
+  @@index([partnerId, role])
+  @@index([status])
+  @@map("partner_members")
+}
+
+model PartnerClientAssignment {
+  // firm partner ↔ cliente hotel (N:M)
+  id                  String   @id @default(uuid())
+  partnerId           String   @map("partner_id")
+  organizationId      String   @map("organization_id")
+  // Audit H3 fix 2026-05-24: text → enum
+  scope               AssignmentScope @default(FULL)
+  // Audit H1 fix: FK a users(id) ON DELETE RESTRICT
+  assignedById        String   @map("assigned_by_id")
+  assignedAt          DateTime @default(now()) @map("assigned_at")
+  revokedAt           DateTime? @map("revoked_at")
+  revokedById         String?   @map("revoked_by_id")
+
+  partner             Partner       @relation(fields: [partnerId], references: [id])
+  organization        Organization  @relation(fields: [organizationId], references: [id])
+  // Audit H1 fix — FK assignedBy/revokedBy → users(id) ON DELETE RESTRICT
+  assignedBy          User          @relation("PartnerAssignmentAssignedBy", fields: [assignedById], references: [id], onDelete: Restrict)
+  revokedBy           User?         @relation("PartnerAssignmentRevokedBy", fields: [revokedById], references: [id], onDelete: Restrict)
+  memberAssignments   PartnerMemberAssignment[]
+
+  @@unique([partnerId, organizationId])
+  @@index([organizationId])
+  @@index([assignedAt])
+  @@map("partner_client_assignments")
+}
+
+model PartnerMemberAssignment {
+  // dentro del partner, qué miembros están en qué cliente engagement (N:M)
+  id                          String          @id @default(uuid())
+  partnerClientAssignmentId   String          @map("partner_client_assignment_id")
+  partnerMemberId             String          @map("partner_member_id")
+  // Audit H3 fix 2026-05-24: text → enum
+  engagementRole              EngagementRole  @map("engagement_role")
+  assignedAt                  DateTime        @default(now()) @map("assigned_at")
+  removedAt                   DateTime?       @map("removed_at")
+
+  partnerClientAssignment     PartnerClientAssignment @relation(fields: [partnerClientAssignmentId], references: [id])
+  member                      PartnerMember           @relation(fields: [partnerMemberId], references: [id])
+
+  @@unique([partnerClientAssignmentId, partnerMemberId])
+  @@index([partnerMemberId])
+  @@map("partner_member_assignments")
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// AuditLog universal — append-only, fiscal/compliance grade (§165 D-NOVA-7)
+// ═════════════════════════════════════════════════════════════════════════════
+// Trigger Postgres bloquea UPDATE/DELETE (ver migration SQL).
+// `reason` REQUIRED a nivel CHECK constraint cuando `on_behalf_of_id IS NOT NULL`.
+// Retention §167: hot table 365d → cold storage partition v1.0.3 REPORTS-CORE.
+// Compliance: Visa CRR §5.9.2 (chargeback 120d) + CFDI Art. 30 CFF (5 años) +
+// GDPR Art. 17.3.b (legal obligation exception).
+
+model AuditLog {
+  id                String             @id @default(uuid())
+  organizationId    String             @map("organization_id")
+  // Actor real — siempre el verdadero ejecutor (consultor, ZaharDev, cliente user).
+  // Audit H1 fix 2026-05-24: FK a users(id) ON DELETE RESTRICT — referential integrity.
+  actorRealId       String             @map("actor_real_id")
+  actorRealRole     SystemRole         @map("actor_real_role")
+  // Impersonation pattern SAP-style: si actor opera "en nombre de" otro usuario,
+  // estos campos lo registran. `reason` es REQUIRED via CHECK constraint
+  // cuando onBehalfOfId IS NOT NULL.
+  onBehalfOfId      String?            @map("on_behalf_of_id")
+  onBehalfOfRole    SystemRole?        @map("on_behalf_of_role")
+  // Acción ejecutada — naming convention 'ENTITY_VERB' uppercase.
+  // Ej: 'CHANNEX_ROOM_TYPE_CREATE' | 'WIZARD_STEP_4_COMPLETED' | 'CHANNEL_PAUSE'
+  action            String
+  // Target entity (channex room_type_id, rate_plan_id, wizard step number, etc.)
+  target            String?
+  // Request payload completo (post-sanitization de PII si aplica)
+  payload           Json
+  // Response de Channex API (si la acción involucró Channex)
+  channexResponse   Json?              @map("channex_response")
+  // Audit H3 fix 2026-05-24: text → enum (controlled vocabulary)
+  status            AuditLogStatus
+  // REQUIRED si onBehalfOfId != null (CHECK constraint en migration)
+  reason            String?
+  errorMessage      String?            @map("error_message")
+  // Audit H3 fix: text → enum. Drives v1.0.3 REPORTS-CORE cold storage scheduler.
+  retentionPolicy   AuditLogRetention  @default(STANDARD) @map("retention_policy")
+  createdAt         DateTime           @default(now()) @map("created_at")
+
+  organization      Organization @relation(fields: [organizationId], references: [id])
+  // Audit H1 fix 2026-05-24: FK ON DELETE RESTRICT — referential integrity
+  // Compliance Visa CRR §5.9.2 + CFDI Art. 30 CFF + GDPR Art. 17.3.b
+  actorReal         User         @relation("AuditLogActor", fields: [actorRealId], references: [id], onDelete: Restrict)
+  onBehalfOf        User?        @relation("AuditLogOnBehalfOf", fields: [onBehalfOfId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, createdAt])
+  @@index([actorRealId, createdAt])
+  @@index([onBehalfOfId])
+  @@index([action])
+  @@index([retentionPolicy, createdAt])
+  @@map("audit_log")
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CHANNEX COMMAND CENTER — Day 2 schema additions
+// ═════════════════════════════════════════════════════════════════════════════
+//
+// Standalone schema para mapear Channex rate plans + restricciones + history.
+// Cuando llegue sprint RATES-METRICS-COMPSET-CORE con el modelo RatePlan
+// completo, se agrega FK `RatePlan.channexMappingId → ChannexRatePlanMapping`
+// sin tocar este schema. Pattern desacoplado intencionalmente para evitar
+// blocking del Command Center por el sprint RATES.
+
+model ChannexRatePlanMapping {
+  // Cada fila representa un Rate Plan creado en Channex API (POST /rate_plans).
+  // Zenix DB es write-through cache: el consultor crea via Command Center →
+  // Channex API request → on success → upsert aquí. Sirve de:
+  //   1. Fuente cliente-side para queries fast (sin hit Channex API cada vez)
+  //   2. Hook para futuro RatePlan model (RATES sprint agrega FK)
+  //   3. Source para Rate Calendar Matrix aggregator (Day 6)
+  id                String       @id @default(uuid())
+  organizationId    String       @map("organization_id")
+  propertyId        String       @map("property_id")
+  // UUID del rate plan en Channex (e.g. "4aea6806-f0fe-4517-9642-b67600cc01ff")
+  channexRatePlanId String       @unique @map("channex_rate_plan_id")
+  // FK lógico al room type Channex que este rate plan cubre (1 rate plan ↔ 1 room type)
+  channexRoomTypeId String       @map("channex_room_type_id")
+  title             String       // "BAR — Estándar"
+  // Audit H2 fix 2026-05-24: text → CHAR(3) ISO 4217. CHECK regex en migration.
+  currency          String       @db.Char(3)
+  // sell_mode: 'per_room' (rate fijo por habitación) | 'per_person' (rate × occupancy)
+  sellMode          String       @map("sell_mode")
+  // rate_mode: 'manual' (operador setea cada rate) | 'derived' (calculado de otro plan)
+  rateMode          String       @default("manual") @map("rate_mode")
+  // Rate base default cuando se crea — útil para "reset to default" + auto-detect
+  // de "rate plan recién creado" en el calendar (no requiere consulta a Channex)
+  defaultRate       Decimal      @db.Decimal(10, 2) @map("default_rate")
+  defaultOccupancy  Int          @default(2) @map("default_occupancy")
+  // Flag para desactivar rate plan sin borrarlo de Channex (preserva history).
+  // En Channex no existe "deactivate" — emulamos con stop_sell=true en
+  // restrictions. Este flag refleja el estado intencional del operador.
+  isActive          Boolean      @default(true) @map("is_active")
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @default(now()) @updatedAt @map("updated_at")
+  // Audit fields — quién creó/actualizó (PARTNER_MEMBER o PLATFORM_ADMIN)
+  // Audit H1 fix 2026-05-24: FK ON DELETE RESTRICT
+  createdById       String       @map("created_by_id")
+  updatedById       String?      @map("updated_by_id")
+
+  property          Property     @relation(fields: [propertyId], references: [id])
+  createdBy         User         @relation("RatePlanMappingCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy         User?        @relation("RatePlanMappingUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  rateCap           RatePlanCap?
+
+  @@index([propertyId, isActive])
+  @@index([channexRoomTypeId])
+  @@map("channex_rate_plan_mappings")
+}
+
+// ─── RatePlanCap — Salesforce Permission Set pattern (§"D-CHX-CC-9") ────────
+// Consultor (PLATFORM_ADMIN o PARTNER_ADMIN/MEMBER tier A) define floor + ceiling
+// del rate. Supervisor (ORG_OWNER / MANAGER) puede editar rates dentro de caps;
+// intento fuera → 400 con mensaje claro. Pattern Salesforce Permission Set
+// donde admin define grants y user opera dentro de ellos.
+
+model RatePlanCap {
+  id                String                  @id @default(uuid())
+  channexMappingId  String                  @unique @map("channex_mapping_id")
+  rateCapMin        Decimal?                @db.Decimal(10, 2) @map("rate_cap_min")
+  rateCapMax        Decimal?                @db.Decimal(10, 2) @map("rate_cap_max")
+  // Razón opcional explicando los caps. Visible al operador supervisor
+  // cuando intenta editar fuera de rango (sirve de educación contextual).
+  reason            String?
+  // Audit H1 fix 2026-05-24: FK ON DELETE RESTRICT
+  setById           String                  @map("set_by_id")
+  setAt             DateTime                @default(now()) @map("set_at")
+  updatedAt         DateTime                @default(now()) @updatedAt @map("updated_at")
+
+  mapping           ChannexRatePlanMapping  @relation(fields: [channexMappingId], references: [id], onDelete: Cascade)
+  setBy             User                    @relation("RatePlanCapSetBy", fields: [setById], references: [id], onDelete: Restrict)
+
+  @@index([setById])
+  @@map("rate_plan_caps")
+}
+
+// ─── ChannexChannelPause — history log de pause/unpause (§"D-CHX-CC-7") ─────
+// Channex API no expone "pause channel" nativo — emulamos via stop_sell=true en
+// restrictions per rate plan. Esta tabla registra cada pause/unpause action
+// para audit + restore al unpause (guardar previous state).
+// Pattern Cloudbeds "Snooze channel".
+
+model ChannexChannelPause {
+  id                  String   @id @default(uuid())
+  propertyId          String   @map("property_id")
+  channexChannelId    String   @map("channex_channel_id")
+  channelName         String   @map("channel_name")  // 'booking_com', 'expedia', etc.
+  pausedAt            DateTime @default(now()) @map("paused_at")
+  pausedById          String   @map("paused_by_id")  // actor
+  pauseReason         String?  @map("pause_reason")
+  // JSON snapshot del estado pre-pause (stop_sell per rate_plan, restrictions)
+  // — usado para restore exacto al unpause. Sin esto, unpause podría dejar
+  // ratesplans con stop_sell=true que el operador NO había seteado antes.
+  preState            Json?    @map("pre_state")
+  unpausedAt          DateTime? @map("unpaused_at")
+  unpausedById        String?  @map("unpaused_by_id")
+  unpauseReason       String?  @map("unpause_reason")
+
+  property            Property @relation(fields: [propertyId], references: [id])
+  // Audit H1 fix 2026-05-24
+  pausedBy            User     @relation("ChannelPausePausedBy", fields: [pausedById], references: [id], onDelete: Restrict)
+  unpausedBy          User?    @relation("ChannelPauseUnpausedBy", fields: [unpausedById], references: [id], onDelete: Restrict)
+
+  @@index([propertyId, pausedAt])
+  @@index([channexChannelId])
+  @@map("channex_channel_pauses")
 }

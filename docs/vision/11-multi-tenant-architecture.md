@@ -1,8 +1,9 @@
-# 11 · Arquitectura Multi-Tenant — el modelo 4-level
+# 11 · Arquitectura Multi-Tenant — modelo 5-tier (Platform → Partner → Brand → Organization → LegalEntity → Property)
 
-> Decisión arquitectónica fundacional de Zenix. Define cómo el sistema soporta desde un hotel boutique independiente hasta cadenas multi-país tipo Selina. Modelo aprobado 2026-05-15 con plan de migración backwards-compatible.
+> Decisión arquitectónica fundacional de Zenix. Define cómo el sistema soporta desde un hotel boutique independiente hasta cadenas multi-país tipo Selina, **y además** soporta la red de partners SAP-style que opera la plataforma.
 >
-> **Status:** APROBADO — sembrado en v1.0.5 (ORG-HIERARCHY-SEED).
+> **Status v1.0.0 actual:** modelo 4-level core (Brand→Organization→LegalEntity→Property) sembrado en v1.0.5 ORG-HIERARCHY-SEED. **Extensión 5-tier aprobada 2026-05-23** con sprint Nova: agrega `Platform` (ZaharDev super-admin) y `Partner` (consulting firm) por encima de Organization. Schema completo en [docs/architecture/NOVA-architecture.md §3](../architecture/NOVA-architecture.md#3-schema-completo-prisma).
+>
 > **Alternativas evaluadas:** modelo flat Org→Property (Cloudbeds early-day), modelo 2-level (Mews pre-2020), modelo 3-level Opera Chain Code. Ver §"Alternativas descartadas" al final.
 
 ---
@@ -28,7 +29,81 @@ Estos problemas son los que hicieron que Opera Cloud, Mews, Marriott y Hilton ev
 
 ---
 
-## 2. El modelo aprobado — 4 niveles
+## 2. El modelo aprobado — 5 tiers (4 core + 1 cross-cutting)
+
+> El modelo se compone de un **eje cliente** (4 niveles jerárquicos hereditarios) más un **eje partner** (capa transversal de gestión consultiva). El partner no es "padre" del cliente — es una capa lateral con relación N:M materializada vía `PartnerClientAssignment`.
+
+### 2.1 Diagrama 5-tier completo
+
+```
+═══════════════════════════════════════════════════════════════════════════════
+                         EJE PLATFORM/PARTNER
+═══════════════════════════════════════════════════════════════════════════════
+
+🟣 Platform (ZaharDev — root)                          Surface: nova.zenix.com
+   │                                                   Quién: PLATFORM_ADMIN
+   │                                                   Modelado: Partner row con isInternal=true
+   │
+   │ provisiona / supervisa
+   ▼
+🔵 Partner (consulting firm)                           Surface: nova.zenix.com
+   │                                                   Quién: PARTNER_ADMIN / PARTNER_MEMBER
+   │                                                   Cardinalidad: 0..N por país, tier AUTHORIZED→PLATINUM
+   │
+   │  ◄─── relación N:M ───►   vía PartnerClientAssignment (1 ACTIVE por Organization)
+   │
+═══════════════════════════════════════════════════════════════════════════════
+                         EJE CLIENTE (4-level core)
+═══════════════════════════════════════════════════════════════════════════════
+
+🟢 Brand                  (opcional — comercial)       Surface: app.zenix.com
+   │                                                   Quién: BrandUserRole (ej. CEO/COO Selina)
+   │
+   │ 1:N
+   ▼
+🟢 Organization           (cuenta customer SaaS)       Surface: app.zenix.com
+   │                                                   Quién: ORG_OWNER / Manager
+   │                                                   Billing entity, entitlements activados
+   │
+   │ 1:N
+   ▼
+🟡 LegalEntity            (entidad fiscal)             Surface: app.zenix.com
+   │                                                   Quién: LegalEntityUserRole (Country GM)
+   │                                                   Required para invoicing, 1 por país
+   │
+   │ 1:N
+   ▼
+⚫ Property               (propiedad física)            Surface: app.zenix.com / apps/mobile
+                                                       Quién: UserPropertyRole (Supervisor, Recep, HK)
+═══════════════════════════════════════════════════════════════════════════════
+```
+
+### 2.2 Diagrama lateral — cómo el Partner se acopla al eje cliente
+
+```
+🔵 Partner (consulting firm)
+   │
+   │ 1:N PartnerMember (consultor individual con role 8-valores)
+   │   │
+   │   │ N:M PartnerMemberAssignment
+   │   │   │
+   │   │   ▼ (scope: FULL / TIER_A_ONLY / TIER_B_ONLY / READ_ONLY)
+   │
+   │ 1:N PartnerClientAssignment (unique-active por Organization)
+   │   │
+   │   │ status: PROSPECTING / ONBOARDING / ACTIVE / PAUSED / TRANSITIONING / ENDED
+   │   │
+   │   ▼
+   └────►  🟢 Organization (cliente)
+                │
+                │ 1:N
+                ▼
+            🟡 LegalEntity ──► ⚫ Property
+```
+
+Lectura: un consultor (`PartnerMember`) gana acceso a un `Property` no por relación directa, sino vía la **cadena de assignments**: `PartnerMember → PartnerMemberAssignment → PartnerClientAssignment → Organization → LegalEntity → Property`. El `scope` del `PartnerMemberAssignment` limita qué tier del RBAC matrix se aplica (ver NOVA §4).
+
+### 2.3 Diagrama 4-level core (lo que el cliente ve)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -246,9 +321,11 @@ model Property {
 
 ---
 
-## 5. User access — 3 niveles de scope
+## 5. User access — niveles de scope (3 cliente + 2 partner)
 
-Cualquier acción de un user pasa por el chequeo **"¿tienes scope sobre este objeto?"**. Tres niveles posibles:
+Cualquier acción de un user pasa por el chequeo **"¿tienes scope sobre este objeto?"**. Hay cinco fuentes posibles de scope. Las primeras tres son del eje cliente; las últimas dos son del eje partner (extension v1.0.0 Nova).
+
+### 5.1 Scopes del eje cliente (4-level)
 
 | Scope | Cobertura | Quién lo tiene típicamente |
 |-------|-----------|---------------------------|
@@ -256,40 +333,136 @@ Cualquier acción de un user pasa por el chequeo **"¿tienes scope sobre este ob
 | `LegalEntityUserRole(legal_entity_id)` | TODAS las properties de UNA entidad fiscal (= todas en UN país de UN org) | Country GM, Country Finance Director |
 | `UserPropertyRole(property_id)` | UNA property específica | Front desk, supervisor de housekeeping, recepcionista |
 
-### Query de autorización canónica
+### 5.2 Scopes del eje partner (Nova v1.0.0)
+
+| Scope | Cobertura | Quién lo tiene típicamente |
+|-------|-----------|---------------------------|
+| `PartnerMember.partner_id` + `Partner.isInternal=true` | TODAS las orgs de TODOS los partners (super-admin) | PLATFORM_ADMIN (ZaharDev staff) |
+| `PartnerMemberAssignment(partner_client_assignment_id, scope)` | UNA Organization vía un PartnerClientAssignment, limitado por `scope` (FULL/TIER_A_ONLY/TIER_B_ONLY/READ_ONLY) | PARTNER_ADMIN / LEAD_CONSULTANT / SOLUTION_CONSULTANT / SUPPORT_L1-L3 / SALES_REP / TRAINEE |
+
+Combinatoria importante: un usuario **puede tener simultáneamente scope cliente y scope partner**. Caso típico: el founder de un hotel boutique que también opera una consultora regional — tiene `UserPropertyRole(su-hotel)` y `PartnerMember(su-consultora)`. Audit Log captura cada acción con `actorRealRoles` snapshot que indica qué hat se usó.
+
+### 5.3 Query de autorización canónica (5-tier UNION)
 
 ```sql
 -- ¿user X tiene acceso a property Y?
 SELECT EXISTS (
-  -- Nivel 1: scope directo de property
+  -- Nivel 1 (cliente): scope directo de property
   SELECT 1 FROM user_property_roles
   WHERE user_id = $1 AND property_id = $2
 
   UNION ALL
 
-  -- Nivel 2: scope de legal entity que contiene la property
+  -- Nivel 2 (cliente): scope de legal entity que contiene la property
   SELECT 1 FROM legal_entity_user_roles ler
     JOIN properties p ON p.legal_entity_id = ler.legal_entity_id
     WHERE ler.user_id = $1 AND p.id = $2
 
   UNION ALL
 
-  -- Nivel 3: scope de brand que contiene la org que contiene la legal entity
+  -- Nivel 3 (cliente): scope de brand que contiene la org que contiene la legal entity
   SELECT 1 FROM brand_user_roles bur
     JOIN organizations o ON o.brand_id = bur.brand_id
     JOIN legal_entities le ON le.organization_id = o.id
     JOIN properties p ON p.legal_entity_id = le.id
     WHERE bur.user_id = $1 AND p.id = $2
+
+  UNION ALL
+
+  -- Nivel 4 (partner — PLATFORM_ADMIN): partner con isInternal=true ve todo
+  SELECT 1 FROM partner_members pm
+    JOIN partners pa ON pa.id = pm.partner_id
+    WHERE pm.user_id = $1
+      AND pa.is_internal = true
+      AND pm.status = 'ACTIVE'
+
+  UNION ALL
+
+  -- Nivel 5 (partner — assigned): consultor vía cadena assignment
+  SELECT 1 FROM partner_members pm
+    JOIN partner_member_assignments pma ON pma.partner_member_id = pm.id
+    JOIN partner_client_assignments pca ON pca.id = pma.partner_client_assignment_id
+    JOIN legal_entities le ON le.organization_id = pca.organization_id
+    JOIN properties p ON p.legal_entity_id = le.id
+    WHERE pm.user_id = $1
+      AND p.id = $2
+      AND pma.ended_at IS NULL
+      AND pca.status IN ('ONBOARDING', 'ACTIVE', 'TRANSITIONING')
+      AND pm.status = 'ACTIVE'
 );
 ```
 
-Esta query se encapsula en `AccessControlService.canUserAccessProperty(userId, propertyId)` con caché de 60s para queries calientes.
+Esta query se encapsula en `AccessControlService.canUserAccessProperty(userId, propertyId)` con caché de 60s para queries calientes. La extensión partner es backwards-compatible: si ninguna rama partner matchea (caso 99% del staff de hotel), el comportamiento es idéntico al de v1.0.5 pre-Nova.
 
-### El JWT lleva el scope activo
+### 5.4 TenantContextService server-side — extensión Nova
 
-El JWT actual lleva `propertyId` (scope efectivo de la sesión actual). Cuando un user con `LegalEntityUserRole` switchea entre properties de su scope, recibe un nuevo JWT con el `propertyId` actualizado pero la BD ya valida que el switch es legítimo.
+`TenantContextService` middleware NestJS (existing en v1.0.5) extiende para extraer el contexto partner desde el JWT y exponerlo a los services:
 
-**v1.0.5+:** el JWT también lleva `scope: 'PROPERTY' | 'LEGAL_ENTITY' | 'BRAND'` para que endpoints cross-* sepan qué nivel de acceso pedir.
+```typescript
+interface TenantContext {
+  // Eje cliente (existente):
+  organizationId?: string
+  legalEntityId?: string
+  propertyId?: string
+  brandId?: string
+
+  // Eje partner (Nova v1.0.0):
+  partnerMemberId?: string     // si el actor es PartnerMember activo
+  partnerId?: string           // partner del member
+  actorTier: ActorTier         // ver enum abajo
+  assignedOrgIds?: string[]    // cache pre-computado de orgs accessible vía partner
+
+  // Impersonation context:
+  onBehalfOfUserId?: string    // si el actor está impersonando
+  impersonationReason?: string
+
+  scope: 'PLATFORM' | 'PARTNER' | 'BRAND' | 'LEGAL_ENTITY' | 'PROPERTY'
+}
+
+enum ActorTier {
+  PLATFORM_ADMIN
+  PARTNER_ADMIN
+  PARTNER_MEMBER
+  ORG_OWNER
+  ORG_STAFF
+}
+```
+
+Resolución del context (orden de precedencia):
+
+1. Si `Partner.isInternal=true` y user tiene `PartnerMember` activo allí → `actorTier=PLATFORM_ADMIN`, scope global. `assignedOrgIds` no se pre-computa (cardinalidad alta).
+2. Si user tiene `PartnerMember.role=PARTNER_ADMIN` activo → `actorTier=PARTNER_ADMIN`, `assignedOrgIds` = todos los `PartnerClientAssignment.organizationId` ACTIVE de ese partner.
+3. Si user tiene `PartnerMember` activo con role no-admin → `actorTier=PARTNER_MEMBER`, `assignedOrgIds` = ids de `PartnerClientAssignment` accesibles vía `PartnerMemberAssignment` no-ended.
+4. Si no hay row partner pero hay `BrandUserRole/LegalEntityUserRole/UserPropertyRole` → `actorTier=ORG_OWNER` o `ORG_STAFF` según `SystemRole`.
+
+### 5.5 JWT shape extendido (Nova v1.0.0)
+
+JWT actual (v1.0.5) lleva: `{ sub, email, organizationId, propertyId?, legalEntityId?, brandId?, scope, systemRole }`.
+
+JWT extendido v1.0.0 Nova agrega 3 campos:
+
+```jsonc
+{
+  // ... campos existentes ...
+
+  // Nova extension:
+  "actorTier": "PARTNER_MEMBER",     // PLATFORM_ADMIN | PARTNER_ADMIN | PARTNER_MEMBER | ORG_OWNER | ORG_STAFF
+  "partnerMemberId": "uuid",         // si el actor es PartnerMember
+  "assignedOrgIds": ["uuid1", "uuid2", "uuid3"]  // si actorTier=PARTNER_MEMBER, cache de orgs accessible (max 20; si más, omitido y se resuelve server-side)
+}
+```
+
+Tamaño JWT controlled: si `assignedOrgIds` excede 20 entries, se omite y el server hace lookup en cada request (cache 60s en Redis vía `partner-assignments-cache:{userId}`). Pattern: 95% partners tendrán <20 clients; el 5% top usa el lookup path.
+
+### 5.6 Backwards-compat con código existente
+
+Endpoints existentes que filtran por `organizationId` (la enorme mayoría) **siguen funcionando** sin cambios:
+
+- Cuando el actor es `ORG_OWNER` o `ORG_STAFF`, `TenantContextService.getOrganizationId()` retorna su org como siempre.
+- Cuando el actor es `PARTNER_MEMBER` o `PARTNER_ADMIN`, el middleware **inyecta el `organizationId` del cliente actualmente seleccionado en el tenant switcher** (UI state propagado via header `X-Acting-Organization-Id` validado contra `assignedOrgIds`).
+- Cuando el actor es `PLATFORM_ADMIN`, el middleware inyecta el `organizationId` del cliente seleccionado SIN validación de assignment (super-admin scope).
+
+Esto significa: **ningún query org-scoped existente requiere refactor**. Solo los endpoints de gestión de partner (`/v1/partners/*`, `/v1/wizard/*`, `/v1/audit-logs/*`) requieren nuevos guards `NovaAccessGuard + PartnerScopeGuard`. Ver NOVA §4 RBAC matrix completa.
 
 ---
 
@@ -574,4 +747,5 @@ Solo accesible para users del partner tier o ZaharDev internos. Consume datos ag
 
 ## 11. Bitácora de revisiones
 
+- **2026-05-23** — Extensión 5-tier aprobada tras sprint Zenix Nova. Cambios clave: (1) título actualizado a "5-tier (Platform → Partner → Brand → Organization → LegalEntity → Property)" con aclaración que es 4-level cliente + 1 cross-cutting partner — el partner no es padre del cliente sino capa lateral. (2) Nueva §2.1 diagrama ASCII 5-tier completo con ambos ejes (Platform/Partner + Cliente). (3) Nueva §2.2 diagrama lateral mostrando cadena de assignments `PartnerMember → PartnerMemberAssignment → PartnerClientAssignment → Organization`. (4) §2.3 conserva el diagrama 4-level legacy para perspectiva cliente. (5) §5 reformulada como "User access — niveles de scope (3 cliente + 2 partner)" con sub-secciones 5.1 (cliente) y 5.2 (partner). Combinatoria explícita: un mismo user puede tener scope ambos ejes simultáneamente, audit log lo distingue. (6) §5.3 query SQL canónica extendida con 2 UNION ALL adicionales (PLATFORM_ADMIN via `Partner.isInternal=true`, PARTNER_MEMBER via cadena assignments). (7) Nueva §5.4 TenantContextService extendido: interface con `partnerMemberId`, `partnerId`, `actorTier` enum, `assignedOrgIds[]` cache, `onBehalfOfUserId` para impersonation. Resolución del contexto en orden de precedencia documentado. (8) Nueva §5.5 JWT shape extendido con 3 nuevos campos (`actorTier`, `partnerMemberId`, `assignedOrgIds[]`) + estrategia size-control (max 20 ids inline, lookup server-side si más). (9) Nueva §5.6 backwards-compat explícito: endpoints org-scoped existentes funcionan sin refactor — el middleware inyecta `X-Acting-Organization-Id` validado contra `assignedOrgIds` para partner actors. Schema técnico autoritativo movido a [docs/architecture/NOVA-architecture.md §3](../architecture/NOVA-architecture.md#3-schema-completo-prisma) — este doc es la vista conceptual.
 - **2026-05-15** — Documento creado tras conversación de visión arquitectónica multi-tenant. Modelo 4-level Brand→Organization→LegalEntity→Property aprobado por Abraham. Migration plan v1.0.5 ORG-HIERARCHY-SEED + FISCAL-ADAPTER-SEED + TENANT-CTX-3LEVEL definido. 10 fiscal regimes LATAM identificados (MX/CO/CR/PE/PA/GT/BR/SV/HN/AR). Selina + Hotel Monica Tulum como casos de uso canónicos. Fuentes citadas: Mews Connector API docs, Opera Cloud Enterprise Topologies, Bytebase 2026 multi-tenant patterns, Microsoft Citus SaaS docs, Crunchy Data Postgres multi-tenancy.

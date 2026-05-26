@@ -32,6 +32,17 @@ export class TenantContextMiddleware implements NestMiddleware {
       this.cls.set('scope', scope)
       if (payload.legalEntityId) this.cls.set('legalEntityId', payload.legalEntityId)
       if (payload.brandId) this.cls.set('brandId', payload.brandId)
+
+      // Nova foundation Day 3 (§169 D-NOVA-11 + §170 D-NOVA-12)
+      if (payload.actorTier) this.cls.set('actorTier', payload.actorTier)
+      if (payload.partnerMemberId) this.cls.set('partnerMemberId', payload.partnerMemberId)
+      if (payload.assignedOrgIds) this.cls.set('assignedOrgIds', payload.assignedOrgIds)
+
+      // X-Acting-Organization-Id header → CLS (validated by NovaActingOrgGuard)
+      const actingOrg = req.headers['x-acting-organization-id']
+      if (typeof actingOrg === 'string' && actingOrg.trim()) {
+        this.cls.set('actingOrgId', actingOrg.trim())
+      }
     } catch {
       // Token invalid — JwtAuthGuard will handle the 401
     }

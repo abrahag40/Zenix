@@ -3,6 +3,7 @@ import { JwtService } from '@nestjs/jwt'
 import * as bcrypt from 'bcrypt'
 import { AuthResponse, JwtPayload } from '@zenix/shared'
 import { PrismaService } from '../prisma/prisma.service'
+import { AccessControlService } from '../nova/access-control/access-control.service'
 import { LoginDto } from './dto/login.dto'
 
 @Injectable()
@@ -10,11 +11,15 @@ export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private acl: AccessControlService,
   ) {}
 
   async login(dto: LoginDto): Promise<AuthResponse> {
+    const emailLower = dto.email.toLowerCase()
+
+    // ── Path 1: legacy Staff (backwards-compat, primary path en v1.0.0) ──
     const staff = await this.prisma.staff.findUnique({
-      where: { email: dto.email.toLowerCase() },
+      where: { email: emailLower },
       include: {
         // Include the property so the client knows which operational model
         // to render (HOTEL → "habitación" everywhere; HOSTAL → mixed
@@ -25,33 +30,106 @@ export class AuthService {
       },
     })
 
-    if (!staff || !staff.active) throw new UnauthorizedException('Invalid credentials')
+    if (staff) {
+      if (!staff.active) throw new UnauthorizedException('Invalid credentials')
 
-    const passwordMatch = await bcrypt.compare(dto.password, staff.passwordHash)
-    if (!passwordMatch) throw new UnauthorizedException('Invalid credentials')
+      const passwordMatch = await bcrypt.compare(dto.password, staff.passwordHash)
+      if (!passwordMatch) throw new UnauthorizedException('Invalid credentials')
+
+      // Legacy staff = tier ORG_STAFF (default). Sin partnerMember linking.
+      const aclResult = this.acl.resolveLegacyStaff()
+
+      const payload: JwtPayload = {
+        sub: staff.id,
+        email: staff.email,
+        role: staff.role as any,
+        department: staff.department as any,
+        // Sprint 9 G1 — level en JWT habilita @RequiresLevel guards.
+        level: staff.level as any,
+        propertyId: staff.propertyId,
+        organizationId: staff.organizationId ?? '',
+        // Nova foundation Day 3 (§169 D-NOVA-11)
+        actorTier: aclResult.tier,
+        // assignedOrgIds = [] para tier ORG_STAFF — omitido para keep JWT small
+      }
+
+      return {
+        accessToken: this.jwtService.sign(payload),
+        user: {
+          id: staff.id,
+          name: staff.name,
+          email: staff.email,
+          role: staff.role as any,
+          department: staff.department as any,
+          propertyId: staff.propertyId,
+          propertyName: staff.property?.name ?? null,
+          propertyType: (staff.property?.type as any) ?? null,
+        },
+      }
+    }
+
+    // ── Path 2: Nova User (PLATFORM_ADMIN / PARTNER_* / ORG_OWNER) ──────
+    // Fallback cuando email no encontró Staff. Aplica a usuarios creados via
+    // Nova foundation seed o via Wizard Zenix Activate Step 8 (cliente
+    // ORG_OWNER recibe credenciales).
+    const user = await this.prisma.user.findUnique({
+      where: { email: emailLower },
+    })
+
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException('Invalid credentials')
+    }
+
+    const userPasswordMatch = await bcrypt.compare(dto.password, user.passwordHash)
+    if (!userPasswordMatch) throw new UnauthorizedException('Invalid credentials')
+
+    const aclResult = await this.acl.resolveActor(user.id)
+
+    // Resolve propertyId para tiers consultor (no aplica, queda vacío) y
+    // para ORG_OWNER (toma el primer property de su org como default).
+    let propertyId = ''
+    let propertyName: string | null = null
+    let propertyType: string | null = null
+    if (user.organizationId) {
+      const firstProperty = await this.prisma.property.findFirst({
+        where: { organizationId: user.organizationId },
+        select: { id: true, name: true, type: true },
+        orderBy: { name: 'asc' },
+      })
+      if (firstProperty) {
+        propertyId = firstProperty.id
+        propertyName = firstProperty.name
+        propertyType = firstProperty.type as any
+      }
+    }
 
     const payload: JwtPayload = {
-      sub: staff.id,
-      email: staff.email,
-      role: staff.role as any,
-      department: staff.department as any,
-      // Sprint 9 G1 — level en JWT habilita @RequiresLevel guards.
-      level: staff.level as any,
-      propertyId: staff.propertyId,
-      organizationId: staff.organizationId ?? '',
+      sub: user.id,
+      email: user.email,
+      role: user.systemRole as any,
+      propertyId,
+      organizationId: user.organizationId ?? '',
+      actorTier: aclResult.tier,
+      partnerMemberId: aclResult.partnerMemberId ?? undefined,
+      assignedOrgIds: this.acl.trimAssignedOrgsForJwt(aclResult.assignedOrgIds) ?? undefined,
     }
 
     return {
       accessToken: this.jwtService.sign(payload),
       user: {
-        id: staff.id,
-        name: staff.name,
-        email: staff.email,
-        role: staff.role as any,
-        department: staff.department as any,
-        propertyId: staff.propertyId,
-        propertyName: staff.property?.name ?? null,
-        propertyType: (staff.property?.type as any) ?? null,
+        id: user.id,
+        name: `${user.firstName} ${user.lastName}`.trim(),
+        email: user.email,
+        role: user.systemRole as any,
+        department: 'RECEPTION' as any, // placeholder — Nova users no tienen department legacy
+        propertyId,
+        propertyName,
+        propertyType: propertyType as any,
+        // Day 9 — exponer Nova fields al frontend para drivear shell UX
+        actorTier: aclResult.tier,
+        partnerMemberId: aclResult.partnerMemberId ?? undefined,
+        assignedOrgIds: this.acl.trimAssignedOrgsForJwt(aclResult.assignedOrgIds) ?? undefined,
+        organizationId: user.organizationId ?? null,
       },
     }
   }
