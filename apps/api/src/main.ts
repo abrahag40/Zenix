@@ -11,6 +11,17 @@ import { PropertyScopeInterceptor } from './common/interceptors/property-scope.i
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { rawBody: true })
 
+  // Sprint BILLING-CORE Day 2: el endpoint POST /api/v1/webhooks/stripe necesita
+  // el raw body buffer para verificar HMAC del header Stripe-Signature. JSON
+  // body parsing destruye el raw — debemos preservarlo SOLO para ese path.
+  app.use((req: any, res: any, next: any) => {
+    if (req.originalUrl === '/api/v1/webhooks/stripe') {
+      bodyParser.raw({ type: 'application/json', limit: '2mb' })(req, res, next)
+    } else {
+      next()
+    }
+  })
+
   // Sprint Mx-1B-W2 audit T-25 it.4: el endpoint /v1/uploads/base64 recibe
   // hasta ~8MB de payload base64. Default Express es 100KB → rechazaba con
   // 413. Subimos a 10MB para cubrir el upload + margen.
