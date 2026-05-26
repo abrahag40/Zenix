@@ -21,6 +21,7 @@
 | **[docs/vision/12-infrastructure-devops.md](../../docs/vision/12-infrastructure-devops.md)** | **4 fases de infra (Vercel+Render+Neon → AWS → enterprise) + DevOps practices** |
 | **[docs/vision/13-consultant-setup-wizard.md](../../docs/vision/13-consultant-setup-wizard.md)** | **Zenix Activate — 8 etapas + templates inventory + health checks** |
 | **[docs/vision/14-payment-currency-tax-architecture.md](../../docs/vision/14-payment-currency-tax-architecture.md)** | **9 sub-módulos PAY-CORE/CFDI-CORE: multi-currency, OTA-collect, cash drawer, tax engine LATAM, GuestCredit con CFDI E, FxAdvisor** |
+| **[docs/vision/15-subscription-billing.md](../../docs/vision/15-subscription-billing.md)** | **Modelo de cobro SaaS Zenix (mensual tipo Netflix) — Stripe Billing wiring + discount codes negociables por consultor con cap per tier + retention save offers Liverpool-pattern + dunning multi-canal email/WhatsApp + 2 UIs separadas (consultor en /nova/billing, cliente admin en /settings/billing) + reminders D-3/D-1 + caso SmartFit fixed-billing analizado** |
 | **[docs/architecture/NOVA-architecture.md](../../docs/architecture/NOVA-architecture.md)** | **Arquitectura fundacional Zenix Nova — interfaz consultor/admin. Hierarchy 5-tier + Partner schema completo + RBAC matrix + impersonation pattern. ADR permanente.** |
 | [docs/zenix-sales-master.md](../../docs/zenix-sales-master.md) | Pitch comercial completo |
 | [docs/prices-packages.md](../../docs/prices-packages.md) | Packaging y pricing |
