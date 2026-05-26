@@ -30,7 +30,14 @@ interface CityPickerProps {
   cityId: string | undefined
   /** Si el user escribió libre y no está en catálogo. */
   freeText?: string
-  onSelect: (city: { cityId: string | null; freeText: string; displayName: string }) => void
+  /** Callback al seleccionar — incluye timezone IANA cuando es resoluble
+   *  (catálogo local siempre, OSM best-effort vía state→TZ map). */
+  onSelect: (city: {
+    cityId: string | null
+    freeText: string
+    displayName: string
+    timezone?: string
+  }) => void
 }
 
 const DEBOUNCE_MS = 250
@@ -102,6 +109,7 @@ export function CityPicker({ countryCode, cityId, freeText, onSelect }: CityPick
       cityId: city.id,
       freeText: city.source === 'osm' ? city.hierarchyLabel : '',
       displayName: city.hierarchyLabel,
+      timezone: city.timezone,
     })
     setQuery(city.name)
     setOpen(false)

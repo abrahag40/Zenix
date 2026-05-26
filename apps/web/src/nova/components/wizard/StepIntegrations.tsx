@@ -61,29 +61,33 @@ interface HealthCheck {
 const INITIAL_CHECKS: HealthCheck[] = [
   {
     id: 'channex',
-    label: 'Channex (Channel Manager)',
-    description: 'Ping a staging.channex.io con la api-key del cliente. Verifica que el property mapping responde 200.',
+    label: 'Canales de venta (Channex)',
+    description:
+      'Confirma que el cliente puede recibir reservas desde Booking.com, Expedia, Airbnb y demás OTAs conectadas a su channel manager.',
     icon: Plug,
     status: 'idle',
   },
   {
     id: 'stripe',
-    label: 'Stripe (Payments)',
-    description: 'Test charge de $1 USD + immediate refund. Verifica credentials + connect account activo.',
+    label: 'Cobros con tarjeta (Stripe)',
+    description:
+      'Verifica que la cuenta Stripe del cliente está activa para cobrar tarjetas de crédito y débito sin sorpresas el día 1.',
     icon: CreditCard,
     status: 'idle',
   },
   {
     id: 'pac',
-    label: 'PAC sandbox (CFDI)',
-    description: 'Timbra un CFDI mock en sandbox del PAC adapter elegido. Verifica que las credenciales fiscales funcionan.',
+    label: 'Facturación electrónica (CFDI)',
+    description:
+      'Prueba que el proveedor de facturas del cliente (Facturama o SW Sapien en México) responde con las credenciales configuradas.',
     icon: Receipt,
     status: 'idle',
   },
   {
     id: 'smtp',
-    label: 'SMTP (Email transactional)',
-    description: 'Envía test email a noreply@zenix.app. Verifica DNS/SPF/DKIM + delivery confirmation.',
+    label: 'Envío de correos',
+    description:
+      'Confirma que Zenix puede enviar al cliente correos automáticos: confirmaciones de reserva, recibos, alertas, etc.',
     icon: Mail,
     status: 'idle',
   },
@@ -174,7 +178,7 @@ export function StepIntegrations() {
       title="Integraciones — health checks"
       description="Verificamos en vivo que las 4 integraciones críticas funcionen con las credenciales del cliente. Cualquier error bloquea activación. El PAC sandbox warning permite activar con confirm explícito (típico cuando el cliente aún no contrata PAC)."
       nextDisabled={!canProceed}
-      nextLabel={allPassed ? 'Siguiente' : pacWarning && pacOverride ? 'Siguiente (con warning PAC)' : 'Re-ejecutar checks'}
+      nextLabel={allPassed ? 'Siguiente' : pacWarning && pacOverride ? 'Continuar sin facturación electrónica' : 'Re-ejecutar verificaciones'}
     >
       <div className="space-y-4">
         {/* Run all button */}
@@ -223,12 +227,15 @@ export function StepIntegrations() {
               </div>
               <div className="flex-1 min-w-0">
                 <Subhead className="font-semibold text-slate-900">
-                  Activar sin PAC contratado
+                  Activar sin facturación electrónica
                 </Subhead>
                 <Caption tone="secondary" className="block mt-1 leading-relaxed">
-                  El cliente puede operar Zenix sin emitir CFDI 4.0 inicialmente. Los folios
-                  quedarán con <code className="font-mono text-[11px] bg-white px-1 rounded">requiresFiscalReview=true</code>{' '}
-                  hasta que se contrate Facturama o SW Sapien. <span className="font-semibold">Recomendación:</span> contratar PAC dentro de los primeros 30 días para no acumular folios sin timbrar.
+                  El cliente puede operar Zenix sin emitir facturas (CFDI) al inicio. Las
+                  reservas que requieran factura quedarán <strong>en espera</strong> hasta que
+                  el cliente contrate un proveedor de facturación electrónica y configure las
+                  credenciales en su workspace.{' '}
+                  <span className="font-semibold">Recomendación:</span> contratar el servicio
+                  dentro de los primeros 30 días para evitar acumular folios pendientes.
                 </Caption>
 
                 <label className="mt-3 flex items-start gap-2 cursor-pointer">
@@ -239,9 +246,9 @@ export function StepIntegrations() {
                     className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500/30"
                   />
                   <Caption tone="secondary" className="text-[12px] text-slate-900">
-                    Acepto activar a {state.organizationName || 'el cliente'} sin PAC operativo.
-                    El cliente entiende que CFDI no se emitirá hasta que las credenciales
-                    de Facturama/SW Sapien se configuren post-activación.
+                    Acepto activar a {state.organizationName || 'el cliente'} sin facturación
+                    electrónica configurada. El cliente entiende que no podrá emitir CFDI hasta
+                    que contrate y configure su proveedor (Facturama o SW Sapien).
                   </Caption>
                 </label>
               </div>
@@ -288,24 +295,21 @@ export function StepIntegrations() {
                   {hasError
                     ? 'Resuelve los errores antes de continuar. Reintenta el check específico una vez corregido.'
                     : allPassed
-                      ? 'Las 4 integraciones están operativas. Step 8 generará el Activation Report y enviará credenciales al Org Owner.'
-                      : 'Acepta el override del PAC para continuar a Step 8, o re-configura las credenciales y reintenta.'}
+                      ? 'Las 4 integraciones están operativas. En el siguiente paso generaremos el resumen de activación y enviaremos al cliente sus credenciales de acceso.'
+                      : 'Acepta la advertencia de facturación para continuar, o revisa las credenciales con el cliente y reintenta.'}
                 </Caption>
               </div>
             </div>
           </Surface>
         )}
 
-        {/* Backend status note */}
+        {/* Hint en lenguaje de negocio */}
         <Surface variant="sunken" radius="md" padding="md">
           <Body tone="secondary" className="text-[12px]">
-            <span className="font-semibold text-slate-900">Estado de las integraciones:</span>{' '}
-            Channex ping consulta{' '}
-            <code className="font-mono text-[11px] bg-slate-100 px-1 rounded">listProperties</code>{' '}
-            contra la api-key configurada. Stripe usa{' '}
-            <code className="font-mono text-[11px] bg-slate-100 px-1 rounded">balance.retrieve</code>{' '}
-            (read-only, no genera ruido en el dashboard del cliente). PAC verifica credenciales
-            contra el sandbox del adapter elegido. SMTP envía un email real vía Resend.
+            <span className="font-semibold text-slate-900">¿Qué hace cada verificación?</span>{' '}
+            Probamos que las credenciales del cliente funcionan <strong>sin</strong> generar
+            cargos, reservas reales ni emisiones de factura. Si algo falla, te diremos
+            exactamente qué revisar con el cliente antes de seguir.
           </Body>
         </Surface>
       </div>

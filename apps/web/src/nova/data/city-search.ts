@@ -106,6 +106,94 @@ const LATAM_COUNTRY_CODES = new Set([
   'mx', 'co', 'cr', 'pe', 'ar', 'gt', 'pa', 'sv', 'hn', 'br', 'cl', 'ec', 'uy', 'py', 'bo', 've', 'ni', 'do', 'cu', 'pr',
 ])
 
+/**
+ * Default IANA timezone por país. Para países multi-TZ (MX, BR, AR, CL),
+ * el default es la TZ de la capital — refinado per-state abajo.
+ */
+const COUNTRY_DEFAULT_TZ: Record<string, string> = {
+  MX: 'America/Mexico_City',
+  CO: 'America/Bogota',
+  CR: 'America/Costa_Rica',
+  PE: 'America/Lima',
+  AR: 'America/Argentina/Buenos_Aires',
+  GT: 'America/Guatemala',
+  PA: 'America/Panama',
+  SV: 'America/El_Salvador',
+  HN: 'America/Tegucigalpa',
+  BR: 'America/Sao_Paulo',
+  CL: 'America/Santiago',
+  EC: 'America/Guayaquil',
+  UY: 'America/Montevideo',
+  PY: 'America/Asuncion',
+  BO: 'America/La_Paz',
+  VE: 'America/Caracas',
+  NI: 'America/Managua',
+  DO: 'America/Santo_Domingo',
+  CU: 'America/Havana',
+  PR: 'America/Puerto_Rico',
+}
+
+/**
+ * Override per-estado para países con múltiples zonas horarias.
+ * Match case-insensitive sobre `addr.state` de Nominatim.
+ */
+const STATE_TZ_OVERRIDES: Record<string, Record<string, string>> = {
+  MX: {
+    'quintana roo': 'America/Cancun',
+    'yucatán': 'America/Merida',
+    'yucatan': 'America/Merida',
+    'campeche': 'America/Merida',
+    'baja california sur': 'America/Mazatlan',
+    'sinaloa': 'America/Mazatlan',
+    'sonora': 'America/Hermosillo',
+    'nayarit': 'America/Bahia_Banderas',
+    'chihuahua': 'America/Chihuahua',
+    'baja california': 'America/Tijuana',
+  },
+  BR: {
+    'amazonas': 'America/Manaus',
+    'acre': 'America/Rio_Branco',
+    'roraima': 'America/Boa_Vista',
+    'rondônia': 'America/Porto_Velho',
+    'rondonia': 'America/Porto_Velho',
+    'mato grosso': 'America/Cuiaba',
+    'mato grosso do sul': 'America/Campo_Grande',
+    'pará': 'America/Belem',
+    'para': 'America/Belem',
+  },
+  AR: {
+    'mendoza': 'America/Argentina/Mendoza',
+    'salta': 'America/Argentina/Salta',
+    'tucumán': 'America/Argentina/Tucuman',
+    'tucuman': 'America/Argentina/Tucuman',
+    'tierra del fuego': 'America/Argentina/Ushuaia',
+  },
+  CL: {
+    'región de magallanes': 'America/Punta_Arenas',
+    'magallanes': 'America/Punta_Arenas',
+  },
+}
+
+/**
+ * Resuelve timezone IANA a partir de country + state (best-effort).
+ * Devuelve null si no hay match — caller usa default UI.
+ */
+function deriveTimezone(countryCode: string, state?: string): string | null {
+  const cc = countryCode.toUpperCase()
+  if (state) {
+    const stateNormalized = state.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    const overrides = STATE_TZ_OVERRIDES[cc]
+    if (overrides) {
+      // Probar tanto match exacto como con acentos removidos
+      const direct = overrides[state.toLowerCase()]
+      if (direct) return direct
+      const normalized = overrides[stateNormalized]
+      if (normalized) return normalized
+    }
+  }
+  return COUNTRY_DEFAULT_TZ[cc] ?? null
+}
+
 async function searchNominatim(
   query: string,
   countryCode?: string,
@@ -181,6 +269,7 @@ function nominatimToResult(r: NominatimResponse): CitySearchResult {
     countryDisplay,
     lat: parseFloat(r.lat),
     lng: parseFloat(r.lon),
+    timezone: deriveTimezone(countryCode, region) ?? undefined,
     source: 'osm',
     hierarchyLabel,
   }

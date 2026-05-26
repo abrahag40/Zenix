@@ -29,21 +29,18 @@ export function StepStaff() {
       <div className="space-y-4">
         <Surface variant="raised" radius="lg" padding="lg" className="space-y-5">
           <div>
-            <Title>Datos del Org Owner</Title>
+            <Title>Administrador del cliente</Title>
             <Caption tone="tertiary" className="block mt-0.5">
-              Tendrá rol{' '}
-              <code className="font-mono text-[11px] bg-slate-100 px-1 rounded">
-                ORG_OWNER
-              </code>{' '}
-              en la jerarquía 5-tier (§160 D-NOVA-2). Acceso completo al workspace del cliente
-              dentro de <code className="font-mono text-[11px] bg-slate-100 px-1 rounded">app.zenix.com</code>.
+              Esta persona será la dueña de la cuenta con acceso total al PMS — podrá invitar
+              recepcionistas, supervisores, recamaristas y configurar todo dentro del workspace
+              del cliente.
             </Caption>
           </div>
 
           <Field
             label="Nombre completo"
             icon={User}
-            hint="Tal como aparecerá en el welcome email y audit logs."
+            hint="Aparecerá en el correo de bienvenida y en el historial de auditoría."
           >
             <input
               type="text"
@@ -102,12 +99,11 @@ export function StepStaff() {
               </div>
               <div className="flex-1 min-w-0">
                 <Body className="text-[13px] text-slate-900 font-medium">
-                  Email automático al Org Owner
+                  Le llegará un correo de bienvenida
                 </Body>
                 <Caption tone="secondary" className="block leading-tight mt-0.5">
-                  Setup link único single-use, expira en 72 horas. El cliente NO puede acceder
-                  antes de eso — el workspace queda en <code className="font-mono text-[11px] bg-white px-1 rounded">status=ONBOARDING</code>{' '}
-                  hasta que active el link.
+                  Con un enlace seguro para entrar a Zenix. Hasta que abra el correo, su cuenta
+                  no estará activa — nadie del lado del cliente puede iniciar sesión todavía.
                 </Caption>
               </div>
             </li>
@@ -117,11 +113,11 @@ export function StepStaff() {
               </div>
               <div className="flex-1 min-w-0">
                 <Body className="text-[13px] text-slate-900 font-medium">
-                  Password reset forzado al primer login
+                  Crea su propia contraseña
                 </Body>
                 <Caption tone="secondary" className="block leading-tight mt-0.5">
-                  El setup link contiene un token temporal. Al hacer click, el Org Owner define su
-                  propia contraseña — Zenix NUNCA conoce el password final del cliente.
+                  Al hacer click en el enlace, el administrador elige una contraseña que solo
+                  él conoce. Zenix nunca la ve — guardamos únicamente un hash encriptado.
                 </Caption>
               </div>
             </li>
@@ -131,11 +127,11 @@ export function StepStaff() {
               </div>
               <div className="flex-1 min-w-0">
                 <Body className="text-[13px] text-slate-900 font-medium">
-                  2FA mandatory en el primer login (post v1.0.x)
+                  Verificación en dos pasos (próximamente)
                 </Body>
                 <Caption tone="secondary" className="block leading-tight mt-0.5">
-                  Pattern Cognito / Okta. Roadmap v1.0.4 SEC-β — durante v1.0.0 piloto 2FA es
-                  recomendado pero no enforced. El Org Owner puede activarlo manualmente.
+                  En esta versión la 2FA es opcional — el administrador puede activarla desde
+                  sus preferencias. Será obligatoria en la siguiente versión de seguridad.
                 </Caption>
               </div>
             </li>
@@ -145,14 +141,12 @@ export function StepStaff() {
               </div>
               <div className="flex-1 min-w-0">
                 <Body className="text-[13px] text-slate-900 font-medium">
-                  Link expira en 72 horas
+                  El enlace dura 72 horas
                 </Body>
                 <Caption tone="secondary" className="block leading-tight mt-0.5">
-                  Si el cliente no activa en 72h, el consultor puede re-emitir desde{' '}
-                  <code className="font-mono text-[11px] bg-white px-1 rounded">
-                    Nova / Clientes / {state.organizationName || 'el cliente'} / Reenviar setup link
-                  </code>
-                  . El link viejo se invalida automáticamente.
+                  Si el cliente no lo usa a tiempo, puedes reenviárselo desde la lista de
+                  clientes. El enlace viejo se invalida automáticamente — solo el más reciente
+                  funciona.
                 </Caption>
               </div>
             </li>
@@ -166,10 +160,11 @@ export function StepStaff() {
               Post-activación
             </Chip>
             <Body tone="secondary" className="text-[12px] flex-1">
-              <span className="font-semibold text-slate-900">¿Y el resto del staff?</span> Una vez
-              que el Org Owner active su cuenta, podrá invitar SUPERVISOR / RECEPTIONIST /
-              HOUSEKEEPER desde Nova / Settings / Staff. Cada invite es 1-click + email. No es
-              parte del wizard porque el cliente conoce mejor su roster que el consultor.
+              <span className="font-semibold text-slate-900">¿Y el resto del equipo?</span> Una
+              vez que el administrador active su cuenta, podrá invitar a supervisores,
+              recepcionistas y recamaristas desde la sección de equipo de su workspace. Cada
+              invitación se manda por correo con un click. No lo hacemos desde el wizard
+              porque el cliente conoce mejor su roster que tú.
             </Body>
           </div>
         </Surface>

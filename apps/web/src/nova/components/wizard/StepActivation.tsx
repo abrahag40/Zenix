@@ -244,40 +244,39 @@ export function StepActivation() {
             <ol className="space-y-2 list-decimal pl-5 marker:text-violet-600 marker:font-semibold">
               <li>
                 <Body className="text-[13px] text-slate-800">
-                  Se crea <code className="font-mono text-[11px] bg-white px-1 rounded">Organization</code>{' '}
-                  + LegalEntity + Properties + RoomTypes/RatePlans del template + Org Owner en{' '}
-                  <span className="font-semibold">una sola transacción Postgres</span> (todo-o-nada).
+                  Creamos la cuenta del cliente con su marca, razón social, propiedades,
+                  inventario inicial y el usuario administrador.{' '}
+                  <span className="font-semibold">Es todo-o-nada</span>: si algo falla, nada
+                  queda a medias.
                 </Body>
               </li>
               <li>
                 <Body className="text-[13px] text-slate-800">
-                  Se genera <strong>Activation Report PDF</strong> con toda la configuración
-                  (consultoría handoff document, pattern SAP Activate).
+                  Generamos un <strong>resumen de activación</strong> con toda la configuración
+                  — sirve como documento de entrega formal al cliente.
                 </Body>
               </li>
               <li>
                 <Body className="text-[13px] text-slate-800">
-                  Se envía email a <code className="font-mono text-[11px] bg-white px-1 rounded">{state.orgOwnerEmail}</code>{' '}
-                  con setup link <strong>single-use, 72h de vigencia</strong> + el PDF adjunto.
+                  Enviamos un correo a <strong>{state.orgOwnerEmail}</strong> con un enlace
+                  seguro para que el administrador cree su contraseña.{' '}
+                  <span className="font-semibold">El enlace dura 72 horas</span> y es de un solo uso.
                 </Body>
               </li>
               <li>
                 <Body className="text-[13px] text-slate-800">
-                  AuditLog universal registra{' '}
-                  <code className="font-mono text-[11px] bg-white px-1 rounded">
-                    ORGANIZATION_ACTIVATED
-                  </code>{' '}
-                  con tu identidad como consultor + organizationId target (append-only, §165).
+                  Quedará registrado en el historial de auditoría que tú activaste a este
+                  cliente, con fecha y hora exactas — trazabilidad permanente para soporte,
+                  facturación y cumplimiento.
                 </Body>
               </li>
               <li>
                 <Body className="text-[13px] text-slate-800">
-                  Regresas a <code className="font-mono text-[11px] bg-white px-1 rounded">/nova/clientes</code>{' '}
-                  — el cliente aparece con status{' '}
+                  Regresarás a la lista de clientes. El nuevo cliente aparecerá con estado{' '}
                   <Chip variant="warning" intent="subtle" size="sm">
-                    PENDING_OWNER_ACTIVATION
+                    Pendiente de activación
                   </Chip>{' '}
-                  hasta que el Org Owner haga click en el setup link.
+                  hasta que el administrador abra su correo y elija contraseña.
                 </Body>
               </li>
             </ol>

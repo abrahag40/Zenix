@@ -245,9 +245,16 @@ function AddPropertyForm({
               setCityId(c.cityId)
               setCityFreeText(c.freeText)
               setCityDisplay(c.displayName)
-              // Auto-set timezone si la ciudad la trae del catálogo
-              const cityRow = c.cityId ? findCityById(c.cityId) : null
-              if (cityRow?.timezone) setTimezone(cityRow.timezone)
+              // Auto-timezone: el callback ya resuelve TZ tanto del catálogo
+              // (curado IANA) como de Nominatim (derivado country+state).
+              // Si no viene, conservamos la TZ actual (consultor edita manual).
+              if (c.timezone) {
+                setTimezone(c.timezone)
+              } else {
+                // Fallback al catálogo local por id por backward-compat
+                const cityRow = c.cityId ? findCityById(c.cityId) : null
+                if (cityRow?.timezone) setTimezone(cityRow.timezone)
+              }
             }}
           />
         </div>
@@ -264,12 +271,10 @@ function AddPropertyForm({
 
       <Surface variant="sunken" radius="md" padding="md">
         <Body tone="secondary" className="text-[12px]">
-          <span className="font-semibold text-slate-900">Next:</span> al activar el wizard,
-          esta property se creará en Zenix DB + se invocará{' '}
-          <code className="font-mono text-[11px] bg-slate-100 px-1 rounded">
-            channex.createProperty()
-          </code>{' '}
-          para generar el <code>channexPropertyId</code>. Step 7 valida el ping post-creación.
+          <span className="font-semibold text-slate-900">¿Qué pasa al activar?</span>{' '}
+          Esta propiedad se conectará automáticamente con los canales de venta del cliente
+          (Booking.com, Expedia, Airbnb, etc.) a través del channel manager. Antes de activar
+          verificamos que la conexión funciona — si algo falla, te avisaremos en el último paso.
         </Body>
       </Surface>
 

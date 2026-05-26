@@ -117,11 +117,11 @@ export function StepLegalEntity() {
                 <span className="space-y-0.5 block">
                   <span className="block">
                     {RFC_PATTERNS[state.organizationCountryCode]?.hint ??
-                      'Formato según país. Validación final al timbrar (Step 7).'}
+                      'Formato según país. La validación final ocurre al emitir la primera factura.'}
                   </span>
                   <span className="block text-[10px] text-slate-400">
-                    Nota: SAT/DIAN/SUNAT NO exponen API pública gratuita para validar contra padrón.
-                    Validación final al timbrar test CFDI en Step 7.
+                    Validamos el formato aquí. La verificación contra padrón fiscal del
+                    gobierno se hace al momento de timbrar la primera factura del cliente.
                   </span>
                 </span>
               }
@@ -226,12 +226,13 @@ export function StepLegalEntity() {
         <Surface variant="sunken" radius="md" padding="md" tone="info">
           <div className="flex items-start gap-2">
             <Chip variant="info" intent="subtle" size="sm">
-              Step 7
+              Verificación
             </Chip>
             <Body tone="secondary" className="text-[12px] flex-1">
-              <span className="font-semibold text-slate-900">Health check pendiente:</span> en
-              Step 7 (Integrations) validaremos contra el PAC adapter elegido enviando un CFDI
-              mock al sandbox. Si falla, el wizard NO permite activar.
+              <span className="font-semibold text-slate-900">En el paso de Integraciones</span>{' '}
+              probaremos que las credenciales del proveedor de facturación funcionan, emitiendo
+              una factura de prueba (sin cargo real). Si falla, te avisaremos antes de activar
+              al cliente.
             </Body>
           </div>
         </Surface>
