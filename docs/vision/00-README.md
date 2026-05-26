@@ -22,6 +22,7 @@
 | [13-consultant-setup-wizard.md](13-consultant-setup-wizard.md) | Zenix Activate — 8 etapas + templates inventory + health checks | Producto, partners, comercial |
 | [14-payment-currency-tax-architecture.md](14-payment-currency-tax-architecture.md) | 9 sub-módulos de cobros, divisas, impuestos LATAM + GuestCredit + CFDI E | Ingeniería, producto, fiscal |
 | [15-subscription-billing.md](15-subscription-billing.md) | Modelo de cobro Zenix tipo Netflix (mensual) + Stripe Billing wiring + discount codes negociables por consultor + retention save offers (Liverpool pattern) + dunning multi-canal (email/WhatsApp) + dashboards consultor y cliente | Comercial, ingeniería, partners |
+| [16-version-roadmap.md](16-version-roadmap.md) | Vista consolidada del roadmap por versión (v1.0.0 → v1.2) con énfasis en billing: qué entra en cada release, T&C scope, free trial, annual contracts, pricing admin UI | Owner, comercial, comunicación interna |
 
 ## Reglas de uso de esta carpeta
 
