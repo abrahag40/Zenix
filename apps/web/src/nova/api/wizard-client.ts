@@ -93,16 +93,20 @@ export const wizardClient = {
       planTier: state.planTier,
       billingCycle: state.billingCycle,
       trialDays: state.trialDays,
-      discount: state.discountEnabled
-        ? {
-            percentOff: state.discountPercentOff,
-            duration: state.discountDuration,
-            durationInMonths:
-              state.discountDuration === 'repeating'
-                ? state.discountDurationInMonths
-                : undefined,
-            reason: state.discountReason.trim(),
-          }
-        : undefined,
+      // Sprint DISCOUNT-CODES Day 4 — preferir templateId si presente
+      // (cliente NO ve el cap). Manual override solo si NO hay template.
+      discountTemplateId: state.discountTemplateId ?? undefined,
+      discount:
+        !state.discountTemplateId && state.discountEnabled
+          ? {
+              percentOff: state.discountPercentOff,
+              duration: state.discountDuration,
+              durationInMonths:
+                state.discountDuration === 'repeating'
+                  ? state.discountDurationInMonths
+                  : undefined,
+              reason: state.discountReason.trim(),
+            }
+          : undefined,
     }),
 }

@@ -144,6 +144,12 @@ function makeDiscountMock(opts: { kind?: 'applied' | 'pending_approval' } = {}) 
         ? { kind: 'pending_approval', request: { id: 'req-1' } }
         : { kind: 'applied', discount: { id: 'disc-1' } },
     ),
+    // Sprint DISCOUNT-CODES Day 4 — applyTemplate wrapper
+    applyTemplate: jest.fn().mockResolvedValue(
+      opts.kind === 'pending_approval'
+        ? { kind: 'pending_approval', request: { id: 'req-tpl-1' }, templateName: 'TPL-X' }
+        : { kind: 'applied', discount: { id: 'disc-tpl-1' }, templateName: 'TPL-X' },
+    ),
   } as any
 }
 
@@ -431,6 +437,111 @@ describe('WizardActivationService', () => {
       const res = await service.activate(makeDto({ planTier: 'PRO' }), baseActor)
       expect(res.organizationId).toBe('new-org-id') // org NO se rolleó
       expect(res.subscription).toBeNull() // pero subscription quedó null
+    })
+  })
+
+  // ── Sprint DISCOUNT-CODES Day 4 — templateId path ─────────────────
+  describe('Discount via template (Day 4 DISCOUNT-CODES)', () => {
+    it('discountTemplateId prevalece sobre discount manual → applyTemplate', async () => {
+      const discount = makeDiscountMock({ kind: 'applied' })
+      const service = new WizardActivationService(
+        makePrismaMock(),
+        makeAuditMock(),
+        makeEmailMock(),
+        makeSubscriptionMock(),
+        discount,
+        makeBillingMock({ stripeConfigured: true }),
+      )
+      const res = await service.activate(
+        makeDto({
+          planTier: 'PRO',
+          discountTemplateId: 'tpl-piloto-q3-2026',
+          // discount manual NO debe aplicarse cuando templateId está set
+          discount: {
+            percentOff: 30,
+            duration: 'forever',
+            reason: 'Manual override que NO debería usarse.',
+          },
+        }),
+        baseActor,
+      )
+      // applyTemplate fue llamado con el templateId
+      expect(discount.applyTemplate).toHaveBeenCalledWith(
+        'tpl-piloto-q3-2026',
+        'sub-zenix-1',
+        baseActor,
+      )
+      // generate (manual override) NO fue llamado
+      expect(discount.generate).not.toHaveBeenCalled()
+      expect(res.subscription?.discountApplied).toBe(true)
+      expect(res.subscription?.discountStatus).toBe('applied')
+    })
+
+    it('discountTemplateId con cap excedido → pending_approval (no rompe activación)', async () => {
+      const discount = makeDiscountMock({ kind: 'pending_approval' })
+      const service = new WizardActivationService(
+        makePrismaMock(),
+        makeAuditMock(),
+        makeEmailMock(),
+        makeSubscriptionMock(),
+        discount,
+        makeBillingMock({ stripeConfigured: true }),
+      )
+      const res = await service.activate(
+        makeDto({
+          planTier: 'PRO',
+          discountTemplateId: 'tpl-excede-cap',
+        }),
+        baseActor,
+      )
+      expect(discount.applyTemplate).toHaveBeenCalled()
+      expect(res.subscription?.discountApplied).toBe(false)
+      expect(res.subscription?.discountStatus).toBe('pending_approval')
+      expect(res.organizationId).toBe('new-org-id') // org activada igualmente
+    })
+
+    it('applyTemplate falla → activación sigue, sin descuento (logged warn)', async () => {
+      const discount = {
+        generate: jest.fn(),
+        applyTemplate: jest.fn().mockRejectedValue(new Error('Template not found')),
+      } as any
+      const service = new WizardActivationService(
+        makePrismaMock(),
+        makeAuditMock(),
+        makeEmailMock(),
+        makeSubscriptionMock(),
+        discount,
+        makeBillingMock({ stripeConfigured: true }),
+      )
+      const res = await service.activate(
+        makeDto({
+          planTier: 'PRO',
+          discountTemplateId: 'tpl-missing',
+        }),
+        baseActor,
+      )
+      expect(res.organizationId).toBe('new-org-id') // org activada
+      // discountApplied=false porque applyTemplate falló
+      expect(res.subscription?.discountApplied).toBe(false)
+      expect(res.subscription?.discountStatus).toBeNull()
+    })
+
+    it('sin templateId + sin discount → subscription sin descuento', async () => {
+      const discount = makeDiscountMock()
+      const service = new WizardActivationService(
+        makePrismaMock(),
+        makeAuditMock(),
+        makeEmailMock(),
+        makeSubscriptionMock(),
+        discount,
+        makeBillingMock({ stripeConfigured: true }),
+      )
+      const res = await service.activate(makeDto({ planTier: 'PRO' }), baseActor)
+      // Ni applyTemplate ni generate fueron llamados
+      expect(discount.applyTemplate).not.toHaveBeenCalled()
+      expect(discount.generate).not.toHaveBeenCalled()
+      expect(res.subscription?.discountApplied).toBe(false)
+      expect(res.subscription?.discountStatus).toBeNull()
     })
   })
 

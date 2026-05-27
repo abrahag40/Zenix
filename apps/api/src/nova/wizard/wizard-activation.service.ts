@@ -204,7 +204,25 @@ export class WizardActivationService {
         )
 
         let discountStatus: 'applied' | 'pending_approval' | null = null
-        if (dto.discount) {
+
+        // Sprint DISCOUNT-CODES Day 4 — template pre-configurado prevalece
+        // sobre `discount` manual. Si templateId set, aplica el template
+        // (cliente no vio el cap durante setup).
+        if (dto.discountTemplateId) {
+          try {
+            const tplResult = await this.discountCode.applyTemplate(
+              dto.discountTemplateId,
+              sub.id,
+              actor,
+            )
+            discountStatus = tplResult.kind === 'applied' ? 'applied' : 'pending_approval'
+          } catch (err) {
+            this.logger.warn(
+              `[WizardActivation] applyTemplate falló para org ${created.organizationId}: ${String(err).slice(0, 200)}. Subscription creada sin descuento — consultor puede re-aplicar desde Nova.`,
+            )
+          }
+        } else if (dto.discount) {
+          // Fallback manual override (consultor expandió "Descuento manual")
           try {
             const discountResult = await this.discountCode.generate(
               {

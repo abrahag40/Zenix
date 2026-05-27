@@ -96,9 +96,15 @@ export interface WizardState {
   billingCycle: WizardBillingCycle
   /** Días de trial — 0 = sin trial. Recomendado 14d para piloto. */
   trialDays: number
-  /** Toggle "Aplicar descuento negociado por el consultor". */
+  /** Sprint DISCOUNT-CODES Day 4 — template pre-configurado del consultor.
+   *  Si set, prevalece sobre los campos manuales abajo. Cliente NO ve el
+   *  cap del partner tier (solo el código aplicado). */
+  discountTemplateId: string | null
+  /** Toggle "Configurar descuento manual" — solo se usa cuando NO hay
+   *  template seleccionado. Por default collapsed/disabled. */
   discountEnabled: boolean
-  /** 5-50%. Cap se valida server-side contra PartnerTier del consultor. */
+  /** 5-50%. Cap se valida server-side contra PartnerTier del consultor.
+   *  Solo usado en manual override (sin templateId). */
   discountPercentOff: number
   discountDuration: WizardDiscountDuration
   /** Required si discountDuration='repeating' (1-12). */
@@ -235,6 +241,7 @@ const initialState = {
   planTier: 'PRO' as WizardPlanTier,
   billingCycle: 'monthly' as WizardBillingCycle,
   trialDays: 14,
+  discountTemplateId: null as string | null,
   discountEnabled: false,
   discountPercentOff: 15,
   discountDuration: 'repeating' as WizardDiscountDuration,

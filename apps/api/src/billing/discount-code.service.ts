@@ -313,6 +313,55 @@ export class DiscountCodeService {
   }
 
   // ═══════════════════════════════════════════════════════════════════
+  // applyTemplate — Sprint BILLING-DISCOUNT-CODES Day 1
+  // Aplica un template pre-configurado a una subscription. Wrapper sobre
+  // generate() que extrae percentOff/duration/durationInMonths/reason del
+  // template en vez de leerlos del DTO inline.
+  //
+  // El cap se valida al APPLY time (D-DC-3): el consultor puede tener
+  // templates que excedan su cap actual (ej anticipando promoción) — al
+  // aplicar, genera approval request automáticamente.
+  // ═══════════════════════════════════════════════════════════════════
+  async applyTemplate(
+    templateId: string,
+    subscriptionId: string,
+    actor: JwtPayload,
+  ): Promise<
+    | { kind: 'applied'; discount: any; templateName: string }
+    | { kind: 'pending_approval'; request: any; templateName: string }
+  > {
+    const tpl = await this.prisma.consultorDiscountTemplate.findUnique({
+      where: { id: templateId },
+    })
+    if (!tpl) throw new NotFoundException(`Template ${templateId} no encontrado`)
+
+    // Ownership: solo el creador del template puede aplicarlo (D-DC-1).
+    // PLATFORM puede bypass.
+    if (tpl.consultorId !== actor.sub && (actor as any).actorTier !== 'PLATFORM') {
+      throw new ForbiddenException(
+        'Solo puedes aplicar tus propios templates de descuento',
+      )
+    }
+
+    const result = await this.generate(
+      {
+        subscriptionId,
+        percentOff: tpl.percentOff,
+        duration: tpl.duration as 'once' | 'repeating' | 'forever',
+        durationInMonths: tpl.durationInMonths ?? undefined,
+        reason: `[Template: ${tpl.name}] Aplicado desde código pre-configurado del consultor`,
+        autoRequestApprovalIfExceedsCap: true,
+      },
+      actor,
+    )
+
+    if (result.kind === 'applied') {
+      return { kind: 'applied', discount: result.discount, templateName: tpl.name }
+    }
+    return { kind: 'pending_approval', request: result.request, templateName: tpl.name }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
   // Helpers privados — core logic
   // ═══════════════════════════════════════════════════════════════════
 

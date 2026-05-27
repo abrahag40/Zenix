@@ -9,8 +9,12 @@
  *   · Spacing consistente: gap-4/5 entre cards, gap-2 dentro
  *   · Tier-aware descuento + cap visual + "Permanente" lock per tier
  */
-import { useWizardStore } from '../../../store/wizard'
+import { useState } from 'react'
+import { Link } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import { useWizardStore, type WizardState } from '../../../store/wizard'
 import { useAuthStore } from '../../../store/auth'
+import { billingClient, type DiscountCodeTemplate } from '../../api/billing-client'
 import { WizardLayout } from './WizardLayout'
 import {
   Surface,
@@ -37,6 +41,12 @@ import {
   Info,
   TrendingUp,
   Check,
+  ChevronDown,
+  ChevronUp,
+  X,
+  Eye,
+  EyeOff,
+  Plus,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -419,216 +429,15 @@ export function StepPlanDiscount() {
           </div>
         </Surface>
 
-        {/* ══════════════ Descuento negociado ═════════════════════════ */}
-        <Surface variant="raised" radius="lg" padding="lg" className="space-y-5">
-          <div className="flex items-start gap-3">
-            <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-amber-50 text-amber-700 flex-shrink-0">
-              <Percent className="h-4 w-4" aria-hidden />
-            </div>
+        {/* ══════════════ Descuento ═══════════════════════════════════ */}
+        <DiscountSection
+          state={state}
+          cap={cap}
+          canForever={canForever}
+          exceedsPercentCap={exceedsPercentCap}
+          requiresApproval={requiresApproval}
+        />
 
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <Title>Descuento negociado</Title>
-                <Chip variant="neutral" intent="subtle" size="sm">
-                  <Crown className="h-3 w-3 inline mr-1" aria-hidden />
-                  {cap.chipText}
-                </Chip>
-              </div>
-              <Callout tone="tertiary" className="mt-1">
-                Si negociaste un descuento con el cliente, captúralo aquí. Dentro de tu límite
-                se aplica al momento; si lo excedes, queda pendiente de aprobación.
-              </Callout>
-            </div>
-
-            <Toggle
-              checked={state.discountEnabled}
-              onChange={(v) => state.setField('discountEnabled', v)}
-            />
-          </div>
-
-          {state.discountEnabled && (
-            <div className="space-y-5 pt-4 border-t border-slate-100">
-              {/* Porcentaje */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <Subhead className="flex items-center gap-1.5">
-                    <Tag className="h-3.5 w-3.5 text-slate-500" aria-hidden />
-                    Porcentaje de descuento
-                  </Subhead>
-                  <Headline
-                    as="div"
-                    className={cn(
-                      'text-[22px] tabular-nums tracking-tight leading-none',
-                      exceedsPercentCap ? 'text-amber-700' : 'text-violet-700',
-                    )}
-                  >
-                    {state.discountPercentOff}%
-                  </Headline>
-                </div>
-
-                <div className="relative">
-                  {/* Track con zonas color-coded */}
-                  <div className="absolute inset-y-0 left-0 right-0 h-2 top-1/2 -translate-y-1/2 rounded-full overflow-hidden flex bg-slate-200">
-                    <div
-                      className="bg-emerald-200"
-                      style={{ width: `${((cap.maxPct - 5) / 45) * 100}%` }}
-                      aria-hidden
-                    />
-                    {cap.maxPct < 50 && (
-                      <div
-                        className="bg-amber-200"
-                        style={{ width: `${((50 - cap.maxPct) / 45) * 100}%` }}
-                        aria-hidden
-                      />
-                    )}
-                  </div>
-                  <input
-                    type="range"
-                    min={5}
-                    max={50}
-                    step={5}
-                    value={state.discountPercentOff}
-                    onChange={(e) => state.setField('discountPercentOff', Number(e.target.value))}
-                    className="relative w-full accent-violet-600 z-10"
-                  />
-                </div>
-
-                <div className="flex justify-between mt-2">
-                  <Caption tone="tertiary" className="tabular-nums">
-                    5%
-                  </Caption>
-                  <Caption className="tabular-nums text-emerald-700 font-semibold">
-                    Tu límite: {cap.maxPct}%
-                  </Caption>
-                  <Caption tone="tertiary" className="tabular-nums">
-                    50%
-                  </Caption>
-                </div>
-
-                {exceedsPercentCap && (
-                  <div className="mt-3 flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200">
-                    <AlertTriangle
-                      className="h-4 w-4 text-amber-700 flex-shrink-0 mt-0.5"
-                      aria-hidden
-                    />
-                    <div>
-                      <BodyMedium className="text-amber-900">
-                        Excede tu límite ({cap.maxPct}%) — necesita aprobación
-                      </BodyMedium>
-                      <Callout tone="secondary" className="text-amber-800 mt-0.5">
-                        Al activar el wizard, la suscripción se crea sin el descuento y queda
-                        una solicitud pendiente para tu admin. Cuando apruebe, se aplica
-                        automáticamente.
-                      </Callout>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Duración — opciones cambian según cycle.
-                  Annual no soporta "repeating" (sólo 1 invoice/año) → solo
-                  Once / Forever. Monthly tiene las 3. */}
-              <div>
-                <Subhead className="block mb-2">Duración del descuento</Subhead>
-                {(() => {
-                  const isAnnual = state.billingCycle === 'annual'
-                  const COPY = isAnnual ? DURATION_COPY_ANNUAL : DURATION_COPY_MONTHLY
-                  const durations = isAnnual
-                    ? (['once', 'forever'] as const)
-                    : (['once', 'repeating', 'forever'] as const)
-                  const cols = isAnnual ? 'grid-cols-2' : 'grid-cols-3'
-                  return (
-                    <div className={cn('grid gap-3', cols)}>
-                      {durations.map((d) => {
-                        const isSelected = state.discountDuration === d
-                        const disabled = d === 'forever' && !canForever
-                        const copyEntry = COPY[d as keyof typeof COPY]
-                        return (
-                          <DurationCard
-                            key={d}
-                            title={copyEntry.label}
-                            hint={copyEntry.hint}
-                            selected={isSelected}
-                            disabled={disabled}
-                            onClick={() => !disabled && state.setField('discountDuration', d)}
-                            disabledHint={
-                              disabled
-                                ? `Tu nivel (${cap.label}) no permite descuentos permanentes sin aprobación. Solo Platinum los aplica directo.`
-                                : undefined
-                            }
-                          />
-                        )
-                      })}
-                    </div>
-                  )
-                })()}
-
-                {state.discountDuration === 'repeating' && state.billingCycle === 'monthly' && (
-                  <div className="mt-3 flex items-center gap-3 px-4 py-3 rounded-lg bg-slate-50 border border-slate-100">
-                    <Body tone="secondary">Duración:</Body>
-                    <input
-                      type="number"
-                      min={1}
-                      max={12}
-                      value={state.discountDurationInMonths}
-                      onChange={(e) =>
-                        state.setField('discountDurationInMonths', Number(e.target.value))
-                      }
-                      className="w-16 h-9 px-2 rounded-md border border-slate-300 text-[14px] font-medium text-center text-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-500/30 bg-white"
-                    />
-                    <Body tone="secondary">meses (1 – 12).</Body>
-                  </div>
-                )}
-              </div>
-
-              {/* Razón */}
-              <div>
-                <div className="flex items-baseline justify-between mb-2">
-                  <Subhead>
-                    Justificación{' '}
-                    <Caption tone="tertiary" className="font-normal">
-                      (queda registrado para auditoría)
-                    </Caption>
-                  </Subhead>
-                  <Caption
-                    className={cn(
-                      'tabular-nums font-medium',
-                      state.discountReason.trim().length < 20
-                        ? 'text-amber-700'
-                        : 'text-emerald-700',
-                    )}
-                  >
-                    {state.discountReason.trim().length}/20
-                  </Caption>
-                </div>
-                <textarea
-                  value={state.discountReason}
-                  onChange={(e) => state.setField('discountReason', e.target.value)}
-                  placeholder="Ej: piloto Q3 2026 — descuento de bienvenida 3 meses, aprobado en llamada comercial 2026-05-24."
-                  rows={2}
-                  className="w-full px-3 py-2.5 rounded-lg border border-slate-300 text-[13px] leading-[18px] text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/30 resize-none"
-                  maxLength={500}
-                />
-              </div>
-
-              {requiresApproval && (
-                <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200">
-                  <Info className="h-4 w-4 text-amber-700 flex-shrink-0 mt-0.5" aria-hidden />
-                  <div>
-                    <BodyMedium className="text-amber-900">
-                      Necesita aprobación de tu admin
-                    </BodyMedium>
-                    <Callout tone="secondary" className="text-amber-800 mt-0.5">
-                      Al activar, la suscripción se crea sin el descuento y la solicitud aparece
-                      en Nova → Billing → Aprobaciones (vence en 7 días). Cuando tu admin
-                      apruebe, se aplica automáticamente.
-                    </Callout>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </Surface>
 
         {/* ══════════════ Preview del cobro (timeline unificado) ═════ */}
         <BillingTimeline
@@ -653,6 +462,406 @@ export function StepPlanDiscount() {
 // ──────────────────────────────────────────────────────────────────────
 // Sub-components
 // ──────────────────────────────────────────────────────────────────────
+
+// ──────────────────────────────────────────────────────────────────────
+// DiscountSection — Sprint DISCOUNT-CODES Day 4
+// Primary: code dropdown (códigos pre-configurados del consultor)
+// Secondary: manual override collapsed por default
+// ──────────────────────────────────────────────────────────────────────
+
+function DiscountSection({
+  state,
+  cap,
+  canForever,
+  exceedsPercentCap,
+  requiresApproval,
+}: {
+  state: WizardState
+  cap: { maxPct: number; allowForever: boolean; label: string; chipText: string }
+  canForever: boolean
+  exceedsPercentCap: boolean
+  requiresApproval: boolean
+}) {
+  const [manualOpen, setManualOpen] = useState(false)
+
+  // Cargar códigos pre-configurados del consultor
+  const { data: templates = [], isLoading } = useQuery<DiscountCodeTemplate[]>({
+    queryKey: ['billing', 'codes'],
+    queryFn: billingClient.listTemplates,
+    staleTime: 60_000,
+  })
+
+  const selectedTemplate = state.discountTemplateId
+    ? templates.find((t) => t.id === state.discountTemplateId)
+    : null
+
+  const applyTemplate = (tpl: DiscountCodeTemplate) => {
+    state.setField('discountTemplateId', tpl.id)
+    state.setField('discountEnabled', true)
+    state.setField('discountPercentOff', tpl.percentOff)
+    state.setField('discountDuration', tpl.duration)
+    if (tpl.durationInMonths) state.setField('discountDurationInMonths', tpl.durationInMonths)
+    state.setField('discountReason', `Aplicado desde código: ${tpl.name}`)
+    // Cerrar manual override si estaba abierto
+    setManualOpen(false)
+  }
+
+  const removeTemplate = () => {
+    state.setField('discountTemplateId', null)
+    state.setField('discountEnabled', false)
+    state.setField('discountReason', '')
+  }
+
+  return (
+    <Surface variant="raised" radius="lg" padding="lg" className="space-y-5">
+      {/* Header */}
+      <div className="flex items-start gap-3">
+        <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-amber-50 text-amber-700 flex-shrink-0">
+          <Percent className="h-4 w-4" aria-hidden />
+        </div>
+        <div className="flex-1 min-w-0">
+          <Title>Descuento (opcional)</Title>
+          <Callout tone="tertiary" className="mt-1">
+            Aplica un código pre-configurado para que el cliente no vea tu límite de descuento.
+            Crea códigos antes de la reunión desde{' '}
+            <Link
+              to="/nova/billing/codigos"
+              target="_blank"
+              className="text-violet-700 font-medium hover:underline"
+            >
+              Nova → Billing → Códigos
+            </Link>
+            .
+          </Callout>
+        </div>
+      </div>
+
+      {/* Selected template — applied state */}
+      {selectedTemplate && (
+        <div className="flex items-center gap-3 p-3 rounded-lg bg-violet-50 border border-violet-200">
+          <div className="flex items-center justify-center w-9 h-9 rounded-md bg-violet-100 text-violet-700 flex-shrink-0">
+            <Check className="h-4 w-4" strokeWidth={2.5} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <BodyMedium className="text-violet-900">
+              ✓ Código aplicado: {selectedTemplate.name}
+            </BodyMedium>
+            <Caption tone="tertiary" className="block mt-0.5">
+              −{selectedTemplate.percentOff}% ·{' '}
+              {selectedTemplate.duration === 'once'
+                ? 'Una vez'
+                : selectedTemplate.duration === 'repeating'
+                  ? `${selectedTemplate.durationInMonths ?? '?'} meses`
+                  : 'Permanente'}
+            </Caption>
+          </div>
+          <button
+            type="button"
+            onClick={removeTemplate}
+            className="p-2 rounded-md text-violet-600 hover:bg-violet-100 transition-colors"
+            title="Quitar código"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Code picker — when no template selected */}
+      {!selectedTemplate && (
+        <div>
+          {isLoading && (
+            <Caption tone="tertiary">Cargando tus códigos…</Caption>
+          )}
+          {!isLoading && templates.length === 0 && (
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-slate-50 border border-slate-100">
+              <Info className="h-4 w-4 text-slate-500 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <BodyMedium>No tienes códigos pre-configurados</BodyMedium>
+                <Callout tone="tertiary" className="mt-1">
+                  Crea códigos en{' '}
+                  <Link
+                    to="/nova/billing/codigos"
+                    target="_blank"
+                    className="text-violet-700 font-medium hover:underline inline-flex items-center gap-0.5"
+                  >
+                    Nova → Billing → Códigos <Plus className="h-3 w-3" />
+                  </Link>{' '}
+                  para usar el flujo recomendado. O configura uno manual abajo (visible al cliente).
+                </Callout>
+              </div>
+            </div>
+          )}
+          {!isLoading && templates.length > 0 && (
+            <div className="space-y-2">
+              <Subhead>Selecciona un código:</Subhead>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {templates.map((tpl) => (
+                  <button
+                    key={tpl.id}
+                    type="button"
+                    onClick={() => applyTemplate(tpl)}
+                    className="text-left p-3 rounded-lg border border-slate-200 hover:border-violet-300 hover:bg-violet-50/40 transition-colors"
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <Tag className="h-3.5 w-3.5 text-violet-600" />
+                      <BodyMedium className="truncate">{tpl.name}</BodyMedium>
+                    </div>
+                    <Caption tone="tertiary" className="block">
+                      −{tpl.percentOff}% ·{' '}
+                      {tpl.duration === 'once'
+                        ? 'Una vez'
+                        : tpl.duration === 'repeating'
+                          ? `${tpl.durationInMonths ?? '?'} meses`
+                          : 'Permanente'}
+                    </Caption>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Manual override — collapsed por default */}
+      {!selectedTemplate && (
+        <div className="pt-3 border-t border-slate-100">
+          <button
+            type="button"
+            onClick={() => setManualOpen((v) => !v)}
+            className="w-full flex items-center justify-between gap-2 text-left group"
+          >
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              {manualOpen ? (
+                <EyeOff className="h-4 w-4 text-amber-600 flex-shrink-0" />
+              ) : (
+                <Eye className="h-4 w-4 text-slate-400 flex-shrink-0" />
+              )}
+              <div className="flex-1 min-w-0">
+                <BodyMedium className="text-slate-700 group-hover:text-slate-900 transition-colors">
+                  Configurar descuento manual
+                </BodyMedium>
+                <Caption tone="tertiary" className="block">
+                  {manualOpen
+                    ? '⚠ Esta sección es VISIBLE al cliente — usar solo en emergencias'
+                    : 'Visible al cliente — preferir códigos pre-configurados'}
+                </Caption>
+              </div>
+            </div>
+            {manualOpen ? (
+              <ChevronUp className="h-4 w-4 text-slate-500" />
+            ) : (
+              <ChevronDown className="h-4 w-4 text-slate-500" />
+            )}
+          </button>
+
+          {manualOpen && (
+            <div className="mt-4 space-y-5">
+              {/* Warning prominent */}
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200">
+                <AlertTriangle className="h-4 w-4 text-amber-700 flex-shrink-0 mt-0.5" />
+                <Callout className="text-amber-900 text-[12.5px]">
+                  Al expandir esta sección, el slider con tu límite del partner tier (
+                  <strong>{cap.maxPct}%</strong>) es visible al cliente. Para mayor privacidad,
+                  crea un código pre-configurado y aplícalo arriba.
+                </Callout>
+              </div>
+
+              {/* Tier chip */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <Chip variant="neutral" intent="subtle" size="sm">
+                  <Crown className="h-3 w-3 inline mr-1" aria-hidden />
+                  {cap.chipText}
+                </Chip>
+              </div>
+
+              <ManualDiscountForm
+                state={state}
+                cap={cap}
+                canForever={canForever}
+                exceedsPercentCap={exceedsPercentCap}
+                requiresApproval={requiresApproval}
+              />
+            </div>
+          )}
+        </div>
+      )}
+    </Surface>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// ManualDiscountForm — extracted del original Descuento section
+// Mismo contenido (slider + duration cards + razón) — vive aquí para
+// reuso desde DiscountSection collapsed.
+// ──────────────────────────────────────────────────────────────────────
+
+function ManualDiscountForm({
+  state,
+  cap,
+  canForever,
+  exceedsPercentCap,
+  requiresApproval,
+}: {
+  state: WizardState
+  cap: { maxPct: number; allowForever: boolean; label: string }
+  canForever: boolean
+  exceedsPercentCap: boolean
+  requiresApproval: boolean
+}) {
+  // Auto-enable discountEnabled cuando se interactúa con manual override
+  if (!state.discountEnabled) {
+    // Side effect en render — pero only fires once at mount
+    setTimeout(() => state.setField('discountEnabled', true), 0)
+  }
+
+  const isAnnual = state.billingCycle === 'annual'
+  const COPY = isAnnual ? DURATION_COPY_ANNUAL : DURATION_COPY_MONTHLY
+  const durations = isAnnual
+    ? (['once', 'forever'] as const)
+    : (['once', 'repeating', 'forever'] as const)
+  const cols = isAnnual ? 'grid-cols-2' : 'grid-cols-3'
+
+  return (
+    <div className="space-y-5">
+      {/* Porcentaje */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <Subhead className="flex items-center gap-1.5">
+            <Tag className="h-3.5 w-3.5 text-slate-500" />
+            Porcentaje de descuento
+          </Subhead>
+          <Headline
+            as="div"
+            className={cn(
+              'text-[22px] tabular-nums tracking-tight leading-none',
+              exceedsPercentCap ? 'text-amber-700' : 'text-violet-700',
+            )}
+          >
+            {state.discountPercentOff}%
+          </Headline>
+        </div>
+        <div className="relative">
+          <div className="absolute inset-y-0 left-0 right-0 h-2 top-1/2 -translate-y-1/2 rounded-full overflow-hidden flex bg-slate-200">
+            <div
+              className="bg-emerald-200"
+              style={{ width: `${((cap.maxPct - 5) / 45) * 100}%` }}
+              aria-hidden
+            />
+            {cap.maxPct < 50 && (
+              <div
+                className="bg-amber-200"
+                style={{ width: `${((50 - cap.maxPct) / 45) * 100}%` }}
+                aria-hidden
+              />
+            )}
+          </div>
+          <input
+            type="range"
+            min={5}
+            max={50}
+            step={5}
+            value={state.discountPercentOff}
+            onChange={(e) => state.setField('discountPercentOff', Number(e.target.value))}
+            className="relative w-full accent-violet-600 z-10"
+          />
+        </div>
+        <div className="flex justify-between mt-2">
+          <Caption tone="tertiary" className="tabular-nums">
+            5%
+          </Caption>
+          <Caption className="tabular-nums text-emerald-700 font-semibold">
+            Tu límite: {cap.maxPct}%
+          </Caption>
+          <Caption tone="tertiary" className="tabular-nums">
+            50%
+          </Caption>
+        </div>
+      </div>
+
+      {/* Duración */}
+      <div>
+        <Subhead className="block mb-2">Duración del descuento</Subhead>
+        <div className={cn('grid gap-3', cols)}>
+          {durations.map((d) => {
+            const isSelected = state.discountDuration === d
+            const disabled = d === 'forever' && !canForever
+            const copyEntry = COPY[d as keyof typeof COPY]
+            return (
+              <DurationCard
+                key={d}
+                title={copyEntry.label}
+                hint={copyEntry.hint}
+                selected={isSelected}
+                disabled={disabled}
+                onClick={() => !disabled && state.setField('discountDuration', d)}
+                disabledHint={
+                  disabled
+                    ? `Tu nivel (${cap.label}) no permite descuentos permanentes sin aprobación.`
+                    : undefined
+                }
+              />
+            )
+          })}
+        </div>
+        {state.discountDuration === 'repeating' && state.billingCycle === 'monthly' && (
+          <div className="mt-3 flex items-center gap-3 px-4 py-3 rounded-lg bg-slate-50 border border-slate-100">
+            <Body tone="secondary">Duración:</Body>
+            <input
+              type="number"
+              min={1}
+              max={12}
+              value={state.discountDurationInMonths}
+              onChange={(e) => state.setField('discountDurationInMonths', Number(e.target.value))}
+              className="w-16 h-9 px-2 rounded-md border border-slate-300 text-[14px] font-medium text-center text-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-500/30 bg-white"
+            />
+            <Body tone="secondary">meses (1 – 12).</Body>
+          </div>
+        )}
+      </div>
+
+      {/* Razón */}
+      <div>
+        <div className="flex items-baseline justify-between mb-2">
+          <Subhead>
+            Justificación{' '}
+            <Caption tone="tertiary" className="font-normal">
+              (queda registrado para auditoría)
+            </Caption>
+          </Subhead>
+          <Caption
+            className={cn(
+              'tabular-nums font-medium',
+              state.discountReason.trim().length < 20 ? 'text-amber-700' : 'text-emerald-700',
+            )}
+          >
+            {state.discountReason.trim().length}/20
+          </Caption>
+        </div>
+        <textarea
+          value={state.discountReason}
+          onChange={(e) => state.setField('discountReason', e.target.value)}
+          placeholder="Ej: piloto Q3 2026 — descuento de bienvenida 3 meses."
+          rows={2}
+          className="w-full px-3 py-2.5 rounded-lg border border-slate-300 text-[13px] leading-[18px] text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/30 resize-none"
+          maxLength={500}
+        />
+      </div>
+
+      {requiresApproval && (
+        <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200">
+          <Info className="h-4 w-4 text-amber-700 flex-shrink-0 mt-0.5" />
+          <div>
+            <BodyMedium className="text-amber-900">Necesita aprobación de tu admin</BodyMedium>
+            <Callout tone="secondary" className="text-amber-800 mt-0.5">
+              Al activar, la suscripción se crea sin el descuento y la solicitud aparece en
+              Nova → Billing → Aprobaciones (vence en 7 días).
+            </Callout>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 function CycleButton({
   selected,
