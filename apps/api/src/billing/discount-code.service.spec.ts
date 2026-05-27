@@ -572,6 +572,64 @@ describe('DiscountCodeService', () => {
       )
     })
 
+    // ── applyTemplate — Sprint BILLING-DISCOUNT-CODES Day 1 ──
+    it('applyTemplate del propio consultor + dentro de cap → applied', async () => {
+      const prisma = makePrismaMock({ partnerMember: { partner: { tier: 'SILVER' } }, cap: { maxDiscountPct: 25, maxDurationMonths: 6 } })
+      prisma.consultorDiscountTemplate.findUnique = jest.fn().mockResolvedValue({
+        id: 'tpl-1',
+        consultorId: 'consultor-1',
+        name: 'Mi código piloto',
+        percentOff: 15,
+        duration: 'repeating',
+        durationInMonths: 3,
+      })
+      const service = makeService({ prisma })
+      const res = await service.applyTemplate('tpl-1', 'sub-1', baseActor())
+      expect(res.kind).toBe('applied')
+      expect((res as any).templateName).toBe('Mi código piloto')
+    })
+
+    it('applyTemplate de OTRO consultor → 403', async () => {
+      const prisma = makePrismaMock()
+      prisma.consultorDiscountTemplate.findUnique = jest.fn().mockResolvedValue({
+        id: 'tpl-1',
+        consultorId: 'OTRO-CONSULTOR',
+        name: 'Código ajeno',
+        percentOff: 15,
+        duration: 'repeating',
+        durationInMonths: 3,
+      })
+      const service = makeService({ prisma })
+      await expect(
+        service.applyTemplate('tpl-1', 'sub-1', baseActor()),
+      ).rejects.toThrow(ForbiddenException)
+    })
+
+    it('applyTemplate template not found → 404', async () => {
+      const prisma = makePrismaMock()
+      prisma.consultorDiscountTemplate.findUnique = jest.fn().mockResolvedValue(null)
+      const service = makeService({ prisma })
+      await expect(
+        service.applyTemplate('tpl-missing', 'sub-1', baseActor()),
+      ).rejects.toThrow(NotFoundException)
+    })
+
+    it('applyTemplate excede cap → pending_approval', async () => {
+      const prisma = makePrismaMock({ partnerMember: { partner: { tier: 'SILVER' } }, cap: { maxDiscountPct: 25, maxDurationMonths: 6 } })
+      prisma.consultorDiscountTemplate.findUnique = jest.fn().mockResolvedValue({
+        id: 'tpl-big',
+        consultorId: 'consultor-1',
+        name: 'Big discount',
+        percentOff: 40, // excede cap SILVER 25%
+        duration: 'repeating',
+        durationInMonths: 3,
+      })
+      const service = makeService({ prisma })
+      const res = await service.applyTemplate('tpl-big', 'sub-1', baseActor())
+      expect(res.kind).toBe('pending_approval')
+      expect((res as any).templateName).toBe('Big discount')
+    })
+
     it('deleteTemplate de otro consultor → 403', async () => {
       const prisma = makePrismaMock()
       prisma.consultorDiscountTemplate.findUnique = jest.fn().mockResolvedValue({

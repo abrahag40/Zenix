@@ -159,4 +159,21 @@ export class NovaBillingController {
   async deleteTemplate(@Param('id') id: string, @CurrentUser() actor: JwtPayload) {
     return this.discountCode.deleteTemplate(id, actor)
   }
+
+  /**
+   * Aplica un template pre-configurado a una subscription target.
+   * Sprint BILLING-DISCOUNT-CODES Day 1.
+   *
+   * Body: { subscriptionId: string }
+   * Return: { kind: 'applied' | 'pending_approval', ... }
+   */
+  @Post('discount-templates/:id/apply')
+  @RequireActingOrg()
+  async applyTemplate(
+    @Param('id') templateId: string,
+    @Body() body: { subscriptionId: string },
+    @CurrentUser() actor: JwtPayload,
+  ) {
+    return this.discountCode.applyTemplate(templateId, body.subscriptionId, actor)
+  }
 }
