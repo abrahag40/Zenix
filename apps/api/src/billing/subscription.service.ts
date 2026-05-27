@@ -662,6 +662,18 @@ export class SubscriptionService {
   // ═══════════════════════════════════════════════════════════════════
   // Get subscription para Org
   // ═══════════════════════════════════════════════════════════════════
+  async getSubscriptionById(id: string) {
+    const sub = await this.prisma.subscription.findUnique({
+      where: { id },
+      include: {
+        discounts: { orderBy: { appliedAt: 'desc' } },
+        events: { orderBy: { createdAt: 'desc' }, take: 20 },
+      },
+    })
+    if (!sub) throw new NotFoundException(`Subscription ${id} no encontrada`)
+    return sub
+  }
+
   async getSubscriptionForOrganization(organizationId: string) {
     return this.prisma.subscription.findUnique({
       where: { organizationId },

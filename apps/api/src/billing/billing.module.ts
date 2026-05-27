@@ -20,18 +20,28 @@ import { BillingService } from './billing.service'
 import { WebhookHandlerService } from './webhook-handler.service'
 import { SubscriptionService } from './subscription.service'
 import { DiscountCodeService } from './discount-code.service'
+import { PricingAdminService } from './pricing-admin.service'
 import { StripeWebhookController } from './stripe-webhook.controller'
+import { BillingController } from './billing.controller'
+import { NovaBillingController } from './nova-billing.controller'
+import { PricingAdminController } from './pricing-admin.controller'
 
 @Module({
   imports: [PrismaModule],
-  controllers: [StripeWebhookController],
+  controllers: [
+    StripeWebhookController,
+    BillingController,
+    NovaBillingController,
+    PricingAdminController,
+  ],
   providers: [
     BillingService,
     WebhookHandlerService,
     SubscriptionService,
     DiscountCodeService,
+    PricingAdminService,
     AuditLogService,
   ],
-  exports: [BillingService, SubscriptionService, DiscountCodeService],
+  exports: [BillingService, SubscriptionService, DiscountCodeService, PricingAdminService],
 })
 export class BillingModule {}
