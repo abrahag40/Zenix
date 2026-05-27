@@ -195,6 +195,12 @@ export class WizardActivateDto {
   @ValidateNested()
   @Type(() => WizardDiscountDto)
   discount?: WizardDiscountDto
+
+  // Sprint DISCOUNT-CODES Day 4 — template pre-configurado del consultor.
+  // Si presente, el backend usa el template y NO mira el campo `discount`.
+  @IsOptional()
+  @IsString() @Length(8, 64)
+  discountTemplateId?: string
 }
 
 // ─── Response types ───────────────────────────────────────────────────
