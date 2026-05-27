@@ -20,6 +20,7 @@ import { PrismaModule } from '../../prisma/prisma.module'
 import { ChannexModule } from '../../integrations/channex/channex.module'
 import { AuthModule } from '../../auth/auth.module'
 import { NovaModule } from '../nova.module'
+import { BillingModule } from '../../billing/billing.module'
 import { AuditLogService } from '../audit/audit-log.service'
 import { WizardController } from './wizard.controller'
 import { WizardHealthService } from './wizard-health.service'
@@ -35,7 +36,7 @@ import { MxSwSapienAdapter } from './pac/mx-sw-sapien.adapter'
 @Module({
   // AuthModule provee JwtModule (re-exported) para que SetupService firme
   // JWTs post-activación y haga auto-login del Org Owner.
-  imports: [PrismaModule, ChannexModule, AuthModule, NovaModule],
+  imports: [PrismaModule, ChannexModule, AuthModule, NovaModule, BillingModule],
   controllers: [WizardController, SetupController],
   providers: [
     WizardHealthService,

@@ -15,6 +15,7 @@ import {
   IsString,
   Length,
   Matches,
+  Max,
   MaxLength,
   Min,
   MinLength,
@@ -160,6 +161,40 @@ export class WizardActivateDto {
   @IsOptional()
   @IsBoolean()
   pacOverrideAccepted?: boolean
+
+  // Step 7.5 — Plan + descuento (Sprint BILLING-CORE Day 7)
+  @IsOptional()
+  @IsIn(['STARTER', 'PRO', 'ENTERPRISE'])
+  planTier?: 'STARTER' | 'PRO' | 'ENTERPRISE'
+
+  @IsOptional()
+  @IsIn(['monthly', 'annual'])
+  billingCycle?: 'monthly' | 'annual'
+
+  @IsOptional()
+  @IsInt()
+  @Min(0) @Max(30)
+  trialDays?: number
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WizardDiscountDto)
+  discount?: WizardDiscountDto
+}
+
+export class WizardDiscountDto {
+  @IsInt() @Min(5) @Max(50)
+  percentOff!: number
+
+  @IsIn(['once', 'repeating', 'forever'])
+  duration!: 'once' | 'repeating' | 'forever'
+
+  @IsOptional()
+  @IsInt() @Min(1) @Max(12)
+  durationInMonths?: number
+
+  @IsString() @MinLength(20) @MaxLength(500)
+  reason!: string
 }
 
 // ─── Response types ───────────────────────────────────────────────────
@@ -188,4 +223,14 @@ export interface WizardActivateResponse {
    *  configurado o Resend devolvió error — el frontend muestra fallback
    *  copy-paste del setup link igual. */
   emailSent: boolean
+  /** Subscription Stripe creada (Day 7). null si Stripe no configurado o
+   *  hubo error en la creación (best-effort outside-tx). */
+  subscription?: {
+    id: string
+    stripeSubscriptionId: string
+    status: string
+    planTier: string
+    discountApplied: boolean
+    discountStatus?: 'applied' | 'pending_approval' | null
+  } | null
 }

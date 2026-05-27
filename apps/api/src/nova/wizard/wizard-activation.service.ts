@@ -31,6 +31,9 @@ import type { JwtPayload } from '@zenix/shared'
 import { PrismaService } from '../../prisma/prisma.service'
 import { AuditLogService } from '../audit/audit-log.service'
 import { ActivationEmailService } from './activation-email.service'
+import { SubscriptionService } from '../../billing/subscription.service'
+import { DiscountCodeService } from '../../billing/discount-code.service'
+import { BillingService } from '../../billing/billing.service'
 import type { WizardActivateDto, WizardActivateResponse } from './dto/wizard-dto'
 
 @Injectable()
@@ -41,6 +44,9 @@ export class WizardActivationService {
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
     private readonly emailService: ActivationEmailService,
+    private readonly subscription: SubscriptionService,
+    private readonly discountCode: DiscountCodeService,
+    private readonly billing: BillingService,
   ) {}
 
   async activate(dto: WizardActivateDto, actor: JwtPayload): Promise<WizardActivateResponse> {
@@ -173,6 +179,72 @@ export class WizardActivationService {
       }
     })
 
+    // ── Stripe Subscription (outside-tx best-effort, Day 7) ──
+    // El consultor capturó plan + descuento en Step 7.5. Crear Stripe
+    // Customer + Subscription + (opcional) Coupon/PromotionCode aquí.
+    // Si Stripe no está configurado en este entorno (e.g. test sin
+    // STRIPE_SECRET_KEY), skip silencioso — el cliente puede activar
+    // billing post-onboarding desde Nova.
+    let subscriptionResult: WizardActivateResponse['subscription'] = null
+    if (dto.planTier && this.billing.isStripeConfigured()) {
+      try {
+        const sub = await this.subscription.createSubscription(
+          {
+            organizationId: created.organizationId,
+            planTier: dto.planTier,
+            propertyCount: dto.properties.length,
+            billingCycle: dto.billingCycle ?? 'monthly',
+            currency: (dto.legalEntityBaseCurrency === 'USD' ? 'USD' : 'MXN') as 'USD' | 'MXN',
+            ownerEmail: dto.orgOwnerEmail,
+            ownerName: dto.orgOwnerName,
+            trialDays: dto.trialDays ?? 14,
+            allowIncompleteWithoutPaymentMethod: true,
+          },
+          actor,
+        )
+
+        let discountStatus: 'applied' | 'pending_approval' | null = null
+        if (dto.discount) {
+          try {
+            const discountResult = await this.discountCode.generate(
+              {
+                subscriptionId: sub.id,
+                percentOff: dto.discount.percentOff,
+                duration: dto.discount.duration,
+                durationInMonths: dto.discount.durationInMonths,
+                reason: dto.discount.reason,
+                autoRequestApprovalIfExceedsCap: true,
+              },
+              actor,
+            )
+            discountStatus =
+              discountResult.kind === 'applied' ? 'applied' : 'pending_approval'
+          } catch (err) {
+            this.logger.warn(
+              `[WizardActivation] Discount generation falló para org ${created.organizationId}: ${String(err).slice(0, 200)}. Subscription creada sin descuento — consultor puede re-emitir desde Nova.`,
+            )
+          }
+        }
+
+        subscriptionResult = {
+          id: sub.id,
+          stripeSubscriptionId: sub.stripeSubscriptionId,
+          status: sub.status,
+          planTier: sub.planTier,
+          discountApplied: discountStatus === 'applied',
+          discountStatus,
+        }
+      } catch (err) {
+        this.logger.error(
+          `[WizardActivation] Stripe subscription creation falló para org ${created.organizationId}: ${String(err).slice(0, 300)}. Cliente activado SIN billing — recovery vía Nova /v1/nova/billing/subscriptions.`,
+        )
+      }
+    } else if (dto.planTier && !this.billing.isStripeConfigured()) {
+      this.logger.warn(
+        `[WizardActivation] planTier=${dto.planTier} solicitado pero Stripe no configurado — skip subscription creation`,
+      )
+    }
+
     // ── AuditLog (outside-tx best-effort) ──────────────────────
     let auditLogged = true
     try {
@@ -192,6 +264,12 @@ export class WizardActivationService {
           pacOverrideAccepted: dto.pacOverrideAccepted ?? false,
           brandEnabled: dto.brandEnabled,
           setupTokenHash, // SOLO el hash, NUNCA el raw token
+          planTier: dto.planTier ?? null,
+          billingCycle: dto.billingCycle ?? null,
+          trialDays: dto.trialDays ?? null,
+          discountRequested: !!dto.discount,
+          discountApplied: subscriptionResult?.discountApplied ?? false,
+          subscriptionCreated: !!subscriptionResult,
         },
         status: 'SUCCESS',
         reason: `Wizard activation completed by ${actor.role}`,
@@ -251,6 +329,7 @@ export class WizardActivationService {
       activatedAt: new Date().toISOString(),
       auditLogged,
       emailSent,
+      subscription: subscriptionResult,
     }
   }
 
