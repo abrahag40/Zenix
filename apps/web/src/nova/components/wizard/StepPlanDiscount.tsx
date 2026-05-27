@@ -93,12 +93,66 @@ const PLAN_PREVIEW = {
 
 const ANNUAL_DISCOUNT = 0.2
 
-const TIER_CAP: Record<string, { maxPct: number; allowForever: boolean; label: string }> = {
-  AUTHORIZED: { maxPct: 15, allowForever: false, label: 'Authorized' },
-  SILVER: { maxPct: 25, allowForever: false, label: 'Silver' },
-  GOLD: { maxPct: 35, allowForever: false, label: 'Gold' },
-  PLATINUM: { maxPct: 50, allowForever: true, label: 'Platinum' },
-  PLATFORM: { maxPct: 100, allowForever: true, label: 'Platform Admin' },
+const TIER_CAP: Record<
+  string,
+  { maxPct: number; allowForever: boolean; label: string; chipText: string }
+> = {
+  AUTHORIZED: {
+    maxPct: 15,
+    allowForever: false,
+    label: 'Authorized',
+    chipText: 'Cap 15% · solo descuentos temporales',
+  },
+  SILVER: {
+    maxPct: 25,
+    allowForever: false,
+    label: 'Silver',
+    chipText: 'Cap 25% · solo descuentos temporales',
+  },
+  GOLD: {
+    maxPct: 35,
+    allowForever: false,
+    label: 'Gold',
+    chipText: 'Cap 35% · solo descuentos temporales',
+  },
+  PLATINUM: {
+    maxPct: 50,
+    allowForever: true,
+    label: 'Platinum',
+    chipText: 'Cap 50% · permanente incluido',
+  },
+  PLATFORM: {
+    maxPct: 100,
+    allowForever: true,
+    label: 'Platform Admin',
+    chipText: 'Sin cap — Platform Admin',
+  },
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Date helpers
+// ──────────────────────────────────────────────────────────────────────
+
+const DATE_FMT = new Intl.DateTimeFormat('es-MX', {
+  day: 'numeric',
+  month: 'short',
+  year: 'numeric',
+})
+
+function fmtDate(d: Date): string {
+  return DATE_FMT.format(d).replace('.', '') // "27 may 2026"
+}
+
+function addDays(d: Date, n: number): Date {
+  const r = new Date(d)
+  r.setDate(r.getDate() + n)
+  return r
+}
+
+function addMonths(d: Date, n: number): Date {
+  const r = new Date(d)
+  r.setMonth(r.getMonth() + n)
+  return r
 }
 
 const DURATION_COPY = {
@@ -276,11 +330,7 @@ export function StepPlanDiscount() {
                           strokeWidth={2.5}
                           aria-hidden
                         />
-                        <Callout
-                          tone="secondary"
-                          className="text-[12.5px] truncate"
-                          title={f}
-                        >
+                        <Callout tone="secondary" className="text-[12.5px] truncate">
                           {f}
                         </Callout>
                       </div>
@@ -357,8 +407,7 @@ export function StepPlanDiscount() {
                 <Title>Descuento negociado</Title>
                 <Chip variant="neutral" intent="subtle" size="sm">
                   <Crown className="h-3 w-3 inline mr-1" aria-hidden />
-                  Cap tier {cap.label}: {cap.maxPct}%
-                  {cap.allowForever ? ' · permanente OK' : ''}
+                  {cap.chipText}
                 </Chip>
               </div>
               <Callout tone="tertiary" className="mt-1">
@@ -706,98 +755,156 @@ function BillingTimeline({
 }) {
   const fmt = (n: number) => `${currency} $${Math.round(n).toLocaleString('es-MX')}`
 
-  const phases: Array<{
+  // ── Compute dates (assumes wizard activates today) ──
+  const today = new Date()
+  const trialEnd = trialDays > 0 ? addDays(today, trialDays) : today
+  const firstChargeDate = trialEnd
+  const discountEndDate =
+    discountEnabled && discountDuration !== 'forever' && !requiresApproval
+      ? addMonths(firstChargeDate, discountMonths)
+      : null
+  const annualRenewDate = addMonths(firstChargeDate, 12)
+
+  // ── First charge amount + label ──
+  const annualBeforeDiscount = baseMonthly * 12 * 0.8
+  const firstChargeAmount =
+    billingCycle === 'annual'
+      ? annualBeforeDiscount * (discountEnabled && !requiresApproval ? (100 - discountPercent) / 100 : 1)
+      : monthlyDiscounted
+  const firstChargeLabel =
+    billingCycle === 'annual'
+      ? '12 meses upfront'
+      : discountEnabled && !requiresApproval
+        ? `Mensual con -${discountPercent}%`
+        : 'Mensual'
+
+  // ── Build phases con fechas anclas ──
+  type Phase = {
     key: string
+    dateLabel: string
     title: string
     sub: string
     amount: string
     accent: 'emerald' | 'violet' | 'slate'
     icon: typeof Sparkles
-  }> = []
+  }
+  const phases: Phase[] = []
 
   if (trialDays > 0) {
     phases.push({
       key: 'trial',
-      title: `Trial · ${trialDays} días`,
-      sub: 'Stripe no cobra hasta vencer el trial',
+      dateLabel: `Hoy · ${fmtDate(today)}`,
+      title: `Trial ${trialDays} días`,
+      sub: `Termina el ${fmtDate(trialEnd)}`,
       amount: 'Sin cobro',
       accent: 'emerald',
       icon: Sparkles,
     })
   }
 
-  if (discountEnabled && !requiresApproval) {
-    const title =
-      discountDuration === 'once'
-        ? 'Mes 1 · descuento aplicado'
-        : discountDuration === 'repeating'
-          ? `Meses 1 – ${discountMonths} · descuento aplicado`
-          : 'Recurrente · descuento aplicado'
+  if (billingCycle === 'annual') {
     phases.push({
-      key: 'discount',
-      title,
-      sub: `Coupon Stripe -${discountPercent}%`,
-      amount: `${fmt(monthlyDiscounted)} / mes`,
+      key: 'annual',
+      dateLabel: fmtDate(firstChargeDate),
+      title: 'Cobro anual upfront',
+      sub: discountEnabled && !requiresApproval
+        ? `12 meses con -20% anual y -${discountPercent}% adicional`
+        : '12 meses con -20% anual',
+      amount: fmt(firstChargeAmount),
       accent: 'violet',
-      icon: Percent,
+      icon: CreditCard,
     })
-  }
-
-  if (!discountEnabled || discountDuration !== 'forever' || requiresApproval) {
-    const title =
-      discountEnabled && !requiresApproval && discountDuration !== 'forever'
-        ? `Mes ${discountMonths + 1}+ · precio regular`
-        : billingCycle === 'annual'
-          ? 'Renovación anual · precio regular'
-          : 'Cobro recurrente · precio regular'
     phases.push({
-      key: 'regular',
-      title,
-      sub: billingCycle === 'annual' ? 'Stripe Subscription billed annually' : 'Stripe Subscription billed monthly',
-      amount:
-        billingCycle === 'annual'
-          ? `${fmt(monthlyRegular * 12 * 0.8)} / año`
-          : `${fmt(monthlyRegular)} / mes`,
+      key: 'renew',
+      dateLabel: fmtDate(annualRenewDate),
+      title: 'Renovación anual',
+      sub: 'Stripe cobra el siguiente año',
+      amount: `${fmt(annualBeforeDiscount)} / año`,
       accent: 'slate',
       icon: Calendar,
     })
+  } else {
+    // Monthly billing
+    if (discountEnabled && !requiresApproval) {
+      const months =
+        discountDuration === 'once' ? 1 : discountDuration === 'repeating' ? discountMonths : 12
+      const phaseEnd = addMonths(firstChargeDate, months)
+      phases.push({
+        key: 'discount',
+        dateLabel: fmtDate(firstChargeDate),
+        title:
+          discountDuration === 'once'
+            ? `Mes 1 con -${discountPercent}%`
+            : discountDuration === 'repeating'
+              ? `Meses 1 – ${months} con -${discountPercent}%`
+              : `Cobro mensual con -${discountPercent}% permanente`,
+        sub:
+          discountDuration === 'forever'
+            ? `Stripe Coupon forever — sin fecha de fin`
+            : `Hasta el ${fmtDate(phaseEnd)} · ${months} ${months === 1 ? 'cobro' : 'cobros'}`,
+        amount: `${fmt(monthlyDiscounted)} / mes`,
+        accent: 'violet',
+        icon: Percent,
+      })
+    }
+
+    // Regular phase — sólo si no hay descuento forever
+    if (!discountEnabled || discountDuration !== 'forever' || requiresApproval) {
+      const startDate = discountEndDate ?? firstChargeDate
+      const startLabel =
+        discountEnabled && !requiresApproval && discountDuration !== 'forever'
+          ? `Desde ${fmtDate(startDate)}`
+          : fmtDate(startDate)
+      phases.push({
+        key: 'regular',
+        dateLabel: startLabel,
+        title: 'Cobro mensual recurrente',
+        sub: 'Stripe Subscription billed monthly · sin fecha de fin',
+        amount: `${fmt(monthlyRegular)} / mes`,
+        accent: 'slate',
+        icon: Calendar,
+      })
+    }
   }
+
+  // Savings calc — solo si hay descuento aplicado y no requires approval
+  const savings = discountEnabled && !requiresApproval ? baseMonthly * 12 - year1Total : 0
 
   return (
     <Surface variant="raised" radius="lg" padding="lg" className="space-y-4">
-      {/* Header — mismo lenguaje que las otras secciones */}
+      {/* Header */}
       <div className="flex items-start gap-3">
         <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-violet-50 text-violet-700 flex-shrink-0">
           <CreditCard className="h-4 w-4" aria-hidden />
         </div>
         <div className="flex-1">
-          <Title>Preview de cobros — primer año</Title>
+          <Title>Preview de cobros</Title>
           <Callout tone="tertiary" className="mt-1">
-            Simulación que se reflejará en Stripe. Verifica con el cliente antes de avanzar al
-            paso 9 (activación).
+            Simulación con fechas reales (asumiendo activación hoy). Verifica con el cliente
+            antes del paso 9.
           </Callout>
         </div>
       </div>
 
-      {/* Total año 1 hero — tablerow style */}
-      <div className="flex items-end justify-between p-4 rounded-xl bg-slate-50 border border-slate-100">
-        <div>
-          <Eyebrow tone="tertiary" className="block mb-1">
-            Total año 1
-          </Eyebrow>
-          <MetricLarge className="text-violet-900">{fmt(year1Total)}</MetricLarge>
-        </div>
-        {discountEnabled && !requiresApproval && (
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 border border-emerald-200">
-            <TrendingUp className="h-3.5 w-3.5 text-emerald-700" aria-hidden />
-            <Subhead className="text-emerald-800">
-              Ahorras {fmt(baseMonthly * 12 - year1Total)}
-            </Subhead>
+      {/* Primer cobro hero — info decisiva */}
+      <div className="p-4 rounded-xl bg-violet-50/60 border border-violet-200/60">
+        <Eyebrow tone="tertiary" className="block mb-1 text-violet-700">
+          Primer cobro
+        </Eyebrow>
+        <div className="flex items-end justify-between gap-3 flex-wrap">
+          <div>
+            <MetricLarge className="text-violet-900">{fmt(firstChargeAmount)}</MetricLarge>
+            <Callout tone="secondary" className="mt-1 text-violet-800">
+              {fmtDate(firstChargeDate)}
+              {trialDays > 0 && ` · tras ${trialDays}d de trial`}
+              {' · '}
+              {firstChargeLabel}
+            </Callout>
           </div>
-        )}
+        </div>
       </div>
 
-      {/* Timeline phases */}
+      {/* Timeline phases — date-anchored */}
       <div className="space-y-2">
         {phases.map((p) => {
           const colors = {
@@ -823,18 +930,43 @@ function BillingTimeline({
               </div>
 
               <div className="flex-1 min-w-0">
-                <BodyMedium>{p.title}</BodyMedium>
+                <div className="flex items-baseline gap-2 flex-wrap">
+                  <BodyMedium>{p.title}</BodyMedium>
+                  <Caption tone="tertiary" className="tabular-nums">
+                    {p.dateLabel}
+                  </Caption>
+                </div>
                 <Callout tone="tertiary" className="leading-tight mt-0.5">
                   {p.sub}
                 </Callout>
               </div>
 
-              <Headline as="div" className={cn('text-[16px] tabular-nums', colors.amount)}>
+              <Headline as="div" className={cn('text-[15px] tabular-nums', colors.amount)}>
                 {p.amount}
               </Headline>
             </div>
           )
         })}
+      </div>
+
+      {/* Footnote: estimación 12 meses + savings */}
+      <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <Eyebrow tone="tertiary" className="block">
+            {billingCycle === 'annual'
+              ? 'Contract value año 1'
+              : 'Estimación primeros 12 meses'}
+          </Eyebrow>
+          <Subhead className="text-slate-900 mt-0.5 tabular-nums">{fmt(year1Total)}</Subhead>
+        </div>
+        {savings > 0 && (
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 border border-emerald-200">
+            <TrendingUp className="h-3.5 w-3.5 text-emerald-700" aria-hidden />
+            <Subhead className="text-emerald-800 tabular-nums">
+              Ahorra {fmt(savings)} vs precio regular
+            </Subhead>
+          </div>
+        )}
       </div>
 
       {requiresApproval && (
