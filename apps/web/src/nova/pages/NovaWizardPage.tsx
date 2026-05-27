@@ -15,6 +15,7 @@ import { StepProperties } from '../components/wizard/StepProperties'
 import { StepInventory } from '../components/wizard/StepInventory'
 import { StepStaff } from '../components/wizard/StepStaff'
 import { StepIntegrations } from '../components/wizard/StepIntegrations'
+import { StepPlanDiscount } from '../components/wizard/StepPlanDiscount'
 import { StepActivation } from '../components/wizard/StepActivation'
 
 export function NovaWizardPage() {
@@ -45,6 +46,8 @@ export function NovaWizardPage() {
       return <StepStaff />
     case 'integrations':
       return <StepIntegrations />
+    case 'plan-discount':
+      return <StepPlanDiscount />
     case 'activation':
       return <StepActivation />
     default:

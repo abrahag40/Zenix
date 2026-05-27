@@ -117,10 +117,57 @@ function makeEmailMock(opts: { sent?: boolean; throws?: boolean } = {}) {
   } as any
 }
 
+// Day 7 — Billing mocks. Default: Stripe NO configurado → wizard skip
+// subscription creation silenciosamente. Spec puede activarlo via
+// makeBillingMock({ stripeConfigured: true }) para verificar happy path.
+function makeBillingMock(opts: { stripeConfigured?: boolean } = {}) {
+  return {
+    isStripeConfigured: () => opts.stripeConfigured ?? false,
+  } as any
+}
+
+function makeSubscriptionMock() {
+  return {
+    createSubscription: jest.fn().mockResolvedValue({
+      id: 'sub-zenix-1',
+      stripeSubscriptionId: 'sub_stripe_1',
+      status: 'trialing',
+      planTier: 'PRO',
+    }),
+  } as any
+}
+
+function makeDiscountMock(opts: { kind?: 'applied' | 'pending_approval' } = {}) {
+  return {
+    generate: jest.fn().mockResolvedValue(
+      opts.kind === 'pending_approval'
+        ? { kind: 'pending_approval', request: { id: 'req-1' } }
+        : { kind: 'applied', discount: { id: 'disc-1' } },
+    ),
+    // Sprint DISCOUNT-CODES Day 4 — applyTemplate wrapper
+    applyTemplate: jest.fn().mockResolvedValue(
+      opts.kind === 'pending_approval'
+        ? { kind: 'pending_approval', request: { id: 'req-tpl-1' }, templateName: 'TPL-X' }
+        : { kind: 'applied', discount: { id: 'disc-tpl-1' }, templateName: 'TPL-X' },
+    ),
+  } as any
+}
+
+function makeServiceWithDefaults(prismaMock?: any, opts?: { stripeConfigured?: boolean }) {
+  return new WizardActivationService(
+    prismaMock ?? makePrismaMock(),
+    makeAuditMock(),
+    makeEmailMock(),
+    makeSubscriptionMock(),
+    makeDiscountMock(),
+    makeBillingMock({ stripeConfigured: opts?.stripeConfigured ?? false }),
+  )
+}
+
 describe('WizardActivationService', () => {
   describe('pre-flight checks', () => {
     it('rejects if properties array is empty', async () => {
-      const service = new WizardActivationService(makePrismaMock(), makeAuditMock(), makeEmailMock())
+      const service = new WizardActivationService(makePrismaMock(), makeAuditMock(), makeEmailMock(), makeSubscriptionMock(), makeDiscountMock(), makeBillingMock())
       await expect(service.activate(makeDto({ properties: [] }), baseActor)).rejects.toThrow(
         BadRequestException,
       )
@@ -132,7 +179,7 @@ describe('WizardActivationService', () => {
         type: 'BOUTIQUE' as const,
         timezone: 'America/Cancun',
       }))
-      const service = new WizardActivationService(makePrismaMock(), makeAuditMock(), makeEmailMock())
+      const service = new WizardActivationService(makePrismaMock(), makeAuditMock(), makeEmailMock(), makeSubscriptionMock(), makeDiscountMock(), makeBillingMock())
       await expect(service.activate(makeDto({ properties: tooMany }), baseActor)).rejects.toThrow(
         BadRequestException,
       )
@@ -143,6 +190,9 @@ describe('WizardActivationService', () => {
         makePrismaMock({ slugExists: true }),
         makeAuditMock(),
         makeEmailMock(),
+        makeSubscriptionMock(),
+        makeDiscountMock(),
+        makeBillingMock(),
       )
       await expect(service.activate(makeDto(), baseActor)).rejects.toThrow(ConflictException)
     })
@@ -152,6 +202,9 @@ describe('WizardActivationService', () => {
         makePrismaMock({ emailExists: true }),
         makeAuditMock(),
         makeEmailMock(),
+        makeSubscriptionMock(),
+        makeDiscountMock(),
+        makeBillingMock(),
       )
       await expect(service.activate(makeDto(), baseActor)).rejects.toThrow(ConflictException)
     })
@@ -159,7 +212,7 @@ describe('WizardActivationService', () => {
     it('does NOT reject if same tax ID exists (multi-org with same RFC allowed)', async () => {
       // Tax ID dup is a soft warning logged, NOT a blocker
       const prisma = makePrismaMock({ taxIdExists: true })
-      const service = new WizardActivationService(prisma, makeAuditMock(), makeEmailMock())
+      const service = new WizardActivationService(prisma, makeAuditMock(), makeEmailMock(), makeSubscriptionMock(), makeDiscountMock(), makeBillingMock())
       const res = await service.activate(makeDto(), baseActor)
       expect(res.organizationId).toBe('new-org-id')
     })
@@ -169,7 +222,7 @@ describe('WizardActivationService', () => {
     it('creates Organization + LegalEntity + Property + Owner + audit entry', async () => {
       const prisma = makePrismaMock()
       const audit = makeAuditMock()
-      const service = new WizardActivationService(prisma, audit, makeEmailMock())
+      const service = new WizardActivationService(prisma, audit, makeEmailMock(), makeSubscriptionMock(), makeDiscountMock(), makeBillingMock())
       const res = await service.activate(makeDto(), baseActor)
 
       expect(res.organizationId).toBe('new-org-id')
@@ -196,7 +249,7 @@ describe('WizardActivationService', () => {
 
     it('creates Brand when brandEnabled=true with brandName', async () => {
       const prisma = makePrismaMock()
-      const service = new WizardActivationService(prisma, makeAuditMock(), makeEmailMock())
+      const service = new WizardActivationService(prisma, makeAuditMock(), makeEmailMock(), makeSubscriptionMock(), makeDiscountMock(), makeBillingMock())
       await service.activate(
         makeDto({ brandEnabled: true, brandName: 'Tulum Collection' }),
         baseActor,
@@ -211,7 +264,7 @@ describe('WizardActivationService', () => {
     it('audit log failure does NOT throw — operación de negocio sigue', async () => {
       const prisma = makePrismaMock()
       const audit = { write: jest.fn().mockRejectedValue(new Error('audit DB down')) } as any
-      const service = new WizardActivationService(prisma, audit, makeEmailMock())
+      const service = new WizardActivationService(prisma, audit, makeEmailMock(), makeSubscriptionMock(), makeDiscountMock(), makeBillingMock())
       const res = await service.activate(makeDto(), baseActor)
       expect(res.organizationId).toBe('new-org-id')
       expect(res.auditLogged).toBe(false)
@@ -222,6 +275,9 @@ describe('WizardActivationService', () => {
         makePrismaMock(),
         makeAuditMock(),
         makeEmailMock({ throws: true }),
+        makeSubscriptionMock(),
+        makeDiscountMock(),
+        makeBillingMock(),
       )
       const res = await service.activate(makeDto(), baseActor)
       expect(res.organizationId).toBe('new-org-id')
@@ -231,7 +287,14 @@ describe('WizardActivationService', () => {
 
     it('emailSent=true when Resend stub returns success', async () => {
       const email = makeEmailMock({ sent: true })
-      const service = new WizardActivationService(makePrismaMock(), makeAuditMock(), email)
+      const service = new WizardActivationService(
+        makePrismaMock(),
+        makeAuditMock(),
+        email,
+        makeSubscriptionMock(),
+        makeDiscountMock(),
+        makeBillingMock(),
+      )
       const res = await service.activate(makeDto(), baseActor)
       expect(res.emailSent).toBe(true)
       expect(email.sendActivationEmail).toHaveBeenCalledWith(
@@ -246,17 +309,246 @@ describe('WizardActivationService', () => {
     })
 
     it('returns setup link with 64-hex token (32 bytes)', async () => {
-      const service = new WizardActivationService(makePrismaMock(), makeAuditMock(), makeEmailMock())
+      const service = new WizardActivationService(makePrismaMock(), makeAuditMock(), makeEmailMock(), makeSubscriptionMock(), makeDiscountMock(), makeBillingMock())
       const res = await service.activate(makeDto(), baseActor)
       const token = res.ownerSetupLink.split('/setup/')[1]
       expect(token).toMatch(/^[a-f0-9]{64}$/)
     })
   })
 
+  // ── Day 7 — Stripe Subscription post-tx ───────────────────────────
+  describe('Stripe subscription (Day 7)', () => {
+    it('skip silencioso si Stripe NO está configurado (subscription=null)', async () => {
+      const subscription = makeSubscriptionMock()
+      const service = new WizardActivationService(
+        makePrismaMock(),
+        makeAuditMock(),
+        makeEmailMock(),
+        subscription,
+        makeDiscountMock(),
+        makeBillingMock({ stripeConfigured: false }),
+      )
+      const res = await service.activate(makeDto({ planTier: 'PRO' }), baseActor)
+      expect(subscription.createSubscription).not.toHaveBeenCalled()
+      expect(res.subscription).toBeNull()
+    })
+
+    it('crea Stripe Subscription cuando planTier presente + Stripe configurado', async () => {
+      const subscription = makeSubscriptionMock()
+      const service = new WizardActivationService(
+        makePrismaMock(),
+        makeAuditMock(),
+        makeEmailMock(),
+        subscription,
+        makeDiscountMock(),
+        makeBillingMock({ stripeConfigured: true }),
+      )
+      const res = await service.activate(
+        makeDto({ planTier: 'PRO', billingCycle: 'monthly', trialDays: 14 }),
+        baseActor,
+      )
+      expect(subscription.createSubscription).toHaveBeenCalledWith(
+        expect.objectContaining({
+          organizationId: 'new-org-id',
+          planTier: 'PRO',
+          propertyCount: 1,
+          billingCycle: 'monthly',
+          trialDays: 14,
+          ownerEmail: 'owner@hotel-test.com',
+          allowIncompleteWithoutPaymentMethod: true,
+        }),
+        baseActor,
+      )
+      expect(res.subscription).toEqual({
+        id: 'sub-zenix-1',
+        stripeSubscriptionId: 'sub_stripe_1',
+        status: 'trialing',
+        planTier: 'PRO',
+        discountApplied: false,
+        discountStatus: null,
+      })
+    })
+
+    it('aplica discount cuando discount presente + dentro de cap → applied', async () => {
+      const discount = makeDiscountMock({ kind: 'applied' })
+      const service = new WizardActivationService(
+        makePrismaMock(),
+        makeAuditMock(),
+        makeEmailMock(),
+        makeSubscriptionMock(),
+        discount,
+        makeBillingMock({ stripeConfigured: true }),
+      )
+      const res = await service.activate(
+        makeDto({
+          planTier: 'PRO',
+          discount: {
+            percentOff: 20,
+            duration: 'repeating',
+            durationInMonths: 3,
+            reason: 'Cliente piloto referido por consultor — bienvenida 3m.',
+          },
+        }),
+        baseActor,
+      )
+      expect(discount.generate).toHaveBeenCalled()
+      expect(res.subscription?.discountApplied).toBe(true)
+      expect(res.subscription?.discountStatus).toBe('applied')
+    })
+
+    it('si discount excede cap → pending_approval (no rompe activación)', async () => {
+      const discount = makeDiscountMock({ kind: 'pending_approval' })
+      const service = new WizardActivationService(
+        makePrismaMock(),
+        makeAuditMock(),
+        makeEmailMock(),
+        makeSubscriptionMock(),
+        discount,
+        makeBillingMock({ stripeConfigured: true }),
+      )
+      const res = await service.activate(
+        makeDto({
+          planTier: 'PRO',
+          discount: {
+            percentOff: 40,
+            duration: 'forever',
+            reason: 'Cliente estratégico — descuento permanente solicitado.',
+          },
+        }),
+        baseActor,
+      )
+      expect(res.subscription?.discountApplied).toBe(false)
+      expect(res.subscription?.discountStatus).toBe('pending_approval')
+      expect(res.organizationId).toBe('new-org-id') // org activada igualmente
+    })
+
+    it('si Stripe falla → activación sigue, subscription queda null', async () => {
+      const subscription = {
+        createSubscription: jest.fn().mockRejectedValue(new Error('Stripe down')),
+      } as any
+      const service = new WizardActivationService(
+        makePrismaMock(),
+        makeAuditMock(),
+        makeEmailMock(),
+        subscription,
+        makeDiscountMock(),
+        makeBillingMock({ stripeConfigured: true }),
+      )
+      const res = await service.activate(makeDto({ planTier: 'PRO' }), baseActor)
+      expect(res.organizationId).toBe('new-org-id') // org NO se rolleó
+      expect(res.subscription).toBeNull() // pero subscription quedó null
+    })
+  })
+
+  // ── Sprint DISCOUNT-CODES Day 4 — templateId path ─────────────────
+  describe('Discount via template (Day 4 DISCOUNT-CODES)', () => {
+    it('discountTemplateId prevalece sobre discount manual → applyTemplate', async () => {
+      const discount = makeDiscountMock({ kind: 'applied' })
+      const service = new WizardActivationService(
+        makePrismaMock(),
+        makeAuditMock(),
+        makeEmailMock(),
+        makeSubscriptionMock(),
+        discount,
+        makeBillingMock({ stripeConfigured: true }),
+      )
+      const res = await service.activate(
+        makeDto({
+          planTier: 'PRO',
+          discountTemplateId: 'tpl-piloto-q3-2026',
+          // discount manual NO debe aplicarse cuando templateId está set
+          discount: {
+            percentOff: 30,
+            duration: 'forever',
+            reason: 'Manual override que NO debería usarse.',
+          },
+        }),
+        baseActor,
+      )
+      // applyTemplate fue llamado con el templateId
+      expect(discount.applyTemplate).toHaveBeenCalledWith(
+        'tpl-piloto-q3-2026',
+        'sub-zenix-1',
+        baseActor,
+      )
+      // generate (manual override) NO fue llamado
+      expect(discount.generate).not.toHaveBeenCalled()
+      expect(res.subscription?.discountApplied).toBe(true)
+      expect(res.subscription?.discountStatus).toBe('applied')
+    })
+
+    it('discountTemplateId con cap excedido → pending_approval (no rompe activación)', async () => {
+      const discount = makeDiscountMock({ kind: 'pending_approval' })
+      const service = new WizardActivationService(
+        makePrismaMock(),
+        makeAuditMock(),
+        makeEmailMock(),
+        makeSubscriptionMock(),
+        discount,
+        makeBillingMock({ stripeConfigured: true }),
+      )
+      const res = await service.activate(
+        makeDto({
+          planTier: 'PRO',
+          discountTemplateId: 'tpl-excede-cap',
+        }),
+        baseActor,
+      )
+      expect(discount.applyTemplate).toHaveBeenCalled()
+      expect(res.subscription?.discountApplied).toBe(false)
+      expect(res.subscription?.discountStatus).toBe('pending_approval')
+      expect(res.organizationId).toBe('new-org-id') // org activada igualmente
+    })
+
+    it('applyTemplate falla → activación sigue, sin descuento (logged warn)', async () => {
+      const discount = {
+        generate: jest.fn(),
+        applyTemplate: jest.fn().mockRejectedValue(new Error('Template not found')),
+      } as any
+      const service = new WizardActivationService(
+        makePrismaMock(),
+        makeAuditMock(),
+        makeEmailMock(),
+        makeSubscriptionMock(),
+        discount,
+        makeBillingMock({ stripeConfigured: true }),
+      )
+      const res = await service.activate(
+        makeDto({
+          planTier: 'PRO',
+          discountTemplateId: 'tpl-missing',
+        }),
+        baseActor,
+      )
+      expect(res.organizationId).toBe('new-org-id') // org activada
+      // discountApplied=false porque applyTemplate falló
+      expect(res.subscription?.discountApplied).toBe(false)
+      expect(res.subscription?.discountStatus).toBeNull()
+    })
+
+    it('sin templateId + sin discount → subscription sin descuento', async () => {
+      const discount = makeDiscountMock()
+      const service = new WizardActivationService(
+        makePrismaMock(),
+        makeAuditMock(),
+        makeEmailMock(),
+        makeSubscriptionMock(),
+        discount,
+        makeBillingMock({ stripeConfigured: true }),
+      )
+      const res = await service.activate(makeDto({ planTier: 'PRO' }), baseActor)
+      // Ni applyTemplate ni generate fueron llamados
+      expect(discount.applyTemplate).not.toHaveBeenCalled()
+      expect(discount.generate).not.toHaveBeenCalled()
+      expect(res.subscription?.discountApplied).toBe(false)
+      expect(res.subscription?.discountStatus).toBeNull()
+    })
+  })
+
   describe('passes pacOverrideAccepted flag through', () => {
     it('records the override flag in pacCredentials.overrideAccepted', async () => {
       const prisma = makePrismaMock()
-      const service = new WizardActivationService(prisma, makeAuditMock(), makeEmailMock())
+      const service = new WizardActivationService(prisma, makeAuditMock(), makeEmailMock(), makeSubscriptionMock(), makeDiscountMock(), makeBillingMock())
       await service.activate(makeDto({ pacOverrideAccepted: true }), baseActor)
       expect(prisma._tx.legalEntity.create).toHaveBeenCalledWith(
         expect.objectContaining({

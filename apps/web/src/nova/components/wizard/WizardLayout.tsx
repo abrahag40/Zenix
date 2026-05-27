@@ -21,7 +21,7 @@
  */
 import { useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Check, ChevronLeft, ChevronRight, X, Sparkles } from 'lucide-react'
+import { AlertTriangle, Check, ChevronLeft, ChevronRight, X, Sparkles } from 'lucide-react'
 import { useNovaStore } from '../../../store/nova'
 import {
   useWizardStore,
@@ -200,10 +200,14 @@ export function WizardLayout({
           </div>
         </aside>
 
-        {/* Step content column — flex column con scroll interna + footer fijo */}
-        <main className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
-          {/* Scrollable content area */}
-          <div className="flex-1 overflow-y-auto">
+        {/* Step content column — relative para que el footer absolute
+         *  se ancle a su parent main, no al viewport. */}
+        <main className="flex-1 min-h-0 overflow-hidden relative">
+          {/* Scrollable content area — ocupa TODA la altura del main +
+           *  padding-bottom para que el contenido no quede tapado por el
+           *  footer absolute. Reserva 110px (cubre footer con o sin banner
+           *  de validación, que añade ~32px extra cuando aparece). */}
+          <div className="absolute inset-0 overflow-y-auto pb-[110px]">
             <div className="max-w-3xl mx-auto px-5 sm:px-7 lg:px-9 py-8">
               {/* Step title */}
               <div className="mb-6">
@@ -225,39 +229,49 @@ export function WizardLayout({
           </div>
 
           {/*
-           * Footer nav — fijo al fondo de la columna (NO sticky).
-           * Vive afuera del div scrollable, así no se "sube" cuando el
-           * contenido del step es corto. Flex-shrink-0 garantiza altura
-           * estable independiente del contenido.
+           * Footer nav — position absolute pinned al bottom del <main>.
+           * Robusto contra cualquier cambio de contenido o flex chain
+           * issue: el footer SIEMPRE está en main.bottom porque main es
+           * relative.
            */}
-          <footer className="flex-shrink-0 bg-white/90 backdrop-blur-md backdrop-saturate-150 border-t border-slate-200/70 px-5 sm:px-7 lg:px-9 py-3 flex items-center justify-between gap-3">
-            <Button
-              variant="ghost"
-              size="md"
-              onClick={goPrev}
-              disabled={isFirst}
-              iconLeft={ChevronLeft}
-            >
-              Atrás
-            </Button>
-
-            {!validation.ok && (
-              <Body tone="tertiary" className="hidden md:block text-[12px]">
-                {validation.reason}
-              </Body>
+          <footer className="absolute bottom-0 left-0 right-0 z-10 bg-white/90 backdrop-blur-md backdrop-saturate-150 border-t border-slate-200/70">
+            {/* Banner validation — full width, amber-bg, encima de los
+             *  botones. Visualmente claro que "esto está bloqueando".
+             *  Solo aparece cuando hay validación pendiente. */}
+            {!validation.ok && validation.reason && (
+              <div className="px-5 sm:px-7 lg:px-9 py-2 bg-amber-50/80 border-b border-amber-200/60 flex items-center gap-2">
+                <AlertTriangle
+                  className="h-3.5 w-3.5 text-amber-700 flex-shrink-0"
+                  aria-hidden
+                />
+                <Caption className="text-amber-900 text-[12px] leading-tight">
+                  {validation.reason}
+                </Caption>
+              </div>
             )}
-
-            {primaryAction ?? (
+            <div className="px-5 sm:px-7 lg:px-9 py-3 flex items-center justify-between gap-3">
               <Button
-                variant="primary"
+                variant="ghost"
                 size="md"
-                onClick={goNext}
-                disabled={nextDisabled || !validation.ok}
-                iconRight={ChevronRight}
+                onClick={goPrev}
+                disabled={isFirst}
+                iconLeft={ChevronLeft}
               >
-                {nextLabel}
+                Atrás
               </Button>
-            )}
+
+              {primaryAction ?? (
+                <Button
+                  variant="primary"
+                  size="md"
+                  onClick={goNext}
+                  disabled={nextDisabled || !validation.ok}
+                  iconRight={ChevronRight}
+                >
+                  {nextLabel}
+                </Button>
+              )}
+            </div>
           </footer>
         </main>
       </div>

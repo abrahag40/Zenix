@@ -24,7 +24,12 @@ export type WizardStepKey =
   | 'inventory'
   | 'staff'
   | 'integrations'
+  | 'plan-discount'
   | 'activation'
+
+export type WizardPlanTier = 'STARTER' | 'PRO' | 'ENTERPRISE'
+export type WizardBillingCycle = 'monthly' | 'annual'
+export type WizardDiscountDuration = 'once' | 'repeating' | 'forever'
 
 export interface WizardProperty {
   tempId: string // local-only id durante setup
@@ -85,6 +90,27 @@ export interface WizardState {
   // Step 6 — Staff
   orgOwnerEmail: string
   orgOwnerName: string
+
+  // Step 7.5 — Plan + descuento (Sprint BILLING-CORE Day 6)
+  planTier: WizardPlanTier
+  billingCycle: WizardBillingCycle
+  /** Días de trial — 0 = sin trial. Recomendado 14d para piloto. */
+  trialDays: number
+  /** Sprint DISCOUNT-CODES Day 4 — template pre-configurado del consultor.
+   *  Si set, prevalece sobre los campos manuales abajo. Cliente NO ve el
+   *  cap del partner tier (solo el código aplicado). */
+  discountTemplateId: string | null
+  /** Toggle "Configurar descuento manual" — solo se usa cuando NO hay
+   *  template seleccionado. Por default collapsed/disabled. */
+  discountEnabled: boolean
+  /** 5-50%. Cap se valida server-side contra PartnerTier del consultor.
+   *  Solo usado en manual override (sin templateId). */
+  discountPercentOff: number
+  discountDuration: WizardDiscountDuration
+  /** Required si discountDuration='repeating' (1-12). */
+  discountDurationInMonths: number
+  /** Razón visible en audit log (min 20 chars al activar). */
+  discountReason: string
 
   // Mutations
   setStep: (step: WizardStepKey) => void
@@ -212,6 +238,15 @@ const initialState = {
   inventoryRatePlans: [] as WizardRatePlanDraft[],
   orgOwnerEmail: '',
   orgOwnerName: '',
+  planTier: 'PRO' as WizardPlanTier,
+  billingCycle: 'monthly' as WizardBillingCycle,
+  trialDays: 14,
+  discountTemplateId: null as string | null,
+  discountEnabled: false,
+  discountPercentOff: 15,
+  discountDuration: 'repeating' as WizardDiscountDuration,
+  discountDurationInMonths: 3,
+  discountReason: '',
 }
 
 export const useWizardStore = create<WizardState>()(
@@ -338,7 +373,8 @@ export const WIZARD_STEPS: StepMeta[] = [
   { key: 'inventory', number: 5, label: 'Inventory', hint: 'Habitaciones + rate plans' },
   { key: 'staff', number: 6, label: 'Staff', hint: 'Org Owner + equipo' },
   { key: 'integrations', number: 7, label: 'Integrations', hint: '4 health-checks' },
-  { key: 'activation', number: 8, label: 'Activación', hint: 'Go-live + setup link' },
+  { key: 'plan-discount', number: 8, label: 'Plan y cobro', hint: 'Plan + descuento opcional' },
+  { key: 'activation', number: 9, label: 'Activación', hint: 'Go-live + setup link' },
 ]
 
 // ─── Validation helpers (forcing functions per step) ───────────────
@@ -375,6 +411,18 @@ export function canCompleteStep(step: WizardStepKey, s: WizardState): { ok: bool
       return { ok: true }
     case 'integrations':
       return { ok: true } // health checks live, no se persisten
+    case 'plan-discount':
+      if (!['STARTER', 'PRO', 'ENTERPRISE'].includes(s.planTier))
+        return { ok: false, reason: 'Selecciona un plan válido' }
+      if (s.discountEnabled) {
+        if (s.discountPercentOff < 5 || s.discountPercentOff > 50)
+          return { ok: false, reason: 'Descuento debe estar entre 5% y 50%' }
+        if (s.discountDuration === 'repeating' && (s.discountDurationInMonths < 1 || s.discountDurationInMonths > 12))
+          return { ok: false, reason: 'Duración debe estar entre 1 y 12 meses' }
+        if (s.discountReason.trim().length < 20)
+          return { ok: false, reason: 'Razón del descuento requerida (mín. 20 caracteres)' }
+      }
+      return { ok: true }
     case 'activation':
       return { ok: true }
   }

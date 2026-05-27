@@ -89,5 +89,24 @@ export const wizardClient = {
       orgOwnerName: state.orgOwnerName,
       // Step 7 override
       pacOverrideAccepted,
+      // Step 7.5 — Plan + descuento (Sprint BILLING-CORE Day 6)
+      planTier: state.planTier,
+      billingCycle: state.billingCycle,
+      trialDays: state.trialDays,
+      // Sprint DISCOUNT-CODES Day 4 — preferir templateId si presente
+      // (cliente NO ve el cap). Manual override solo si NO hay template.
+      discountTemplateId: state.discountTemplateId ?? undefined,
+      discount:
+        !state.discountTemplateId && state.discountEnabled
+          ? {
+              percentOff: state.discountPercentOff,
+              duration: state.discountDuration,
+              durationInMonths:
+                state.discountDuration === 'repeating'
+                  ? state.discountDurationInMonths
+                  : undefined,
+              reason: state.discountReason.trim(),
+            }
+          : undefined,
     }),
 }

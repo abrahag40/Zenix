@@ -327,18 +327,18 @@ enum OrgPlan {
 // Decisión §160 D-NOVA-2 — Hierarchy 5-tier no-negociable.
 enum SystemRole {
   // ── Tier 1: Platform (root) ──────────────────────
-  PLATFORM_ADMIN   // ZaharDev staff — único tier cross-Partner. Ver §161 D-NOVA-3.
+  PLATFORM_ADMIN // ZaharDev staff — único tier cross-Partner. Ver §161 D-NOVA-3.
 
   // ── Tier 2: Partner (consulting firm) ───────────
-  PARTNER_ADMIN    // Owner del partner firm. Gestiona PartnerMembers + assignments.
-  PARTNER_MEMBER   // Consultor individual; granularidad sub-rol via PartnerMember.role.
+  PARTNER_ADMIN // Owner del partner firm. Gestiona PartnerMembers + assignments.
+  PARTNER_MEMBER // Consultor individual; granularidad sub-rol via PartnerMember.role.
 
   // ── Tier 3: Organization (cliente hotelero) ─────
-  ORG_OWNER        // Dueño del hotel cliente (acceso pleno a su Org).
+  ORG_OWNER // Dueño del hotel cliente (acceso pleno a su Org).
 
   // ── Tier 4: legacy roles dentro de Org/Property ─
   // Se mantienen para compatibilidad — son los ORG_STAFF de la hierarchy Nova.
-  OWNER            // legacy — alias de ORG_OWNER (compat)
+  OWNER // legacy — alias de ORG_OWNER (compat)
   MANAGER
   RECEPTIONIST
   HOUSEKEEPER
@@ -351,64 +351,64 @@ enum SystemRole {
 // (SAP/Cisco/Salesforce/Microsoft) facilita: (a) onboarding partners ex-SAP, (b)
 // marketing pitch ("ya eres Gold en SAP — califica a Gold en Zenix").
 enum PartnerTier {
-  AUTHORIZED       // entry tier: $0 annual fee, 10% revenue share
-  SILVER           // $1,200/año, 15% rev share + training credits
-  GOLD             // $3,600/año, 20% rev share + co-marketing fund
-  PLATINUM         // $9,600/año, 25% rev share + sub-partners + dedicated PM
+  AUTHORIZED // entry tier: $0 annual fee, 10% revenue share
+  SILVER // $1,200/año, 15% rev share + training credits
+  GOLD // $3,600/año, 20% rev share + co-marketing fund
+  PLATINUM // $9,600/año, 25% rev share + sub-partners + dedicated PM
 }
 
 // ─── PartnerMemberRole — granularidad interna del firm (§163 D-NOVA-5) ───
 // 8 valores fijos alineados con SAP S/4HANA Implementation Roles + IBM BP Program +
 // Cisco Partner Program. NUNCA cambiar nombres.
 enum PartnerMemberRole {
-  PARTNER_ADMIN         // owner firma, gestiona team interno
-  LEAD_CONSULTANT       // senior, owns engagements
-  SOLUTION_CONSULTANT   // standard implementation
-  SUPPORT_L1            // help desk básico
-  SUPPORT_L2            // escalation
-  SUPPORT_L3            // deep technical
-  SALES_REP             // demos + closing pre-venta
-  TRAINEE               // shadow access, no writes
+  PARTNER_ADMIN // owner firma, gestiona team interno
+  LEAD_CONSULTANT // senior, owns engagements
+  SOLUTION_CONSULTANT // standard implementation
+  SUPPORT_L1 // help desk básico
+  SUPPORT_L2 // escalation
+  SUPPORT_L3 // deep technical
+  SALES_REP // demos + closing pre-venta
+  TRAINEE // shadow access, no writes
 }
 
 // ─── PartnerMemberStatus — controlled vocabulary (Audit H3 fix 2026-05-24) ───
 // Estado operativo del PartnerMember dentro de su firm.
 // Reemplaza al `status String @default("ACTIVE")` original (text libre).
 enum PartnerMemberStatus {
-  ACTIVE         // operacional, accesos completos
-  INACTIVE       // pausa temporal — sin login pero history preserved
-  OFFBOARDING   // proceso de salida en curso (compliance window)
-  SUSPENDED     // suspendido por incumplimiento (issue compliance/legal)
+  ACTIVE // operacional, accesos completos
+  INACTIVE // pausa temporal — sin login pero history preserved
+  OFFBOARDING // proceso de salida en curso (compliance window)
+  SUSPENDED // suspendido por incumplimiento (issue compliance/legal)
 }
 
 // ─── AuditLogStatus — estados de execución (Audit H3 fix) ───
 enum AuditLogStatus {
   SUCCESS
   FAILURE
-  PARTIAL        // operación multi-step que algunos pasaron y otros no
+  PARTIAL // operación multi-step que algunos pasaron y otros no
 }
 
 // ─── AuditLogRetention — políticas de retention (Audit H3 fix) ───
 // Drives scheduler v1.0.3 REPORTS-CORE que mueve >365d a cold storage.
 enum AuditLogRetention {
-  TRANSIENT      // 90 días — eventos de baja criticidad (UI hovers, etc.)
-  STANDARD       // 365 días default — la mayoría de operaciones
-  PERMANENT      // NUNCA expira — Visa CRR / CFDI / GDPR compliance ops
+  TRANSIENT // 90 días — eventos de baja criticidad (UI hovers, etc.)
+  STANDARD // 365 días default — la mayoría de operaciones
+  PERMANENT // NUNCA expira — Visa CRR / CFDI / GDPR compliance ops
 }
 
 // ─── EngagementRole — rol dentro del client engagement (Audit H3 fix) ───
 enum EngagementRole {
-  LEAD            // responsable principal del engagement
-  CONSULTANT      // contributor operativo
-  SUPPORT         // help desk asignado al cliente
-  OBSERVER        // shadow (training, audit) — no write actions
+  LEAD // responsable principal del engagement
+  CONSULTANT // contributor operativo
+  SUPPORT // help desk asignado al cliente
+  OBSERVER // shadow (training, audit) — no write actions
 }
 
 // ─── AssignmentScope — alcance de PartnerClientAssignment (Audit H3 fix) ───
 enum AssignmentScope {
-  FULL            // CRUD pleno + wizard + audit
-  TIER_A_ONLY     // solo setup estructural (room types/rate plans/mappings)
-  SUPPORT_ONLY    // solo lectura + ticket creation (no edits)
+  FULL // CRUD pleno + wizard + audit
+  TIER_A_ONLY // solo setup estructural (room types/rate plans/mappings)
+  SUPPORT_ONLY // solo lectura + ticket creation (no edits)
 }
 
 // ─── CertificationLevel — nivel certificación Zenix Academy (Audit L1→H3 fix) ───
@@ -573,22 +573,25 @@ model Organization {
   // ── Sprint Mx-1 — Mantenimiento ──────────────────────────────────────────
   maintenanceTickets  MaintenanceTicket[]
   recurrenceTemplates MaintenanceRecurrenceTemplate[]
+  // ── Sprint BILLING-CORE (v1.1.0) ─────────────────────────────────────────
+  subscription        Subscription?
+  termsAcceptances    TermsAcceptance[]
 
   @@map("organizations")
 }
 
 model User {
-  id             String    @id @default(uuid())
+  id                   String     @id @default(uuid())
   // organizationId nullable a partir de Nova: PLATFORM_ADMIN + PARTNER_MEMBER no
   // pertenecen a una Organization cliente — pertenecen a un Partner firm.
   // Backward-compat: ORG_OWNER + ORG_STAFF (legacy MANAGER/RECEPTIONIST/etc.)
   // siguen teniendo organizationId NOT NULL via app-layer check.
-  organizationId String?   @map("organization_id")
-  email          String    @unique
-  passwordHash   String    @map("password_hash")
-  firstName      String    @map("first_name")
-  lastName       String    @map("last_name")
-  isActive       Boolean   @default(true) @map("is_active")
+  organizationId       String?    @map("organization_id")
+  email                String     @unique
+  passwordHash         String     @map("password_hash")
+  firstName            String     @map("first_name")
+  lastName             String     @map("last_name")
+  isActive             Boolean    @default(true) @map("is_active")
   // Sprint NOVA-CHANNEX-COMMAND-CENTER Day 17 — Wizard Zenix Activate setup flow.
   // setupTokenHash: SHA256 hash del raw token enviado al Org Owner por email.
   //   El raw token NUNCA persiste — solo el hash. Al recibir GET/POST
@@ -596,33 +599,33 @@ model User {
   // setupTokenExpiresAt: 72h desde la creación (§174 D-NOVA-16).
   // Después de consumir el token (password set + isActive=true), ambas
   // columnas se NULLEAN. Single-use enforcement.
-  setupTokenHash      String?   @unique @map("setup_token_hash")
-  setupTokenExpiresAt DateTime? @map("setup_token_expires_at")
-  setupTokenConsumedAt DateTime? @map("setup_token_consumed_at")
+  setupTokenHash       String?    @unique @map("setup_token_hash")
+  setupTokenExpiresAt  DateTime?  @map("setup_token_expires_at")
+  setupTokenConsumedAt DateTime?  @map("setup_token_consumed_at")
   // Nova foundation §160 D-NOVA-2 — tier en la hierarchy 5-tier.
   // Default OWNER por backward-compat con seed legacy (se migra explícitamente).
-  systemRole     SystemRole @default(OWNER) @map("system_role")
-  deletedAt      DateTime? @map("deleted_at")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  systemRole           SystemRole @default(OWNER) @map("system_role")
+  deletedAt            DateTime?  @map("deleted_at")
+  createdAt            DateTime   @default(now()) @map("created_at")
+  updatedAt            DateTime   @updatedAt @map("updated_at")
 
-  organization     Organization?         @relation(fields: [organizationId], references: [id])
-  propertyRoles    UserPropertyRole[]
+  organization               Organization?             @relation(fields: [organizationId], references: [id])
+  propertyRoles              UserPropertyRole[]
   // v1.0.5 — nuevos scope levels para multi-property cross-* access
-  brandRoles       BrandUserRole[]
-  legalEntityRoles LegalEntityUserRole[]
-  staffProfiles    Staff[]
+  brandRoles                 BrandUserRole[]
+  legalEntityRoles           LegalEntityUserRole[]
+  staffProfiles              Staff[]
   // Nova foundation §163 — relación 1:1 con PartnerMember si systemRole ∈ {PARTNER_ADMIN, PARTNER_MEMBER}.
   // Si systemRole=PLATFORM_ADMIN, también vive como PartnerMember del Partner ZaharDev (isInternal=true).
-  partnerMember    PartnerMember?
+  partnerMember              PartnerMember?
   // Audit H1 fix 2026-05-24 — inverse relations para FKs ON DELETE RESTRICT
-  auditActorRealLogs       AuditLog[]                @relation("AuditLogActor")
-  auditOnBehalfOfLogs      AuditLog[]                @relation("AuditLogOnBehalfOf")
-  ratePlanMappingsCreated  ChannexRatePlanMapping[]  @relation("RatePlanMappingCreatedBy")
-  ratePlanMappingsUpdated  ChannexRatePlanMapping[]  @relation("RatePlanMappingUpdatedBy")
-  ratePlanCapsSet          RatePlanCap[]             @relation("RatePlanCapSetBy")
-  channelPausesPaused      ChannexChannelPause[]     @relation("ChannelPausePausedBy")
-  channelPausesUnpaused    ChannexChannelPause[]     @relation("ChannelPauseUnpausedBy")
+  auditActorRealLogs         AuditLog[]                @relation("AuditLogActor")
+  auditOnBehalfOfLogs        AuditLog[]                @relation("AuditLogOnBehalfOf")
+  ratePlanMappingsCreated    ChannexRatePlanMapping[]  @relation("RatePlanMappingCreatedBy")
+  ratePlanMappingsUpdated    ChannexRatePlanMapping[]  @relation("RatePlanMappingUpdatedBy")
+  ratePlanCapsSet            RatePlanCap[]             @relation("RatePlanCapSetBy")
+  channelPausesPaused        ChannexChannelPause[]     @relation("ChannelPausePausedBy")
+  channelPausesUnpaused      ChannexChannelPause[]     @relation("ChannelPauseUnpausedBy")
   partnerAssignmentsAssigned PartnerClientAssignment[] @relation("PartnerAssignmentAssignedBy")
   partnerAssignmentsRevoked  PartnerClientAssignment[] @relation("PartnerAssignmentRevokedBy")
 
@@ -803,31 +806,31 @@ model Property {
   updatedAt      DateTime     @updatedAt @map("updated_at")
 
   // v1.0.5 — relación a Organization ahora NOT NULL.
-  organization       Organization             @relation(fields: [organizationId], references: [id])
+  organization            Organization             @relation(fields: [organizationId], references: [id])
   // v1.0.5 — nuevo FK opcional. Required v1.1+ tras backfill verificado.
-  legalEntity        LegalEntity?             @relation(fields: [legalEntityId], references: [id])
-  rooms              Room[]
-  roomTypes          RoomType[]
-  staff              Staff[]
-  pmsConfig          PmsConfig?
-  settings           PropertySettings?
-  userRoles          UserPropertyRole[]
-  stayJourneys       StayJourney[]
-  appNotifications   AppNotification[]
-  fxRates            PropertyFxRate[]
+  legalEntity             LegalEntity?             @relation(fields: [legalEntityId], references: [id])
+  rooms                   Room[]
+  roomTypes               RoomType[]
+  staff                   Staff[]
+  pmsConfig               PmsConfig?
+  settings                PropertySettings?
+  userRoles               UserPropertyRole[]
+  stayJourneys            StayJourney[]
+  appNotifications        AppNotification[]
+  fxRates                 PropertyFxRate[]
   // ── Sprint 8H ─────────────────────────────────────────────────────────────
-  shifts             StaffShift[]
-  staffCoverages     StaffCoverage[]
-  shiftClocks        StaffShiftClock[]
+  shifts                  StaffShift[]
+  staffCoverages          StaffCoverage[]
+  shiftClocks             StaffShiftClock[]
   // ── Sprint 9 — Reports / Channel Manager ──────────────────────────────────
-  channelCommissions ChannelCommission[]
+  channelCommissions      ChannelCommission[]
   // ── Feature flags / testing toggles ───────────────────────────────────────
-  featureFlags       FeatureFlag[]
+  featureFlags            FeatureFlag[]
   // ── Reports — pre-computed aggregations (Sprint 9 research) ──────────────
-  dailyMetrics       DailyPropertyMetrics[]
-  channelProduction  ChannelProductionDaily[]
+  dailyMetrics            DailyPropertyMetrics[]
+  channelProduction       ChannelProductionDaily[]
   // ── Sprint Mx-1 — Mantenimiento ──────────────────────────────────────────
-  maintenanceTickets MaintenanceTicket[]
+  maintenanceTickets      MaintenanceTicket[]
   // ── Sprint NOVA-CHANNEX-COMMAND-CENTER (Day 2) ───────────────────────────
   channexRatePlanMappings ChannexRatePlanMapping[]
   channexChannelPauses    ChannexChannelPause[]
@@ -1519,24 +1522,24 @@ model GuestStay {
   // change. Soporta hotel boutique / hostal / STR (Airbnb-style) con el
   // mismo modelo: STR persiste `cancelMetadata.airbnbCancelCode` sin
   // afectar el flujo principal.
-  cancelledAt           DateTime?  @map("cancelled_at")
-  cancelledById         String?    @map("cancelled_by_id")
+  cancelledAt          DateTime? @map("cancelled_at")
+  cancelledById        String?   @map("cancelled_by_id")
   // 'GUEST' | 'HOTEL' | 'OTA' | 'ADMIN_ERROR' | 'SYSTEM' (string, no enum)
-  cancelInitiator       String?    @map("cancel_initiator")
+  cancelInitiator      String?   @map("cancel_initiator")
   // Texto libre + opcional motivo de dropdown via cancelReasonCode
-  cancelReason          String?    @map("cancel_reason")
-  cancelReasonCode      String?    @map("cancel_reason_code")
+  cancelReason         String?   @map("cancel_reason")
+  cancelReasonCode     String?   @map("cancel_reason_code")
   // OTA cancel codes, refund refs, host fees (STR), email refs, etc.
-  cancelMetadata        Json?      @map("cancel_metadata")
+  cancelMetadata       Json?     @map("cancel_metadata")
   // 'PMS_DIRECT' | 'CHANNEX_WEBHOOK' | 'AUTO_SYSTEM'
-  cancelledFromChannel  String?    @map("cancelled_from_channel")
+  cancelledFromChannel String?   @map("cancelled_from_channel")
   // FK hook para CancellationPolicy futura (v1.1+ rate plan policies)
-  cancellationPolicyId  String?    @map("cancellation_policy_id")
+  cancellationPolicyId String?   @map("cancellation_policy_id")
   // Sembrado para v1.0.2 CFDI-CORE — emite CFDI E + FormaPago=15 si folio
   // origen tuvo CFDI I previo y cancelInitiator != 'ADMIN_ERROR'
-  requiresFiscalReview  Boolean    @default(false) @map("requires_fiscal_review")
+  requiresFiscalReview Boolean   @default(false) @map("requires_fiscal_review")
   // Sembrado para anonymization scheduler v1.0.4 NS-UI
-  anonymizedAt          DateTime?  @map("anonymized_at")
+  anonymizedAt         DateTime? @map("anonymized_at")
   // ──────────────────────────────────────────────────────────────────────
 
   // ── Channex inbound (Sprint CHANNEX-INBOUND, D-CHX2) ─────────────────────
@@ -1545,27 +1548,27 @@ model GuestStay {
   // channexConflict = true marca stays con overlap pendientes de resolución
   // humana (D-CHX5). AvailabilityService NO los excluye — siguen visibles
   // como "reservas en disputa" hasta que un humano decida.
-  channexBookingId      String?    @unique @map("channex_booking_id")
-  channexRevision       Int?       @map("channex_revision")
-  channexConflict       Boolean    @default(false) @map("channex_conflict")
-  channexLastSyncAt     DateTime?  @map("channex_last_sync_at")
-  channexOtaName        String?    @map("channex_ota_name")  // booking.com | expedia | airbnb | hostelworld | ...
+  channexBookingId     String?   @unique @map("channex_booking_id")
+  channexRevision      Int?      @map("channex_revision")
+  channexConflict      Boolean   @default(false) @map("channex_conflict")
+  channexLastSyncAt    DateTime? @map("channex_last_sync_at")
+  channexOtaName       String?   @map("channex_ota_name") // booking.com | expedia | airbnb | hostelworld | ...
   // Cert audit C9 fix (2026-05-22) — virtual card persistence Booking.com Genius.
   // Channex envía guarantee.card_number MASKED (e.g. "****1234"), is_virtual,
   // expiration_date, meta.virtual_card_*. Persistimos para chargeback evidence
   // Visa CRR §5.9.2. PCI-safe: nunca PAN clear-text (Channex pre-enmascara).
   // Shape: { cardType, masked, expirationDate, isVirtual, meta:{...virtualCard*...} }
-  channexGuaranteeMeta  Json?      @map("channex_guarantee_meta")
+  channexGuaranteeMeta Json?     @map("channex_guarantee_meta")
   // ──────────────────────────────────────────────────────────────────────
 
-  organization Organization      @relation(fields: [organizationId], references: [id])
-  room         Room              @relation(fields: [roomId], references: [id])
-  stayJourney  StayJourney?
-  staySegments StaySegment[]
-  contactLogs  GuestContactLog[]
-  paymentLogs  PaymentLog[]
-  guestStayLogs GuestStayLog[]
-  noteThread   GuestStayNote[]
+  organization       Organization        @relation(fields: [organizationId], references: [id])
+  room               Room                @relation(fields: [roomId], references: [id])
+  stayJourney        StayJourney?
+  staySegments       StaySegment[]
+  contactLogs        GuestContactLog[]
+  paymentLogs        PaymentLog[]
+  guestStayLogs      GuestStayLog[]
+  noteThread         GuestStayNote[]
   channexWebhookLogs ChannexWebhookLog[]
 
   @@index([organizationId])
@@ -1593,21 +1596,21 @@ model GuestStay {
 // vuelta a Channex con user-api-key para hacer pull de la revision.
 
 model ChannexWebhookLog {
-  id               String   @id @default(uuid())
-  propertyId       String   @map("property_id")
-  eventType        String   @map("event_type")  // booking_new | booking_modify | booking_cancel | availability_modify
-  channexBookingId String?  @map("channex_booking_id")
-  channexRevision  Int?     @map("channex_revision")
+  id               String    @id @default(uuid())
+  propertyId       String    @map("property_id")
+  eventType        String    @map("event_type") // booking_new | booking_modify | booking_cancel | availability_modify
+  channexBookingId String?   @map("channex_booking_id")
+  channexRevision  Int?      @map("channex_revision")
   payload          Json
-  signatureValid   Boolean  @map("signature_valid")
-  receivedAt       DateTime @default(now()) @map("received_at")
+  signatureValid   Boolean   @map("signature_valid")
+  receivedAt       DateTime  @default(now()) @map("received_at")
   processedAt      DateTime? @map("processed_at")
   // 'created' | 'updated' | 'cancelled' | 'conflict' | 'rejected' | 'pending' | 'unassigned'
   result           String?
-  errorMessage     String?  @map("error_message")
-  resultingStayId  String?  @map("resulting_stay_id")
+  errorMessage     String?   @map("error_message")
+  resultingStayId  String?   @map("resulting_stay_id")
 
-  resultingStay    GuestStay? @relation(fields: [resultingStayId], references: [id])
+  resultingStay GuestStay? @relation(fields: [resultingStayId], references: [id])
 
   @@index([propertyId, receivedAt])
   @@index([channexBookingId])
@@ -1673,9 +1676,9 @@ enum ChannexOutboxStatus {
 // front of the queue"), RATES_RESTRICTIONS=50.
 
 enum ChannexOutboundKind {
-  AVAILABILITY        // POST /api/v1/availability — count per [property, room_type, date]
-  RATES_RESTRICTIONS  // POST /api/v1/restrictions — rates + min/max stay + CTA/CTD + stop_sell per [property, rate_plan, date]
-  BOOKING_CANCEL      // PUT /api/v1/bookings/:id status=cancelled — manual cancel from PMS, propagates to OTA (Sprint CHANNEX-UX-E2-E3 §150)
+  AVAILABILITY // POST /api/v1/availability — count per [property, room_type, date]
+  RATES_RESTRICTIONS // POST /api/v1/restrictions — rates + min/max stay + CTA/CTD + stop_sell per [property, rate_plan, date]
+  BOOKING_CANCEL // PUT /api/v1/bookings/:id status=cancelled — manual cancel from PMS, propagates to OTA (Sprint CHANNEX-UX-E2-E3 §150)
 }
 
 enum ChannexOutboundStatus {
@@ -1687,29 +1690,29 @@ enum ChannexOutboundStatus {
 }
 
 model ChannexOutboundQueue {
-  id              String                  @id @default(uuid())
-  propertyId      String                  @map("property_id")
-  kind            ChannexOutboundKind
+  id            String                @id @default(uuid())
+  propertyId    String                @map("property_id")
+  kind          ChannexOutboundKind
   // Delta-only payload (AP-3): { entries: [{...}] }. NUNCA dump completo
   // salvo el FullSyncOrchestrator que tiene su propia idempotencia 24h.
-  payload         Json
-  status          ChannexOutboundStatus   @default(PENDING)
+  payload       Json
+  status        ChannexOutboundStatus @default(PENDING)
   // AVAILABILITY=100, RATES_RESTRICTIONS=50 (Channex prioriza avail)
-  priority        Int                     @default(50)
-  attempts        Int                     @default(0)
-  lastError       String?                 @map("last_error")
+  priority      Int                   @default(50)
+  attempts      Int                   @default(0)
+  lastError     String?               @map("last_error")
   // Backoff: tras 429 respeta Retry-After; tras 5xx 2^attempts seconds
-  nextAttemptAt   DateTime                @default(now()) @map("next_attempt_at")
+  nextAttemptAt DateTime              @default(now()) @map("next_attempt_at")
   // Lock holder identifier (hostname:pid) para multi-worker debug
-  lockedAt        DateTime?               @map("locked_at")
-  lockedBy        String?                 @map("locked_by")
-  processedAt     DateTime?               @map("processed_at")
+  lockedAt      DateTime?             @map("locked_at")
+  lockedBy      String?               @map("locked_by")
+  processedAt   DateTime?             @map("processed_at")
   // Anti-flood: SHA-256 del payload (kind+propertyId+entries normalizadas).
   // Si llega outro row con mismo hash en estado PENDING/IN_PROGRESS, lo
   // descartamos como duplicado.
-  payloadHash     String                  @map("payload_hash")
-  createdAt       DateTime                @default(now()) @map("created_at")
-  updatedAt       DateTime                @updatedAt @map("updated_at")
+  payloadHash   String                @map("payload_hash")
+  createdAt     DateTime              @default(now()) @map("created_at")
+  updatedAt     DateTime              @updatedAt @map("updated_at")
 
   // Worker pickup query: WHERE status IN (PENDING, FAILED) AND nextAttemptAt <= NOW()
   // ORDER BY priority DESC, nextAttemptAt ASC
@@ -1725,7 +1728,7 @@ model ChannexOutbox {
   eventType         String              @map("event_type")
   channexBookingId  String?             @map("channex_booking_id")
   channexRevisionId String?             @map("channex_revision_id")
-  webhookLogId      String?             @map("webhook_log_id")  // FK informal a ChannexWebhookLog
+  webhookLogId      String?             @map("webhook_log_id") // FK informal a ChannexWebhookLog
   status            ChannexOutboxStatus @default(PENDING)
   attempts          Int                 @default(0)
   lastError         String?             @map("last_error")
@@ -1956,15 +1959,15 @@ enum NoShowChargeStatus {
 // Eventos esperados v1.0.0: CREATED, CANCELLED, RESTORED, MODIFIED, ANONYMIZED.
 // Futuros: CFDI_E_ISSUED (v1.0.2), CHANNEX_ACK (Channex sprint), REFUND_PROCESSED (v1.0.1).
 model GuestStayLog {
-  id          String   @id @default(uuid())
-  stayId      String   @map("stay_id")
-  event       String
-  actorId     String?  @map("actor_id")
-  actorType   String   @default("USER") @map("actor_type")
-  metadata    Json?
-  occurredAt  DateTime @default(now()) @map("occurred_at")
+  id         String   @id @default(uuid())
+  stayId     String   @map("stay_id")
+  event      String
+  actorId    String?  @map("actor_id")
+  actorType  String   @default("USER") @map("actor_type")
+  metadata   Json?
+  occurredAt DateTime @default(now()) @map("occurred_at")
 
-  stay        GuestStay @relation(fields: [stayId], references: [id])
+  stay GuestStay @relation(fields: [stayId], references: [id])
 
   @@index([stayId, occurredAt])
   @@index([event])
@@ -1980,23 +1983,23 @@ model GuestStayLog {
 // Editable hasta 5 minutos post-creación por el mismo autor (anti-typo); no
 // hay delete — si la nota está mal, se agrega otra nota corrigiendo.
 model GuestStayNote {
-  id        String   @id @default(uuid())
-  stayId    String   @map("stay_id")
-  authorId  String   @map("author_id")
-  content   String   @db.Text
+  id        String    @id @default(uuid())
+  stayId    String    @map("stay_id")
+  authorId  String    @map("author_id")
+  content   String    @db.Text
   // Channel hint para filtrado UI: 'GENERAL' | 'GUEST_REQUEST' | 'HOUSEKEEPING' | 'INTERNAL'
   // Default GENERAL. No enum — patrón "espiral" §95 para evolución sin migration.
-  channel   String   @default("GENERAL")
+  channel   String    @default("GENERAL")
   // Sprint 2026-05-20 — kind discriminator:
   //   'CHAT'   — mensaje de bitácora team (default). Telegram-style chat UI.
   //   'STICKY' — postit pinned, siempre visible en el sidebar derecho.
   //   'SYSTEM' — mensaje automático de Zenix (audit + futuro AI agents).
   //              authorId NULL/empty cuando kind=SYSTEM.
-  kind      String   @default("CHAT")
-  createdAt DateTime @default(now()) @map("created_at")
+  kind      String    @default("CHAT")
+  createdAt DateTime  @default(now()) @map("created_at")
   editedAt  DateTime? @map("edited_at")
 
-  stay   GuestStay @relation(fields: [stayId], references: [id])
+  stay GuestStay @relation(fields: [stayId], references: [id])
 
   @@index([stayId, createdAt])
   @@index([stayId, kind])
@@ -3245,16 +3248,16 @@ model MaintenanceTicketLog {
 // CFDI 4.0 Art. 20 CFF: usa FIX del día de la operación.
 // Patrón inmutable: una vez fetched, nunca se reescribe (alineado §28).
 model ExchangeRate {
-  id              String   @id @default(uuid())
-  organizationId  String   @map("organization_id")
-  baseCurrency    String   @map("base_currency")     // 'USD'
-  quoteCurrency   String   @map("quote_currency")    // 'MXN'
-  rate            Decimal  @db.Decimal(12, 6)
-  source          String   // 'BANXICO_SF43718' | 'OPEN_EXCHANGE' | 'MANUAL'
-  effectiveDate   DateTime @db.Date @map("effective_date")
-  fetchedAt       DateTime @default(now()) @map("fetched_at")
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  baseCurrency   String   @map("base_currency") // 'USD'
+  quoteCurrency  String   @map("quote_currency") // 'MXN'
+  rate           Decimal  @db.Decimal(12, 6)
+  source         String // 'BANXICO_SF43718' | 'OPEN_EXCHANGE' | 'MANUAL'
+  effectiveDate  DateTime @map("effective_date") @db.Date
+  fetchedAt      DateTime @default(now()) @map("fetched_at")
 
-  organization    Organization @relation(fields: [organizationId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
 
   @@unique([organizationId, baseCurrency, quoteCurrency, effectiveDate, source])
   @@index([effectiveDate])
@@ -3266,20 +3269,20 @@ model ExchangeRate {
 // Se persiste como spread relativo O como rate absoluto editable.
 // Visible en dashboard al recepcionista junto al rate oficial Banxico.
 model PropertyFxRate {
-  id                  String    @id @default(uuid())
-  propertyId          String    @map("property_id")
-  baseCurrency        String    @map("base_currency")     // 'USD'
-  quoteCurrency       String    @map("quote_currency")    // 'MXN'
-  rate                Decimal   @db.Decimal(12, 6)
+  id                 String    @id @default(uuid())
+  propertyId         String    @map("property_id")
+  baseCurrency       String    @map("base_currency") // 'USD'
+  quoteCurrency      String    @map("quote_currency") // 'MXN'
+  rate               Decimal   @db.Decimal(12, 6)
   // Spread relativo: rate = official * (1 + spreadFromOfficial)
   // null = override absoluto sin tracking del spread.
-  spreadFromOfficial  Decimal?  @db.Decimal(5, 4) @map("spread_from_official")
-  validFrom           DateTime  @db.Date @map("valid_from")
-  validTo             DateTime? @db.Date @map("valid_to")
-  updatedById         String    @map("updated_by_id")
-  updatedAt           DateTime  @updatedAt @map("updated_at")
+  spreadFromOfficial Decimal?  @map("spread_from_official") @db.Decimal(5, 4)
+  validFrom          DateTime  @map("valid_from") @db.Date
+  validTo            DateTime? @map("valid_to") @db.Date
+  updatedById        String    @map("updated_by_id")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
 
-  property            Property  @relation(fields: [propertyId], references: [id])
+  property Property @relation(fields: [propertyId], references: [id])
 
   @@index([propertyId, baseCurrency, quoteCurrency, validFrom])
   @@map("property_fx_rates")
@@ -3301,25 +3304,25 @@ model PropertyFxRate {
 //   · AuditLog = trail universal append-only (DB trigger + reason REQUIRED on_behalf_of)
 
 model Partner {
-  id                  String         @id @default(uuid())
-  name                String         // "ZaharDev" | "Consultoría Caribe SA de CV"
-  tier                PartnerTier    @default(AUTHORIZED)
-  countryCode         String         @map("country_code")          // primary país de operación
-  contactEmail        String         @map("contact_email")
-  contactPhone        String?        @map("contact_phone")
-  licenseValidUntil   DateTime       @map("license_valid_until")
-  parentPartnerId     String?        @map("parent_partner_id")     // sub-partner relationships (PLATINUM only)
+  id                String      @id @default(uuid())
+  name              String // "ZaharDev" | "Consultoría Caribe SA de CV"
+  tier              PartnerTier @default(AUTHORIZED)
+  countryCode       String      @map("country_code") // primary país de operación
+  contactEmail      String      @map("contact_email")
+  contactPhone      String?     @map("contact_phone")
+  licenseValidUntil DateTime    @map("license_valid_until")
+  parentPartnerId   String?     @map("parent_partner_id") // sub-partner relationships (PLATINUM only)
   // Flag reservado para ZaharDev — solo este Partner puede tener members con
   // role PLATFORM_ADMIN. Constraint app-level + Postgres CHECK en migration.
-  isInternal          Boolean        @default(false) @map("is_internal")
+  isInternal        Boolean     @default(false) @map("is_internal")
 
-  parentPartner       Partner?       @relation("SubPartners", fields: [parentPartnerId], references: [id])
-  subPartners         Partner[]      @relation("SubPartners")
-  members             PartnerMember[]
-  clientAssignments   PartnerClientAssignment[]
+  parentPartner     Partner?                  @relation("SubPartners", fields: [parentPartnerId], references: [id])
+  subPartners       Partner[]                 @relation("SubPartners")
+  members           PartnerMember[]
+  clientAssignments PartnerClientAssignment[]
 
-  createdAt           DateTime       @default(now()) @map("created_at")
-  updatedAt           DateTime       @default(now()) @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
 
   @@index([tier])
   @@index([isInternal])
@@ -3328,20 +3331,20 @@ model Partner {
 }
 
 model PartnerMember {
-  id                  String              @id @default(uuid())
-  partnerId           String              @map("partner_id")
-  userId              String              @unique @map("user_id")  // FK 1:1 a User
-  role                PartnerMemberRole
+  id                 String              @id @default(uuid())
+  partnerId          String              @map("partner_id")
+  userId             String              @unique @map("user_id") // FK 1:1 a User
+  role               PartnerMemberRole
   // Audit H3 fix 2026-05-24: text → enum (controlled vocabulary)
-  status              PartnerMemberStatus @default(ACTIVE)
-  joinedAt            DateTime            @default(now()) @map("joined_at")
-  certifiedAt         DateTime?           @map("certified_at")      // fecha cert Zenix Academy
+  status             PartnerMemberStatus @default(ACTIVE)
+  joinedAt           DateTime            @default(now()) @map("joined_at")
+  certifiedAt        DateTime?           @map("certified_at") // fecha cert Zenix Academy
   // Audit L1+H3 fix: text → enum
-  certificationLevel  CertificationLevel? @map("certification_level")
+  certificationLevel CertificationLevel? @map("certification_level")
 
-  partner             Partner             @relation(fields: [partnerId], references: [id])
-  user                User                @relation(fields: [userId], references: [id])
-  clientMemberships   PartnerMemberAssignment[]
+  partner           Partner                   @relation(fields: [partnerId], references: [id])
+  user              User                      @relation(fields: [userId], references: [id])
+  clientMemberships PartnerMemberAssignment[]
 
   @@index([partnerId, role])
   @@index([status])
@@ -3350,23 +3353,23 @@ model PartnerMember {
 
 model PartnerClientAssignment {
   // firm partner ↔ cliente hotel (N:M)
-  id                  String   @id @default(uuid())
-  partnerId           String   @map("partner_id")
-  organizationId      String   @map("organization_id")
+  id             String          @id @default(uuid())
+  partnerId      String          @map("partner_id")
+  organizationId String          @map("organization_id")
   // Audit H3 fix 2026-05-24: text → enum
-  scope               AssignmentScope @default(FULL)
+  scope          AssignmentScope @default(FULL)
   // Audit H1 fix: FK a users(id) ON DELETE RESTRICT
-  assignedById        String   @map("assigned_by_id")
-  assignedAt          DateTime @default(now()) @map("assigned_at")
-  revokedAt           DateTime? @map("revoked_at")
-  revokedById         String?   @map("revoked_by_id")
+  assignedById   String          @map("assigned_by_id")
+  assignedAt     DateTime        @default(now()) @map("assigned_at")
+  revokedAt      DateTime?       @map("revoked_at")
+  revokedById    String?         @map("revoked_by_id")
 
-  partner             Partner       @relation(fields: [partnerId], references: [id])
-  organization        Organization  @relation(fields: [organizationId], references: [id])
+  partner           Partner                   @relation(fields: [partnerId], references: [id])
+  organization      Organization              @relation(fields: [organizationId], references: [id])
   // Audit H1 fix — FK assignedBy/revokedBy → users(id) ON DELETE RESTRICT
-  assignedBy          User          @relation("PartnerAssignmentAssignedBy", fields: [assignedById], references: [id], onDelete: Restrict)
-  revokedBy           User?         @relation("PartnerAssignmentRevokedBy", fields: [revokedById], references: [id], onDelete: Restrict)
-  memberAssignments   PartnerMemberAssignment[]
+  assignedBy        User                      @relation("PartnerAssignmentAssignedBy", fields: [assignedById], references: [id], onDelete: Restrict)
+  revokedBy         User?                     @relation("PartnerAssignmentRevokedBy", fields: [revokedById], references: [id], onDelete: Restrict)
+  memberAssignments PartnerMemberAssignment[]
 
   @@unique([partnerId, organizationId])
   @@index([organizationId])
@@ -3376,16 +3379,16 @@ model PartnerClientAssignment {
 
 model PartnerMemberAssignment {
   // dentro del partner, qué miembros están en qué cliente engagement (N:M)
-  id                          String          @id @default(uuid())
-  partnerClientAssignmentId   String          @map("partner_client_assignment_id")
-  partnerMemberId             String          @map("partner_member_id")
+  id                        String         @id @default(uuid())
+  partnerClientAssignmentId String         @map("partner_client_assignment_id")
+  partnerMemberId           String         @map("partner_member_id")
   // Audit H3 fix 2026-05-24: text → enum
-  engagementRole              EngagementRole  @map("engagement_role")
-  assignedAt                  DateTime        @default(now()) @map("assigned_at")
-  removedAt                   DateTime?       @map("removed_at")
+  engagementRole            EngagementRole @map("engagement_role")
+  assignedAt                DateTime       @default(now()) @map("assigned_at")
+  removedAt                 DateTime?      @map("removed_at")
 
-  partnerClientAssignment     PartnerClientAssignment @relation(fields: [partnerClientAssignmentId], references: [id])
-  member                      PartnerMember           @relation(fields: [partnerMemberId], references: [id])
+  partnerClientAssignment PartnerClientAssignment @relation(fields: [partnerClientAssignmentId], references: [id])
+  member                  PartnerMember           @relation(fields: [partnerMemberId], references: [id])
 
   @@unique([partnerClientAssignmentId, partnerMemberId])
   @@index([partnerMemberId])
@@ -3402,40 +3405,40 @@ model PartnerMemberAssignment {
 // GDPR Art. 17.3.b (legal obligation exception).
 
 model AuditLog {
-  id                String             @id @default(uuid())
-  organizationId    String             @map("organization_id")
+  id              String            @id @default(uuid())
+  organizationId  String            @map("organization_id")
   // Actor real — siempre el verdadero ejecutor (consultor, ZaharDev, cliente user).
   // Audit H1 fix 2026-05-24: FK a users(id) ON DELETE RESTRICT — referential integrity.
-  actorRealId       String             @map("actor_real_id")
-  actorRealRole     SystemRole         @map("actor_real_role")
+  actorRealId     String            @map("actor_real_id")
+  actorRealRole   SystemRole        @map("actor_real_role")
   // Impersonation pattern SAP-style: si actor opera "en nombre de" otro usuario,
   // estos campos lo registran. `reason` es REQUIRED via CHECK constraint
   // cuando onBehalfOfId IS NOT NULL.
-  onBehalfOfId      String?            @map("on_behalf_of_id")
-  onBehalfOfRole    SystemRole?        @map("on_behalf_of_role")
+  onBehalfOfId    String?           @map("on_behalf_of_id")
+  onBehalfOfRole  SystemRole?       @map("on_behalf_of_role")
   // Acción ejecutada — naming convention 'ENTITY_VERB' uppercase.
   // Ej: 'CHANNEX_ROOM_TYPE_CREATE' | 'WIZARD_STEP_4_COMPLETED' | 'CHANNEL_PAUSE'
-  action            String
+  action          String
   // Target entity (channex room_type_id, rate_plan_id, wizard step number, etc.)
-  target            String?
+  target          String?
   // Request payload completo (post-sanitization de PII si aplica)
-  payload           Json
+  payload         Json
   // Response de Channex API (si la acción involucró Channex)
-  channexResponse   Json?              @map("channex_response")
+  channexResponse Json?             @map("channex_response")
   // Audit H3 fix 2026-05-24: text → enum (controlled vocabulary)
-  status            AuditLogStatus
+  status          AuditLogStatus
   // REQUIRED si onBehalfOfId != null (CHECK constraint en migration)
-  reason            String?
-  errorMessage      String?            @map("error_message")
+  reason          String?
+  errorMessage    String?           @map("error_message")
   // Audit H3 fix: text → enum. Drives v1.0.3 REPORTS-CORE cold storage scheduler.
-  retentionPolicy   AuditLogRetention  @default(STANDARD) @map("retention_policy")
-  createdAt         DateTime           @default(now()) @map("created_at")
+  retentionPolicy AuditLogRetention @default(STANDARD) @map("retention_policy")
+  createdAt       DateTime          @default(now()) @map("created_at")
 
-  organization      Organization @relation(fields: [organizationId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
   // Audit H1 fix 2026-05-24: FK ON DELETE RESTRICT — referential integrity
   // Compliance Visa CRR §5.9.2 + CFDI Art. 30 CFF + GDPR Art. 17.3.b
-  actorReal         User         @relation("AuditLogActor", fields: [actorRealId], references: [id], onDelete: Restrict)
-  onBehalfOf        User?        @relation("AuditLogOnBehalfOf", fields: [onBehalfOfId], references: [id], onDelete: Restrict)
+  actorReal    User         @relation("AuditLogActor", fields: [actorRealId], references: [id], onDelete: Restrict)
+  onBehalfOf   User?        @relation("AuditLogOnBehalfOf", fields: [onBehalfOfId], references: [id], onDelete: Restrict)
 
   @@index([organizationId, createdAt])
   @@index([actorRealId, createdAt])
@@ -3462,39 +3465,39 @@ model ChannexRatePlanMapping {
   //   1. Fuente cliente-side para queries fast (sin hit Channex API cada vez)
   //   2. Hook para futuro RatePlan model (RATES sprint agrega FK)
   //   3. Source para Rate Calendar Matrix aggregator (Day 6)
-  id                String       @id @default(uuid())
-  organizationId    String       @map("organization_id")
-  propertyId        String       @map("property_id")
+  id                String   @id @default(uuid())
+  organizationId    String   @map("organization_id")
+  propertyId        String   @map("property_id")
   // UUID del rate plan en Channex (e.g. "4aea6806-f0fe-4517-9642-b67600cc01ff")
-  channexRatePlanId String       @unique @map("channex_rate_plan_id")
+  channexRatePlanId String   @unique @map("channex_rate_plan_id")
   // FK lógico al room type Channex que este rate plan cubre (1 rate plan ↔ 1 room type)
-  channexRoomTypeId String       @map("channex_room_type_id")
-  title             String       // "BAR — Estándar"
+  channexRoomTypeId String   @map("channex_room_type_id")
+  title             String // "BAR — Estándar"
   // Audit H2 fix 2026-05-24: text → CHAR(3) ISO 4217. CHECK regex en migration.
-  currency          String       @db.Char(3)
+  currency          String   @db.Char(3)
   // sell_mode: 'per_room' (rate fijo por habitación) | 'per_person' (rate × occupancy)
-  sellMode          String       @map("sell_mode")
+  sellMode          String   @map("sell_mode")
   // rate_mode: 'manual' (operador setea cada rate) | 'derived' (calculado de otro plan)
-  rateMode          String       @default("manual") @map("rate_mode")
+  rateMode          String   @default("manual") @map("rate_mode")
   // Rate base default cuando se crea — útil para "reset to default" + auto-detect
   // de "rate plan recién creado" en el calendar (no requiere consulta a Channex)
-  defaultRate       Decimal      @db.Decimal(10, 2) @map("default_rate")
-  defaultOccupancy  Int          @default(2) @map("default_occupancy")
+  defaultRate       Decimal  @map("default_rate") @db.Decimal(10, 2)
+  defaultOccupancy  Int      @default(2) @map("default_occupancy")
   // Flag para desactivar rate plan sin borrarlo de Channex (preserva history).
   // En Channex no existe "deactivate" — emulamos con stop_sell=true en
   // restrictions. Este flag refleja el estado intencional del operador.
-  isActive          Boolean      @default(true) @map("is_active")
-  createdAt         DateTime     @default(now()) @map("created_at")
-  updatedAt         DateTime     @default(now()) @updatedAt @map("updated_at")
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at")
   // Audit fields — quién creó/actualizó (PARTNER_MEMBER o PLATFORM_ADMIN)
   // Audit H1 fix 2026-05-24: FK ON DELETE RESTRICT
-  createdById       String       @map("created_by_id")
-  updatedById       String?      @map("updated_by_id")
+  createdById       String   @map("created_by_id")
+  updatedById       String?  @map("updated_by_id")
 
-  property          Property     @relation(fields: [propertyId], references: [id])
-  createdBy         User         @relation("RatePlanMappingCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  updatedBy         User?        @relation("RatePlanMappingUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
-  rateCap           RatePlanCap?
+  property  Property     @relation(fields: [propertyId], references: [id])
+  createdBy User         @relation("RatePlanMappingCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy User?        @relation("RatePlanMappingUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  rateCap   RatePlanCap?
 
   @@index([propertyId, isActive])
   @@index([channexRoomTypeId])
@@ -3508,20 +3511,20 @@ model ChannexRatePlanMapping {
 // donde admin define grants y user opera dentro de ellos.
 
 model RatePlanCap {
-  id                String                  @id @default(uuid())
-  channexMappingId  String                  @unique @map("channex_mapping_id")
-  rateCapMin        Decimal?                @db.Decimal(10, 2) @map("rate_cap_min")
-  rateCapMax        Decimal?                @db.Decimal(10, 2) @map("rate_cap_max")
+  id               String   @id @default(uuid())
+  channexMappingId String   @unique @map("channex_mapping_id")
+  rateCapMin       Decimal? @map("rate_cap_min") @db.Decimal(10, 2)
+  rateCapMax       Decimal? @map("rate_cap_max") @db.Decimal(10, 2)
   // Razón opcional explicando los caps. Visible al operador supervisor
   // cuando intenta editar fuera de rango (sirve de educación contextual).
-  reason            String?
+  reason           String?
   // Audit H1 fix 2026-05-24: FK ON DELETE RESTRICT
-  setById           String                  @map("set_by_id")
-  setAt             DateTime                @default(now()) @map("set_at")
-  updatedAt         DateTime                @default(now()) @updatedAt @map("updated_at")
+  setById          String   @map("set_by_id")
+  setAt            DateTime @default(now()) @map("set_at")
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at")
 
-  mapping           ChannexRatePlanMapping  @relation(fields: [channexMappingId], references: [id], onDelete: Cascade)
-  setBy             User                    @relation("RatePlanCapSetBy", fields: [setById], references: [id], onDelete: Restrict)
+  mapping ChannexRatePlanMapping @relation(fields: [channexMappingId], references: [id], onDelete: Cascade)
+  setBy   User                   @relation("RatePlanCapSetBy", fields: [setById], references: [id], onDelete: Restrict)
 
   @@index([setById])
   @@map("rate_plan_caps")
@@ -3534,27 +3537,315 @@ model RatePlanCap {
 // Pattern Cloudbeds "Snooze channel".
 
 model ChannexChannelPause {
-  id                  String   @id @default(uuid())
-  propertyId          String   @map("property_id")
-  channexChannelId    String   @map("channex_channel_id")
-  channelName         String   @map("channel_name")  // 'booking_com', 'expedia', etc.
-  pausedAt            DateTime @default(now()) @map("paused_at")
-  pausedById          String   @map("paused_by_id")  // actor
-  pauseReason         String?  @map("pause_reason")
+  id               String    @id @default(uuid())
+  propertyId       String    @map("property_id")
+  channexChannelId String    @map("channex_channel_id")
+  channelName      String    @map("channel_name") // 'booking_com', 'expedia', etc.
+  pausedAt         DateTime  @default(now()) @map("paused_at")
+  pausedById       String    @map("paused_by_id") // actor
+  pauseReason      String?   @map("pause_reason")
   // JSON snapshot del estado pre-pause (stop_sell per rate_plan, restrictions)
   // — usado para restore exacto al unpause. Sin esto, unpause podría dejar
   // ratesplans con stop_sell=true que el operador NO había seteado antes.
-  preState            Json?    @map("pre_state")
-  unpausedAt          DateTime? @map("unpaused_at")
-  unpausedById        String?  @map("unpaused_by_id")
-  unpauseReason       String?  @map("unpause_reason")
+  preState         Json?     @map("pre_state")
+  unpausedAt       DateTime? @map("unpaused_at")
+  unpausedById     String?   @map("unpaused_by_id")
+  unpauseReason    String?   @map("unpause_reason")
 
-  property            Property @relation(fields: [propertyId], references: [id])
+  property   Property @relation(fields: [propertyId], references: [id])
   // Audit H1 fix 2026-05-24
-  pausedBy            User     @relation("ChannelPausePausedBy", fields: [pausedById], references: [id], onDelete: Restrict)
-  unpausedBy          User?    @relation("ChannelPauseUnpausedBy", fields: [unpausedById], references: [id], onDelete: Restrict)
+  pausedBy   User     @relation("ChannelPausePausedBy", fields: [pausedById], references: [id], onDelete: Restrict)
+  unpausedBy User?    @relation("ChannelPauseUnpausedBy", fields: [unpausedById], references: [id], onDelete: Restrict)
 
   @@index([propertyId, pausedAt])
   @@index([channexChannelId])
   @@map("channex_channel_pauses")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BILLING-CORE (Sprint v1.1.0)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Stripe subscription billing wiring + discount codes negociables + retention
+// save offers + dunning + T&C versioned + pricing admin UI.
+//
+// Plan completo en docs/sprints/BILLING-CORE-plan.md (~600 líneas día-por-día).
+// Strategy en docs/vision/15-subscription-billing.md (~840 líneas).
+//
+// Decisiones D-BILL-1..10 en docs/sprints/BILLING-CORE-plan.md §1.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Suscripción Zenix — 1:1 con Organization (mirror Stripe state local)
+model Subscription {
+  id                   String @id @default(uuid())
+  organizationId       String @unique @map("organization_id")
+  stripeCustomerId     String @map("stripe_customer_id")
+  stripeSubscriptionId String @unique @map("stripe_subscription_id")
+
+  // Plan + status sync con Stripe
+  planTier          String @map("plan_tier") // 'STARTER' | 'PRO' | 'ENTERPRISE'
+  status            String // 'incomplete' | 'active' | 'past_due' | 'paused' | 'cancelled' | 'unpaid' | 'trialing'
+  billingCycle      String @default("monthly") @map("billing_cycle") // 'monthly' | 'annual'
+  annualDiscountPct Int?   @map("annual_discount_pct") // 20 si annual
+
+  // Período actual
+  currentPeriodStart DateTime  @map("current_period_start")
+  currentPeriodEnd   DateTime  @map("current_period_end")
+  cancelAtPeriodEnd  Boolean   @default(false) @map("cancel_at_period_end")
+  cancelledAt        DateTime? @map("cancelled_at")
+  cancellationReason String?   @map("cancellation_reason")
+
+  // Pause
+  pausedAt    DateTime? @map("paused_at")
+  pausedUntil DateTime? @map("paused_until")
+
+  // Trial
+  trialStartedAt    DateTime? @map("trial_started_at")
+  trialEndsAt       DateTime? @map("trial_ends_at")
+  trialNegotiatedBy String?   @map("trial_negotiated_by") // consultor User id
+
+  // Pricing snapshot — congelado al activar (grandfathered)
+  baseMonthlyAmount Decimal @map("base_monthly_amount")
+  currency          String  @default("MXN")
+  propertyCount     Int     @map("property_count")
+
+  // Renewal
+  nextRenewalDate DateTime @map("next_renewal_date")
+  autoRenew       Boolean  @default(true) @map("auto_renew")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization Organization           @relation(fields: [organizationId], references: [id])
+  discounts    SubscriptionDiscount[]
+  events       SubscriptionEvent[]
+  invoices     Invoice[]
+  saveOffers   RetentionSaveOffer[]
+
+  @@index([status])
+  @@index([nextRenewalDate])
+  @@map("subscriptions")
+}
+
+// Descuentos aplicados — historial completo + activos. Audit trail per descuento.
+model SubscriptionDiscount {
+  id                    String  @id @default(uuid())
+  subscriptionId        String  @map("subscription_id")
+  stripeCouponId        String  @map("stripe_coupon_id")
+  stripePromotionCodeId String? @map("stripe_promotion_code_id")
+  promotionCode         String  @map("promotion_code") // "ZAHAR-TULUM-2026"
+
+  percentOff       Int?     @map("percent_off") // 0-100
+  amountOff        Decimal? @map("amount_off") // si fixed amount
+  duration         String // 'once' | 'repeating' | 'forever'
+  durationInMonths Int?     @map("duration_in_months")
+
+  generatedById   String    @map("generated_by_id") // consultor User
+  generatedByRole String    @map("generated_by_role")
+  reason          String    @db.Text // libre — razón del descuento
+  approvedById    String?   @map("approved_by_id") // si excedió cap del consultor
+  approvedAt      DateTime? @map("approved_at")
+
+  appliedAt DateTime  @default(now()) @map("applied_at")
+  expiresAt DateTime? @map("expires_at")
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id])
+
+  @@index([subscriptionId])
+  @@index([generatedById])
+  @@map("subscription_discounts")
+}
+
+// Eventos lifecycle — append-only audit trail con dedup webhook
+model SubscriptionEvent {
+  id             String   @id @default(uuid())
+  subscriptionId String   @map("subscription_id")
+  type           String // 'CREATED' | 'PLAN_CHANGED' | 'PAUSED' | 'RESUMED' | 'CANCELLED' | 'PAYMENT_FAILED' | 'PAYMENT_SUCCEEDED' | 'DISCOUNT_APPLIED' | 'SAVE_OFFER_SHOWN' | 'SAVE_OFFER_ACCEPTED' | 'SAVE_OFFER_REJECTED' | 'REMINDER_SENT' | 'DUNNING_ESCALATION' | 'TERMS_ACCEPTED'
+  payload        Json
+  stripeEventId  String?  @unique @map("stripe_event_id") // dedup webhook
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id])
+
+  @@index([subscriptionId, type])
+  @@map("subscription_events")
+}
+
+// Invoices — espejo local de Stripe Invoices
+model Invoice {
+  id               String    @id @default(uuid())
+  subscriptionId   String    @map("subscription_id")
+  organizationId   String    @map("organization_id")
+  stripeInvoiceId  String    @unique @map("stripe_invoice_id")
+  number           String    @unique // "INV-2603"
+  status           String // 'draft' | 'open' | 'paid' | 'uncollectible' | 'void'
+  total            Decimal
+  subtotal         Decimal
+  discount         Decimal   @default(0)
+  tax              Decimal   @default(0)
+  currency         String
+  periodStart      DateTime  @map("period_start")
+  periodEnd        DateTime  @map("period_end")
+  paidAt           DateTime? @map("paid_at")
+  dueAt            DateTime  @map("due_at")
+  hostedInvoiceUrl String?   @map("hosted_invoice_url")
+  invoicePdfUrl    String?   @map("invoice_pdf_url")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id])
+
+  @@index([organizationId])
+  @@index([status])
+  @@map("invoices")
+}
+
+// Discount code templates — el consultor puede tener "mis códigos favoritos"
+model ConsultorDiscountTemplate {
+  id               String  @id @default(uuid())
+  consultorId      String  @map("consultor_id") // User PartnerMember
+  name             String // "Mi código de bienvenida"
+  percentOff       Int
+  duration         String // 'once' | 'repeating' | 'forever'
+  durationInMonths Int?    @map("duration_in_months")
+  isFavorite       Boolean @default(false) @map("is_favorite")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([consultorId])
+  @@map("consultor_discount_templates")
+}
+
+// Save offer presentations + outcomes — tracking de retention ladder
+model RetentionSaveOffer {
+  id                 String    @id @default(uuid())
+  subscriptionId     String    @map("subscription_id")
+  cancellationReason String    @map("cancellation_reason") // del survey
+  offerShown         Json      @map("offer_shown") // JSON describing the offer
+  outcome            String // 'ACCEPTED' | 'REJECTED' | 'EXPIRED' | 'PENDING'
+  acceptedAt         DateTime? @map("accepted_at")
+  rejectedAt         DateTime? @map("rejected_at")
+  // Si ACCEPTED, link al descuento o pausa aplicado
+  appliedDiscountId  String?   @map("applied_discount_id")
+  appliedPauseUntil  DateTime? @map("applied_pause_until")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id])
+
+  @@index([subscriptionId])
+  @@index([cancellationReason])
+  @@map("retention_save_offers")
+}
+
+// Pricing config — modificable por PLATFORM_ADMIN (ZaharDev) sin deploy
+// Grandfather pricing: existing subscriptions tienen Price snapshot en Stripe
+// que no cambia. Esta config solo afecta a nuevos clientes activados desde
+// el wizard post-cambio.
+model BillingPricingConfig {
+  id               String  @id @default(uuid())
+  tier             String  @unique // 'STARTER' | 'PRO' | 'ENTERPRISE'
+  displayName      String  @map("display_name")
+  monthlyAmountMxn Decimal @map("monthly_amount_mxn")
+  monthlyAmountUsd Decimal @map("monthly_amount_usd")
+  features         Json // array of feature flags + descripción
+  isActive         Boolean @default(true) @map("is_active")
+  stripeProductId  String? @map("stripe_product_id")
+  stripePriceIdMxn String? @map("stripe_price_id_mxn")
+  stripePriceIdUsd String? @map("stripe_price_id_usd")
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedById String?  @map("updated_by_id") // PLATFORM_ADMIN
+
+  @@map("billing_pricing_config")
+}
+
+// Cap per partner tier — máximo discount que un consultor puede otorgar
+model BillingPartnerTierCap {
+  tier              String   @id // 'AUTHORIZED' | 'SILVER' | 'GOLD' | 'PLATINUM'
+  maxDiscountPct    Int      @map("max_discount_pct")
+  maxDurationMonths Int?     @map("max_duration_months") // null = forever permitido
+  requiresApproval  Boolean  @default(false) @map("requires_approval")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  updatedById       String?  @map("updated_by_id") // PLATFORM_ADMIN
+
+  @@map("billing_partner_tier_caps")
+}
+
+// T&C versionado — owner publica nuevas versions, clientes aceptan
+model TermsAndConditionsVersion {
+  id              String    @id @default(uuid())
+  version         String    @unique // '0.9', '1.0', '1.1', '2.0'
+  effectiveFrom   DateTime  @map("effective_from")
+  contentMarkdown String    @map("content_markdown") @db.Text
+  contentHtml     String?   @map("content_html") @db.Text
+  pdfStorageUrl   String?   @map("pdf_storage_url")
+  sha256Hash      String    @unique @map("sha256_hash") // determinista
+  language        String    @default("es") // 'es' | 'en'
+  isCurrent       Boolean   @default(false) @map("is_current")
+  createdBy       String    @map("created_by") // PLATFORM_ADMIN
+  legalReviewedBy String?   @map("legal_reviewed_by") // abogado externo
+  legalReviewedAt DateTime? @map("legal_reviewed_at")
+  changelog       String?   @db.Text // qué cambió vs versión previa
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  acceptances TermsAcceptance[]
+
+  @@index([language, isCurrent])
+  @@map("terms_and_conditions_versions")
+}
+
+// T&C acceptance — registro auditable de cada acceptance del Cliente
+model TermsAcceptance {
+  id                String   @id @default(uuid())
+  organizationId    String   @map("organization_id")
+  termsVersionId    String   @map("terms_version_id")
+  acceptedByUserId  String   @map("accepted_by_user_id") // ORG_OWNER usualmente
+  acceptedAt        DateTime @default(now()) @map("accepted_at")
+  ipAddress         String?  @map("ip_address")
+  userAgent         String?  @map("user_agent") @db.Text
+  // Para audit: dónde aceptó
+  acceptanceContext String   @map("acceptance_context") // 'WIZARD_ACTIVATION' | 'TC_UPDATE' | 'MANUAL_OWNER' | 'PILOT_DOCUSIGN'
+
+  organization Organization              @relation(fields: [organizationId], references: [id])
+  termsVersion TermsAndConditionsVersion @relation(fields: [termsVersionId], references: [id])
+
+  @@unique([organizationId, termsVersionId])
+  @@index([organizationId])
+  @@index([termsVersionId])
+  @@map("terms_acceptances")
+}
+
+// ─── BILLING-CORE Day 4 — DiscountApprovalRequest ─────────────────────
+// Cuando un consultor solicita un descuento que excede su cap (§D-BILL-3),
+// se crea una row pending hasta que PARTNER_ADMIN+ apruebe o rechace.
+// Si aprobado → resulting_discount_id apunta al SubscriptionDiscount creado.
+// Si rechazado → rejection_reason persisted, request termina ahí.
+// Si nadie reviewea en expires_at → status='EXPIRED' (cron limpieza futura).
+
+model DiscountApprovalRequest {
+  id                  String    @id @default(uuid())
+  requestedById       String    @map("requested_by_id")
+  requestedByRole     String    @map("requested_by_role")
+  organizationId      String    @map("organization_id")
+  subscriptionId      String?   @map("subscription_id")
+  percentOff          Int       @map("percent_off")
+  duration            String
+  durationInMonths    Int?      @map("duration_in_months")
+  reason              String    @db.Text
+  status              String    @default("PENDING")
+  reviewedById        String?   @map("reviewed_by_id")
+  reviewedAt          DateTime? @map("reviewed_at")
+  rejectionReason     String?   @map("rejection_reason") @db.Text
+  resultingDiscountId String?   @map("resulting_discount_id")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  expiresAt           DateTime  @map("expires_at")
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([requestedById])
+  @@index([status, expiresAt])
+  @@map("discount_approval_requests")
 }
