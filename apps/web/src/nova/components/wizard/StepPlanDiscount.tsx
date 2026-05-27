@@ -44,42 +44,47 @@ import { cn } from '@/lib/utils'
 // Data
 // ──────────────────────────────────────────────────────────────────────
 
+// Plans — copy operacional para guía rápida del consultor, NO venta al cliente.
+// "fit" = perfil objetivo del cliente para decisión rápida del consultor.
 const PLAN_PREVIEW = {
   STARTER: {
     label: 'Starter',
-    tagline: 'Para empezar a operar profesionalmente',
+    fit: 'Hostal / casa de huéspedes',
+    rangeHint: '< 30 cuartos',
     description:
-      'Hostal boutique o casa de huéspedes que recién deja Excel + WhatsApp. Todo lo esencial sin pagar por funciones que no usarás.',
+      'PMS core + housekeeping + folio. Channex con hasta 2 canales OTA. Sin reportes USALI ni métricas ADR/RevPAR.',
     mxn: 1200,
     usd: 70,
     accent: 'sky',
     features: [
       { group: 'Operación', items: ['PMS calendario + reservas', 'Housekeeping con app móvil', 'Check-in/out + folio'] },
-      { group: 'Canales', items: ['Booking, Airbnb, Expedia vía Channex', 'Hasta 2 canales activos'] },
+      { group: 'Canales', items: ['Channex (Booking / Airbnb / Expedia)', 'Hasta 2 canales activos'] },
       { group: 'Límites', items: ['Hasta 30 cuartos', '3 usuarios staff'] },
     ],
     badge: null,
   },
   PRO: {
     label: 'Pro',
-    tagline: 'Para hoteles que crecen',
+    fit: 'Hotel boutique',
+    rangeHint: '30 – 100 cuartos',
     description:
-      'Hotel boutique de 30-100 cuartos con recepción 24h, reportes contables completos y operación multi-canal madura.',
+      'Todo Starter + reportes USALI 12ª ed + métricas ADR/RevPAR/Pickup + canales OTA ilimitados con rate parity.',
     mxn: 1800,
     usd: 100,
     accent: 'violet',
     features: [
-      { group: 'Todo Starter, además', items: ['Reportes USALI 12ª ed', 'Métricas ADR/RevPAR/Pickup'] },
+      { group: 'Todo Starter, además', items: ['Reportes USALI 12ª ed', 'Métricas ADR / RevPAR / Pickup'] },
       { group: 'Canales', items: ['Canales OTA ilimitados', 'Rate parity matrix con alertas'] },
       { group: 'Límites', items: ['Hasta 100 cuartos', 'Staff ilimitado'] },
     ],
-    badge: 'Más popular',
+    badge: 'Default',
   },
   ENTERPRISE: {
     label: 'Enterprise',
-    tagline: 'Para cadenas y grupos',
+    fit: 'Cadena / grupo / white-label',
+    rangeHint: 'Sin límite de cuartos',
     description:
-      'Cadenas multi-property, hoteles con dueños múltiples, o casos white-label. Soporte dedicado + onboarding personalizado.',
+      'Todo Pro + multi-property nativo + white-label / brand propio + Multi-LegalEntity + SLA < 2h hábil con onboarding dedicado.',
     mxn: 2400,
     usd: 140,
     accent: 'emerald',
@@ -104,16 +109,16 @@ const TIER_CAP: Record<string, { maxPct: number; allowForever: boolean; label: s
 
 const DURATION_COPY = {
   once: {
-    label: 'Solo el primer mes',
-    hint: 'El descuento aplica únicamente al primer cobro mensual.',
+    label: 'Una vez',
+    hint: 'Stripe Coupon duration=once. Aplica solo al primer cobro.',
   },
   repeating: {
-    label: 'Por varios meses',
-    hint: 'Define cuántos meses recibe el descuento, luego vuelve al precio regular.',
+    label: 'N meses',
+    hint: 'Stripe Coupon duration=repeating. Define cuántos meses.',
   },
   forever: {
     label: 'Permanente',
-    hint: 'El descuento se mantiene mientras la cuenta esté activa.',
+    hint: 'Stripe Coupon duration=forever. Aplica mientras la suscripción esté activa.',
   },
 } as const
 
@@ -182,15 +187,16 @@ export function StepPlanDiscount() {
   return (
     <WizardLayout
       title="Plan y cobro"
-      description="Eliges el plan, el ciclo de cobro y opcionalmente aplicas un descuento negociado. Al activar el wizard se crea automáticamente la suscripción Stripe del cliente."
+      description="Define el plan, ciclo de cobro y descuento de la suscripción Zenix del cliente. Al activar el wizard se crea la Stripe Subscription real. El cliente recibe el setup link + acceso a su Customer Portal para administrar pago."
     >
       <div className="space-y-5">
         {/* ══════════════ Plan selector ══════════════════════════════ */}
         <Surface variant="raised" radius="lg" padding="lg">
           <div className="mb-5">
-            <Title>Plan contratado</Title>
+            <Title>Selecciona el plan</Title>
             <Callout tone="tertiary" className="mt-1">
-              El cliente puede cambiarlo después desde su Customer Portal o vía Nova.
+              El cliente puede cambiarlo después desde Customer Portal o tú lo modificas vía
+              Nova → Billing.
             </Callout>
           </div>
 
@@ -222,9 +228,9 @@ export function StepPlanDiscount() {
                     </div>
                   )}
 
-                  {/* ── Row 1: header (icon + label + tagline + price) ── */}
+                  {/* ── Row 1: header (icon + label + fit + price + scope) ── */}
                   <div className="p-5 pb-4">
-                    <div className="flex items-center gap-2 mb-2">
+                    <div className="flex items-center gap-2 mb-3">
                       <Sparkles
                         className={cn(
                           'h-4 w-4',
@@ -240,17 +246,17 @@ export function StepPlanDiscount() {
                       </Headline>
                     </div>
 
-                    {/* Tagline — min-h fija para alinear (2 líneas máx) */}
-                    <BodyMedium
-                      className={cn(
-                        'min-h-[40px] mb-3 leading-5',
-                        isSelected ? a.text : 'text-slate-600',
-                      )}
-                    >
-                      {p.tagline}
-                    </BodyMedium>
+                    {/* Fit — perfil del cliente target. Min-h para alinear. */}
+                    <div className="min-h-[40px] mb-3">
+                      <BodyMedium className={isSelected ? a.text : 'text-slate-700'}>
+                        {p.fit}
+                      </BodyMedium>
+                      <Caption tone="tertiary" className="block tabular-nums">
+                        {p.rangeHint}
+                      </Caption>
+                    </div>
 
-                    {/* Price — single line, no wrap */}
+                    {/* Price — single line */}
                     <div className="flex items-baseline gap-1 mb-3 whitespace-nowrap">
                       <span className="text-[22px] font-bold text-slate-900 tracking-[-0.025em] leading-none tabular-nums">
                         {currency} ${(currency === 'USD' ? p.usd : p.mxn).toLocaleString('es-MX')}
@@ -258,8 +264,8 @@ export function StepPlanDiscount() {
                       <Caption tone="tertiary">/mes</Caption>
                     </div>
 
-                    {/* Description — altura mínima para alinear cards (5 líneas) */}
-                    <Callout tone="secondary" className="min-h-[108px] leading-[18px]">
+                    {/* Description — scope operacional, no copy promocional */}
+                    <Callout tone="secondary" className="min-h-[90px] leading-[18px]">
                       {p.description}
                     </Callout>
                   </div>
@@ -307,7 +313,8 @@ export function StepPlanDiscount() {
             <div className="flex-1">
               <Title>Ciclo de cobro</Title>
               <Callout tone="tertiary" className="mt-1">
-                Mensual da flexibilidad. Anual compromete 12 meses con -20% sobre el total.
+                Anual aplica -20% al total y se prepaga upfront. El consultor puede cambiar el
+                ciclo después vía Nova → Billing.
               </Callout>
             </div>
           </div>
@@ -318,14 +325,14 @@ export function StepPlanDiscount() {
               onClick={() => state.setField('billingCycle', 'monthly')}
               accent="violet"
               title="Mensual"
-              description="Cobro cada 30 días. Cancela cuando quiera."
+              description="Stripe cobra cada 30 días. Cliente puede cancelar mes a mes."
             />
             <CycleButton
               selected={state.billingCycle === 'annual'}
               onClick={() => state.setField('billingCycle', 'annual')}
               accent="emerald"
               title="Anual"
-              description="Prepago 12 meses, ahorra ~2 meses."
+              description="Stripe cobra 12 meses upfront con descuento aplicado al total."
               badge="-20%"
             />
           </div>
@@ -335,7 +342,8 @@ export function StepPlanDiscount() {
             <div className="flex-1">
               <Title>Período de prueba</Title>
               <Callout tone="tertiary" className="mt-1">
-                Días gratis antes del primer cobro. Recomendado 14d para piloto.
+                Stripe no cobra hasta que termine el trial. Default 14d (piloto). Configurable
+                hasta 30d sin aprobación.
               </Callout>
             </div>
             <select
@@ -363,13 +371,13 @@ export function StepPlanDiscount() {
                 <Title>Descuento negociado</Title>
                 <Chip variant="neutral" intent="subtle" size="sm">
                   <Crown className="h-3 w-3 inline mr-1" aria-hidden />
-                  Tu cap: {cap.maxPct}%
-                  {cap.allowForever ? ' · permanente' : ''}
+                  Cap tier {cap.label}: {cap.maxPct}%
+                  {cap.allowForever ? ' · permanente OK' : ''}
                 </Chip>
               </div>
               <Callout tone="tertiary" className="mt-1">
-                Si negociaste un descuento, captúralo aquí. Si excedes tu cap se crea una
-                solicitud de aprobación automática.
+                Captura el descuento que negociaste con el cliente. Dentro de tu cap se aplica
+                directo; fuera del cap genera approval request al PARTNER_ADMIN.
               </Callout>
             </div>
 
@@ -446,11 +454,12 @@ export function StepPlanDiscount() {
                     />
                     <div>
                       <BodyMedium className="text-amber-900">
-                        Excede tu cap ({cap.maxPct}%)
+                        Excede tu cap ({cap.maxPct}%) — requiere approval
                       </BodyMedium>
                       <Callout tone="secondary" className="text-amber-800 mt-0.5">
-                        Al activar se creará una solicitud de aprobación al PARTNER_ADMIN. El
-                        descuento queda pendiente hasta que apruebe.
+                        Se creará un DiscountApprovalRequest al activar. La suscripción arranca
+                        sin descuento; al aprobar el PARTNER_ADMIN, Stripe lo aplica
+                        automáticamente.
                       </Callout>
                     </div>
                   </div>
@@ -474,7 +483,7 @@ export function StepPlanDiscount() {
                         onClick={() => !disabled && state.setField('discountDuration', d)}
                         disabledHint={
                           disabled
-                            ? `Solo tier PLATINUM. Tu tier (${cap.label}) puede pedirlo como excepción con aprobación.`
+                            ? `Solo tier PLATINUM puede emitir descuentos permanentes directo. Tu tier (${cap.label}) requiere approval del PARTNER_ADMIN.`
                             : undefined
                         }
                       />
@@ -484,7 +493,7 @@ export function StepPlanDiscount() {
 
                 {state.discountDuration === 'repeating' && (
                   <div className="mt-3 flex items-center gap-3 px-4 py-3 rounded-lg bg-slate-50 border border-slate-100">
-                    <Body tone="secondary">El descuento dura</Body>
+                    <Body tone="secondary">Duración:</Body>
                     <input
                       type="number"
                       min={1}
@@ -495,7 +504,7 @@ export function StepPlanDiscount() {
                       }
                       className="w-16 h-9 px-2 rounded-md border border-slate-300 text-[14px] font-medium text-center text-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-500/30 bg-white"
                     />
-                    <Body tone="secondary">meses, luego vuelve al precio regular.</Body>
+                    <Body tone="secondary">meses (1 – 12).</Body>
                   </div>
                 )}
               </div>
@@ -504,9 +513,9 @@ export function StepPlanDiscount() {
               <div>
                 <div className="flex items-baseline justify-between mb-2">
                   <Subhead>
-                    Razón del descuento{' '}
+                    Justificación{' '}
                     <Caption tone="tertiary" className="font-normal">
-                      (visible en audit log)
+                      (queda en AuditLog permanente)
                     </Caption>
                   </Subhead>
                   <Caption
@@ -523,7 +532,7 @@ export function StepPlanDiscount() {
                 <textarea
                   value={state.discountReason}
                   onChange={(e) => state.setField('discountReason', e.target.value)}
-                  placeholder="Ej: Cliente piloto referido por consultor — descuento promocional de bienvenida 3 meses."
+                  placeholder="Ej: piloto Q3 2026 — descuento de bienvenida 3 meses, aprobado en llamada comercial 2026-05-24."
                   rows={2}
                   className="w-full px-3 py-2.5 rounded-lg border border-slate-300 text-[13px] leading-[18px] text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/30 resize-none"
                   maxLength={500}
@@ -535,11 +544,12 @@ export function StepPlanDiscount() {
                   <Info className="h-4 w-4 text-amber-700 flex-shrink-0 mt-0.5" aria-hidden />
                   <div>
                     <BodyMedium className="text-amber-900">
-                      Este descuento requiere aprobación
+                      Requiere approval del PARTNER_ADMIN
                     </BodyMedium>
                     <Callout tone="secondary" className="text-amber-800 mt-0.5">
-                      Al activar el wizard, la suscripción se crea SIN el descuento y se envía
-                      una solicitud al PARTNER_ADMIN. Una vez aprobada, se aplica automáticamente.
+                      Al activar, la Stripe Subscription se crea SIN el descuento y aparece un
+                      DiscountApprovalRequest pending en Nova → Billing → Aprobaciones (TTL 7d).
+                      Al aprobar se aplica automáticamente.
                     </Callout>
                   </div>
                 </div>
@@ -722,9 +732,9 @@ function BillingTimeline({
   if (trialDays > 0) {
     phases.push({
       key: 'trial',
-      title: `Trial: ${trialDays} días`,
-      sub: 'Sin cobro durante la prueba',
-      amount: 'GRATIS',
+      title: `Trial · ${trialDays} días`,
+      sub: 'Stripe no cobra hasta vencer el trial',
+      amount: 'Sin cobro',
       accent: 'emerald',
       icon: Sparkles,
     })
@@ -733,15 +743,15 @@ function BillingTimeline({
   if (discountEnabled && !requiresApproval) {
     const title =
       discountDuration === 'once'
-        ? 'Primer mes con descuento'
+        ? 'Mes 1 · descuento aplicado'
         : discountDuration === 'repeating'
-          ? `Meses 1-${discountMonths} con descuento`
-          : 'Cobro recurrente con descuento'
+          ? `Meses 1 – ${discountMonths} · descuento aplicado`
+          : 'Recurrente · descuento aplicado'
     phases.push({
       key: 'discount',
       title,
-      sub: `-${discountPercent}% sobre precio regular`,
-      amount: `${fmt(monthlyDiscounted)}/mes`,
+      sub: `Coupon Stripe -${discountPercent}%`,
+      amount: `${fmt(monthlyDiscounted)} / mes`,
       accent: 'violet',
       icon: Percent,
     })
@@ -750,18 +760,18 @@ function BillingTimeline({
   if (!discountEnabled || discountDuration !== 'forever' || requiresApproval) {
     const title =
       discountEnabled && !requiresApproval && discountDuration !== 'forever'
-        ? `A partir del mes ${discountMonths + 1}`
+        ? `Mes ${discountMonths + 1}+ · precio regular`
         : billingCycle === 'annual'
-          ? 'Cobro anual recurrente'
-          : 'Cobro mensual recurrente'
+          ? 'Renovación anual · precio regular'
+          : 'Cobro recurrente · precio regular'
     phases.push({
       key: 'regular',
       title,
-      sub: 'Precio regular',
+      sub: billingCycle === 'annual' ? 'Stripe Subscription billed annually' : 'Stripe Subscription billed monthly',
       amount:
         billingCycle === 'annual'
-          ? `${fmt(monthlyRegular * 12 * 0.8)}/año`
-          : `${fmt(monthlyRegular)}/mes`,
+          ? `${fmt(monthlyRegular * 12 * 0.8)} / año`
+          : `${fmt(monthlyRegular)} / mes`,
       accent: 'slate',
       icon: Calendar,
     })
@@ -775,9 +785,10 @@ function BillingTimeline({
           <CreditCard className="h-4 w-4" aria-hidden />
         </div>
         <div className="flex-1">
-          <Title>Preview del cobro</Title>
+          <Title>Preview de cobros — primer año</Title>
           <Callout tone="tertiary" className="mt-1">
-            Lo que verá el cliente en su factura. Stripe administra el cobro real.
+            Simulación que se reflejará en Stripe. Verifica con el cliente antes de avanzar al
+            paso 9 (activación).
           </Callout>
         </div>
       </div>
@@ -844,15 +855,15 @@ function BillingTimeline({
         <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-amber-50 border border-amber-200">
           <Info className="h-3.5 w-3.5 text-amber-700 flex-shrink-0 mt-0.5" aria-hidden />
           <Callout tone="secondary" className="text-amber-800">
-            El descuento solicitado aparecerá una vez que el PARTNER_ADMIN lo apruebe. Mientras
-            tanto, el cobro sigue el precio regular.
+            Este preview ignora el descuento pendiente. Hasta que el PARTNER_ADMIN apruebe,
+            Stripe cobra el precio regular.
           </Callout>
         </div>
       )}
 
       <Caption tone="tertiary" className="block pt-3 border-t border-slate-100">
-        El cliente puede ver el detalle completo + actualizar método de pago + descargar
-        invoices desde su Customer Portal de Stripe.
+        El cliente accede a Customer Portal (Stripe) para método de pago + invoices. Tú
+        gestionas plan/descuentos vía Nova → Billing.
       </Caption>
     </Surface>
   )
