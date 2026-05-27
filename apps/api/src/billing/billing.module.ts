@@ -19,12 +19,19 @@ import { AuditLogService } from '../nova/audit/audit-log.service'
 import { BillingService } from './billing.service'
 import { WebhookHandlerService } from './webhook-handler.service'
 import { SubscriptionService } from './subscription.service'
+import { DiscountCodeService } from './discount-code.service'
 import { StripeWebhookController } from './stripe-webhook.controller'
 
 @Module({
   imports: [PrismaModule],
   controllers: [StripeWebhookController],
-  providers: [BillingService, WebhookHandlerService, SubscriptionService, AuditLogService],
-  exports: [BillingService, SubscriptionService],
+  providers: [
+    BillingService,
+    WebhookHandlerService,
+    SubscriptionService,
+    DiscountCodeService,
+    AuditLogService,
+  ],
+  exports: [BillingService, SubscriptionService, DiscountCodeService],
 })
 export class BillingModule {}
