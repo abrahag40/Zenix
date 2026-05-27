@@ -778,6 +778,15 @@ function BillingTimeline({
         ? `Cobro mensual con -${discountPercent}%`
         : 'Cobro mensual'
 
+  // ── Regular reference price (para strikethrough) ──
+  // Booking/Notion/Vercel pattern: precio sin NINGÚN descuento (ni anual -20%
+  // ni negociado), permite que el consultor vea cuánto se ahorra el cliente
+  // contra lista completa.
+  const regularReference =
+    billingCycle === 'annual' ? baseMonthly * 12 : baseMonthly
+  const regularReferenceLabel =
+    billingCycle === 'annual' ? 'Precio anual sin descuento' : 'Precio regular mensual'
+
   // ── Build phases con fechas anclas ──
   type Phase = {
     key: string
@@ -931,43 +940,71 @@ function BillingTimeline({
         })}
       </div>
 
-      {/* Total al final — convención matemática: items arriba, resultado abajo */}
-      <div className="pt-4 mt-1 border-t-2 border-slate-200">
-        {/* Primer cobro — el "total" decisivo (lo que el cliente paga primero) */}
+      {/* Total al final — invoice/receipt convention: amounts right-aligned,
+       *  strikethrough del precio sin descuento, total bold con separator.
+       *  Fuentes: Stripe Checkout, Salesforce CPQ, AHLEI receipt standards,
+       *  Booking.com confirmation page (strikethrough pattern). */}
+      <div className="pt-4 mt-1 border-t-2 border-slate-200 space-y-3">
+        {/* Bloque primer cobro — receipt style, amounts right-aligned */}
         <div className="p-4 rounded-xl bg-violet-50/60 border border-violet-200/60">
-          <div className="flex items-end justify-between gap-3 flex-wrap">
-            <div className="flex-1 min-w-0">
-              <Eyebrow tone="tertiary" className="block mb-1 text-violet-700">
-                Primer cobro
-              </Eyebrow>
-              <MetricLarge className="text-violet-900">{fmt(firstChargeAmount)}</MetricLarge>
-              <Callout tone="secondary" className="mt-1 text-violet-800">
-                {fmtDate(firstChargeDate)}
-                {trialDays > 0 && ` · después de ${trialDays} días de prueba`}
-                {' · '}
-                {firstChargeLabel}
+          {/* Línea precio regular tachado — solo visible si hay descuento real */}
+          {regularReference > firstChargeAmount && (
+            <div className="flex items-baseline justify-between gap-3 mb-1.5">
+              <Caption tone="tertiary">{regularReferenceLabel}</Caption>
+              <Caption
+                tone="tertiary"
+                className="line-through tabular-nums text-slate-500"
+              >
+                {fmt(regularReference)}
+              </Caption>
+            </div>
+          )}
+
+          {/* Línea ahorro — solo visible si aplica */}
+          {regularReference > firstChargeAmount && (
+            <div className="flex items-baseline justify-between gap-3 mb-2 pb-2 border-b border-violet-200/40">
+              <Callout className="text-emerald-700">
+                Ahorro aplicado
+                <span className="ml-1 text-emerald-600/80">
+                  ({Math.round(((regularReference - firstChargeAmount) / regularReference) * 100)}%)
+                </span>
+              </Callout>
+              <Callout className="text-emerald-700 tabular-nums font-semibold">
+                −{fmt(regularReference - firstChargeAmount)}
               </Callout>
             </div>
-            {savings > 0 && (
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 border border-emerald-200">
-                <TrendingUp className="h-3.5 w-3.5 text-emerald-700" aria-hidden />
-                <Subhead className="text-emerald-800 tabular-nums">
-                  Ahorra {fmt(savings)} vs precio regular
-                </Subhead>
+          )}
+
+          {/* Total row — primer cobro como TOTAL line invoice-style */}
+          <div className="flex items-baseline justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <Eyebrow tone="tertiary" className="block text-violet-700">
+                Primer cobro
+              </Eyebrow>
+              <Callout tone="secondary" className="text-violet-800 mt-0.5">
+                {fmtDate(firstChargeDate)}
+                {trialDays > 0 && ` · después de ${trialDays} días de prueba`}
+              </Callout>
+            </div>
+            <div className="text-right">
+              <div className="text-[24px] font-bold text-violet-900 tabular-nums tracking-tight leading-none whitespace-nowrap">
+                {fmt(firstChargeAmount)}
               </div>
-            )}
+              <Caption tone="tertiary" className="block mt-1 text-violet-700/80">
+                {firstChargeLabel}
+              </Caption>
+            </div>
           </div>
         </div>
 
-        {/* Estimación año 1 — info secundaria, smaller */}
-        <div className="mt-3 px-1 flex items-baseline justify-between gap-2 flex-wrap">
-          <Caption tone="tertiary">
-            {billingCycle === 'annual'
-              ? 'Valor del contrato (año 1)'
-              : 'Estimación primeros 12 meses'}
-          </Caption>
-          <Subhead className="text-slate-900 tabular-nums">{fmt(year1Total)}</Subhead>
-        </div>
+        {/* Estimación 12 meses — sólo en mensual (en anual sería redundante
+         *  con el primer cobro, que ya es el pago completo del año). */}
+        {billingCycle === 'monthly' && (
+          <div className="px-1 flex items-baseline justify-between gap-2">
+            <Caption tone="tertiary">Estimación primeros 12 meses</Caption>
+            <Subhead className="text-slate-900 tabular-nums">{fmt(year1Total)}</Subhead>
+          </div>
+        )}
       </div>
 
       {requiresApproval && (
