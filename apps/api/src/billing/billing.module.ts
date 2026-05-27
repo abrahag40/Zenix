@@ -15,14 +15,16 @@
  */
 import { Module } from '@nestjs/common'
 import { PrismaModule } from '../prisma/prisma.module'
+import { AuditLogService } from '../nova/audit/audit-log.service'
 import { BillingService } from './billing.service'
 import { WebhookHandlerService } from './webhook-handler.service'
+import { SubscriptionService } from './subscription.service'
 import { StripeWebhookController } from './stripe-webhook.controller'
 
 @Module({
   imports: [PrismaModule],
   controllers: [StripeWebhookController],
-  providers: [BillingService, WebhookHandlerService],
-  exports: [BillingService],
+  providers: [BillingService, WebhookHandlerService, SubscriptionService, AuditLogService],
+  exports: [BillingService, SubscriptionService],
 })
 export class BillingModule {}
