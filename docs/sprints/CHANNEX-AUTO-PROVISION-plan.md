@@ -7,6 +7,50 @@
 
 ---
 
+## 0. Arquitectura multi-tenant Channex (decidido 2026-05-27)
+
+**Modelo elegido para Fase 1 (piloto)**: D adaptado — **1 Channex master account + Groups por Organization + Zenix middleware enforces RBAC**.
+
+**Por qué no Modelo A (master único sin Groups)**:
+- Si un consultor PARTNER_MEMBER comprometido, accede a todas las properties del master.
+- No hay manera de auditar accesos por consultor.
+
+**Por qué no Modelo B (Channex Partner Program) hoy**:
+- Requiere firma de Partner agreement con Channex (proceso comercial 2-4 semanas).
+- Costo Partner negociado (commission %) puede no compensar para <10 clientes activos.
+- Va a Fase 2 (post-piloto) cuando tengamos 5-10 orgs activas.
+
+**Por qué no Modelo C (BYO cliente propio)**:
+- Onboarding 3x más largo (cliente debe contratar Channex separadamente).
+- Cliente paga doble (Zenix $X + Channex $Y).
+- Va a Fase 3 (enterprise) como opcional.
+
+**Implementación del Modelo D adaptado**:
+1. ZaharDev mantiene 1 Channex master account (cuenta corporativa).
+2. Cada Zenix Organization tiene su propio Channex **Group** (Channex feature nativa para sub-tenancy lógica).
+3. API key Channex vive SOLO en `.env` server-side, NUNCA expuesta al frontend ni a consultores.
+4. Consultor JAMÁS accede direct a Channex — toda interacción es via Zenix UI.
+5. Zenix middleware (`NovaActingOrgGuard` existente) valida que cualquier mutation en Channex sea sobre properties dentro de `assignedOrgIds` del consultor.
+6. OTAs credentials del cliente (Booking, Airbnb usernames/passwords) viven encriptadas en Channex API + opcionalmente cached en Zenix DB con `Property.otaCredentialsEncrypted`.
+
+**Security guarantees**:
+- Consultor jamás ve API key Channex.
+- Consultor jamás puede listar/mutar properties fuera de su scope.
+- Si consultor comprometido → ZaharDev rota API key Channex (1 acción global).
+- Audit trail completo en Channex + en `ChannexAuditLog` de Zenix (existente).
+
+**Migration path a Fase 2 (Partner Program)**:
+- Backend ya está agnóstico al modelo: solo necesita cambiar la API key per-Organization (campo `LegalEntity.channexApiKey` nullable).
+- Si `LegalEntity.channexApiKey` set → usa esa (Fase 2/3). Si null → usa master + Group (Fase 1).
+- Sin breaking changes — switching gradual cliente por cliente.
+
+**Referencias**:
+- Pattern usado por RoomRaccoon (master + Groups) en su piloto inicial 2019.
+- Cloudbeds migró del modelo D al B en 2021 cuando llegó a 5k clientes.
+- Mews usa Modelo C (BYO) por filosofía enterprise pero limita su mercado SMB.
+
+---
+
 ## 1. Problema
 
 Hoy el `WizardActivationService` crea en BD:
