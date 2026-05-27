@@ -44,22 +44,20 @@ import { cn } from '@/lib/utils'
 // Data
 // ──────────────────────────────────────────────────────────────────────
 
-// Plans — copy operacional para guía rápida del consultor, NO venta al cliente.
-// "fit" = perfil objetivo del cliente para decisión rápida del consultor.
+// Plans — referencia operacional al consultor (no pitch). Cards compactas:
+// fit + range + 3 features key + price. Detalle full vive en docs/pricing.
 const PLAN_PREVIEW = {
   STARTER: {
     label: 'Starter',
     fit: 'Hostal / casa de huéspedes',
     rangeHint: '< 30 cuartos',
-    description:
-      'PMS core + housekeeping + folio. Channex con hasta 2 canales OTA. Sin reportes USALI ni métricas ADR/RevPAR.',
     mxn: 1200,
     usd: 70,
     accent: 'sky',
     features: [
-      { group: 'Operación', items: ['PMS calendario + reservas', 'Housekeeping con app móvil', 'Check-in/out + folio'] },
-      { group: 'Canales', items: ['Channex (Booking / Airbnb / Expedia)', 'Hasta 2 canales activos'] },
-      { group: 'Límites', items: ['Hasta 30 cuartos', '3 usuarios staff'] },
+      'PMS core + housekeeping',
+      'Channex hasta 2 canales',
+      'Sin USALI / ADR / RevPAR',
     ],
     badge: null,
   },
@@ -67,31 +65,27 @@ const PLAN_PREVIEW = {
     label: 'Pro',
     fit: 'Hotel boutique',
     rangeHint: '30 – 100 cuartos',
-    description:
-      'Todo Starter + reportes USALI 12ª ed + métricas ADR/RevPAR/Pickup + canales OTA ilimitados con rate parity.',
     mxn: 1800,
     usd: 100,
     accent: 'violet',
     features: [
-      { group: 'Todo Starter, además', items: ['Reportes USALI 12ª ed', 'Métricas ADR / RevPAR / Pickup'] },
-      { group: 'Canales', items: ['Canales OTA ilimitados', 'Rate parity matrix con alertas'] },
-      { group: 'Límites', items: ['Hasta 100 cuartos', 'Staff ilimitado'] },
+      'Todo Starter, además:',
+      'USALI 12ª + ADR/RevPAR',
+      'Canales OTA ilimitados',
     ],
     badge: 'Default',
   },
   ENTERPRISE: {
     label: 'Enterprise',
     fit: 'Cadena / grupo / white-label',
-    rangeHint: 'Sin límite de cuartos',
-    description:
-      'Todo Pro + multi-property nativo + white-label / brand propio + Multi-LegalEntity + SLA < 2h hábil con onboarding dedicado.',
+    rangeHint: 'Sin límite',
     mxn: 2400,
     usd: 140,
     accent: 'emerald',
     features: [
-      { group: 'Todo Pro, además', items: ['Multi-property nativo', 'White-label / brand propio'] },
-      { group: 'Soporte', items: ['Onboarding dedicado', 'SLA respuesta < 2h hábil'] },
-      { group: 'Límites', items: ['Sin límite de cuartos', 'Multi-LegalEntity'] },
+      'Todo Pro, además:',
+      'Multi-property + white-label',
+      'SLA < 2h + onboarding',
     ],
     badge: null,
   },
@@ -213,13 +207,12 @@ export function StepPlanDiscount() {
                   onClick={() => state.setField('planTier', tier)}
                   className={cn(
                     'group relative text-left rounded-xl border-2 transition-all duration-150',
-                    'grid grid-rows-[auto_auto_1fr] overflow-hidden',
+                    'p-4 grid grid-rows-[auto_auto_auto_1fr] gap-3',
                     isSelected
                       ? cn(a.border, a.bg, a.shadow)
                       : 'border-slate-200 hover:border-slate-300 bg-white',
                   )}
                 >
-                  {/* Badge popular — absolute centrado top */}
                   {p.badge && (
                     <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 z-10">
                       <Chip variant="accent" intent="solid" size="sm">
@@ -228,75 +221,56 @@ export function StepPlanDiscount() {
                     </div>
                   )}
 
-                  {/* ── Row 1: header (icon + label + fit + price + scope) ── */}
-                  <div className="p-5 pb-4">
-                    <div className="flex items-center gap-2 mb-3">
-                      <Sparkles
-                        className={cn(
-                          'h-4 w-4',
-                          isSelected ? a.text : 'text-slate-400',
-                        )}
-                        aria-hidden
-                      />
-                      <Headline
-                        as="h4"
-                        className={cn(isSelected && a.text, 'text-[18px]')}
-                      >
-                        {p.label}
-                      </Headline>
-                    </div>
-
-                    {/* Fit — perfil del cliente target. Min-h para alinear. */}
-                    <div className="min-h-[40px] mb-3">
-                      <BodyMedium className={isSelected ? a.text : 'text-slate-700'}>
-                        {p.fit}
-                      </BodyMedium>
-                      <Caption tone="tertiary" className="block tabular-nums">
-                        {p.rangeHint}
-                      </Caption>
-                    </div>
-
-                    {/* Price — single line */}
-                    <div className="flex items-baseline gap-1 mb-3 whitespace-nowrap">
-                      <span className="text-[22px] font-bold text-slate-900 tracking-[-0.025em] leading-none tabular-nums">
-                        {currency} ${(currency === 'USD' ? p.usd : p.mxn).toLocaleString('es-MX')}
-                      </span>
-                      <Caption tone="tertiary">/mes</Caption>
-                    </div>
-
-                    {/* Description — scope operacional, no copy promocional */}
-                    <Callout tone="secondary" className="min-h-[90px] leading-[18px]">
-                      {p.description}
-                    </Callout>
+                  {/* Row 1: icon + label */}
+                  <div className="flex items-center gap-2">
+                    <Sparkles
+                      className={cn(
+                        'h-4 w-4',
+                        isSelected ? a.text : 'text-slate-400',
+                      )}
+                      aria-hidden
+                    />
+                    <Headline
+                      as="h4"
+                      className={cn(isSelected && a.text, 'text-[17px]')}
+                    >
+                      {p.label}
+                    </Headline>
                   </div>
 
-                  {/* ── Row 2: divider ── */}
-                  <div className="h-px bg-slate-100 mx-5" aria-hidden />
+                  {/* Row 2: fit + range — tabular para alinear */}
+                  <div>
+                    <BodyMedium className={isSelected ? a.text : 'text-slate-700'}>
+                      {p.fit}
+                    </BodyMedium>
+                    <Caption tone="tertiary" className="block tabular-nums">
+                      {p.rangeHint}
+                    </Caption>
+                  </div>
 
-                  {/* ── Row 3: features (flex-grow para llenar) ── */}
-                  <div className="p-5 pt-4 space-y-4">
-                    {p.features.map((g) => (
-                      <div key={g.group}>
-                        <Eyebrow tone="tertiary" className="block mb-1.5">
-                          {g.group}
-                        </Eyebrow>
-                        <ul className="space-y-1.5">
-                          {g.items.map((f) => (
-                            <li key={f} className="flex items-start gap-2">
-                              <Check
-                                className={cn(
-                                  'h-3.5 w-3.5 flex-shrink-0 mt-0.5',
-                                  isSelected ? a.text : 'text-emerald-500',
-                                )}
-                                strokeWidth={2.5}
-                                aria-hidden
-                              />
-                              <Callout tone="secondary" className="leading-[18px]">
-                                {f}
-                              </Callout>
-                            </li>
-                          ))}
-                        </ul>
+                  {/* Row 3: price */}
+                  <div className="flex items-baseline gap-1 whitespace-nowrap pt-1">
+                    <span className="text-[22px] font-bold text-slate-900 tracking-[-0.025em] leading-none tabular-nums">
+                      {currency} ${(currency === 'USD' ? p.usd : p.mxn).toLocaleString('es-MX')}
+                    </span>
+                    <Caption tone="tertiary">/mes</Caption>
+                  </div>
+
+                  {/* Row 4: features (3 max) — divider sutil arriba */}
+                  <div className="pt-3 border-t border-slate-100/80 space-y-1.5 self-start">
+                    {p.features.map((f) => (
+                      <div key={f} className="flex items-start gap-2">
+                        <Check
+                          className={cn(
+                            'h-3.5 w-3.5 flex-shrink-0 mt-0.5',
+                            isSelected ? a.text : 'text-emerald-500',
+                          )}
+                          strokeWidth={2.5}
+                          aria-hidden
+                        />
+                        <Callout tone="secondary" className="leading-[18px]">
+                          {f}
+                        </Callout>
                       </div>
                     ))}
                   </div>
