@@ -49,15 +49,15 @@ import { cn } from '@/lib/utils'
 const PLAN_PREVIEW = {
   STARTER: {
     label: 'Starter',
-    fit: 'Hostal / casa de huéspedes',
+    fit: 'Hostal o casa huéspedes',
     rangeHint: '< 30 cuartos',
     mxn: 1200,
     usd: 70,
     accent: 'sky',
     features: [
-      'PMS core + housekeeping',
-      'Channex hasta 2 canales',
-      'Sin USALI / ADR / RevPAR',
+      'PMS + housekeeping',
+      'Channex 2 canales',
+      'Sin USALI / ADR',
     ],
     badge: null,
   },
@@ -69,23 +69,23 @@ const PLAN_PREVIEW = {
     usd: 100,
     accent: 'violet',
     features: [
-      'Todo Starter, además:',
-      'USALI 12ª + ADR/RevPAR',
-      'Canales OTA ilimitados',
+      'Todo Starter +',
+      'USALI + ADR/RevPAR',
+      'OTA ilimitadas',
     ],
     badge: 'Default',
   },
   ENTERPRISE: {
     label: 'Enterprise',
-    fit: 'Cadena / grupo / white-label',
+    fit: 'Cadena o white-label',
     rangeHint: 'Sin límite',
     mxn: 2400,
     usd: 140,
     accent: 'emerald',
     features: [
-      'Todo Pro, además:',
-      'Multi-property + white-label',
-      'SLA < 2h + onboarding',
+      'Todo Pro +',
+      'Multi-property',
+      'SLA + onboarding',
     ],
     badge: null,
   },
@@ -207,7 +207,10 @@ export function StepPlanDiscount() {
                   onClick={() => state.setField('planTier', tier)}
                   className={cn(
                     'group relative text-left rounded-xl border-2 transition-all duration-150',
-                    'p-4 grid grid-rows-[auto_auto_auto_1fr] gap-3',
+                    // Grid con row-tracks explícitos en píxeles → alineación
+                    // pixel-perfect entre las 3 cards independiente de wraps.
+                    // [28px label] [56px fit+range] [28px price] [108px features]
+                    'p-4 grid grid-rows-[28px_56px_28px_108px] gap-3',
                     isSelected
                       ? cn(a.border, a.bg, a.shadow)
                       : 'border-slate-200 hover:border-slate-300 bg-white',
@@ -221,7 +224,7 @@ export function StepPlanDiscount() {
                     </div>
                   )}
 
-                  {/* Row 1: icon + label */}
+                  {/* Row 1: icon + label — h:28px */}
                   <div className="flex items-center gap-2">
                     <Sparkles
                       className={cn(
@@ -238,37 +241,46 @@ export function StepPlanDiscount() {
                     </Headline>
                   </div>
 
-                  {/* Row 2: fit + range — tabular para alinear */}
-                  <div>
-                    <BodyMedium className={isSelected ? a.text : 'text-slate-700'}>
+                  {/* Row 2: fit + range — h:56px reserva 2-line wrap */}
+                  <div className="flex flex-col justify-start">
+                    <BodyMedium
+                      className={cn(
+                        'leading-[18px]',
+                        isSelected ? a.text : 'text-slate-700',
+                      )}
+                    >
                       {p.fit}
                     </BodyMedium>
-                    <Caption tone="tertiary" className="block tabular-nums">
+                    <Caption tone="tertiary" className="block tabular-nums mt-auto">
                       {p.rangeHint}
                     </Caption>
                   </div>
 
-                  {/* Row 3: price */}
-                  <div className="flex items-baseline gap-1 whitespace-nowrap pt-1">
+                  {/* Row 3: price — h:28px single line */}
+                  <div className="flex items-baseline gap-1 whitespace-nowrap">
                     <span className="text-[22px] font-bold text-slate-900 tracking-[-0.025em] leading-none tabular-nums">
                       {currency} ${(currency === 'USD' ? p.usd : p.mxn).toLocaleString('es-MX')}
                     </span>
                     <Caption tone="tertiary">/mes</Caption>
                   </div>
 
-                  {/* Row 4: features (3 max) — divider sutil arriba */}
-                  <div className="pt-3 border-t border-slate-100/80 space-y-1.5 self-start">
+                  {/* Row 4: features 3 items — h:108px reserva fija (3 × 24px row + 2 × gap-1.5 + padding) */}
+                  <div className="pt-3 border-t border-slate-100/80 grid grid-rows-[24px_24px_24px] gap-1.5">
                     {p.features.map((f) => (
-                      <div key={f} className="flex items-start gap-2">
+                      <div key={f} className="flex items-center gap-2">
                         <Check
                           className={cn(
-                            'h-3.5 w-3.5 flex-shrink-0 mt-0.5',
+                            'h-3.5 w-3.5 flex-shrink-0',
                             isSelected ? a.text : 'text-emerald-500',
                           )}
                           strokeWidth={2.5}
                           aria-hidden
                         />
-                        <Callout tone="secondary" className="leading-[18px]">
+                        <Callout
+                          tone="secondary"
+                          className="text-[12.5px] truncate"
+                          title={f}
+                        >
                           {f}
                         </Callout>
                       </div>
