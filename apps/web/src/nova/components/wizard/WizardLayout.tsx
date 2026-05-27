@@ -21,7 +21,7 @@
  */
 import { useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Check, ChevronLeft, ChevronRight, X, Sparkles } from 'lucide-react'
+import { AlertTriangle, Check, ChevronLeft, ChevronRight, X, Sparkles } from 'lucide-react'
 import { useNovaStore } from '../../../store/nova'
 import {
   useWizardStore,
@@ -204,9 +204,10 @@ export function WizardLayout({
          *  se ancle a su parent main, no al viewport. */}
         <main className="flex-1 min-h-0 overflow-hidden relative">
           {/* Scrollable content area — ocupa TODA la altura del main +
-           *  padding-bottom igual a la altura aprox del footer para que
-           *  el contenido no quede tapado por el footer absolute. */}
-          <div className="absolute inset-0 overflow-y-auto pb-[92px]">
+           *  padding-bottom para que el contenido no quede tapado por el
+           *  footer absolute. Reserva 110px (cubre footer con o sin banner
+           *  de validación, que añade ~32px extra cuando aparece). */}
+          <div className="absolute inset-0 overflow-y-auto pb-[110px]">
             <div className="max-w-3xl mx-auto px-5 sm:px-7 lg:px-9 py-8">
               {/* Step title */}
               <div className="mb-6">
@@ -233,18 +234,22 @@ export function WizardLayout({
            * issue: el footer SIEMPRE está en main.bottom porque main es
            * relative.
            */}
-          <footer className="absolute bottom-0 left-0 right-0 z-10 bg-white/90 backdrop-blur-md backdrop-saturate-150 border-t border-slate-200/70 px-5 sm:px-7 lg:px-9 py-2.5 flex flex-col gap-1.5">
-            {/* Validation hint en su propia fila — evita que el texto colapse
-             *  contra los botones cuando crece. Always 18px height para
-             *  estabilidad layout (no jump al toggle). */}
-            <div className="h-[18px] flex items-center justify-end">
-              {!validation.ok && validation.reason && (
-                <Caption tone="tertiary" className="text-amber-700 text-[11.5px] leading-tight">
-                  ⚠ {validation.reason}
+          <footer className="absolute bottom-0 left-0 right-0 z-10 bg-white/90 backdrop-blur-md backdrop-saturate-150 border-t border-slate-200/70">
+            {/* Banner validation — full width, amber-bg, encima de los
+             *  botones. Visualmente claro que "esto está bloqueando".
+             *  Solo aparece cuando hay validación pendiente. */}
+            {!validation.ok && validation.reason && (
+              <div className="px-5 sm:px-7 lg:px-9 py-2 bg-amber-50/80 border-b border-amber-200/60 flex items-center gap-2">
+                <AlertTriangle
+                  className="h-3.5 w-3.5 text-amber-700 flex-shrink-0"
+                  aria-hidden
+                />
+                <Caption className="text-amber-900 text-[12px] leading-tight">
+                  {validation.reason}
                 </Caption>
-              )}
-            </div>
-            <div className="flex items-center justify-between gap-3">
+              </div>
+            )}
+            <div className="px-5 sm:px-7 lg:px-9 py-3 flex items-center justify-between gap-3">
               <Button
                 variant="ghost"
                 size="md"
