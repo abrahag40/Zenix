@@ -30,6 +30,7 @@
  */
 import { Injectable, Logger } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
+import { BillingEmailService } from './billing-email.service'
 
 // Stripe v22 SDK no exporta types nominales (Stripe.Event, Stripe.Subscription)
 // via require import. Usamos shapes mínimas inline para los handlers — al
@@ -55,6 +56,11 @@ interface StripeSubscription {
 
 interface StripeInvoice {
   id: string
+  number?: string | null
+  receipt_number?: string | null
+  customer: string
+  customer_email?: string | null
+  amount_paid?: number
   subscription?: string | { id: string } | null
   status: string | null
   total: number
@@ -62,13 +68,28 @@ interface StripeInvoice {
   attempt_count: number
   next_payment_attempt: number | null
   status_transitions: { paid_at: number | null }
+  hosted_invoice_url?: string | null
+  invoice_pdf?: string | null
+  charge?: string | null
+  payment_intent?: string | null
+  lines?: {
+    data: Array<{
+      description: string | null
+      quantity: number | null
+      amount: number
+      period: { start: number; end: number }
+    }>
+  }
 }
 
 @Injectable()
 export class WebhookHandlerService {
   private readonly logger = new Logger(WebhookHandlerService.name)
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly billingEmail: BillingEmailService,
+  ) {}
 
   /**
    * Punto de entrada del dispatcher.
@@ -230,7 +251,34 @@ export class WebhookHandlerService {
         ? new Date(inv.status_transitions.paid_at * 1000)
         : new Date(),
     })
-    // Day 18+ trigger receipt email + reactivar billingStatus si era past_due
+
+    // Send receipt email — best-effort, no falla el webhook si email errors.
+    // Idempotency: el dispatcher (línea ~94) ya skip-ea events duplicados via
+    // StripeWebhookEvent.processedAt, así no re-enviamos por re-delivery.
+    try {
+      await this.billingEmail.sendReceipt({
+        id: inv.id,
+        number: inv.number ?? null,
+        receipt_number: inv.receipt_number ?? null,
+        customer: inv.customer,
+        customer_email: inv.customer_email ?? null,
+        amount_paid: inv.amount_paid ?? inv.total,
+        currency: inv.currency,
+        status: inv.status ?? 'paid',
+        status_transitions: inv.status_transitions,
+        hosted_invoice_url: inv.hosted_invoice_url ?? null,
+        invoice_pdf: inv.invoice_pdf ?? null,
+        subscription: stripeSubId,
+        lines: inv.lines ?? { data: [] },
+        charge: inv.charge ?? null,
+        payment_intent: inv.payment_intent ?? null,
+      })
+    } catch (err) {
+      this.logger.error(
+        `[WebhookHandler] Receipt email falló para invoice ${inv.id}: ${String(err).slice(0, 200)}`,
+      )
+    }
+
     return { handled: true, idempotent: false }
   }
 
