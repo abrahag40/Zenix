@@ -886,25 +886,7 @@ function BillingTimeline({
         </div>
       </div>
 
-      {/* Primer cobro hero — info decisiva */}
-      <div className="p-4 rounded-xl bg-violet-50/60 border border-violet-200/60">
-        <Eyebrow tone="tertiary" className="block mb-1 text-violet-700">
-          Primer cobro
-        </Eyebrow>
-        <div className="flex items-end justify-between gap-3 flex-wrap">
-          <div>
-            <MetricLarge className="text-violet-900">{fmt(firstChargeAmount)}</MetricLarge>
-            <Callout tone="secondary" className="mt-1 text-violet-800">
-              {fmtDate(firstChargeDate)}
-              {trialDays > 0 && ` · después de ${trialDays} días de prueba`}
-              {' · '}
-              {firstChargeLabel}
-            </Callout>
-          </div>
-        </div>
-      </div>
-
-      {/* Timeline phases — date-anchored */}
+      {/* Timeline phases — date-anchored (line items / operaciones) */}
       <div className="space-y-2">
         {phases.map((p) => {
           const colors = {
@@ -949,24 +931,43 @@ function BillingTimeline({
         })}
       </div>
 
-      {/* Footnote: estimación 12 meses + savings */}
-      <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <Eyebrow tone="tertiary" className="block">
+      {/* Total al final — convención matemática: items arriba, resultado abajo */}
+      <div className="pt-4 mt-1 border-t-2 border-slate-200">
+        {/* Primer cobro — el "total" decisivo (lo que el cliente paga primero) */}
+        <div className="p-4 rounded-xl bg-violet-50/60 border border-violet-200/60">
+          <div className="flex items-end justify-between gap-3 flex-wrap">
+            <div className="flex-1 min-w-0">
+              <Eyebrow tone="tertiary" className="block mb-1 text-violet-700">
+                Primer cobro
+              </Eyebrow>
+              <MetricLarge className="text-violet-900">{fmt(firstChargeAmount)}</MetricLarge>
+              <Callout tone="secondary" className="mt-1 text-violet-800">
+                {fmtDate(firstChargeDate)}
+                {trialDays > 0 && ` · después de ${trialDays} días de prueba`}
+                {' · '}
+                {firstChargeLabel}
+              </Callout>
+            </div>
+            {savings > 0 && (
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 border border-emerald-200">
+                <TrendingUp className="h-3.5 w-3.5 text-emerald-700" aria-hidden />
+                <Subhead className="text-emerald-800 tabular-nums">
+                  Ahorra {fmt(savings)} vs precio regular
+                </Subhead>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Estimación año 1 — info secundaria, smaller */}
+        <div className="mt-3 px-1 flex items-baseline justify-between gap-2 flex-wrap">
+          <Caption tone="tertiary">
             {billingCycle === 'annual'
               ? 'Valor del contrato (año 1)'
               : 'Estimación primeros 12 meses'}
-          </Eyebrow>
-          <Subhead className="text-slate-900 mt-0.5 tabular-nums">{fmt(year1Total)}</Subhead>
+          </Caption>
+          <Subhead className="text-slate-900 tabular-nums">{fmt(year1Total)}</Subhead>
         </div>
-        {savings > 0 && (
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 border border-emerald-200">
-            <TrendingUp className="h-3.5 w-3.5 text-emerald-700" aria-hidden />
-            <Subhead className="text-emerald-800 tabular-nums">
-              Ahorra {fmt(savings)} vs precio regular
-            </Subhead>
-          </div>
-        )}
       </div>
 
       {requiresApproval && (
