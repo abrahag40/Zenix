@@ -101,31 +101,31 @@ const TIER_CAP: Record<
     maxPct: 15,
     allowForever: false,
     label: 'Authorized',
-    chipText: 'Cap 15% · solo descuentos temporales',
+    chipText: 'Hasta 15% · solo temporales',
   },
   SILVER: {
     maxPct: 25,
     allowForever: false,
     label: 'Silver',
-    chipText: 'Cap 25% · solo descuentos temporales',
+    chipText: 'Hasta 25% · solo temporales',
   },
   GOLD: {
     maxPct: 35,
     allowForever: false,
     label: 'Gold',
-    chipText: 'Cap 35% · solo descuentos temporales',
+    chipText: 'Hasta 35% · solo temporales',
   },
   PLATINUM: {
     maxPct: 50,
     allowForever: true,
     label: 'Platinum',
-    chipText: 'Cap 50% · permanente incluido',
+    chipText: 'Hasta 50% · permanente permitido',
   },
   PLATFORM: {
     maxPct: 100,
     allowForever: true,
     label: 'Platform Admin',
-    chipText: 'Sin cap — Platform Admin',
+    chipText: 'Sin límite — eres admin',
   },
 }
 
@@ -158,15 +158,15 @@ function addMonths(d: Date, n: number): Date {
 const DURATION_COPY = {
   once: {
     label: 'Una vez',
-    hint: 'Stripe Coupon duration=once. Aplica solo al primer cobro.',
+    hint: 'Aplica solo al primer cobro mensual.',
   },
   repeating: {
-    label: 'N meses',
-    hint: 'Stripe Coupon duration=repeating. Define cuántos meses.',
+    label: 'Varios meses',
+    hint: 'Define cuántos meses, luego vuelve al precio regular.',
   },
   forever: {
     label: 'Permanente',
-    hint: 'Stripe Coupon duration=forever. Aplica mientras la suscripción esté activa.',
+    hint: 'Aplica mientras el cliente siga suscrito.',
   },
 } as const
 
@@ -235,7 +235,7 @@ export function StepPlanDiscount() {
   return (
     <WizardLayout
       title="Plan y cobro"
-      description="Define el plan, ciclo de cobro y descuento de la suscripción Zenix del cliente. Al activar el wizard se crea la Stripe Subscription real. El cliente recibe el setup link + acceso a su Customer Portal para administrar pago."
+      description="Define el plan, ciclo de cobro y descuento de la suscripción del cliente. Al activar el wizard se crea automáticamente en Stripe. El cliente recibe el enlace para configurar su método de pago."
     >
       <div className="space-y-5">
         {/* ══════════════ Plan selector ══════════════════════════════ */}
@@ -243,8 +243,8 @@ export function StepPlanDiscount() {
           <div className="mb-5">
             <Title>Selecciona el plan</Title>
             <Callout tone="tertiary" className="mt-1">
-              El cliente puede cambiarlo después desde Customer Portal o tú lo modificas vía
-              Nova → Billing.
+              El cliente puede cambiar de plan luego desde su portal. Tú también lo modificas
+              desde Nova → Billing.
             </Callout>
           </div>
 
@@ -349,8 +349,8 @@ export function StepPlanDiscount() {
             <div className="flex-1">
               <Title>Ciclo de cobro</Title>
               <Callout tone="tertiary" className="mt-1">
-                Anual aplica -20% al total y se prepaga upfront. El consultor puede cambiar el
-                ciclo después vía Nova → Billing.
+                Anual lleva -20% pagando el año por adelantado. Tú puedes cambiar el ciclo
+                después desde Nova → Billing.
               </Callout>
             </div>
           </div>
@@ -361,14 +361,14 @@ export function StepPlanDiscount() {
               onClick={() => state.setField('billingCycle', 'monthly')}
               accent="violet"
               title="Mensual"
-              description="Stripe cobra cada 30 días. Cliente puede cancelar mes a mes."
+              description="Cobro cada 30 días. El cliente puede cancelar mes a mes."
             />
             <CycleButton
               selected={state.billingCycle === 'annual'}
               onClick={() => state.setField('billingCycle', 'annual')}
               accent="emerald"
               title="Anual"
-              description="Stripe cobra 12 meses upfront con descuento aplicado al total."
+              description="Un solo cobro del año por adelantado, con -20% sobre el total."
               badge="-20%"
             />
           </div>
@@ -378,8 +378,8 @@ export function StepPlanDiscount() {
             <div className="flex-1">
               <Title>Período de prueba</Title>
               <Callout tone="tertiary" className="mt-1">
-                Stripe no cobra hasta que termine el trial. Default 14d (piloto). Configurable
-                hasta 30d sin aprobación.
+                Días gratis antes del primer cobro. 14 días es el default recomendado para
+                pilotos. Hasta 30 sin necesitar aprobación.
               </Callout>
             </div>
             <select
@@ -411,8 +411,8 @@ export function StepPlanDiscount() {
                 </Chip>
               </div>
               <Callout tone="tertiary" className="mt-1">
-                Captura el descuento que negociaste con el cliente. Dentro de tu cap se aplica
-                directo; fuera del cap genera approval request al PARTNER_ADMIN.
+                Si negociaste un descuento con el cliente, captúralo aquí. Dentro de tu límite
+                se aplica al momento; si lo excedes, queda pendiente de aprobación.
               </Callout>
             </div>
 
@@ -474,7 +474,7 @@ export function StepPlanDiscount() {
                     5%
                   </Caption>
                   <Caption className="tabular-nums text-emerald-700 font-semibold">
-                    Tu cap: {cap.maxPct}%
+                    Tu límite: {cap.maxPct}%
                   </Caption>
                   <Caption tone="tertiary" className="tabular-nums">
                     50%
@@ -489,11 +489,11 @@ export function StepPlanDiscount() {
                     />
                     <div>
                       <BodyMedium className="text-amber-900">
-                        Excede tu cap ({cap.maxPct}%) — requiere approval
+                        Excede tu límite ({cap.maxPct}%) — necesita aprobación
                       </BodyMedium>
                       <Callout tone="secondary" className="text-amber-800 mt-0.5">
-                        Se creará un DiscountApprovalRequest al activar. La suscripción arranca
-                        sin descuento; al aprobar el PARTNER_ADMIN, Stripe lo aplica
+                        Al activar el wizard, la suscripción se crea sin el descuento y queda
+                        una solicitud pendiente para tu admin. Cuando apruebe, se aplica
                         automáticamente.
                       </Callout>
                     </div>
@@ -518,7 +518,7 @@ export function StepPlanDiscount() {
                         onClick={() => !disabled && state.setField('discountDuration', d)}
                         disabledHint={
                           disabled
-                            ? `Solo tier PLATINUM puede emitir descuentos permanentes directo. Tu tier (${cap.label}) requiere approval del PARTNER_ADMIN.`
+                            ? `Tu nivel (${cap.label}) no permite descuentos permanentes sin aprobación. Solo Platinum los aplica directo.`
                             : undefined
                         }
                       />
@@ -550,7 +550,7 @@ export function StepPlanDiscount() {
                   <Subhead>
                     Justificación{' '}
                     <Caption tone="tertiary" className="font-normal">
-                      (queda en AuditLog permanente)
+                      (queda registrado para auditoría)
                     </Caption>
                   </Subhead>
                   <Caption
@@ -579,12 +579,12 @@ export function StepPlanDiscount() {
                   <Info className="h-4 w-4 text-amber-700 flex-shrink-0 mt-0.5" aria-hidden />
                   <div>
                     <BodyMedium className="text-amber-900">
-                      Requiere approval del PARTNER_ADMIN
+                      Necesita aprobación de tu admin
                     </BodyMedium>
                     <Callout tone="secondary" className="text-amber-800 mt-0.5">
-                      Al activar, la Stripe Subscription se crea SIN el descuento y aparece un
-                      DiscountApprovalRequest pending en Nova → Billing → Aprobaciones (TTL 7d).
-                      Al aprobar se aplica automáticamente.
+                      Al activar, la suscripción se crea sin el descuento y la solicitud aparece
+                      en Nova → Billing → Aprobaciones (vence en 7 días). Cuando tu admin
+                      apruebe, se aplica automáticamente.
                     </Callout>
                   </div>
                 </div>
@@ -773,10 +773,10 @@ function BillingTimeline({
       : monthlyDiscounted
   const firstChargeLabel =
     billingCycle === 'annual'
-      ? '12 meses upfront'
+      ? 'Pago anual por adelantado'
       : discountEnabled && !requiresApproval
-        ? `Mensual con -${discountPercent}%`
-        : 'Mensual'
+        ? `Cobro mensual con -${discountPercent}%`
+        : 'Cobro mensual'
 
   // ── Build phases con fechas anclas ──
   type Phase = {
@@ -794,7 +794,7 @@ function BillingTimeline({
     phases.push({
       key: 'trial',
       dateLabel: `Hoy · ${fmtDate(today)}`,
-      title: `Trial ${trialDays} días`,
+      title: `Período de prueba · ${trialDays} días`,
       sub: `Termina el ${fmtDate(trialEnd)}`,
       amount: 'Sin cobro',
       accent: 'emerald',
@@ -806,10 +806,10 @@ function BillingTimeline({
     phases.push({
       key: 'annual',
       dateLabel: fmtDate(firstChargeDate),
-      title: 'Cobro anual upfront',
+      title: 'Cobro anual por adelantado',
       sub: discountEnabled && !requiresApproval
-        ? `12 meses con -20% anual y -${discountPercent}% adicional`
-        : '12 meses con -20% anual',
+        ? `12 meses con -20% anual + -${discountPercent}% adicional`
+        : '12 meses con -20% sobre el total',
       amount: fmt(firstChargeAmount),
       accent: 'violet',
       icon: CreditCard,
@@ -818,7 +818,7 @@ function BillingTimeline({
       key: 'renew',
       dateLabel: fmtDate(annualRenewDate),
       title: 'Renovación anual',
-      sub: 'Stripe cobra el siguiente año',
+      sub: 'Se cobra el siguiente año automáticamente',
       amount: `${fmt(annualBeforeDiscount)} / año`,
       accent: 'slate',
       icon: Calendar,
@@ -834,13 +834,13 @@ function BillingTimeline({
         dateLabel: fmtDate(firstChargeDate),
         title:
           discountDuration === 'once'
-            ? `Mes 1 con -${discountPercent}%`
+            ? `Mes 1 con -${discountPercent}% de descuento`
             : discountDuration === 'repeating'
-              ? `Meses 1 – ${months} con -${discountPercent}%`
+              ? `Meses 1 – ${months} con -${discountPercent}% de descuento`
               : `Cobro mensual con -${discountPercent}% permanente`,
         sub:
           discountDuration === 'forever'
-            ? `Stripe Coupon forever — sin fecha de fin`
+            ? 'Descuento permanente · sin fecha de fin'
             : `Hasta el ${fmtDate(phaseEnd)} · ${months} ${months === 1 ? 'cobro' : 'cobros'}`,
         amount: `${fmt(monthlyDiscounted)} / mes`,
         accent: 'violet',
@@ -859,7 +859,7 @@ function BillingTimeline({
         key: 'regular',
         dateLabel: startLabel,
         title: 'Cobro mensual recurrente',
-        sub: 'Stripe Subscription billed monthly · sin fecha de fin',
+        sub: 'Sin fecha de fin · el cliente puede cancelar cuando quiera',
         amount: `${fmt(monthlyRegular)} / mes`,
         accent: 'slate',
         icon: Calendar,
@@ -880,8 +880,8 @@ function BillingTimeline({
         <div className="flex-1">
           <Title>Preview de cobros</Title>
           <Callout tone="tertiary" className="mt-1">
-            Simulación con fechas reales (asumiendo activación hoy). Verifica con el cliente
-            antes del paso 9.
+            Simulación con fechas reales si activas hoy. Verifica con el cliente antes de
+            continuar al paso 9.
           </Callout>
         </div>
       </div>
@@ -896,7 +896,7 @@ function BillingTimeline({
             <MetricLarge className="text-violet-900">{fmt(firstChargeAmount)}</MetricLarge>
             <Callout tone="secondary" className="mt-1 text-violet-800">
               {fmtDate(firstChargeDate)}
-              {trialDays > 0 && ` · tras ${trialDays}d de trial`}
+              {trialDays > 0 && ` · después de ${trialDays} días de prueba`}
               {' · '}
               {firstChargeLabel}
             </Callout>
@@ -954,7 +954,7 @@ function BillingTimeline({
         <div>
           <Eyebrow tone="tertiary" className="block">
             {billingCycle === 'annual'
-              ? 'Contract value año 1'
+              ? 'Valor del contrato (año 1)'
               : 'Estimación primeros 12 meses'}
           </Eyebrow>
           <Subhead className="text-slate-900 mt-0.5 tabular-nums">{fmt(year1Total)}</Subhead>
@@ -973,15 +973,15 @@ function BillingTimeline({
         <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-amber-50 border border-amber-200">
           <Info className="h-3.5 w-3.5 text-amber-700 flex-shrink-0 mt-0.5" aria-hidden />
           <Callout tone="secondary" className="text-amber-800">
-            Este preview ignora el descuento pendiente. Hasta que el PARTNER_ADMIN apruebe,
-            Stripe cobra el precio regular.
+            Esta simulación asume precio regular. Mientras tu admin no apruebe el descuento, el
+            cliente paga el precio sin descuento.
           </Callout>
         </div>
       )}
 
       <Caption tone="tertiary" className="block pt-3 border-t border-slate-100">
-        El cliente accede a Customer Portal (Stripe) para método de pago + invoices. Tú
-        gestionas plan/descuentos vía Nova → Billing.
+        El cliente gestiona método de pago + descarga facturas desde Stripe. Tú modificas plan
+        o descuentos desde Nova → Billing.
       </Caption>
     </Surface>
   )
