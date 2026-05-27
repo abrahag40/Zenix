@@ -21,6 +21,7 @@ import { WebhookHandlerService } from './webhook-handler.service'
 import { SubscriptionService } from './subscription.service'
 import { DiscountCodeService } from './discount-code.service'
 import { PricingAdminService } from './pricing-admin.service'
+import { BillingEmailService } from './billing-email.service'
 import { StripeWebhookController } from './stripe-webhook.controller'
 import { BillingController } from './billing.controller'
 import { NovaBillingController } from './nova-billing.controller'
@@ -40,6 +41,7 @@ import { PricingAdminController } from './pricing-admin.controller'
     SubscriptionService,
     DiscountCodeService,
     PricingAdminService,
+    BillingEmailService,
     AuditLogService,
   ],
   exports: [BillingService, SubscriptionService, DiscountCodeService, PricingAdminService],
