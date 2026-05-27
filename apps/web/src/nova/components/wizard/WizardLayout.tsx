@@ -230,34 +230,40 @@ export function WizardLayout({
            * contenido del step es corto. Flex-shrink-0 garantiza altura
            * estable independiente del contenido.
            */}
-          <footer className="flex-shrink-0 bg-white/90 backdrop-blur-md backdrop-saturate-150 border-t border-slate-200/70 px-5 sm:px-7 lg:px-9 py-3 flex items-center justify-between gap-3">
-            <Button
-              variant="ghost"
-              size="md"
-              onClick={goPrev}
-              disabled={isFirst}
-              iconLeft={ChevronLeft}
-            >
-              Atrás
-            </Button>
-
-            {!validation.ok && (
-              <Body tone="tertiary" className="hidden md:block text-[12px]">
-                {validation.reason}
-              </Body>
-            )}
-
-            {primaryAction ?? (
+          <footer className="flex-shrink-0 bg-white/90 backdrop-blur-md backdrop-saturate-150 border-t border-slate-200/70 px-5 sm:px-7 lg:px-9 py-2.5 flex flex-col gap-1.5">
+            {/* Validation hint en su propia fila — evita que el texto colapse
+             *  contra los botones cuando crece. Always 18px height para
+             *  estabilidad layout (no jump al toggle). */}
+            <div className="h-[18px] flex items-center justify-end">
+              {!validation.ok && validation.reason && (
+                <Caption tone="tertiary" className="text-amber-700 text-[11.5px] leading-tight">
+                  ⚠ {validation.reason}
+                </Caption>
+              )}
+            </div>
+            <div className="flex items-center justify-between gap-3">
               <Button
-                variant="primary"
+                variant="ghost"
                 size="md"
-                onClick={goNext}
-                disabled={nextDisabled || !validation.ok}
-                iconRight={ChevronRight}
+                onClick={goPrev}
+                disabled={isFirst}
+                iconLeft={ChevronLeft}
               >
-                {nextLabel}
+                Atrás
               </Button>
-            )}
+
+              {primaryAction ?? (
+                <Button
+                  variant="primary"
+                  size="md"
+                  onClick={goNext}
+                  disabled={nextDisabled || !validation.ok}
+                  iconRight={ChevronRight}
+                >
+                  {nextLabel}
+                </Button>
+              )}
+            </div>
           </footer>
         </main>
       </div>

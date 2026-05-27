@@ -128,6 +128,7 @@ export class AuthService {
         // Day 9 — exponer Nova fields al frontend para drivear shell UX
         actorTier: aclResult.tier,
         partnerMemberId: aclResult.partnerMemberId ?? undefined,
+        partnerTier: aclResult.partnerTier ?? undefined,
         assignedOrgIds: this.acl.trimAssignedOrgsForJwt(aclResult.assignedOrgIds) ?? undefined,
         organizationId: user.organizationId ?? null,
       },

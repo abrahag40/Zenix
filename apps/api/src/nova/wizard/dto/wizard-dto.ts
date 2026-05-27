@@ -94,6 +94,21 @@ export class WizardPropertyDto {
   cityDisplay?: string
 }
 
+export class WizardDiscountDto {
+  @IsInt() @Min(5) @Max(50)
+  percentOff!: number
+
+  @IsIn(['once', 'repeating', 'forever'])
+  duration!: 'once' | 'repeating' | 'forever'
+
+  @IsOptional()
+  @IsInt() @Min(1) @Max(12)
+  durationInMonths?: number
+
+  @IsString() @MinLength(20) @MaxLength(500)
+  reason!: string
+}
+
 export class WizardActivateDto {
   // Step 1 — Customer Account
   @IsString() @MinLength(2) @MaxLength(120)
@@ -180,21 +195,6 @@ export class WizardActivateDto {
   @ValidateNested()
   @Type(() => WizardDiscountDto)
   discount?: WizardDiscountDto
-}
-
-export class WizardDiscountDto {
-  @IsInt() @Min(5) @Max(50)
-  percentOff!: number
-
-  @IsIn(['once', 'repeating', 'forever'])
-  duration!: 'once' | 'repeating' | 'forever'
-
-  @IsOptional()
-  @IsInt() @Min(1) @Max(12)
-  durationInMonths?: number
-
-  @IsString() @MinLength(20) @MaxLength(500)
-  reason!: string
 }
 
 // ─── Response types ───────────────────────────────────────────────────

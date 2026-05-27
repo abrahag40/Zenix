@@ -37,6 +37,9 @@ export interface ActorResolution {
    *  Array vacío si tier=ORG_OWNER/ORG_STAFF (organizationId implícito en JWT.organizationId).
    *  Set sólo cuando tier ∈ {PARTNER_ADMIN, PARTNER_MEMBER}. */
   assignedOrgIds: string[] | null
+  /** Partner tier (driver del cap de descuentos). Set sólo si actor pertenece
+   *  a un Partner row. PLATFORM = 'PLATFORM' (sin cap). null si tier=ORG_*. */
+  partnerTier: 'AUTHORIZED' | 'SILVER' | 'GOLD' | 'PLATINUM' | 'PLATFORM' | null
 }
 
 @Injectable()
@@ -64,7 +67,7 @@ export class AccessControlService {
       include: {
         partnerMember: {
           include: {
-            partner: { select: { id: true, isInternal: true } },
+            partner: { select: { id: true, isInternal: true, tier: true } },
           },
         },
       },
@@ -89,6 +92,7 @@ export class AccessControlService {
         partnerMemberId: user.partnerMember?.id ?? null,
         // PLATFORM_ADMIN ignora assignedOrgIds — acceso pleno por definición
         assignedOrgIds: null,
+        partnerTier: 'PLATFORM',
       }
     }
 
@@ -114,6 +118,7 @@ export class AccessControlService {
         tier: 'PARTNER_ADMIN',
         partnerMemberId: user.partnerMember.id,
         assignedOrgIds: orgIds,
+        partnerTier: user.partnerMember.partner.tier as ActorResolution['partnerTier'],
       }
     }
 
@@ -141,6 +146,7 @@ export class AccessControlService {
         tier: 'PARTNER_MEMBER',
         partnerMemberId: user.partnerMember.id,
         assignedOrgIds: orgIds,
+        partnerTier: user.partnerMember.partner.tier as ActorResolution['partnerTier'],
       }
     }
 
@@ -151,6 +157,7 @@ export class AccessControlService {
         partnerMemberId: null,
         // ORG_OWNER tiene UN organizationId via User.organizationId — no array.
         assignedOrgIds: [],
+        partnerTier: null,
       }
     }
 
@@ -159,6 +166,7 @@ export class AccessControlService {
       tier: 'ORG_STAFF',
       partnerMemberId: null,
       assignedOrgIds: [],
+      partnerTier: null,
     }
   }
 
@@ -174,6 +182,7 @@ export class AccessControlService {
       tier: 'ORG_STAFF',
       partnerMemberId: null,
       assignedOrgIds: [],
+      partnerTier: null,
     }
   }
 

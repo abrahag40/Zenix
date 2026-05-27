@@ -123,6 +123,9 @@ export interface AuthResponse {
     actorTier?: ActorTier
     /** Set si actorTier ∈ { PLATFORM, PARTNER_* }. */
     partnerMemberId?: string
+    /** Partner tier del consultor (drives discount cap UX). Set si actorTier
+     *  ∈ { PLATFORM, PARTNER_ADMIN, PARTNER_MEMBER }. PLATFORM = sin cap. */
+    partnerTier?: 'AUTHORIZED' | 'SILVER' | 'GOLD' | 'PLATINUM' | 'PLATFORM'
     /** Inline ≤20 orgs. Si null = overflow, frontend consulta endpoint clients. */
     assignedOrgIds?: string[]
     /** organizationId del User row. Set para ORG_OWNER + ORG_STAFF; null para
