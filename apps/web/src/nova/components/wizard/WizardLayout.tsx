@@ -200,10 +200,13 @@ export function WizardLayout({
           </div>
         </aside>
 
-        {/* Step content column — flex column con scroll interna + footer fijo */}
-        <main className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
-          {/* Scrollable content area */}
-          <div className="flex-1 overflow-y-auto">
+        {/* Step content column — relative para que el footer absolute
+         *  se ancle a su parent main, no al viewport. */}
+        <main className="flex-1 min-h-0 overflow-hidden relative">
+          {/* Scrollable content area — ocupa TODA la altura del main +
+           *  padding-bottom igual a la altura aprox del footer para que
+           *  el contenido no quede tapado por el footer absolute. */}
+          <div className="absolute inset-0 overflow-y-auto pb-[92px]">
             <div className="max-w-3xl mx-auto px-5 sm:px-7 lg:px-9 py-8">
               {/* Step title */}
               <div className="mb-6">
@@ -225,12 +228,12 @@ export function WizardLayout({
           </div>
 
           {/*
-           * Footer nav — fijo al fondo de la columna (NO sticky).
-           * Vive afuera del div scrollable, así no se "sube" cuando el
-           * contenido del step es corto. Flex-shrink-0 garantiza altura
-           * estable independiente del contenido.
+           * Footer nav — position absolute pinned al bottom del <main>.
+           * Robusto contra cualquier cambio de contenido o flex chain
+           * issue: el footer SIEMPRE está en main.bottom porque main es
+           * relative.
            */}
-          <footer className="mt-auto flex-shrink-0 bg-white/90 backdrop-blur-md backdrop-saturate-150 border-t border-slate-200/70 px-5 sm:px-7 lg:px-9 py-2.5 flex flex-col gap-1.5">
+          <footer className="absolute bottom-0 left-0 right-0 z-10 bg-white/90 backdrop-blur-md backdrop-saturate-150 border-t border-slate-200/70 px-5 sm:px-7 lg:px-9 py-2.5 flex flex-col gap-1.5">
             {/* Validation hint en su propia fila — evita que el texto colapse
              *  contra los botones cuando crece. Always 18px height para
              *  estabilidad layout (no jump al toggle). */}
