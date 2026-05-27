@@ -230,7 +230,7 @@ export function WizardLayout({
            * contenido del step es corto. Flex-shrink-0 garantiza altura
            * estable independiente del contenido.
            */}
-          <footer className="flex-shrink-0 bg-white/90 backdrop-blur-md backdrop-saturate-150 border-t border-slate-200/70 px-5 sm:px-7 lg:px-9 py-2.5 flex flex-col gap-1.5">
+          <footer className="mt-auto flex-shrink-0 bg-white/90 backdrop-blur-md backdrop-saturate-150 border-t border-slate-200/70 px-5 sm:px-7 lg:px-9 py-2.5 flex flex-col gap-1.5">
             {/* Validation hint en su propia fila — evita que el texto colapse
              *  contra los botones cuando crece. Always 18px height para
              *  estabilidad layout (no jump al toggle). */}
