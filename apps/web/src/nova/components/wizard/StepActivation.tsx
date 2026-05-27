@@ -235,6 +235,42 @@ export function StepActivation() {
           <KV k="Email" v={state.orgOwnerEmail} mono />
         </SummarySection>
 
+        {/* Plan + descuento — billing summary del Step 7.5 */}
+        <SummarySection icon={Receipt} title="Plan y cobro">
+          <div className="flex items-center gap-2 flex-wrap mb-1.5">
+            <Chip variant="accent" intent="solid" size="sm">
+              Plan {state.planTier}
+            </Chip>
+            <Chip variant="neutral" intent="subtle" size="sm">
+              {state.billingCycle === 'annual' ? 'Anual (-20%)' : 'Mensual'}
+            </Chip>
+            {state.trialDays > 0 && (
+              <Chip variant="success" intent="subtle" size="sm">
+                Trial {state.trialDays}d
+              </Chip>
+            )}
+            {state.discountEnabled && (
+              <Chip variant="accent" intent="subtle" size="sm">
+                Descuento -{state.discountPercentOff}%{' '}
+                {state.discountDuration === 'once'
+                  ? '(1er cobro)'
+                  : state.discountDuration === 'repeating'
+                    ? `(${state.discountDurationInMonths}m)`
+                    : '(permanente)'}
+              </Chip>
+            )}
+          </div>
+          {state.discountEnabled && state.discountReason && (
+            <Caption tone="tertiary" className="block text-[11px] mt-1">
+              <strong>Justificación:</strong> {state.discountReason}
+            </Caption>
+          )}
+          <Caption tone="tertiary" className="block text-[11px] mt-1">
+            Al activar se crea la Stripe Subscription. El cliente configura método de pago
+            desde el email que recibirá.
+          </Caption>
+        </SummarySection>
+
         {/* What happens next */}
         {!activated && canActivate && (
           <Surface variant="raised" radius="lg" padding="lg" tone="info">

@@ -47,12 +47,15 @@ import { cn } from '@/lib/utils'
 // Plans — referencia operacional al consultor (no pitch). Cards compactas:
 // fit + range + 3 features key + price. Detalle full vive en docs/pricing.
 const PLAN_PREVIEW = {
+  // Precios alineados a BillingPricingConfig (DB) + Stripe Products live.
+  // TODO post-piloto: hacer dinámico vía GET /v1/nova/admin/pricing
+  // para evitar drift cuando ZaharDev actualice via PricingAdminController.
   STARTER: {
     label: 'Starter',
     fit: 'Hostal o casa huéspedes',
     rangeHint: '< 30 cuartos',
     mxn: 1200,
-    usd: 70,
+    usd: 60,
     accent: 'sky',
     features: [
       'PMS + housekeeping',
@@ -65,8 +68,8 @@ const PLAN_PREVIEW = {
     label: 'Pro',
     fit: 'Hotel boutique',
     rangeHint: '30 – 100 cuartos',
-    mxn: 1800,
-    usd: 100,
+    mxn: 2400,
+    usd: 120,
     accent: 'violet',
     features: [
       'Todo Starter +',
@@ -79,8 +82,8 @@ const PLAN_PREVIEW = {
     label: 'Enterprise',
     fit: 'Cadena o white-label',
     rangeHint: 'Sin límite',
-    mxn: 2400,
-    usd: 140,
+    mxn: 4800,
+    usd: 240,
     accent: 'emerald',
     features: [
       'Todo Pro +',

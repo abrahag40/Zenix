@@ -39,6 +39,17 @@ export interface SendActivationEmailInput {
   /** Day 19 — link al Activation Report HTML printable. Opcional para
    *  backward-compat con tests que aún no lo pasan. */
   activationReportLink?: string
+  /** Day 8 BILLING-CORE — info de la subscription Stripe creada al activar.
+   *  Si presente, el email incluye una caja con plan + cycle + descuento. */
+  subscription?: {
+    planTier: string
+    billingCycle: 'monthly' | 'annual'
+    trialDays: number
+    discountApplied: boolean
+    discountPercent?: number
+    discountDuration?: 'once' | 'repeating' | 'forever'
+    discountMonths?: number
+  }
 }
 
 export interface SendActivationEmailResult {
@@ -232,6 +243,8 @@ function renderActivationHtml(input: SendActivationEmailInput): string {
                 </tr>
               </table>
 
+              ${input.subscription ? renderSubscriptionBox(input.subscription) : ''}
+
               <!-- Caja informativa -->
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:#f1f5f9;border-radius:10px;padding:16px;margin:0 0 16px;">
                 <tr>
@@ -285,13 +298,66 @@ function renderActivationHtml(input: SendActivationEmailInput): string {
 </html>`
 }
 
+function renderSubscriptionBox(sub: NonNullable<SendActivationEmailInput['subscription']>): string {
+  const cycleLabel = sub.billingCycle === 'annual' ? 'Anual (-20%)' : 'Mensual'
+  const trialLine = sub.trialDays > 0
+    ? `<div style="font-size:12px;color:#0e7490;margin-top:4px;">✨ Trial: ${sub.trialDays} días gratis antes del primer cobro.</div>`
+    : ''
+  const discountLine = sub.discountApplied && sub.discountPercent
+    ? `<div style="font-size:12px;color:#047857;margin-top:4px;">🎉 Descuento aplicado: -${sub.discountPercent}%${
+        sub.discountDuration === 'once'
+          ? ' (solo primer cobro)'
+          : sub.discountDuration === 'repeating' && sub.discountMonths
+            ? ` (por ${sub.discountMonths} meses)`
+            : sub.discountDuration === 'forever'
+              ? ' (permanente)'
+              : ''
+      }</div>`
+    : ''
+
+  return `
+              <!-- Caja billing — plan + cycle + trial + descuento -->
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:#faf5ff;border:1px solid #e9d5ff;border-radius:10px;padding:16px;margin:0 0 16px;">
+                <tr>
+                  <td style="font-size:13px;line-height:1.55;color:#475569;">
+                    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#7c3aed;margin-bottom:6px;">Tu suscripción</div>
+                    <div style="font-size:14px;font-weight:600;color:#0f172a;">Plan ${escapeHtml(sub.planTier)} · ${cycleLabel}</div>
+                    ${trialLine}
+                    ${discountLine}
+                    <div style="font-size:12px;color:#64748b;margin-top:8px;padding-top:8px;border-top:1px solid #e9d5ff;">
+                      Después de activar tu cuenta, configura tu método de pago desde tu Customer Portal (link incluido en el panel de cuenta).
+                    </div>
+                  </td>
+                </tr>
+              </table>`
+}
+
 function renderActivationText(input: SendActivationEmailInput): string {
-  return [
+  const lines: string[] = [
     `Hola ${input.ownerName},`,
     '',
     `Tu consultor terminó la configuración inicial de ${input.organizationName} en Zenix.`,
     `Tienes ${input.propertyCount} ${input.propertyCount === 1 ? 'propiedad configurada' : 'propiedades configuradas'} y un workspace listo para operar.`,
     '',
+  ]
+
+  if (input.subscription) {
+    const s = input.subscription
+    const cycleLabel = s.billingCycle === 'annual' ? 'Anual (-20%)' : 'Mensual'
+    lines.push(`TU SUSCRIPCIÓN: Plan ${s.planTier} · ${cycleLabel}`)
+    if (s.trialDays > 0) lines.push(`  · Trial: ${s.trialDays} días gratis antes del primer cobro`)
+    if (s.discountApplied && s.discountPercent) {
+      const dur =
+        s.discountDuration === 'once' ? ' (solo primer cobro)' :
+        s.discountDuration === 'repeating' && s.discountMonths ? ` (por ${s.discountMonths} meses)` :
+        s.discountDuration === 'forever' ? ' (permanente)' : ''
+      lines.push(`  · Descuento aplicado: -${s.discountPercent}%${dur}`)
+    }
+    lines.push('  · Configura tu método de pago desde tu Customer Portal post-activación')
+    lines.push('')
+  }
+
+  lines.push(
     'Para terminar de activar tu cuenta y crear tu contraseña, abre el siguiente link:',
     '',
     input.setupLink,
@@ -302,7 +368,8 @@ function renderActivationText(input: SendActivationEmailInput): string {
     '---',
     'Zenix nunca te pedirá tu contraseña por email ni por teléfono.',
     'Soporte: soporte@zenix.com',
-  ].join('\n')
+  )
+  return lines.join('\n')
 }
 
 function escapeHtml(s: string): string {

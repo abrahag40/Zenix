@@ -55,6 +55,19 @@ export interface ActivationReportData {
     isActive: boolean
     setupTokenPending: boolean
   } | null
+  /** Day 8 BILLING-CORE — Stripe Subscription si se creó al activar. */
+  subscription: {
+    planTier: string
+    billingCycle: string
+    status: string
+    stripeSubscriptionId: string
+    propertyCount: number
+    currency: string
+    baseMonthlyAmount: string
+    trialEndsAt: Date | null
+    nextRenewalDate: Date
+    discountsCount: number
+  } | null
 }
 
 @Injectable()
@@ -90,6 +103,9 @@ export class ActivationReportService {
             setupTokenHash: true,
             setupTokenConsumedAt: true,
           },
+        },
+        subscription: {
+          include: { discounts: { select: { id: true } } },
         },
       },
     })
@@ -137,6 +153,20 @@ export class ActivationReportService {
             email: owner.email,
             isActive: owner.isActive,
             setupTokenPending: !!owner.setupTokenHash && !owner.setupTokenConsumedAt,
+          }
+        : null,
+      subscription: org.subscription
+        ? {
+            planTier: org.subscription.planTier,
+            billingCycle: org.subscription.billingCycle,
+            status: org.subscription.status,
+            stripeSubscriptionId: org.subscription.stripeSubscriptionId,
+            propertyCount: org.subscription.propertyCount,
+            currency: org.subscription.currency,
+            baseMonthlyAmount: String(org.subscription.baseMonthlyAmount),
+            trialEndsAt: org.subscription.trialEndsAt,
+            nextRenewalDate: org.subscription.nextRenewalDate,
+            discountsCount: org.subscription.discounts.length,
           }
         : null,
     }
@@ -211,6 +241,7 @@ function renderReportHtml(d: ActivationReportData): string {
     .pill-emerald { background:#d1fae5;color:#065f46; }
     .pill-amber   { background:#fef3c7;color:#92400e; }
     .pill-slate   { background:#f1f5f9;color:#475569; }
+    .pill-violet  { background:#ede9fe;color:#5b21b6; }
     .footer {
       margin-top: 32px; padding-top: 16px; border-top: 1px solid #e2e8f0;
       font-size: 11px; color: #94a3b8; text-align: center;
@@ -333,6 +364,39 @@ function renderReportHtml(d: ActivationReportData): string {
     </div>`,
       )
       .join('')}
+
+    ${
+      d.subscription
+        ? `
+    <h2>Plan y cobro (Stripe Subscription)</h2>
+    <div class="kv">
+      <div class="k">Plan</div>
+      <div class="v"><span class="pill pill-violet">Plan ${escapeHtml(d.subscription.planTier)}</span></div>
+      <div class="k">Ciclo de cobro</div>
+      <div class="v">${d.subscription.billingCycle === 'annual' ? 'Anual (-20% sobre el total)' : 'Mensual'}</div>
+      <div class="k">Status Stripe</div>
+      <div class="v"><span class="pill ${d.subscription.status === 'trialing' ? 'pill-emerald' : d.subscription.status === 'active' ? 'pill-emerald' : 'pill-amber'}">${escapeHtml(d.subscription.status)}</span></div>
+      <div class="k">Subscription ID</div>
+      <div class="v mono" style="font-size:11px;">${escapeHtml(d.subscription.stripeSubscriptionId)}</div>
+      <div class="k">Propiedades en plan</div>
+      <div class="v">${d.subscription.propertyCount}</div>
+      <div class="k">Precio base / mes</div>
+      <div class="v mono">${escapeHtml(d.subscription.currency)} $${Number(d.subscription.baseMonthlyAmount).toLocaleString('es-MX')}</div>
+      ${
+        d.subscription.trialEndsAt
+          ? `<div class="k">Trial termina</div><div class="v">${d.subscription.trialEndsAt.toISOString().split('T')[0]}</div>`
+          : ''
+      }
+      <div class="k">Próxima renovación</div>
+      <div class="v">${d.subscription.nextRenewalDate.toISOString().split('T')[0]}</div>
+      ${
+        d.subscription.discountsCount > 0
+          ? `<div class="k">Descuentos aplicados</div><div class="v"><span class="pill pill-emerald">${d.subscription.discountsCount} descuento(s) activo(s)</span></div>`
+          : ''
+      }
+    </div>`
+        : ''
+    }
 
     ${
       d.orgOwner

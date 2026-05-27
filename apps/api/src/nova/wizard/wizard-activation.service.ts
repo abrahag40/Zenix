@@ -302,6 +302,18 @@ export class WizardActivationService {
         hoursUntilExpiry: 72,
         propertyCount: dto.properties.length,
         activationReportLink,
+        // Day 8 BILLING-CORE — pasar info de subscription si se creó
+        ...(subscriptionResult && {
+          subscription: {
+            planTier: subscriptionResult.planTier,
+            billingCycle: (dto.billingCycle ?? 'monthly') as 'monthly' | 'annual',
+            trialDays: dto.trialDays ?? 14,
+            discountApplied: subscriptionResult.discountApplied,
+            discountPercent: dto.discount?.percentOff,
+            discountDuration: dto.discount?.duration,
+            discountMonths: dto.discount?.durationInMonths,
+          },
+        }),
       })
       emailSent = emailResult.sent
       if (!emailResult.sent) {
