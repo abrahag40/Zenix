@@ -155,7 +155,10 @@ function addMonths(d: Date, n: number): Date {
   return r
 }
 
-const DURATION_COPY = {
+// Duration copy depende del cycle. Annual sólo tiene 1 cobro/año, por eso
+// "repeating" (N meses) no aplica — Stripe descarta el coupon después del
+// único invoice anual (ver docs/billing/subscriptions/coupons).
+const DURATION_COPY_MONTHLY = {
   once: {
     label: 'Una vez',
     hint: 'Aplica solo al primer cobro mensual.',
@@ -167,6 +170,17 @@ const DURATION_COPY = {
   forever: {
     label: 'Permanente',
     hint: 'Aplica mientras el cliente siga suscrito.',
+  },
+} as const
+
+const DURATION_COPY_ANNUAL = {
+  once: {
+    label: 'Solo este año',
+    hint: 'Aplica solo al primer cobro anual. Renovaciones futuras al precio regular.',
+  },
+  forever: {
+    label: 'Cada renovación',
+    hint: 'Aplica a cada cobro anual mientras el cliente siga suscrito.',
   },
 } as const
 
@@ -365,7 +379,14 @@ export function StepPlanDiscount() {
             />
             <CycleButton
               selected={state.billingCycle === 'annual'}
-              onClick={() => state.setField('billingCycle', 'annual')}
+              onClick={() => {
+                state.setField('billingCycle', 'annual')
+                // Auto-corregir: annual no soporta "repeating" (no hay meses
+                // dentro de una suscripción anual). Cambiar a "once" automático.
+                if (state.discountDuration === 'repeating') {
+                  state.setField('discountDuration', 'once')
+                }
+              }}
               accent="emerald"
               title="Anual"
               description="Un solo cobro del año por adelantado, con -20% sobre el total."
@@ -501,32 +522,45 @@ export function StepPlanDiscount() {
                 )}
               </div>
 
-              {/* Duración */}
+              {/* Duración — opciones cambian según cycle.
+                  Annual no soporta "repeating" (sólo 1 invoice/año) → solo
+                  Once / Forever. Monthly tiene las 3. */}
               <div>
                 <Subhead className="block mb-2">Duración del descuento</Subhead>
-                <div className="grid grid-cols-3 gap-3">
-                  {(['once', 'repeating', 'forever'] as const).map((d) => {
-                    const isSelected = state.discountDuration === d
-                    const disabled = d === 'forever' && !canForever
-                    return (
-                      <DurationCard
-                        key={d}
-                        title={DURATION_COPY[d].label}
-                        hint={DURATION_COPY[d].hint}
-                        selected={isSelected}
-                        disabled={disabled}
-                        onClick={() => !disabled && state.setField('discountDuration', d)}
-                        disabledHint={
-                          disabled
-                            ? `Tu nivel (${cap.label}) no permite descuentos permanentes sin aprobación. Solo Platinum los aplica directo.`
-                            : undefined
-                        }
-                      />
-                    )
-                  })}
-                </div>
+                {(() => {
+                  const isAnnual = state.billingCycle === 'annual'
+                  const COPY = isAnnual ? DURATION_COPY_ANNUAL : DURATION_COPY_MONTHLY
+                  const durations = isAnnual
+                    ? (['once', 'forever'] as const)
+                    : (['once', 'repeating', 'forever'] as const)
+                  const cols = isAnnual ? 'grid-cols-2' : 'grid-cols-3'
+                  return (
+                    <div className={cn('grid gap-3', cols)}>
+                      {durations.map((d) => {
+                        const isSelected = state.discountDuration === d
+                        const disabled = d === 'forever' && !canForever
+                        const copyEntry = COPY[d as keyof typeof COPY]
+                        return (
+                          <DurationCard
+                            key={d}
+                            title={copyEntry.label}
+                            hint={copyEntry.hint}
+                            selected={isSelected}
+                            disabled={disabled}
+                            onClick={() => !disabled && state.setField('discountDuration', d)}
+                            disabledHint={
+                              disabled
+                                ? `Tu nivel (${cap.label}) no permite descuentos permanentes sin aprobación. Solo Platinum los aplica directo.`
+                                : undefined
+                            }
+                          />
+                        )
+                      })}
+                    </div>
+                  )
+                })()}
 
-                {state.discountDuration === 'repeating' && (
+                {state.discountDuration === 'repeating' && state.billingCycle === 'monthly' && (
                   <div className="mt-3 flex items-center gap-3 px-4 py-3 rounded-lg bg-slate-50 border border-slate-100">
                     <Body tone="secondary">Duración:</Body>
                     <input
@@ -787,6 +821,16 @@ function BillingTimeline({
   const regularReferenceLabel =
     billingCycle === 'annual' ? 'Precio anual sin descuento' : 'Precio regular mensual'
 
+  // ── Descuento negociado en monto (separado del descuento anual auto) ──
+  // Stripe Checkout pattern: cada coupon/discount aparece en su propia línea.
+  // Aquí desglosamos para que el consultor distinga lo automático (anual -20%)
+  // del que metió personalmente (% negociado).
+  const negotiatedDiscountAmount =
+    discountEnabled && !requiresApproval
+      ? (billingCycle === 'annual' ? regularReference * 0.8 : regularReference) *
+        (discountPercent / 100)
+      : 0
+
   // ── Build phases con fechas anclas ──
   type Phase = {
     key: string
@@ -941,7 +985,8 @@ function BillingTimeline({
       </div>
 
       {/* Total al final — invoice/receipt convention: amounts right-aligned,
-       *  strikethrough del precio sin descuento, total bold con separator.
+       *  strikethrough del precio sin descuento, descuentos SEPARADOS
+       *  (anual auto + negociado), total bold con separator.
        *  Fuentes: Stripe Checkout, Salesforce CPQ, AHLEI receipt standards,
        *  Booking.com confirmation page (strikethrough pattern). */}
       <div className="pt-4 mt-1 border-t-2 border-slate-200 space-y-3">
@@ -960,19 +1005,37 @@ function BillingTimeline({
             </div>
           )}
 
-          {/* Línea ahorro — solo visible si aplica */}
-          {regularReference > firstChargeAmount && (
-            <div className="flex items-baseline justify-between gap-3 mb-2 pb-2 border-b border-violet-200/40">
+          {/* Descuento anual automático (-20%) — solo si cycle=annual.
+              Separado del descuento negociado para que el consultor vea
+              exactamente qué % metió vs qué % es automático. */}
+          {billingCycle === 'annual' && (
+            <div className="flex items-baseline justify-between gap-3 mb-1">
               <Callout className="text-emerald-700">
-                Ahorro aplicado
-                <span className="ml-1 text-emerald-600/80">
-                  ({Math.round(((regularReference - firstChargeAmount) / regularReference) * 100)}%)
-                </span>
+                Descuento por pago anual
+                <span className="ml-1 text-emerald-600/80">(−20%)</span>
               </Callout>
               <Callout className="text-emerald-700 tabular-nums font-semibold">
-                −{fmt(regularReference - firstChargeAmount)}
+                −{fmt(regularReference - regularReference * 0.8)}
               </Callout>
             </div>
+          )}
+
+          {/* Descuento negociado (lo que metió el consultor) — separado */}
+          {discountEnabled && !requiresApproval && (
+            <div className="flex items-baseline justify-between gap-3 mb-2 pb-2 border-b border-violet-200/40">
+              <Callout className="text-emerald-700">
+                Descuento negociado
+                <span className="ml-1 text-emerald-600/80">(−{discountPercent}%)</span>
+              </Callout>
+              <Callout className="text-emerald-700 tabular-nums font-semibold">
+                −{fmt(negotiatedDiscountAmount)}
+              </Callout>
+            </div>
+          )}
+
+          {/* Border-bottom cuando hay descuento anual pero no negociado */}
+          {billingCycle === 'annual' && !(discountEnabled && !requiresApproval) && (
+            <div className="border-b border-violet-200/40 mb-2 pb-1" aria-hidden />
           )}
 
           {/* Total row — primer cobro como TOTAL line invoice-style */}
