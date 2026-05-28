@@ -533,6 +533,10 @@ model Organization {
   timezone    String   @default("America/Cancun")
   currency    String   @default("MXN")
   isActive    Boolean  @default(true) @map("is_active")
+  // CHANNEX-AUTO-PROVISION (Day 2) — Multi-tenant Fase 1 (Modelo D adaptado).
+  // Cada Org tiene su Group propio en Channex master account → aislamiento
+  // lógico sin Partner Program. Null hasta primera provision.
+  channexGroupId String?  @map("channex_group_id")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
@@ -725,6 +729,10 @@ model LegalEntity {
   legalAddress          Json      @map("legal_address") // jsonb — formato per país
   baseCurrency          String    @map("base_currency") // ISO 4217: MXN, COP, CRC, USD, BRL...
   pacCredentials        Json?     @map("pac_credentials") // encrypted at-rest in v1.1+ (placeholder hoy)
+  // CHANNEX-AUTO-PROVISION (Day 2) — Fase 2/3 migration path. Null = master
+  // API key (Fase 1, default). Set = cliente contrató su propia API key
+  // (Partner Program Fase 2 / enterprise BYO Fase 3). Encriptado at-rest v1.0.1+.
+  channexApiKey         String?   @map("channex_api_key")
   // Mes de inicio del fiscal year (1-12, default enero):
   accountingPeriodStart Int       @default(1) @map("accounting_period_start")
   active                Boolean   @default(true)
@@ -834,10 +842,42 @@ model Property {
   // ── Sprint NOVA-CHANNEX-COMMAND-CENTER (Day 2) ───────────────────────────
   channexRatePlanMappings ChannexRatePlanMapping[]
   channexChannelPauses    ChannexChannelPause[]
+  // ── Sprint CHANNEX-AUTO-PROVISION (Day 2) — OTA channel connections ──────
+  channels                Channel[]
 
   @@index([organizationId])
   @@index([legalEntityId])
   @@map("properties")
+}
+
+// ─── CHANNEX-AUTO-PROVISION Day 2 — OTA channel connections ───────────────
+// Cada conexión a un OTA (Booking, Expedia, Airbnb, etc.) vive como Channel
+// row con `settingsEncrypted` (AES-256-GCM ciphertext de credentials del
+// cliente, KEK en .env). NUNCA logear plain credentials.
+//
+// Status state machine:
+//   inactive            — creado en Channex pero no published (default)
+//   pending_credentials — creado sin settings (cliente las completará)
+//   connected           — fully active (push activado, recibe reservas)
+//   requires_oauth      — Airbnb (siempre, regla regulatoria 2022)
+//   error               — Channex marcó error en última sync
+model Channel {
+  id                String    @id @default(uuid())
+  propertyId        String    @map("property_id")
+  channexChannelId  String    @unique @map("channex_channel_id")
+  type              String    // 'BookingCom' | 'ExpediaCom' | 'AirbnbCom' | ...
+  title             String
+  status            String    @default("inactive")
+  settingsEncrypted String?   @map("settings_encrypted") @db.Text
+  lastSyncedAt      DateTime? @map("last_synced_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  property Property @relation(fields: [propertyId], references: [id])
+
+  @@index([propertyId], map: "idx_channels_property")
+  @@index([status], map: "idx_channels_status")
+  @@map("channels")
 }
 
 model Room {
@@ -1234,6 +1274,13 @@ model PropertySettings {
   // Channex.io channel manager (Sprint 8): ID de la propiedad en Channex para push de inventario.
   // Opcional — sin él, pushInventory() es no-op (fail-soft).
   channexPropertyId             String?         @map("channex_property_id")
+  // ── CHANNEX-AUTO-PROVISION (Day 2) — wizard provisioning state machine ─
+  // Set por ChannexProvisionService.provisionFromWizard() outside-tx.
+  // Status: 'pending' | 'in_progress' | 'completed' | 'partial' | 'failed'.
+  // Null = nunca se provisionó (Channex push disabled o cliente Fase 0).
+  channexProvisioningStatus     String?         @map("channex_provisioning_status")
+  channexProvisioningError      String?         @map("channex_provisioning_error")
+  channexLastProvisionedAt      DateTime?       @map("channex_last_provisioned_at")
   // ── Channex inbound (Sprint CHANNEX-INBOUND, D-CHX3) ─────────────────────
   // HMAC-SHA256 secret per-property para verificar webhooks entrantes.
   // Rotation cada 90d via Zenix Activate (§77-§80). NUNCA en .env / repo.

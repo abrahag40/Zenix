@@ -32,6 +32,9 @@ import { SetupService } from './setup.service'
 import { PacAdapterRegistry } from './pac/pac-adapter.registry'
 import { MxFacturamaAdapter } from './pac/mx-facturama.adapter'
 import { MxSwSapienAdapter } from './pac/mx-sw-sapien.adapter'
+// Sprint CHANNEX-AUTO-PROVISION Day 2
+import { ChannelCredentialsCryptoService } from './channel-credentials-crypto.service'
+import { ChannexProvisionService } from './channex-provision.service'
 
 @Module({
   // AuthModule provee JwtModule (re-exported) para que SetupService firme
@@ -49,6 +52,9 @@ import { MxSwSapienAdapter } from './pac/mx-sw-sapien.adapter'
     MxFacturamaAdapter,
     MxSwSapienAdapter,
     PacAdapterRegistry,
+    // Sprint CHANNEX-AUTO-PROVISION Day 2 — wizard → Channex push
+    ChannelCredentialsCryptoService,
+    ChannexProvisionService,
   ],
   exports: [
     WizardActivationService,
@@ -56,6 +62,7 @@ import { MxSwSapienAdapter } from './pac/mx-sw-sapien.adapter'
     ActivationEmailService,
     ActivationReportService,
     PacAdapterRegistry,
+    ChannexProvisionService,
   ],
 })
 export class WizardModule {}
