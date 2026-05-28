@@ -285,6 +285,299 @@ describe('ChannexGateway CRUD extensions — Day 4 unit (mock fetch)', () => {
       await expect(noKeyGateway.listRoomTypes('p')).rejects.toThrow(/CHANNEX_API_KEY/)
     })
   })
+
+  // ════════════════════════════════════════════════════════════════════════
+  // Sprint CHANNEX-AUTO-PROVISION Day 1 — Property + Group + Channel CRUD
+  // ════════════════════════════════════════════════════════════════════════
+
+  describe('createProperty (AUTO-PROVISION)', () => {
+    it('POST /properties con body wrapped + group_id opcional', async () => {
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            id: 'prop-new-uuid',
+            attributes: {
+              title: 'Hotel Test Tulum',
+              currency: 'MXN',
+              timezone: 'America/Cancun',
+              country: 'MX',
+              group_id: 'grp-xyz',
+            },
+          },
+        }),
+      } as any)
+
+      const result = await gateway.createProperty({
+        title: 'Hotel Test Tulum',
+        currency: 'MXN',
+        timezone: 'America/Cancun',
+        country: 'MX',
+        groupId: 'grp-xyz',
+      })
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining('/properties'),
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({ 'user-api-key': 'fake-key' }),
+        }),
+      )
+      const callArgs = fetchSpy.mock.calls[0][1] as any
+      const body = JSON.parse(callArgs.body)
+      expect(body.property.title).toBe('Hotel Test Tulum')
+      expect(body.property.currency).toBe('MXN')
+      expect(body.property.group_id).toBe('grp-xyz')
+      expect(result.id).toBe('prop-new-uuid')
+    })
+
+    it('omite group_id si no se pasa', async () => {
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: { id: 'p1', attributes: { title: 't', currency: 'MXN', timezone: 'UTC', country: 'MX' } },
+        }),
+      } as any)
+      await gateway.createProperty({ title: 't', currency: 'MXN', timezone: 'UTC', country: 'MX' })
+      const body = JSON.parse((fetchSpy.mock.calls[0][1] as any).body)
+      expect(body.property.group_id).toBeUndefined()
+    })
+
+    it('422 validation → ChannexHttpError', async () => {
+      fetchSpy.mockResolvedValueOnce({
+        ok: false,
+        status: 422,
+        text: async () => 'invalid currency',
+      } as any)
+      await expect(
+        gateway.createProperty({ title: 't', currency: 'XYZ', timezone: 'UTC', country: 'MX' }),
+      ).rejects.toThrow(ChannexHttpError)
+    })
+  })
+
+  describe('updateProperty (AUTO-PROVISION)', () => {
+    it('PUT /properties/:id con partial body', async () => {
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: { id: 'p1', attributes: { title: 'Updated', currency: 'MXN', timezone: 'UTC', country: 'MX' } },
+        }),
+      } as any)
+      await gateway.updateProperty('p1', { title: 'Updated', groupId: 'grp-new' })
+      const callArgs = fetchSpy.mock.calls[0][1] as any
+      expect(callArgs.method).toBe('PUT')
+      const body = JSON.parse(callArgs.body)
+      expect(body.property.title).toBe('Updated')
+      expect(body.property.group_id).toBe('grp-new')
+      // Solo campos provistos
+      expect(body.property.email).toBeUndefined()
+    })
+  })
+
+  describe('getProperty (AUTO-PROVISION)', () => {
+    it('GET /properties/:id', async () => {
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: { id: 'p1', attributes: { title: 'X', currency: 'MXN', timezone: 'UTC', country: 'MX' } },
+        }),
+      } as any)
+      const result = await gateway.getProperty('p1')
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining('/properties/p1'),
+        expect.objectContaining({ headers: { 'user-api-key': 'fake-key' } }),
+      )
+      expect(result.title).toBe('X')
+    })
+
+    it('404 → ChannexHttpError', async () => {
+      fetchSpy.mockResolvedValueOnce({ ok: false, status: 404, text: async () => 'not found' } as any)
+      await expect(gateway.getProperty('p404')).rejects.toThrow(ChannexHttpError)
+    })
+  })
+
+  describe('createGroup (AUTO-PROVISION multi-tenant Fase 1)', () => {
+    it('POST /groups body wrapped', async () => {
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: { id: 'grp-uuid', attributes: { title: 'org-hotel-test-tulum' } },
+        }),
+      } as any)
+      const result = await gateway.createGroup({ title: 'org-hotel-test-tulum' })
+      const body = JSON.parse((fetchSpy.mock.calls[0][1] as any).body)
+      expect(body).toEqual({ group: { title: 'org-hotel-test-tulum' } })
+      expect(result.id).toBe('grp-uuid')
+    })
+  })
+
+  describe('assignPropertyToGroup (AUTO-PROVISION)', () => {
+    it('delega a updateProperty con groupId', async () => {
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: { id: 'p1', attributes: { title: 't', currency: 'MXN', timezone: 'UTC', country: 'MX' } },
+        }),
+      } as any)
+      await gateway.assignPropertyToGroup('p1', 'grp-1')
+      const callArgs = fetchSpy.mock.calls[0][1] as any
+      expect(callArgs.method).toBe('PUT')
+      const body = JSON.parse(callArgs.body)
+      expect(body.property.group_id).toBe('grp-1')
+    })
+  })
+
+  describe('createChannel (AUTO-PROVISION OTA)', () => {
+    it('POST /channels con type BookingCom + settings + is_active default false', async () => {
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            id: 'chn-uuid',
+            attributes: {
+              title: 'Booking.com — Hotel Tulum',
+              channel: 'booking_com',
+              is_active: false,
+            },
+          },
+        }),
+      } as any)
+      const result = await gateway.createChannel({
+        type: 'BookingCom',
+        propertyId: 'prop-1',
+        title: 'Booking.com — Hotel Tulum',
+        settings: { hotel_id: '12345678', username: 'hotel_user', password: 'secret' },
+      })
+      const body = JSON.parse((fetchSpy.mock.calls[0][1] as any).body)
+      expect(body.channel.type).toBe('BookingCom')
+      expect(body.channel.property_id).toBe('prop-1')
+      expect(body.channel.is_active).toBe(false) // default
+      expect(body.channel.settings.hotel_id).toBe('12345678')
+      expect(result.id).toBe('chn-uuid')
+    })
+
+    it('permite is_active override = true', async () => {
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: { id: 'chn-2', attributes: { title: 't', channel: 'open_channel', is_active: true } },
+        }),
+      } as any)
+      await gateway.createChannel({
+        type: 'OpenChannel',
+        propertyId: 'prop-1',
+        title: 'Test sandbox',
+        isActive: true,
+      })
+      const body = JSON.parse((fetchSpy.mock.calls[0][1] as any).body)
+      expect(body.channel.is_active).toBe(true)
+    })
+
+    it('422 (mapping invalid) → ChannexHttpError', async () => {
+      fetchSpy.mockResolvedValueOnce({
+        ok: false,
+        status: 422,
+        text: async () => 'invalid channel type',
+      } as any)
+      await expect(
+        gateway.createChannel({ type: 'OpenChannel', propertyId: 'prop-1', title: 't' }),
+      ).rejects.toThrow(ChannexHttpError)
+    })
+  })
+
+  describe('updateChannel (AUTO-PROVISION)', () => {
+    it('PUT /channels/:id permite activar/desactivar sin tocar settings', async () => {
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: { id: 'chn-1', attributes: { title: 't', channel: 'booking_com', is_active: true } },
+        }),
+      } as any)
+      await gateway.updateChannel('chn-1', { isActive: true })
+      const callArgs = fetchSpy.mock.calls[0][1] as any
+      expect(callArgs.method).toBe('PUT')
+      const body = JSON.parse(callArgs.body)
+      expect(body.channel.is_active).toBe(true)
+      expect(body.channel.settings).toBeUndefined() // no se reescribe
+    })
+  })
+
+  describe('deleteChannel (AUTO-PROVISION)', () => {
+    it('DELETE /channels/:id', async () => {
+      fetchSpy.mockResolvedValueOnce({ ok: true } as any)
+      await gateway.deleteChannel('chn-1')
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining('/channels/chn-1'),
+        expect.objectContaining({ method: 'DELETE' }),
+      )
+    })
+
+    it('422 (mapping activo bloquea delete) → ChannexHttpError', async () => {
+      fetchSpy.mockResolvedValueOnce({
+        ok: false,
+        status: 422,
+        text: async () => 'channel has active mappings',
+      } as any)
+      await expect(gateway.deleteChannel('chn-1')).rejects.toThrow(ChannexHttpError)
+    })
+  })
+
+  describe('upsertChannelRoomType (AUTO-PROVISION mapping)', () => {
+    it('POST /channel_room_types body wrapped', async () => {
+      fetchSpy.mockResolvedValueOnce({ ok: true, json: async () => ({ data: {} }) } as any)
+      await gateway.upsertChannelRoomType({
+        channelId: 'chn-1',
+        roomTypeId: 'rt-zenix-1',
+        externalRoomTypeId: '111222333',
+        externalRoomTypeName: 'Double Room (Booking)',
+      })
+      const body = JSON.parse((fetchSpy.mock.calls[0][1] as any).body)
+      expect(body).toEqual({
+        channel_room_type: {
+          channel_id: 'chn-1',
+          room_type_id: 'rt-zenix-1',
+          external_room_type_id: '111222333',
+          external_room_type_name: 'Double Room (Booking)',
+        },
+      })
+    })
+  })
+
+  describe('upsertChannelRatePlan (AUTO-PROVISION mapping)', () => {
+    it('POST /channel_rate_plans body wrapped', async () => {
+      fetchSpy.mockResolvedValueOnce({ ok: true, json: async () => ({ data: {} }) } as any)
+      await gateway.upsertChannelRatePlan({
+        channelId: 'chn-1',
+        ratePlanId: 'rp-zenix-1',
+        externalRatePlanId: '999888',
+      })
+      const body = JSON.parse((fetchSpy.mock.calls[0][1] as any).body)
+      expect(body.channel_rate_plan.channel_id).toBe('chn-1')
+      expect(body.channel_rate_plan.rate_plan_id).toBe('rp-zenix-1')
+      expect(body.channel_rate_plan.external_rate_plan_id).toBe('999888')
+    })
+  })
+
+  describe('requireEnabled guards (AUTO-PROVISION new methods)', () => {
+    it('createProperty sin API key → 503', async () => {
+      const noKeyGateway = new ChannexGateway({ get: () => undefined } as any)
+      await expect(
+        noKeyGateway.createProperty({ title: 't', currency: 'MXN', timezone: 'UTC', country: 'MX' }),
+      ).rejects.toThrow(/CHANNEX_API_KEY not set/)
+    })
+
+    it('createGroup sin API key → 503', async () => {
+      const noKeyGateway = new ChannexGateway({ get: () => undefined } as any)
+      await expect(noKeyGateway.createGroup({ title: 't' })).rejects.toThrow(/CHANNEX_API_KEY/)
+    })
+
+    it('createChannel sin API key → 503', async () => {
+      const noKeyGateway = new ChannexGateway({ get: () => undefined } as any)
+      await expect(
+        noKeyGateway.createChannel({ type: 'OpenChannel', propertyId: 'p', title: 't' }),
+      ).rejects.toThrow(/CHANNEX_API_KEY/)
+    })
+  })
 })
 
 // ─── Sandbox integration tests — staging.channex.io (Cert checkpoint #1) ──

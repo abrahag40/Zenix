@@ -920,6 +920,310 @@ export class ChannexGateway {
     return json.data.map((d) => ({ ...d.attributes, id: d.id }))
   }
 
+  // ═════════════════════════════════════════════════════════════════════════
+  // Sprint CHANNEX-AUTO-PROVISION Day 1 — Property + Group + Channel CRUD
+  // ═════════════════════════════════════════════════════════════════════════
+  //
+  // Endpoints alineados con docs.channex.io/api-v.1-documentation/api-reference.
+  // Auth via header `user-api-key` (existente). Body wrapped en `{ resource: {...} }`
+  // y response unwrapped from `{ data: { id, attributes } }` — patrón JSON:API.
+  //
+  // Estos métodos los consume `ChannexProvisionService.provisionFromWizard()`
+  // outside-tx después del wizard activate. Multi-tenant Fase 1 = Modelo D
+  // adaptado: 1 API key master + Group per Organization para sub-tenancy lógica.
+
+  // ─── Properties CRUD ──────────────────────────────────────────────────────
+
+  /**
+   * POST /api/v1/properties — crea una nueva property en Channex.
+   *
+   * `group_id` (opcional) asigna la property al Group de la Organization
+   * en el momento de la creación (multi-tenant Fase 1, evita un PUT extra).
+   */
+  async createProperty(input: ChannexPropertyCreateInput): Promise<ChannexProperty> {
+    this.requireEnabled('createProperty')
+    const body: { property: Record<string, unknown> } = {
+      property: {
+        title: input.title,
+        currency: input.currency,
+        timezone: input.timezone,
+        country: input.country,
+        ...(input.email ? { email: input.email } : {}),
+        ...(input.phone ? { phone: input.phone } : {}),
+        ...(input.city ? { city: input.city } : {}),
+        ...(input.state ? { state: input.state } : {}),
+        ...(input.address ? { address: input.address } : {}),
+        ...(input.zipCode ? { zip_code: input.zipCode } : {}),
+        ...(input.propertyType ? { property_type: input.propertyType } : {}),
+        ...(input.groupId ? { group_id: input.groupId } : {}),
+      },
+    }
+    const res = await fetch(`${this.baseUrl}/properties`, {
+      method: 'POST',
+      headers: {
+        'user-api-key': this.apiKey!,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new ChannexHttpError(`createProperty HTTP ${res.status}: ${text}`, res.status)
+    }
+    const json = (await res.json()) as { data: { id: string; attributes: ChannexProperty } }
+    this.logger.log(`[Channex] createProperty OK id=${json.data.id} title="${input.title}"`)
+    return { ...json.data.attributes, id: json.data.id }
+  }
+
+  /**
+   * PUT /api/v1/properties/:id — update parcial (solo los campos enviados).
+   */
+  async updateProperty(id: string, input: ChannexPropertyUpdateInput): Promise<ChannexProperty> {
+    this.requireEnabled('updateProperty')
+    const body: { property: Record<string, unknown> } = { property: {} }
+    if (input.title !== undefined) body.property.title = input.title
+    if (input.email !== undefined) body.property.email = input.email
+    if (input.phone !== undefined) body.property.phone = input.phone
+    if (input.city !== undefined) body.property.city = input.city
+    if (input.address !== undefined) body.property.address = input.address
+    if (input.groupId !== undefined) body.property.group_id = input.groupId
+
+    const res = await fetch(`${this.baseUrl}/properties/${id}`, {
+      method: 'PUT',
+      headers: {
+        'user-api-key': this.apiKey!,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new ChannexHttpError(`updateProperty HTTP ${res.status}: ${text}`, res.status)
+    }
+    const json = (await res.json()) as { data: { id: string; attributes: ChannexProperty } }
+    this.logger.log(`[Channex] updateProperty OK id=${id}`)
+    return { ...json.data.attributes, id: json.data.id }
+  }
+
+  /**
+   * GET /api/v1/properties/:id — fetch property by ID.
+   * Usado por health check + ChannexProvisionService idempotency.
+   */
+  async getProperty(id: string): Promise<ChannexProperty> {
+    this.requireEnabled('getProperty')
+    const res = await fetch(`${this.baseUrl}/properties/${id}`, {
+      headers: { 'user-api-key': this.apiKey! },
+    })
+    if (!res.ok) {
+      throw new ChannexHttpError(`getProperty HTTP ${res.status}`, res.status)
+    }
+    const json = (await res.json()) as { data: { id: string; attributes: ChannexProperty } }
+    return { ...json.data.attributes, id: json.data.id }
+  }
+
+  // ─── Groups (multi-tenant Fase 1) ─────────────────────────────────────────
+
+  /**
+   * POST /api/v1/groups — crea un Group para sub-tenancy lógica.
+   *
+   * Sprint CHANNEX-AUTO-PROVISION D-CHX-AP-3: cada Organization Zenix tiene
+   * su propio Group. Cuando hagamos `gateway.createProperty({ groupId })`
+   * la property queda automáticamente bajo el Group del cliente — aislamiento
+   * lógico sin necesidad de Channex Partner Program (Fase 2).
+   */
+  async createGroup(input: { title: string }): Promise<ChannexGroup> {
+    this.requireEnabled('createGroup')
+    const body = { group: { title: input.title } }
+    const res = await fetch(`${this.baseUrl}/groups`, {
+      method: 'POST',
+      headers: {
+        'user-api-key': this.apiKey!,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new ChannexHttpError(`createGroup HTTP ${res.status}: ${text}`, res.status)
+    }
+    const json = (await res.json()) as { data: { id: string; attributes: ChannexGroup } }
+    this.logger.log(`[Channex] createGroup OK id=${json.data.id} title="${input.title}"`)
+    return { ...json.data.attributes, id: json.data.id }
+  }
+
+  /**
+   * PUT /api/v1/properties/:id — asigna una property existente a un Group.
+   *
+   * Útil cuando la property ya existía antes de Zenix (cliente con presencia
+   * OTA previa) y necesitamos moverla al Group de su Organization. Wraps
+   * updateProperty para semántica clara en el código del ProvisionService.
+   */
+  async assignPropertyToGroup(propertyId: string, groupId: string): Promise<void> {
+    await this.updateProperty(propertyId, { groupId })
+    this.logger.log(`[Channex] assignPropertyToGroup OK property=${propertyId} group=${groupId}`)
+  }
+
+  // ─── Channels CRUD (OTA connections) ──────────────────────────────────────
+
+  /**
+   * POST /api/v1/channels — crea una conexión a un OTA channel.
+   *
+   * `type` debe ser uno de los channel codes oficiales Channex:
+   *   BookingCom | ExpediaCom | AirbnbCom | AgodaCom | GoogleHotelAds |
+   *   VRBOCom | OpenChannel
+   *
+   * `settings` es un objeto channel-specific (hotel_id + credentials para
+   * Booking/Expedia/Agoda; listing_id para Airbnb; partner_id +
+   * booking_link_template para Google Hotel Ads). Encriptadas at-rest en
+   * Channel.settingsEncrypted (AES-256-GCM) del lado Zenix antes de pasar
+   * al gateway — el gateway recibe el objeto plain text y lo envía a Channex
+   * que lo guarda en su propio vault.
+   *
+   * Default: `is_active: false` — el canal queda creado pero no published.
+   * El consultor activa published manualmente desde /settings/channex tras
+   * confirmar OTA-side onboarding (content moderation Booking, etc.).
+   */
+  async createChannel(input: ChannexChannelCreateInput): Promise<ChannexChannel> {
+    this.requireEnabled('createChannel')
+    const body: { channel: Record<string, unknown> } = {
+      channel: {
+        type: input.type,
+        property_id: input.propertyId,
+        title: input.title,
+        is_active: input.isActive ?? false,
+        ...(input.settings ? { settings: input.settings } : {}),
+      },
+    }
+    const res = await fetch(`${this.baseUrl}/channels`, {
+      method: 'POST',
+      headers: {
+        'user-api-key': this.apiKey!,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new ChannexHttpError(`createChannel HTTP ${res.status}: ${text}`, res.status)
+    }
+    const json = (await res.json()) as { data: { id: string; attributes: ChannexChannel } }
+    this.logger.log(
+      `[Channex] createChannel OK id=${json.data.id} type=${input.type} title="${input.title}"`,
+    )
+    return { ...json.data.attributes, id: json.data.id }
+  }
+
+  /**
+   * PUT /api/v1/channels/:id — update parcial.
+   */
+  async updateChannel(id: string, input: ChannexChannelUpdateInput): Promise<ChannexChannel> {
+    this.requireEnabled('updateChannel')
+    const body: { channel: Record<string, unknown> } = { channel: {} }
+    if (input.title !== undefined) body.channel.title = input.title
+    if (input.isActive !== undefined) body.channel.is_active = input.isActive
+    if (input.settings !== undefined) body.channel.settings = input.settings
+
+    const res = await fetch(`${this.baseUrl}/channels/${id}`, {
+      method: 'PUT',
+      headers: {
+        'user-api-key': this.apiKey!,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new ChannexHttpError(`updateChannel HTTP ${res.status}: ${text}`, res.status)
+    }
+    const json = (await res.json()) as { data: { id: string; attributes: ChannexChannel } }
+    this.logger.log(`[Channex] updateChannel OK id=${id}`)
+    return { ...json.data.attributes, id: json.data.id }
+  }
+
+  /**
+   * DELETE /api/v1/channels/:id — destructivo. Usar con cuidado.
+   * Si el channel tiene mappings activos, Channex puede rechazar (422).
+   */
+  async deleteChannel(id: string): Promise<void> {
+    this.requireEnabled('deleteChannel')
+    const res = await fetch(`${this.baseUrl}/channels/${id}`, {
+      method: 'DELETE',
+      headers: { 'user-api-key': this.apiKey! },
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new ChannexHttpError(`deleteChannel ${id} HTTP ${res.status}: ${text}`, res.status)
+    }
+    this.logger.log(`[Channex] deleteChannel OK id=${id}`)
+  }
+
+  // ─── Channel mappings (room_type ↔ channel external_id) ───────────────────
+
+  /**
+   * POST /api/v1/channel_room_types — mapping Zenix RoomType ↔ external ID
+   * que la OTA usa (Booking room_id, Expedia EQC room_id, Airbnb room_id).
+   *
+   * Idempotent UPSERT: si ya existe mapping para (channel_id, room_type_id),
+   * Channex update en vez de duplicar (verificar contra cert API spec).
+   */
+  async upsertChannelRoomType(mapping: ChannexChannelRoomTypeMapping): Promise<void> {
+    this.requireEnabled('upsertChannelRoomType')
+    const body = {
+      channel_room_type: {
+        channel_id: mapping.channelId,
+        room_type_id: mapping.roomTypeId,
+        external_room_type_id: mapping.externalRoomTypeId,
+        ...(mapping.externalRoomTypeName ? { external_room_type_name: mapping.externalRoomTypeName } : {}),
+      },
+    }
+    const res = await fetch(`${this.baseUrl}/channel_room_types`, {
+      method: 'POST',
+      headers: {
+        'user-api-key': this.apiKey!,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new ChannexHttpError(`upsertChannelRoomType HTTP ${res.status}: ${text}`, res.status)
+    }
+    this.logger.log(
+      `[Channex] upsertChannelRoomType OK channel=${mapping.channelId} roomType=${mapping.roomTypeId} → external=${mapping.externalRoomTypeId}`,
+    )
+  }
+
+  /**
+   * POST /api/v1/channel_rate_plans — mapping Zenix RatePlan ↔ external ID
+   * que la OTA usa (Booking rate_id, Expedia rate_id, etc.).
+   */
+  async upsertChannelRatePlan(mapping: ChannexChannelRatePlanMapping): Promise<void> {
+    this.requireEnabled('upsertChannelRatePlan')
+    const body = {
+      channel_rate_plan: {
+        channel_id: mapping.channelId,
+        rate_plan_id: mapping.ratePlanId,
+        external_rate_plan_id: mapping.externalRatePlanId,
+        ...(mapping.externalRatePlanName ? { external_rate_plan_name: mapping.externalRatePlanName } : {}),
+      },
+    }
+    const res = await fetch(`${this.baseUrl}/channel_rate_plans`, {
+      method: 'POST',
+      headers: {
+        'user-api-key': this.apiKey!,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new ChannexHttpError(`upsertChannelRatePlan HTTP ${res.status}: ${text}`, res.status)
+    }
+    this.logger.log(
+      `[Channex] upsertChannelRatePlan OK channel=${mapping.channelId} ratePlan=${mapping.ratePlanId} → external=${mapping.externalRatePlanId}`,
+    )
+  }
+
   private requireEnabled(op: string): void {
     if (!this.enabled) {
       throw new ChannexHttpError(`[Channex] ${op} called but CHANNEX_API_KEY not set`, 503)
@@ -1137,6 +1441,98 @@ export interface ChannexChannel {
   title: string
   channel: string         // 'booking_com' | 'expedia' | 'airbnb' | ...
   is_active: boolean
+}
+
+// ─── Sprint CHANNEX-AUTO-PROVISION Day 1 — types ─────────────────────────
+
+export interface ChannexProperty {
+  id?: string
+  title: string
+  currency: string         // ISO 4217 (e.g. 'MXN' | 'USD')
+  timezone: string         // IANA (e.g. 'America/Cancun')
+  country: string          // ISO 3166-1 alpha-2 (e.g. 'MX')
+  email?: string
+  phone?: string
+  city?: string
+  state?: string
+  address?: string
+  zip_code?: string
+  property_type?: string   // 'hotel' | 'hostel' | 'apartment' | ...
+  group_id?: string | null
+  is_active?: boolean
+}
+
+export interface ChannexPropertyCreateInput {
+  title: string
+  currency: string
+  timezone: string
+  country: string
+  email?: string
+  phone?: string
+  city?: string
+  state?: string
+  address?: string
+  zipCode?: string
+  propertyType?: string
+  /** Multi-tenant Fase 1 — asigna al Group de la Organization al crear */
+  groupId?: string
+}
+
+export interface ChannexPropertyUpdateInput {
+  title?: string
+  email?: string
+  phone?: string
+  city?: string
+  address?: string
+  groupId?: string
+}
+
+export interface ChannexGroup {
+  id?: string
+  title: string
+}
+
+/** Channex channel type codes — alineados con docs.channex.io changelog */
+export type ChannexChannelType =
+  | 'BookingCom'
+  | 'ExpediaCom'
+  | 'AirbnbCom'
+  | 'AgodaCom'
+  | 'GoogleHotelAds'
+  | 'VRBOCom'
+  | 'OpenChannel'
+
+export interface ChannexChannelCreateInput {
+  type: ChannexChannelType
+  propertyId: string
+  title: string
+  /** Plain object con credentials channel-specific. Cifradas at-rest en
+   *  Zenix (Channel.settingsEncrypted AES-256-GCM); plain text al pasar
+   *  al gateway que las envía a Channex vault. */
+  settings?: Record<string, unknown>
+  /** Default false — el canal queda creado pero NO published. Activación
+   *  manual post-onboarding OTA-side (content moderation Booking, etc.). */
+  isActive?: boolean
+}
+
+export interface ChannexChannelUpdateInput {
+  title?: string
+  settings?: Record<string, unknown>
+  isActive?: boolean
+}
+
+export interface ChannexChannelRoomTypeMapping {
+  channelId: string
+  roomTypeId: string
+  externalRoomTypeId: string
+  externalRoomTypeName?: string
+}
+
+export interface ChannexChannelRatePlanMapping {
+  channelId: string
+  ratePlanId: string
+  externalRatePlanId: string
+  externalRatePlanName?: string
 }
 
 // ─── Restriction read row (Day 6 — Rate Calendar Matrix) ───────────────────
