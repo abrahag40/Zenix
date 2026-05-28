@@ -8,6 +8,7 @@ import { useAuthStore } from './store/auth'
 import { Sidebar } from './components/Sidebar'
 import { LoginPage } from './pages/LoginPage'
 import { SetupPage } from './pages/SetupPage'
+import { OnboardingCardCapture } from './pages/OnboardingCardCapture'
 import { DashboardPage } from './pages/DashboardPage'
 import { RoomsPage } from './pages/RoomsPage'
 import { RoomsPage as PmsPage } from './modules/rooms/pages/RoomsPage'
@@ -95,6 +96,8 @@ export default function App() {
           {/* Day 17 — Org Owner activation. Public route. Token validation
               en backend (single-use, 72h TTL, SHA256 hashed at-rest). */}
           <Route path="/setup/:token" element={<SetupPage />} />
+          {/* Netflix-style trial — card capture post-password (Day 2) */}
+          <Route path="/onboarding/card" element={<OnboardingCardCapture />} />
           <Route path="/dashboard"       element={<ProtectedLayout><DashboardPage /></ProtectedLayout>} />
           {/* Sprint 9 D15 consolidación: /overrides y /planning → /kanban.
               Acciones operativas (confirmar salida, ad-hoc, forzar URGENT,

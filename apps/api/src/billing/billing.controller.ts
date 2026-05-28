@@ -15,11 +15,20 @@
  */
 import { Body, Controller, ForbiddenException, Get, Post, UseGuards } from '@nestjs/common'
 import { AuthGuard } from '@nestjs/passport'
+import { IsString } from 'class-validator'
 import type { JwtPayload } from '@zenix/shared'
 import { CurrentUser } from '../common/decorators/current-user.decorator'
 import { NovaTiers, NovaTiersGuard } from '../nova/guards/nova-tiers.guard'
 import { SubscriptionService } from './subscription.service'
 import { CancelSubscriptionDto, CreateCustomerPortalSessionDto } from './dto/subscription.dto'
+
+class SetupCheckoutBodyDto {
+  @IsString()
+  successUrl!: string
+
+  @IsString()
+  cancelUrl!: string
+}
 
 @Controller('v1/billing')
 @UseGuards(AuthGuard('jwt'), NovaTiersGuard)
@@ -44,6 +53,37 @@ export class BillingController {
       throw new ForbiddenException('Tu sesión no tiene organizationId — contacta soporte')
     }
     return this.subscription.createCustomerPortalSession(actor.organizationId, dto.returnUrl)
+  }
+
+  /**
+   * Netflix-style trial — Stripe Checkout setup mode endpoint.
+   *
+   * Llamado desde SetupPage Step 3 (post-password auto-login). Requiere que
+   * Subscription esté en `pending_payment_method`. Devuelve `url` de Stripe
+   * Checkout — el frontend hace window.location.replace(url) para que el
+   * cliente capture su tarjeta.
+   *
+   * Stripe redirect post-success → successUrl (frontend muestra "tarjeta
+   * capturada, activando…" mientras el webhook setup_intent.succeeded crea
+   * la Sub real). Polling cada 2s contra GET /v1/billing/subscription hasta
+   * status='trialing' → redirect /dashboard.
+   */
+  @Post('setup-checkout')
+  async createSetupCheckout(
+    @CurrentUser() actor: JwtPayload,
+    @Body() dto: SetupCheckoutBodyDto,
+  ) {
+    if (!actor.organizationId) {
+      throw new ForbiddenException('Tu sesión no tiene organizationId — contacta soporte')
+    }
+    return this.subscription.createSetupCheckoutSession(
+      {
+        organizationId: actor.organizationId,
+        successUrl: dto.successUrl,
+        cancelUrl: dto.cancelUrl,
+      },
+      actor,
+    )
   }
 
   @Post('cancel')

@@ -188,7 +188,13 @@ export class WizardActivationService {
     let subscriptionResult: WizardActivateResponse['subscription'] = null
     if (dto.planTier && this.billing.isStripeConfigured()) {
       try {
-        const sub = await this.subscription.createSubscription(
+        // Netflix-style trial: createPendingSubscription crea Customer + persiste
+        // local Sub status='pending_payment_method'. La Stripe Subscription real se
+        // crea en webhook setup_intent.succeeded después de que el cliente agrega
+        // su tarjeta vía Stripe Checkout (mode=setup) en SetupPage Step 3.
+        // El cliente NUNCA entra a Zenix sin tarjeta validada — pattern Netflix/
+        // Spotify reduce churn al final del trial.
+        const sub = await this.subscription.createPendingSubscription(
           {
             organizationId: created.organizationId,
             planTier: dto.planTier,
@@ -198,7 +204,6 @@ export class WizardActivationService {
             ownerEmail: dto.orgOwnerEmail,
             ownerName: dto.orgOwnerName,
             trialDays: dto.trialDays ?? 14,
-            allowIncompleteWithoutPaymentMethod: true,
           },
           actor,
         )

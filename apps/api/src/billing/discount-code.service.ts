@@ -439,17 +439,31 @@ export class DiscountCodeService {
     }
 
     // ── Aplicar Coupon a la Subscription (Issue C — subscription-level) ──
-    try {
-      await this.withRetry(
-        async () =>
-          await stripe.subscriptions.update(
-            sub.stripeSubscriptionId,
-            { discounts: [{ coupon: coupon.id }] },
-            { idempotencyKey: `apply_discount_${generatedId}` },
-          ),
-      )
-    } catch (err) {
-      throw this.translateStripeError(err)
+    // Netflix-style trial: si la Sub está en pending_payment_method
+    // (stripeSubscriptionId='pending_<uuid>'), aún no existe en Stripe.
+    // Persistimos el couponId en Subscription.pendingCouponId — el webhook
+    // setup_intent.succeeded lo attachará al crear la Sub real.
+    const isPendingPaymentMethod =
+      sub.status === 'pending_payment_method' ||
+      String(sub.stripeSubscriptionId).startsWith('pending_')
+    if (isPendingPaymentMethod) {
+      await this.prisma.subscription.update({
+        where: { id: sub.id },
+        data: { pendingCouponId: coupon.id },
+      })
+    } else {
+      try {
+        await this.withRetry(
+          async () =>
+            await stripe.subscriptions.update(
+              sub.stripeSubscriptionId,
+              { discounts: [{ coupon: coupon.id }] },
+              { idempotencyKey: `apply_discount_${generatedId}` },
+            ),
+        )
+      } catch (err) {
+        throw this.translateStripeError(err)
+      }
     }
 
     // ── Persistir SubscriptionDiscount local ──

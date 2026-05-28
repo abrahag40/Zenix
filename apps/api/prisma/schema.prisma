@@ -3584,7 +3584,8 @@ model Subscription {
 
   // Plan + status sync con Stripe
   planTier          String @map("plan_tier") // 'STARTER' | 'PRO' | 'ENTERPRISE'
-  status            String // 'incomplete' | 'active' | 'past_due' | 'paused' | 'cancelled' | 'unpaid' | 'trialing'
+  // 'pending_payment_method' (Netflix flow pre-card) | 'incomplete' | 'active' | 'past_due' | 'paused' | 'cancelled' | 'unpaid' | 'trialing'
+  status            String
   billingCycle      String @default("monthly") @map("billing_cycle") // 'monthly' | 'annual'
   annualDiscountPct Int?   @map("annual_discount_pct") // 20 si annual
 
@@ -3613,6 +3614,14 @@ model Subscription {
   nextRenewalDate DateTime @map("next_renewal_date")
   autoRenew       Boolean  @default(true) @map("auto_renew")
 
+  // Netflix-style trial flow — config pendiente hasta que webhook setup_intent.succeeded
+  // active la subscription real. Mientras status='pending_payment_method', estos
+  // campos guardan los args para SubscriptionService.activateAfterSetupIntent().
+  pendingCouponId  String?   @map("pending_coupon_id") // Stripe Coupon a attachar al crear Sub
+  pendingTrialDays Int?      @map("pending_trial_days") // trial_period_days del wizard Step 7.5
+  setupIntentId    String?   @map("setup_intent_id") // Stripe SetupIntent confirmado (audit)
+  cardCapturedAt   DateTime? @map("card_captured_at") // timestamp activación post-card
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -3624,6 +3633,7 @@ model Subscription {
 
   @@index([status])
   @@index([nextRenewalDate])
+  @@index([stripeCustomerId, status], map: "idx_subscriptions_customer_status")
   @@map("subscriptions")
 }
 

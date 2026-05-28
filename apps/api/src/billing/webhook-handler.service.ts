@@ -31,6 +31,7 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 import { BillingEmailService } from './billing-email.service'
+import { SubscriptionService } from './subscription.service'
 
 // Stripe v22 SDK no exporta types nominales (Stripe.Event, Stripe.Subscription)
 // via require import. Usamos shapes mínimas inline para los handlers — al
@@ -51,6 +52,14 @@ interface StripeSubscription {
   cancel_at_period_end: boolean
   ended_at: number | null
   trial_end: number | null
+  metadata?: Record<string, string>
+}
+
+interface StripeSetupIntent {
+  id: string
+  customer: string | null
+  payment_method: string | null
+  status: string
   metadata?: Record<string, string>
 }
 
@@ -89,6 +98,7 @@ export class WebhookHandlerService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly billingEmail: BillingEmailService,
+    private readonly subscriptionService: SubscriptionService,
   ) {}
 
   /**
@@ -136,6 +146,11 @@ export class WebhookHandlerService {
           return this.handleInvoicePaymentActionRequired(event)
         case 'invoice.voided':
           return this.handleInvoiceVoided(event)
+        // Netflix-style trial — captura tarjeta upfront via Stripe Checkout setup mode.
+        // setup_intent.succeeded dispara la creación de la Stripe Subscription real
+        // con default_payment_method + trial_period_days.
+        case 'setup_intent.succeeded':
+          return this.handleSetupIntentSucceeded(event)
         default:
           // Event tipo no manejado — log + return sin acción.
           // Importante: NO bloqueamos el webhook (Stripe espera 2xx).
@@ -324,6 +339,55 @@ export class WebhookHandlerService {
       invoiceId: inv.id,
     })
     return { handled: true, idempotent: false }
+  }
+
+  /**
+   * setup_intent.succeeded — Netflix-style trial card capture complete.
+   *
+   * Cliente completó Stripe Checkout en mode=setup. Stripe valida la tarjeta
+   * con $0 SetupIntent y dispara este webhook con `customer` + `payment_method`
+   * adjuntos. Delegamos a SubscriptionService.activateAfterSetupIntent que:
+   *   1. Attach PM como default del Customer
+   *   2. Crea la Stripe Subscription REAL con default_payment_method +
+   *      trial_period_days (de Subscription.pendingTrialDays) +
+   *      pendingCouponId si aplica
+   *   3. Update local Sub: status='trialing', stripeSubscriptionId real,
+   *      setupIntentId, cardCapturedAt
+   *
+   * Idempotency: si Sub ya tiene stripeSubscriptionId real (sin prefix
+   * 'pending_'), activateAfterSetupIntent retorna sin tocar Stripe.
+   */
+  private async handleSetupIntentSucceeded(event: StripeEvent) {
+    const intent = event.data.object as StripeSetupIntent
+    // Solo procesamos los SetupIntents originados de nuestro flow Netflix
+    // (metadata.zenix_kind='NETFLIX_TRIAL_CARD_CAPTURE'). Otros SetupIntents
+    // pueden venir de Customer Portal (cliente actualizando método de pago en
+    // sub activa) — esos los maneja `customer.subscription.updated`.
+    if (intent.metadata?.zenix_kind !== 'NETFLIX_TRIAL_CARD_CAPTURE') {
+      this.logger.debug(
+        `[WebhookHandler] setup_intent.succeeded ${intent.id} sin zenix_kind=NETFLIX_TRIAL_CARD_CAPTURE — skip`,
+      )
+      return { handled: false, idempotent: false }
+    }
+    try {
+      const result = await this.subscriptionService.activateAfterSetupIntent(intent.id)
+      if (result.activated && result.subscription) {
+        await this.logEvent(event, result.subscription.id, 'CREATED', {
+          kind: 'netflix_trial_activation',
+          setupIntentId: intent.id,
+          stripeSubscriptionId: result.subscription.stripeSubscriptionId,
+        })
+      }
+      this.logger.log(
+        `[WebhookHandler] setup_intent.succeeded ${intent.id} → activated=${result.activated} reason=${(result as any).reason ?? 'ok'}`,
+      )
+      return { handled: result.activated, idempotent: !result.activated }
+    } catch (err) {
+      this.logger.error(
+        `[WebhookHandler] setup_intent.succeeded ${intent.id} failed: ${String(err).slice(0, 300)}`,
+      )
+      throw err
+    }
   }
 
   // ─── Utilities ────────────────────────────────────────────────────────

@@ -37,6 +37,8 @@ import { BillingService } from './billing.service'
 import type {
   CancelSubscriptionDto,
   ChangePlanDto,
+  CreatePendingSubscriptionDto,
+  CreateSetupCheckoutSessionDto,
   CreateSubscriptionDto,
   PauseSubscriptionDto,
   PlanTier,
@@ -68,6 +70,22 @@ interface StripeBillingPortalSession {
   url: string
   return_url: string
   expires_at: number
+}
+interface StripeCheckoutSession {
+  id: string
+  url: string | null
+  customer: string | null
+  mode: string
+  setup_intent: string | null
+  status: string
+  metadata: Record<string, string>
+}
+interface StripeSetupIntent {
+  id: string
+  customer: string | null
+  payment_method: string | null
+  status: string
+  metadata: Record<string, string>
 }
 
 const BACKOFF_MS = [500, 1000, 2000, 4000] // 4 intentos exponential
@@ -657,6 +675,363 @@ export class SubscriptionService {
     } catch (err) {
       throw this.translateStripeError(err)
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Netflix-style trial — createPendingSubscription
+  // ═══════════════════════════════════════════════════════════════════
+  /**
+   * Creates Stripe Customer + persists local Subscription with
+   * status='pending_payment_method'. NO Stripe Subscription is created yet —
+   * that happens in activateAfterSetupIntent() once the customer adds a card
+   * via Stripe Checkout (mode=setup).
+   *
+   * Rationale: Netflix/Spotify pattern. Capturing card UPFRONT before trial
+   * starts reduces churn at trial end (customer can't "forget" to add card).
+   * Stripe SetupIntent validates the card with $0 charge before the trial
+   * begins — first real charge happens at trial_end.
+   *
+   * Flow:
+   *   1. Validate Organization + no active subscription exists
+   *   2. Lookup-or-create Stripe Customer (idempotent)
+   *   3. Persist local Subscription row with status='pending_payment_method'
+   *      + pendingCouponId / pendingTrialDays for future activation
+   *   4. AuditLog SUBSCRIPTION_PENDING_PAYMENT
+   *
+   * Returns the local Subscription. Frontend then calls
+   * `POST /v1/billing/setup-checkout` to get the Stripe Checkout URL.
+   */
+  async createPendingSubscription(dto: CreatePendingSubscriptionDto, actor: JwtPayload) {
+    if (!this.billing.isStripeConfigured()) {
+      throw new InternalServerErrorException(
+        'Stripe no configurado en este server. Verifica STRIPE_SECRET_KEY.',
+      )
+    }
+
+    // ── (1) Validate Organization ──────────────────────────────────
+    const org = await this.prisma.organization.findUnique({
+      where: { id: dto.organizationId },
+    })
+    if (!org) {
+      throw new NotFoundException(`Organization ${dto.organizationId} no encontrada`)
+    }
+    const existing = await this.prisma.subscription.findUnique({
+      where: { organizationId: dto.organizationId },
+    })
+    if (existing && !['canceled', 'incomplete_expired'].includes(existing.status)) {
+      throw new ConflictException(
+        `Organization ${dto.organizationId} ya tiene subscription ${existing.id} (status=${existing.status}).`,
+      )
+    }
+
+    // ── (2) Resolve pricing config (validates plan tier exists) ────
+    const pricingConfig = await this.billing.getPricingConfig(dto.planTier)
+    if (!pricingConfig) {
+      throw new NotFoundException(`Plan tier ${dto.planTier} no existe en billing_pricing_config`)
+    }
+
+    const stripe = this.billing.getStripeClient() as any
+
+    // ── (3) Lookup-or-create Stripe Customer ───────────────────────
+    let customer: StripeCustomer
+    try {
+      customer = await this.withRetry(
+        async () =>
+          (await stripe.customers.create(
+            {
+              email: dto.ownerEmail.toLowerCase().trim(),
+              name: `${dto.ownerName} — ${org.name}`,
+              metadata: this.zenixMetadata({
+                zenix_organization_id: dto.organizationId,
+                zenix_organization_name: org.name,
+                created_by: 'SubscriptionService.createPendingSubscription',
+                actor_id: actor.sub,
+              }),
+            },
+            { idempotencyKey: `create_customer_${dto.organizationId}` },
+          )) as StripeCustomer,
+      )
+    } catch (err) {
+      throw this.translateStripeError(err)
+    }
+
+    // ── (4) Persist local Subscription as pending_payment_method ───
+    const tentativeStripeSubId = `pending_${crypto.randomUUID()}`
+    const trialDays = dto.trialDays ?? 14
+    const created = await this.prisma.subscription.upsert({
+      where: { organizationId: dto.organizationId },
+      create: {
+        organizationId: dto.organizationId,
+        stripeCustomerId: customer.id,
+        stripeSubscriptionId: tentativeStripeSubId,
+        planTier: dto.planTier,
+        status: 'pending_payment_method',
+        billingCycle: dto.billingCycle,
+        annualDiscountPct: dto.billingCycle === 'annual' ? 20 : null,
+        currentPeriodStart: new Date(),
+        currentPeriodEnd: new Date(Date.now() + (trialDays + 30) * 86400 * 1000),
+        baseMonthlyAmount: pricingConfig.monthlyAmountMxn,
+        currency: dto.currency,
+        propertyCount: dto.propertyCount,
+        nextRenewalDate: new Date(Date.now() + (trialDays + 30) * 86400 * 1000),
+        autoRenew: true,
+        pendingCouponId: dto.stripeCouponId ?? null,
+        pendingTrialDays: trialDays,
+        trialNegotiatedBy: dto.trialDays ? actor.sub : null,
+      },
+      update: {
+        stripeCustomerId: customer.id,
+        stripeSubscriptionId: tentativeStripeSubId,
+        planTier: dto.planTier,
+        status: 'pending_payment_method',
+        pendingCouponId: dto.stripeCouponId ?? null,
+        pendingTrialDays: trialDays,
+      },
+    })
+
+    await this.safeAuditLog({
+      organizationId: dto.organizationId,
+      actor,
+      action: 'SUBSCRIPTION_PENDING_PAYMENT',
+      target: created.id,
+      payload: {
+        stripeCustomerId: customer.id,
+        planTier: dto.planTier,
+        billingCycle: dto.billingCycle,
+        currency: dto.currency,
+        propertyCount: dto.propertyCount,
+        trialDays,
+        hasPendingCoupon: !!dto.stripeCouponId,
+      },
+    })
+
+    return created
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Netflix-style trial — createSetupCheckoutSession
+  // ═══════════════════════════════════════════════════════════════════
+  /**
+   * Generates a Stripe Checkout session in `mode=setup` that captures the
+   * customer's payment method via $0 SetupIntent (Netflix/Spotify pattern).
+   *
+   * Stripe handles the hosted page UI (SCA/3DS, A11y, i18n included).
+   * Customer adds card → Stripe Checkout success_url redirect → frontend
+   * polls Subscription.status until 'trialing' (set by webhook handler).
+   *
+   * URL caducidad: Checkout sessions expire en 24h.
+   *
+   * Requires Subscription.status='pending_payment_method'. If status is
+   * already 'trialing'/'active' → ConflictException (no double-capture).
+   */
+  async createSetupCheckoutSession(dto: CreateSetupCheckoutSessionDto, actor: JwtPayload) {
+    if (!this.billing.isStripeConfigured()) {
+      throw new InternalServerErrorException(
+        'Stripe no configurado en este server. Verifica STRIPE_SECRET_KEY.',
+      )
+    }
+
+    const sub = await this.prisma.subscription.findUnique({
+      where: { organizationId: dto.organizationId },
+    })
+    if (!sub) {
+      throw new NotFoundException(
+        `Organization ${dto.organizationId} no tiene subscription pendiente. Pídele a tu consultor que vuelva a activar.`,
+      )
+    }
+    if (sub.status !== 'pending_payment_method') {
+      throw new ConflictException(
+        `Subscription en status '${sub.status}' — no requiere captura de tarjeta.`,
+      )
+    }
+
+    const stripe = this.billing.getStripeClient() as any
+    try {
+      const session = await this.withRetry(
+        async () =>
+          (await stripe.checkout.sessions.create(
+            {
+              mode: 'setup',
+              customer: sub.stripeCustomerId,
+              payment_method_types: ['card'],
+              success_url: dto.successUrl,
+              cancel_url: dto.cancelUrl,
+              metadata: this.zenixMetadata({
+                zenix_organization_id: dto.organizationId,
+                zenix_subscription_id: sub.id,
+                zenix_kind: 'NETFLIX_TRIAL_CARD_CAPTURE',
+                actor_id: actor.sub,
+              }),
+            },
+            { idempotencyKey: `setup_checkout_${sub.id}` },
+          )) as StripeCheckoutSession,
+      )
+      return {
+        url: session.url,
+        sessionId: session.id,
+        customerId: sub.stripeCustomerId,
+      }
+    } catch (err) {
+      throw this.translateStripeError(err)
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Netflix-style trial — activateAfterSetupIntent
+  // ═══════════════════════════════════════════════════════════════════
+  /**
+   * Called by WebhookHandler on `setup_intent.succeeded` event.
+   *
+   * Reads the SetupIntent → gets payment_method ID → attaches as the
+   * Customer's default → creates the REAL Stripe Subscription with
+   * default_payment_method + trial_period_days (from pendingTrialDays
+   * persisted at createPendingSubscription time).
+   *
+   * Idempotent: if Sub already has a real stripeSubscriptionId (not pending_*),
+   * skip and return existing. Safe under webhook retry.
+   *
+   * Idempotency key for Stripe Sub creation:
+   *   `create_sub_after_setup_${subscriptionId}` (NOT setupIntentId — same
+   *   setup intent could be reused if customer added card twice, but the
+   *   subscription is unique per organization).
+   */
+  async activateAfterSetupIntent(setupIntentId: string) {
+    if (!this.billing.isStripeConfigured()) {
+      throw new InternalServerErrorException('Stripe no configurado.')
+    }
+
+    const stripe = this.billing.getStripeClient() as any
+    let intent: StripeSetupIntent
+    try {
+      intent = (await stripe.setupIntents.retrieve(setupIntentId)) as StripeSetupIntent
+    } catch (err) {
+      throw this.translateStripeError(err)
+    }
+
+    if (intent.status !== 'succeeded') {
+      this.logger.warn(
+        `[activateAfterSetupIntent] SetupIntent ${setupIntentId} status=${intent.status}, expected 'succeeded' — skip`,
+      )
+      return { activated: false, reason: 'setup_intent_not_succeeded' }
+    }
+    if (!intent.customer || !intent.payment_method) {
+      this.logger.warn(
+        `[activateAfterSetupIntent] SetupIntent ${setupIntentId} missing customer/payment_method — skip`,
+      )
+      return { activated: false, reason: 'missing_customer_or_pm' }
+    }
+
+    // Lookup local Subscription by stripeCustomerId + status
+    const sub = await this.prisma.subscription.findFirst({
+      where: {
+        stripeCustomerId: intent.customer,
+        status: 'pending_payment_method',
+      },
+    })
+    if (!sub) {
+      // Could be: (a) already activated by previous webhook retry,
+      // (b) Customer Portal adding a card to existing Sub (not our flow).
+      this.logger.log(
+        `[activateAfterSetupIntent] No pending_payment_method sub for customer ${intent.customer} — skip (already activated or out-of-band)`,
+      )
+      return { activated: false, reason: 'no_pending_subscription' }
+    }
+
+    // Attach PM as default on Customer (so future invoices charge it)
+    try {
+      await this.withRetry(async () =>
+        stripe.customers.update(intent.customer, {
+          invoice_settings: { default_payment_method: intent.payment_method },
+        }),
+      )
+    } catch (err) {
+      this.logger.error(
+        `[activateAfterSetupIntent] Failed to attach default PM for customer ${intent.customer}: ${String(err).slice(0, 200)}`,
+      )
+      throw this.translateStripeError(err)
+    }
+
+    // Resolve pricing config (same logic as createSubscription)
+    const pricingConfig = await this.billing.getPricingConfig(sub.planTier as PlanTier)
+    if (!pricingConfig) {
+      throw new NotFoundException(`Plan tier ${sub.planTier} no existe en pricing config`)
+    }
+    const stripePriceId =
+      sub.currency === 'MXN' ? pricingConfig.stripePriceIdMxn : pricingConfig.stripePriceIdUsd
+    if (!stripePriceId) {
+      throw new InternalServerErrorException(
+        `Stripe Price ID no configurado para ${sub.planTier} ${sub.currency}`,
+      )
+    }
+
+    // Create the REAL Stripe Subscription with default PM + trial
+    let stripeSub: StripeSubscription
+    try {
+      const createParams: any = {
+        customer: intent.customer,
+        items: [{ price: stripePriceId, quantity: sub.propertyCount }],
+        default_payment_method: intent.payment_method,
+        ...(sub.pendingCouponId ? { discounts: [{ coupon: sub.pendingCouponId }] } : {}),
+        ...(sub.pendingTrialDays && sub.pendingTrialDays > 0
+          ? { trial_period_days: sub.pendingTrialDays }
+          : {}),
+        payment_behavior: 'allow_incomplete', // card already validated via SetupIntent
+        payment_settings: {
+          save_default_payment_method: 'on_subscription',
+        },
+        expand: ['latest_invoice', 'latest_invoice.payment_intent'],
+        metadata: this.zenixMetadata({
+          zenix_organization_id: sub.organizationId,
+          zenix_subscription_id: sub.id,
+          zenix_plan_tier: sub.planTier,
+          zenix_billing_cycle: sub.billingCycle,
+          zenix_setup_intent_id: setupIntentId,
+          created_by: 'SubscriptionService.activateAfterSetupIntent',
+        }),
+      }
+
+      stripeSub = await this.withRetry(
+        async () =>
+          (await stripe.subscriptions.create(createParams, {
+            idempotencyKey: `create_sub_after_setup_${sub.id}`,
+          })) as StripeSubscription,
+      )
+    } catch (err) {
+      throw this.translateStripeError(err)
+    }
+
+    // Persist local with real Sub ID + clear pending fields
+    const updated = await this.prisma.subscription.update({
+      where: { id: sub.id },
+      data: {
+        stripeSubscriptionId: stripeSub.id,
+        status: stripeSub.status,
+        currentPeriodStart: new Date(stripeSub.current_period_start * 1000),
+        currentPeriodEnd: new Date(stripeSub.current_period_end * 1000),
+        trialStartedAt: stripeSub.trial_start ? new Date(stripeSub.trial_start * 1000) : null,
+        trialEndsAt: stripeSub.trial_end ? new Date(stripeSub.trial_end * 1000) : null,
+        nextRenewalDate: new Date(stripeSub.current_period_end * 1000),
+        setupIntentId,
+        cardCapturedAt: new Date(),
+        // pendingCouponId/pendingTrialDays remain for audit trail; cleared by cron at 90d
+      },
+    })
+
+    await this.safeAuditLog({
+      organizationId: sub.organizationId,
+      actor: { sub: 'system:webhook', role: 'SYSTEM' } as unknown as JwtPayload,
+      action: 'SUBSCRIPTION_ACTIVATED_AFTER_SETUP',
+      target: updated.id,
+      payload: {
+        stripeSubscriptionId: stripeSub.id,
+        setupIntentId,
+        status: stripeSub.status,
+        trialEndsAt: stripeSub.trial_end ? new Date(stripeSub.trial_end * 1000).toISOString() : null,
+        hadCoupon: !!sub.pendingCouponId,
+      },
+    })
+
+    return { activated: true, subscription: updated }
   }
 
   // ═══════════════════════════════════════════════════════════════════

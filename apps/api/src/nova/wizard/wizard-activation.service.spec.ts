@@ -127,7 +127,18 @@ function makeBillingMock(opts: { stripeConfigured?: boolean } = {}) {
 }
 
 function makeSubscriptionMock() {
+  // Netflix-style trial Day 1 — el wizard ahora llama createPendingSubscription
+  // (no createSubscription). Status='pending_payment_method' hasta que el
+  // cliente captura tarjeta en Stripe Checkout setup mode.
   return {
+    createPendingSubscription: jest.fn().mockResolvedValue({
+      id: 'sub-zenix-1',
+      stripeSubscriptionId: 'pending_test-uuid',
+      status: 'pending_payment_method',
+      planTier: 'PRO',
+    }),
+    // Mantenemos createSubscription en mock para tests legacy / por si algún
+    // test cubre el endpoint admin que aún lo usa
     createSubscription: jest.fn().mockResolvedValue({
       id: 'sub-zenix-1',
       stripeSubscriptionId: 'sub_stripe_1',
@@ -329,11 +340,11 @@ describe('WizardActivationService', () => {
         makeBillingMock({ stripeConfigured: false }),
       )
       const res = await service.activate(makeDto({ planTier: 'PRO' }), baseActor)
-      expect(subscription.createSubscription).not.toHaveBeenCalled()
+      expect(subscription.createPendingSubscription).not.toHaveBeenCalled()
       expect(res.subscription).toBeNull()
     })
 
-    it('crea Stripe Subscription cuando planTier presente + Stripe configurado', async () => {
+    it('crea pending Subscription cuando planTier presente + Stripe configurado (Netflix flow)', async () => {
       const subscription = makeSubscriptionMock()
       const service = new WizardActivationService(
         makePrismaMock(),
@@ -347,7 +358,10 @@ describe('WizardActivationService', () => {
         makeDto({ planTier: 'PRO', billingCycle: 'monthly', trialDays: 14 }),
         baseActor,
       )
-      expect(subscription.createSubscription).toHaveBeenCalledWith(
+      // Netflix-style trial: wizard llama createPendingSubscription (no
+      // createSubscription). El Sub queda en pending_payment_method hasta que
+      // el cliente capture tarjeta en Stripe Checkout setup mode.
+      expect(subscription.createPendingSubscription).toHaveBeenCalledWith(
         expect.objectContaining({
           organizationId: 'new-org-id',
           planTier: 'PRO',
@@ -355,14 +369,19 @@ describe('WizardActivationService', () => {
           billingCycle: 'monthly',
           trialDays: 14,
           ownerEmail: 'owner@hotel-test.com',
-          allowIncompleteWithoutPaymentMethod: true,
         }),
         baseActor,
       )
+      // El flag legacy allowIncompleteWithoutPaymentMethod NO se pasa más
+      // — pendiente de tarjeta es el state default ahora.
+      expect(subscription.createPendingSubscription).not.toHaveBeenCalledWith(
+        expect.objectContaining({ allowIncompleteWithoutPaymentMethod: true }),
+        expect.anything(),
+      )
       expect(res.subscription).toEqual({
         id: 'sub-zenix-1',
-        stripeSubscriptionId: 'sub_stripe_1',
-        status: 'trialing',
+        stripeSubscriptionId: 'pending_test-uuid',
+        status: 'pending_payment_method',
         planTier: 'PRO',
         discountApplied: false,
         discountStatus: null,
