@@ -28,8 +28,9 @@ import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import {
-  AlertTriangle, Camera, Check, ChevronDown, CreditCard, Globe,
-  IdCard, Loader2, LogIn, ShieldCheck, StickyNote, Upload, X,
+  AlertTriangle, Camera, Check, ChevronDown, CreditCard, FileText,
+  Globe, IdCard, Loader2, LogIn, MapPin, ShieldCheck, StickyNote,
+  Upload, User as UserIcon, X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -405,23 +406,75 @@ export function ConfirmCheckinDialog({
                 expanded={identityExpanded}
                 onToggle={() => setIdentityExpanded((v) => !v)}
               >
-                <div className="space-y-3">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                      Tipo de documento *
-                    </label>
-                    <select
-                      value={documentType}
-                      onChange={(e) => setDocumentType(e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm
-                                 text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                {/* CHECK-IN C1.6 (2026-05-29) — Layout 2-col estilo rich del
+                    ReservationDetailPage Huésped tab. Col izq: cards con
+                    íconos circulares pastel + labels uppercase + inputs subtle.
+                    Col der: foto del documento (PhotoCapture). Apple Settings
+                    list pattern + Gestalt continuidad. Responsive: 1-col en
+                    mobile/iPad portrait. */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* COLUMNA IZQUIERDA — info estructurada en cards icónicas */}
+                  <div className="rounded-2xl bg-white border border-slate-200/80 shadow-[0_1px_2px_rgba(0,0,0,0.03)] overflow-hidden">
+                    {/* Nacionalidad + Género en grid 2-col con divider */}
+                    <div className="grid grid-cols-2 divide-x divide-slate-100">
+                      <EditableInfoCard
+                        icon={MapPin}
+                        iconBg="bg-blue-50 text-blue-600"
+                        label="Nacionalidad"
+                        optional
+                      >
+                        <input
+                          type="text"
+                          value={nationality}
+                          onChange={(e) => setNationality(e.target.value)}
+                          placeholder="MX, US, FR…"
+                          maxLength={50}
+                          className="w-full bg-transparent text-sm font-bold text-slate-800 mt-0.5
+                                     placeholder:text-slate-300 placeholder:font-normal
+                                     focus:outline-none"
+                        />
+                      </EditableInfoCard>
+                      <EditableInfoCard
+                        icon={UserIcon}
+                        iconBg="bg-rose-50 text-rose-600"
+                        label="Género"
+                        optional
+                      >
+                        <select
+                          value={guestSex}
+                          onChange={(e) => setGuestSex(e.target.value)}
+                          className="w-full bg-transparent text-sm font-bold text-slate-800 mt-0.5
+                                     focus:outline-none cursor-pointer"
+                        >
+                          <option value="">—</option>
+                          <option value="F">Femenino</option>
+                          <option value="M">Masculino</option>
+                          <option value="O">Otro / No binario</option>
+                          <option value="N">Prefiere no decir</option>
+                        </select>
+                      </EditableInfoCard>
+                    </div>
+                    {/* Tipo de documento — full width */}
+                    <EditableInfoCard
+                      icon={FileText}
+                      iconBg="bg-slate-100 text-slate-700"
+                      label="Tipo de documento"
+                      required
                     >
-                      {DOCUMENT_TYPES.map((dt) => (
-                        <option key={dt.value} value={dt.value}>{dt.label}</option>
-                      ))}
-                    </select>
+                      <select
+                        value={documentType}
+                        onChange={(e) => setDocumentType(e.target.value)}
+                        className="w-full bg-transparent text-sm font-bold text-slate-800 mt-0.5
+                                   focus:outline-none cursor-pointer"
+                      >
+                        {DOCUMENT_TYPES.map((dt) => (
+                          <option key={dt.value} value={dt.value}>{dt.label}</option>
+                        ))}
+                      </select>
+                    </EditableInfoCard>
                   </div>
 
+                  {/* COLUMNA DERECHA — captura visual (PhotoCapture incluye su propio label) */}
                   <PhotoCapture
                     photoDataUrl={docPhotoDataUrl}
                     fileInputRef={fileInputRef}
@@ -431,45 +484,6 @@ export function ConfirmCheckinDialog({
                       if (fileInputRef.current) fileInputRef.current.value = ''
                     }}
                   />
-
-                  {/* CHECK-IN C1 (2026-05-29) — opcionales analytics-LATAM.
-                      Diferenciador vs Mews: campo género visible para dorms
-                      mixtos. NN/g 2024 minimalismo: ambos opcionales y en
-                      grid 2-col para no agregar altura excesiva al modal. */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                        Nacionalidad <span className="text-slate-400 normal-case font-normal">(opcional)</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={nationality}
-                        onChange={(e) => setNationality(e.target.value)}
-                        placeholder="Ej: Mexicana, US, EU…"
-                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm
-                                   text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-300"
-                        maxLength={50}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                        Género <span className="text-slate-400 normal-case font-normal">(opcional)</span>
-                      </label>
-                      <select
-                        value={guestSex}
-                        onChange={(e) => setGuestSex(e.target.value)}
-                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm
-                                   text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-300"
-                      >
-                        <option value="">— No especificado —</option>
-                        <option value="F">Femenino</option>
-                        <option value="M">Masculino</option>
-                        <option value="O">Otro / No binario</option>
-                        <option value="N">Prefiere no decir</option>
-                      </select>
-                    </div>
-                  </div>
-
                 </div>
               </Section>
 
@@ -681,6 +695,57 @@ function Section({
         </p>
       ) : null}
     </section>
+  )
+}
+
+/**
+ * EditableInfoCard — Card para campos del huésped con icono circular pastel
+ * + label uppercase + input subtle. Sprint CHECK-IN C1.6 (2026-05-29).
+ *
+ * Replica el patrón visual del ReservationDetailPage Huésped tab (GuestInfoLine)
+ * pero adaptado para INPUT FORM (no read-only display). Mantiene la jerarquía
+ * iconográfica + Apple Settings list pattern + Gestalt continuidad.
+ *
+ * Diseño:
+ *   - Icon container circular (h-9 w-9) con tinte pastel del campo
+ *   - Label uppercase tracking-wider [10px] (mismo que MetaRow)
+ *   - Value área = children (input/select sin border visible — se ve "natural")
+ *   - Padding 3-4 + border bottom para divider entre rows (al apilar)
+ *
+ * Usado solo en la sección Identidad del modal de check-in. Si en el futuro
+ * crece a otros formularios, extraerlo a un shared component.
+ */
+function EditableInfoCard({
+  icon: Icon,
+  iconBg,
+  label,
+  optional = false,
+  required = false,
+  children,
+}: {
+  icon: React.ElementType
+  iconBg: string
+  label: string
+  optional?: boolean
+  required?: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <div className="flex items-center gap-3 px-3.5 py-2.5 border-b border-slate-100 last:border-b-0">
+      <div className={cn('h-9 w-9 rounded-full flex items-center justify-center shrink-0', iconBg)}>
+        <Icon className="h-4 w-4" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+          {label}
+          {required && <span className="text-rose-500 normal-case font-normal">*</span>}
+          {optional && (
+            <span className="text-slate-300 normal-case font-normal">· opcional</span>
+          )}
+        </div>
+        {children}
+      </div>
+    </div>
   )
 }
 
