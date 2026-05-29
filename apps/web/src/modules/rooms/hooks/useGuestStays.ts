@@ -694,17 +694,59 @@ export function useConfirmCheckin(propertyId: string) {
       toast.success('Check-in confirmado — el huésped está en casa')
     },
     onError: (err: Error) => {
-      // Sprint CHECK-IN-α §110 — códigos machine-readable. Idempotency
-      // (otra sesión confirmó este check-in) NO es un error duro: refrescamos
-      // y mostramos info, no toast.error rojo.
+      // Sprint CHECK-IN-α §110 — códigos machine-readable.
+      // Sprint CHECK-IN C1 (2026-05-29): UI específica per code (NN/g H9
+      // "feedback informativo"). Antes solo CHECKIN_ALREADY_CONFIRMED tenía
+      // branching; los otros 5 codes caían a toast.error genérico. Ahora cada
+      // uno comunica qué pasó + por qué + qué puede hacer el usuario.
       const code = err instanceof ApiError ? err.code : undefined
-      if (code === 'CHECKIN_ALREADY_CONFIRMED') {
-        toast('Este check-in ya fue confirmado por otra sesión', { icon: 'ℹ️' })
-        qc.invalidateQueries({ queryKey: ['guest-stays', propertyId], exact: false, refetchType: 'active' })
-        qc.invalidateQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false, refetchType: 'active' })
-        return
+      switch (code) {
+        case 'CHECKIN_ALREADY_CONFIRMED':
+          // Idempotency benigna — otra sesión ya cerró. Info, no error rojo.
+          toast('Este check-in ya fue confirmado por otra sesión', { icon: 'ℹ️' })
+          qc.invalidateQueries({ queryKey: ['guest-stays', propertyId], exact: false, refetchType: 'active' })
+          qc.invalidateQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false, refetchType: 'active' })
+          return
+        case 'NOSHOW_LOCKED':
+          // Race: otra sesión marcó no-show entre getCheckinContext y POST.
+          toast.error(
+            'Esta reserva fue marcada como no-show. Para hacer check-in, revierte el no-show primero (botón en el sheet de la reserva).',
+            { duration: 6000 },
+          )
+          qc.invalidateQueries({ queryKey: ['guest-stays', propertyId], exact: false, refetchType: 'active' })
+          return
+        case 'FUTURE_CHECKIN':
+          // Recepcionista intenta check-in de una reserva con checkinAt futuro.
+          toast.error(
+            'La fecha de check-in es futura. Espera al día del arrival o ajusta la fecha de la reserva.',
+            { duration: 5000 },
+          )
+          return
+        case 'BALANCE_UNPAID':
+          // Frontend ya bloquea esto pre-submit, pero raceable.
+          toast.error(
+            'Hay saldo pendiente. Registra el pago antes de confirmar el check-in (o ajusta el método a OTA Virtual Card / COMP si corresponde).',
+            { duration: 6000 },
+          )
+          return
+        case 'BALANCE_OVERPAID':
+          // §110b spec — mensaje exacto.
+          toast.error(
+            'El pago excede el saldo. Ajusta el monto al saldo exacto — los depósitos por incidentales se registran después del check-in.',
+            { duration: 7000 },
+          )
+          return
+        case 'CANCELLED':
+          // Race: reserva fue cancelada entre getCheckinContext y POST.
+          toast.error(
+            'Esta reserva fue cancelada. Para hacer check-in, restáurala primero (botón "Restaurar" en el footer del sheet).',
+            { duration: 6000 },
+          )
+          qc.invalidateQueries({ queryKey: ['guest-stays', propertyId], exact: false, refetchType: 'active' })
+          return
+        default:
+          toast.error(err.message ?? 'No se pudo confirmar el check-in')
       }
-      toast.error(err.message ?? 'No se pudo confirmar el check-in')
     },
   })
 }

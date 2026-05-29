@@ -326,7 +326,13 @@ export function CheckInDialog({
       <Dialog open={open}
               onOpenChange={o => { if (!o) handleCloseAttempt() }}>
         <DialogContent
-          className="sm:max-w-[520px] p-0 gap-0 overflow-hidden
+          // CHECK-IN C1 (2026-05-29) — wizard walk-in ampliado de 520px →
+          // 672px (max-w-2xl). Antes era angosto comparado con el modal de
+          // confirm check-in (768px). Sweet spot Apple HIG Form pattern:
+          // suficiente respiro horizontal para grid 2-col sin perder densidad
+          // visual del wizard. Pre-fillea menos (no hay reserva previa) →
+          // 672px es óptimo vs 768px que sobraría espacio.
+          className="sm:max-w-2xl p-0 gap-0 overflow-hidden
                      shadow-[0_25px_50px_-12px_rgba(0,0,0,0.35)]
                      bg-[#FAFAFA]"
           onInteractOutside={e => { e.preventDefault(); handleCloseAttempt() }}
