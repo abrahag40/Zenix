@@ -16,6 +16,7 @@
 import { Module } from '@nestjs/common'
 import { PrismaModule } from '../prisma/prisma.module'
 import { AuditLogService } from '../nova/audit/audit-log.service'
+import { TenantContextService } from '../common/tenant-context.service'
 import { BillingService } from './billing.service'
 import { WebhookHandlerService } from './webhook-handler.service'
 import { SubscriptionService } from './subscription.service'
@@ -43,6 +44,11 @@ import { PricingAdminController } from './pricing-admin.controller'
     PricingAdminService,
     BillingEmailService,
     AuditLogService,
+    // CLIENT-RETENTION-DISCOUNTS hotfix 2026-05-29 — NovaBillingController
+    // depende de TenantContextService para GET /v1/nova/billing/subscription
+    // (acting-org-aware). Registrar como provider request-scoped (igual
+    // que en GuestStaysModule, RoomsModule, etc.).
+    TenantContextService,
   ],
   exports: [BillingService, SubscriptionService, DiscountCodeService, PricingAdminService],
 })
