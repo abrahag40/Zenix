@@ -29,6 +29,18 @@ export interface WizardActivateResponse {
    *  hay RESEND_API_KEY configurada O si Resend devolvió error. El frontend
    *  muestra fallback copy-paste del link en ambos casos. */
   emailSent: boolean
+  /** Sprint CHANNEX-AUTO-PROVISION Day 3/4 — outcome del provisioning Channex
+   *  outside-tx. null si channexPushEnabled=false o no hay properties. */
+  channexProvisioning?: {
+    status: 'completed' | 'partial' | 'failed'
+    propertiesProvisioned: number
+    roomTypesCreated: number
+    ratePlansCreated: number
+    channelsCreated: number
+    channelsRequiringOauth: number
+    channelsPendingCredentials: number
+    errors: Array<{ step: string; propertyId?: string; message: string }>
+  } | null
 }
 
 // ─── Health checks ────────────────────────────────────────────────────

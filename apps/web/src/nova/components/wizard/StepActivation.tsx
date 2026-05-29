@@ -45,6 +45,9 @@ import {
   Sparkles,
   Loader2,
   ExternalLink,
+  Globe2,
+  Lock,
+  Settings,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -78,9 +81,31 @@ export function StepActivation() {
       const res = await wizardClient.activate(state, /* pacOverrideAccepted */ true)
       setResponse(res)
       setActivated(true)
-      toast.success(`${state.organizationName} activado · setup link generado`, {
-        duration: 6000,
-      })
+
+      // Sprint CHANNEX-AUTO-PROVISION Day 4 — toast con outcome del provisioning
+      const cp = res.channexProvisioning
+      if (cp) {
+        if (cp.status === 'completed') {
+          toast.success(
+            `${state.organizationName} activado · Channex OK (${cp.channelsCreated} canales)`,
+            { duration: 6000 },
+          )
+        } else if (cp.status === 'partial') {
+          toast(
+            `${state.organizationName} activado · Channex PARCIAL (${cp.errors.length} errors). Revisa /nova/billing/channex`,
+            { duration: 9000, icon: '⚠️' },
+          )
+        } else {
+          toast.error(
+            `${state.organizationName} activado · Channex FALLÓ. Re-disparar desde /nova/billing/channex`,
+            { duration: 9000 },
+          )
+        }
+      } else {
+        toast.success(`${state.organizationName} activado · setup link generado`, {
+          duration: 6000,
+        })
+      }
 
       // Dar tiempo al usuario a ver el success state + copiar setup link
       setTimeout(() => {
@@ -127,7 +152,9 @@ export function StepActivation() {
             ? 'Cliente activado ✓'
             : activating
               ? 'Activando…'
-              : `Activar ${state.organizationName || 'cliente'}`}
+              : state.channexPushEnabled && state.channels.length > 0
+                ? `Activar ${state.organizationName || 'cliente'} + Channex`
+                : `Activar ${state.organizationName || 'cliente'}`}
         </Button>
       }
     >
@@ -233,6 +260,93 @@ export function StepActivation() {
         <SummarySection icon={Users} title="Org Owner">
           <KV k="Nombre" v={state.orgOwnerName} />
           <KV k="Email" v={state.orgOwnerEmail} mono />
+        </SummarySection>
+
+        {/* Sprint CHANNEX-AUTO-PROVISION Day 4 — preview de lo que se va a empujar a Channex */}
+        <SummarySection icon={Globe2} title="Canales OTA (Channex)">
+          {!state.channexPushEnabled ? (
+            <div className="col-span-full">
+              <Caption tone="tertiary" className="text-[12px]">
+                Channel Manager <strong>deshabilitado</strong> en Step 6. Al activar NO se creará
+                nada en Channex. El cliente puede activarlo después desde{' '}
+                <code className="text-emerald-700">/nova/billing/channex</code>.
+              </Caption>
+            </div>
+          ) : (
+            <div className="col-span-full space-y-2">
+              <Caption tone="tertiary" className="text-[12px]">
+                Al activar, Zenix creará automáticamente en Channex:
+              </Caption>
+              <ul className="space-y-1.5 mt-2">
+                <li className="flex items-start gap-2 text-[12px] text-slate-700">
+                  <Building2 className="h-3.5 w-3.5 text-emerald-600 flex-shrink-0 mt-0.5" />
+                  <span>
+                    <strong>{state.properties.length}</strong>{' '}
+                    {state.properties.length === 1 ? 'Property' : 'Properties'} →{' '}
+                    Channex (con Group de la Organization)
+                  </span>
+                </li>
+                <li className="flex items-start gap-2 text-[12px] text-slate-700">
+                  <Sparkles className="h-3.5 w-3.5 text-emerald-600 flex-shrink-0 mt-0.5" />
+                  <span>
+                    Room Types + Rate Plans iniciales del template{' '}
+                    <code className="font-mono text-[11px] bg-slate-50 px-1 rounded">
+                      {state.inventoryTemplate}
+                    </code>
+                  </span>
+                </li>
+                {state.channels.length === 0 ? (
+                  <li className="flex items-start gap-2 text-[12px] text-slate-500">
+                    <Globe2 className="h-3.5 w-3.5 text-slate-400 flex-shrink-0 mt-0.5" />
+                    <span>
+                      <strong>0 canales OTA</strong> seleccionados. El cliente puede agregarlos
+                      después en <code>/nova/billing/channex</code>.
+                    </span>
+                  </li>
+                ) : (
+                  <li className="flex items-start gap-2 text-[12px] text-slate-700">
+                    <Globe2 className="h-3.5 w-3.5 text-emerald-600 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <span>
+                        <strong>{state.channels.length}</strong>{' '}
+                        {state.channels.length === 1 ? 'canal' : 'canales'} OTA conectados (sin
+                        publicar — activación manual post-onboarding OTA):
+                      </span>
+                      <div className="flex flex-wrap gap-1.5 mt-1.5">
+                        {state.channels.map((c) => {
+                          const isAirbnb = c.type === 'AirbnbCom'
+                          const isPending = c.configureLater
+                          const icon = isAirbnb
+                            ? Lock
+                            : isPending
+                              ? Settings
+                              : CheckCircle2
+                          const variant = isAirbnb
+                            ? 'neutral'
+                            : isPending
+                              ? 'warning'
+                              : 'success'
+                          return (
+                            <Chip
+                              key={c.tempId}
+                              variant={variant}
+                              intent="subtle"
+                              size="sm"
+                              icon={icon}
+                            >
+                              {c.title}
+                              {isAirbnb && ' (OAuth post-trial)'}
+                              {isPending && ' (pendiente)'}
+                            </Chip>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </li>
+                )}
+              </ul>
+            </div>
+          )}
         </SummarySection>
 
         {/* Plan + descuento — billing summary del Step 7.5 */}
@@ -383,6 +497,101 @@ export function StepActivation() {
                     Ver Activation Report
                   </a>
                 </div>
+
+                {/* Sprint CHANNEX-AUTO-PROVISION Day 4 — outcome del provisioning Channex */}
+                {response.channexProvisioning && (
+                  <div
+                    className={
+                      'mt-4 p-3 rounded-md border ' +
+                      (response.channexProvisioning.status === 'completed'
+                        ? 'bg-emerald-50 border-emerald-200'
+                        : response.channexProvisioning.status === 'partial'
+                          ? 'bg-amber-50 border-amber-200'
+                          : 'bg-red-50 border-red-200')
+                    }
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <Globe2 className="h-4 w-4 text-slate-700" />
+                      <Subhead className="font-semibold text-slate-900">
+                        Channex provisioning
+                      </Subhead>
+                      <Chip
+                        variant={
+                          response.channexProvisioning.status === 'completed'
+                            ? 'success'
+                            : response.channexProvisioning.status === 'partial'
+                              ? 'warning'
+                              : 'danger'
+                        }
+                        intent="solid"
+                        size="sm"
+                      >
+                        {response.channexProvisioning.status}
+                      </Chip>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-1 text-[12px] text-slate-700">
+                      <div>
+                        <strong>{response.channexProvisioning.propertiesProvisioned}</strong>{' '}
+                        properties OK
+                      </div>
+                      <div>
+                        <strong>{response.channexProvisioning.roomTypesCreated}</strong>{' '}
+                        room types
+                      </div>
+                      <div>
+                        <strong>{response.channexProvisioning.ratePlansCreated}</strong>{' '}
+                        rate plans
+                      </div>
+                      <div>
+                        <strong>{response.channexProvisioning.channelsCreated}</strong>{' '}
+                        canales OTA
+                      </div>
+                      {response.channexProvisioning.channelsRequiringOauth > 0 && (
+                        <div>
+                          <strong>{response.channexProvisioning.channelsRequiringOauth}</strong>{' '}
+                          🔒 OAuth req
+                        </div>
+                      )}
+                      {response.channexProvisioning.channelsPendingCredentials > 0 && (
+                        <div>
+                          <strong>
+                            {response.channexProvisioning.channelsPendingCredentials}
+                          </strong>{' '}
+                          ⚠ pendientes creds
+                        </div>
+                      )}
+                    </div>
+                    {response.channexProvisioning.errors.length > 0 && (
+                      <details className="mt-2">
+                        <summary className="cursor-pointer text-[12px] font-medium text-slate-700">
+                          {response.channexProvisioning.errors.length} error
+                          {response.channexProvisioning.errors.length === 1 ? '' : 'es'}{' '}
+                          capturado{response.channexProvisioning.errors.length === 1 ? '' : 's'}
+                        </summary>
+                        <ul className="mt-2 space-y-1 text-[11px] text-slate-600">
+                          {response.channexProvisioning.errors.map((err, idx) => (
+                            <li key={idx} className="font-mono">
+                              <code className="text-amber-700">{err.step}</code>: {err.message}
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
+                    {response.channexProvisioning.status !== 'completed' && (
+                      <Caption tone="tertiary" className="block mt-2 text-[11px]">
+                        El cliente está activado pero el provisioning Channex no completó al 100%.
+                        Revisa en{' '}
+                        <a
+                          href={`/nova/billing/channex`}
+                          className="text-emerald-700 underline"
+                        >
+                          /nova/billing/channex
+                        </a>{' '}
+                        para re-disparar o completar manualmente.
+                      </Caption>
+                    )}
+                  </div>
+                )}
 
                 {/* Setup link — siempre visible como fallback (incluso si email se envió),
                     así el consultor puede copiarlo y mandarlo por WhatsApp/Slack si el
