@@ -399,6 +399,14 @@ export interface ConfirmCheckinInput {
    */
   documentPhotoUrl?: string
   arrivalNotes?: string
+  /**
+   * Sprint CHECK-IN C1 (2026-05-29) — opcionales BI/analytics LATAM.
+   * Diferenciador vs Mews: género visible en check-in para dorms mixtos.
+   * String libre con valores guía: 'F'|'M'|'O'|'N'. Schema GuestStay tiene
+   * el detalle. Captura opcional, no bloqueante.
+   */
+  nationality?: string
+  guestSex?: string
   keyType?: KeyDeliveryType
   payments: PaymentEntryInput[]
   managerApprovalCode?: string

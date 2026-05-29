@@ -51,6 +51,21 @@ export class ConfirmCheckinDto {
   @IsOptional()
   arrivalNotes?: string
 
+  /**
+   * Sprint CHECK-IN C1 (2026-05-29) — opcional para BI/analytics LATAM.
+   * Diferenciador vs Mews que NO captura género en dorms mixtos.
+   * Nacionalidad string libre (Mexicana / US / EU / etc.). guestSex enum
+   * blando ('M' | 'F' | 'O' | 'N'), ver schema `GuestStay.guestSex` para
+   * semántica + compliance LFPDPPP.
+   */
+  @IsString()
+  @IsOptional()
+  nationality?: string
+
+  @IsString()
+  @IsOptional()
+  guestSex?: string
+
   @IsEnum(KeyDeliveryType)
   @IsOptional()
   keyType?: KeyDeliveryType

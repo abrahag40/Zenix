@@ -2014,6 +2014,11 @@ export class GuestStaysService {
         documentNumber:     stay.documentNumber,
         documentPhotoUrl:   stay.documentPhotoUrl,
         nationality:        stay.nationality,
+        // Sprint CHECK-IN C1 (2026-05-29) — exponer guestSex opcional.
+        // Diferenciador LATAM hostal: Mews fue criticado por NO agregar
+        // campo de género en reservas para dorms mixtos (Capterra hostel
+        // operator). Captura opcional al check-in cierra ese gap.
+        guestSex:           stay.guestSex,
         paxCount:           stay.paxCount,
         checkinAt:          stay.checkinAt.toISOString(),
         scheduledCheckout:  stay.scheduledCheckout.toISOString(),
@@ -2193,6 +2198,18 @@ export class GuestStaysService {
       })
     }
 
+    // Guard 2.5: cancelada (Sprint CHECK-IN C1, 2026-05-29 — gap detectado
+    // en auditoría: canCheckIn.reasons incluía 'CANCELLED' pero confirmCheckin
+    // no lo bloqueaba como error code. Race condition posible si otra sesión
+    // cancela entre getCheckinContext y este POST. Frontend hace branching
+    // específico de este code para mostrar mensaje accionable "restaura primero").
+    if (stay.cancelledAt !== null) {
+      throw new BadRequestException({
+        code:    'CANCELLED',
+        message: 'No se puede confirmar check-in de una reserva cancelada — restáurala primero',
+      })
+    }
+
     // Guard 3: fecha aún no llegó
     const tz = stay.room.property.settings?.timezone ?? 'UTC'
     const todayLocal   = toLocalDate(new Date(), tz)
@@ -2306,6 +2323,10 @@ export class GuestStaysService {
           documentNumber:         dto.documentNumber   ?? stay.documentNumber,
           documentPhotoUrl:       dto.documentPhotoUrl ?? stay.documentPhotoUrl,
           arrivalNotes:           dto.arrivalNotes     ?? null,
+          // CHECK-IN C1 (2026-05-29) — opcionales BI/analytics.
+          // Preserva valores existentes si dto vino vacío.
+          nationality:            dto.nationality      ?? stay.nationality,
+          guestSex:               dto.guestSex         ?? stay.guestSex,
           keyType:                dto.keyType          ?? null,
         },
       })

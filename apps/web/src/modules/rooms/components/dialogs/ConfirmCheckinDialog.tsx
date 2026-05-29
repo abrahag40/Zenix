@@ -130,6 +130,11 @@ export function ConfirmCheckinDialog({
   const [docPhotoDataUrl, setDocPhotoDataUrl] = useState<string | null>(null)
   const [arrivalNotes,    setArrivalNotes]   = useState('')
   const [payments,        setPayments]       = useState<PaymentEntryInput[]>([emptyPayment()])
+  // CHECK-IN C1 (2026-05-29) — campos opcionales nacionalidad + género.
+  // Diferenciador LATAM hostal: Mews fue criticado por no agregar género
+  // en reservas para dorms mixtos. Captura opcional, no bloqueante.
+  const [nationality,     setNationality]    = useState('')
+  const [guestSex,        setGuestSex]       = useState('')
 
   const [identityExpanded, setIdentityExpanded] = useState(false)
   const [paymentExpanded,  setPaymentExpanded]  = useState(false)
@@ -137,15 +142,33 @@ export function ConfirmCheckinDialog({
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Hidratar form con context cuando llega.
+  // CHECK-IN C1 (Sprint 2026-05-29) — Bug fix #2: pre-fillear amount del
+  // primer PaymentRow con el balance. Sin esto el recepcionista debía
+  // tipear el monto manualmente cada vez (friction). Pattern Stripe /
+  // RoomRaccoon: amount default = balance, recepcionista lo overrride
+  // solo si está cobrando parcial.
   useEffect(() => {
     if (!ctx) return
     setDocumentType(ctx.stay.documentType ?? '')
     setDocPhotoDataUrl(ctx.stay.documentPhotoUrl ?? null)
     setArrivalNotes(ctx.stay.arrivalNotes ?? '')
+    setNationality(ctx.stay.nationality ?? '')
+    setGuestSex((ctx.stay as { guestSex?: string }).guestSex ?? '')
     setIdentityExpanded(!ctx.identityCaptured)
-    setPaymentExpanded(
-      ctx.paymentModel === 'HOTEL_COLLECT' && ctx.balanceProjection.balance > 0,
-    )
+    const needsPaymentCalc =
+      ctx.paymentModel === 'HOTEL_COLLECT' && ctx.balanceProjection.balance > 0
+    setPaymentExpanded(needsPaymentCalc)
+    // Bug fix #2: pre-fill amount cuando hay balance pendiente.
+    if (needsPaymentCalc) {
+      setPayments((prev) => {
+        // Solo pre-fill si el form sigue en su estado inicial (1 row con amount=0).
+        // No sobrescribimos si el recepcionista ya empezó a editar.
+        if (prev.length === 1 && prev[0].amount === 0) {
+          return [{ ...prev[0], amount: ctx.balanceProjection.balance }]
+        }
+        return prev
+      })
+    }
   }, [ctx])
 
   // ── Derived flags ───────────────────────────────────────────────────────
@@ -184,13 +207,21 @@ export function ConfirmCheckinDialog({
     return hasOverride || projectedBalance <= 0.01
   }, [needsPayment, hasPaymentErrors, isOverpayment, payments, projectedBalance])
 
-  // Identidad válida = tipo de documento + foto del documento (Sprint
-  // 2026-05-17 refactor: removida checkbox "Verifiqué físicamente". La foto
-  // sirve como evidencia tangible (Visa CRR §5.9.2 chargeback). Si la foto
-  // existe + el tipo está seleccionado, asumimos que el recepcionista
-  // verificó al capturar — el checkbox era doble confirmación con cero
-  // valor operativo, identificada como friction NN/g 2024).
-  const identityValid = !!documentType && !!docPhotoDataUrl
+  // Identidad válida — Sprint 2026-05-17 refactor (sin checkbox).
+  //
+  // CHECK-IN C1 (2026-05-29) — Bug fix #1: alineación cliente↔servidor.
+  // Anteriormente el cliente exigía SIEMPRE foto del documento, pero el
+  // server marca `identityCaptured=true` cuando hay `documentType + documentNumber`
+  // pre-cargados de OTA (sin foto). El badge mostraba "Documento en reserva"
+  // (verde) pero el CTA quedaba bloqueado sin pista — UX bug confirmado.
+  //
+  // Nueva lógica: si el server dice "ya capturado" (documentType + número
+  // pre-OTA), confiamos en eso. Si el server dice "falta", exigimos foto
+  // + tipo (path normal). Esto mantiene Visa CRR §5.9.2 (audit trail OTA
+  // ya tiene el ID en su backend) sin bloquear walk-ups con OTA pre-fill.
+  const identityValid =
+    !!ctx?.identityCaptured ||
+    (!!documentType && !!docPhotoDataUrl)
 
   const canConfirm =
     !!ctx &&
@@ -204,7 +235,9 @@ export function ConfirmCheckinDialog({
     !!docPhotoDataUrl ||
     arrivalNotes.trim() !== '' ||
     payments.some((p) => p.amount > 0 || (p.reference?.trim() ?? '') !== '') ||
-    documentType !== (ctx?.stay.documentType ?? '')
+    documentType !== (ctx?.stay.documentType ?? '') ||
+    nationality !== (ctx?.stay.nationality ?? '') ||
+    guestSex !== ((ctx?.stay as { guestSex?: string } | undefined)?.guestSex ?? '')
 
   const { requestClose, onBackdropClick, dialogElement: discardPrompt } = useModalDismiss({
     isDirty,
@@ -251,6 +284,9 @@ export function ConfirmCheckinDialog({
       documentType:     documentType || undefined,
       documentPhotoUrl: docPhotoDataUrl ?? undefined,
       arrivalNotes:     arrivalNotes.trim() || undefined,
+      // CHECK-IN C1 (2026-05-29) — opcionales analytics-LATAM
+      nationality:      nationality.trim() || undefined,
+      guestSex:         guestSex || undefined,
       payments:         isOtaCollect || isAlreadyPaid ? [] : payments,
     })
   }
@@ -395,6 +431,44 @@ export function ConfirmCheckinDialog({
                       if (fileInputRef.current) fileInputRef.current.value = ''
                     }}
                   />
+
+                  {/* CHECK-IN C1 (2026-05-29) — opcionales analytics-LATAM.
+                      Diferenciador vs Mews: campo género visible para dorms
+                      mixtos. NN/g 2024 minimalismo: ambos opcionales y en
+                      grid 2-col para no agregar altura excesiva al modal. */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                        Nacionalidad <span className="text-slate-400 normal-case font-normal">(opcional)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={nationality}
+                        onChange={(e) => setNationality(e.target.value)}
+                        placeholder="Ej: Mexicana, US, EU…"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm
+                                   text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                        maxLength={50}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                        Género <span className="text-slate-400 normal-case font-normal">(opcional)</span>
+                      </label>
+                      <select
+                        value={guestSex}
+                        onChange={(e) => setGuestSex(e.target.value)}
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm
+                                   text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                      >
+                        <option value="">— No especificado —</option>
+                        <option value="F">Femenino</option>
+                        <option value="M">Masculino</option>
+                        <option value="O">Otro / No binario</option>
+                        <option value="N">Prefiere no decir</option>
+                      </select>
+                    </div>
+                  </div>
 
                 </div>
               </Section>
