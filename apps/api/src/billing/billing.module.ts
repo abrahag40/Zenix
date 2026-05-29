@@ -16,6 +16,7 @@
 import { Module } from '@nestjs/common'
 import { PrismaModule } from '../prisma/prisma.module'
 import { AuditLogService } from '../nova/audit/audit-log.service'
+import { PaymentsModule } from '../payments/payments.module'
 import { BillingService } from './billing.service'
 import { WebhookHandlerService } from './webhook-handler.service'
 import { SubscriptionService } from './subscription.service'
@@ -28,7 +29,11 @@ import { NovaBillingController } from './nova-billing.controller'
 import { PricingAdminController } from './pricing-admin.controller'
 
 @Module({
-  imports: [PrismaModule],
+  // PaymentsModule — para que WebhookHandlerService inyecte PaymentsService
+  // y rutee setup_intent.succeeded (metadata.stayId) + payment_intent.* a la
+  // lógica PMS guest-stay. Consolidation post-NETFLIX-TRIAL para evitar
+  // route collision en /v1/webhooks/stripe.
+  imports: [PrismaModule, PaymentsModule],
   controllers: [
     StripeWebhookController,
     BillingController,

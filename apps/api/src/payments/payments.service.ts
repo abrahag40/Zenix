@@ -165,78 +165,16 @@ export class PaymentsService {
 
   // ─── Webhook handler ──────────────────────────────────────────────────────
   //
-  // Stripe firma todos los webhooks con STRIPE_WEBHOOK_SECRET.
-  // CRÍTICO: verificar la firma ANTES de procesar — previene ataques de replay
-  // y solicitudes falsas. constructEvent() lanza si la firma no es válida.
+  // handleWebhook() ELIMINADO 2026-05-29: la lógica de dispatch ahora vive en
+  // src/billing/webhook-handler.service.ts (WebhookHandlerService) que rutea
+  // setup_intent.succeeded + payment_intent.succeeded + payment_intent.payment_failed
+  // a este service llamando directamente:
+  //   · onSetupIntentSucceeded(setupIntentId) — public, sigue aquí
+  //   · GuestStay updates noShowChargeStatus 'CHARGED' / 'FAILED' — inline en
+  //     WebhookHandlerService.handlePaymentIntentSucceeded/Failed
   //
-  // Docs: https://stripe.com/docs/webhooks/signatures
-  async handleWebhook(rawBody: Buffer, signature: string): Promise<void> {
-    if (!this.stripe) return  // fail-soft si Stripe no configurado
-
-    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
-    if (!webhookSecret) {
-      this.logger.warn('[Stripe] STRIPE_WEBHOOK_SECRET not set — skipping webhook verification')
-      return
-    }
-
-    // constructEvent returns a typed Stripe.Event but namespace access differs by
-    // Stripe SDK version. We use `any` for the event object to avoid version-specific
-    // type gymnastics — the HMAC signature already validates the payload is authentic.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let event: any
-    try {
-      event = this.stripe.webhooks.constructEvent(rawBody, signature, webhookSecret)
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err)
-      this.logger.error(`[Stripe] Webhook signature verification failed: ${msg}`)
-      throw new BadRequestException('Stripe webhook signature inválida')
-    }
-
-    this.logger.debug(`[Stripe] Webhook received type=${event.type}`)
-
-    switch (event.type as string) {
-      case 'setup_intent.succeeded': {
-        const si = event.data.object as { id: string }
-        await this.onSetupIntentSucceeded(si.id)
-        break
-      }
-
-      case 'payment_intent.succeeded': {
-        const pi = event.data.object as { id: string; metadata: Record<string, string> }
-        const stayId = pi.metadata?.stayId
-        if (stayId) {
-          await this.prisma.guestStay.update({
-            where: { id: stayId },
-            data: { noShowChargeStatus: 'CHARGED', stripePaymentIntentId: pi.id },
-          })
-          this.logger.log(`[Stripe] Charge confirmed stay=${stayId} pi=${pi.id}`)
-        }
-        break
-      }
-
-      case 'payment_intent.payment_failed': {
-        const pi = event.data.object as {
-          id: string
-          metadata: Record<string, string>
-          last_payment_error?: { message?: string }
-        }
-        const stayId = pi.metadata?.stayId
-        const failureMsg = pi.last_payment_error?.message ?? 'desconocido'
-        if (stayId) {
-          await this.prisma.guestStay.update({
-            where: { id: stayId },
-            data: { noShowChargeStatus: 'FAILED' },
-          })
-          this.logger.warn(`[Stripe] Charge failed stay=${stayId} reason="${failureMsg}"`)
-        }
-        break
-      }
-
-      default:
-        // Ignorar eventos no relevantes — Stripe puede enviar muchos tipos
-        break
-    }
-  }
+  // Razón del consolidate: route collision /v1/webhooks/stripe entre este service
+  // y BILLING-CORE. Ver comentario en payments.controller.ts para historia.
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
 

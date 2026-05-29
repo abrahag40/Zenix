@@ -1,16 +1,6 @@
-import {
-  Body,
-  Controller,
-  Headers,
-  Param,
-  Post,
-  RawBodyRequest,
-  Req,
-} from '@nestjs/common'
-import { Request } from 'express'
+import { Body, Controller, Param, Post } from '@nestjs/common'
 import { JwtPayload } from '@zenix/shared'
 import { CurrentUser } from '../common/decorators/current-user.decorator'
-import { Public } from '../common/decorators/public.decorator'
 import { PaymentsService } from './payments.service'
 import { WaiveNoShowDto } from './dto/waive-noshow.dto'
 
@@ -49,28 +39,23 @@ export class PaymentsController {
   }
 }
 
-// ─── Stripe Webhook Controller (público) ────────────────────────────────────
+// ─── Stripe Webhook Controller (CONSOLIDATED 2026-05-29) ──────────────────
 //
-// CRÍTICO: este endpoint NO puede tener JwtAuthGuard — Stripe no envía JWT.
-// El body debe llegar como Buffer raw para que constructEvent() pueda verificar
-// la firma HMAC-SHA256. La configuración de rawBody se hace en main.ts.
+// HISTORIA: este archivo originalmente tenía un segundo @Controller que
+// declaraba POST /v1/webhooks/stripe — el mismo path que
+// src/billing/stripe-webhook.controller.ts (BILLING-CORE sprint).
 //
-// La clase está separada del controller principal para tener @Public() limpio
-// sin mezclar con las rutas autenticadas.
-@Controller('v1/webhooks')
-export class StripeWebhookController {
-  constructor(private readonly payments: PaymentsService) {}
-
-  @Public()
-  @Post('stripe')
-  handleStripeWebhook(
-    @Req() req: RawBodyRequest<Request>,
-    @Headers('stripe-signature') signature: string,
-  ) {
-    const rawBody = req.rawBody
-    if (!rawBody) {
-      return { received: false }
-    }
-    return this.payments.handleWebhook(rawBody, signature)
-  }
-}
+// Bug detectado durante validation E2E del Sprint NETFLIX-TRIAL: 2 routes
+// idénticos registrados → NestJS solo invoca uno (el último según module
+// order). El otro controller queda muerto, dispatch silent fail si alguien
+// reordena modules.
+//
+// FIX: eliminado el StripeWebhookController duplicado. La lógica del
+// PaymentsService (setup_intent.succeeded con metadata.stayId,
+// payment_intent.succeeded/failed con metadata.stayId) ahora vive en
+// WebhookHandlerService.handle dispatch (src/billing/webhook-handler.service.ts)
+// que llama a paymentsService.onSetupIntentSucceeded para casos PMS.
+//
+// Single source of truth: src/billing/stripe-webhook.controller.ts ← único
+// endpoint POST /api/v1/webhooks/stripe. Dispatches por event type +
+// metadata a SubscriptionService (billing/Netflix) o PaymentsService (PMS).
