@@ -94,7 +94,12 @@ export function useCreateGuestStay(propertyId: string) {
 
   return useMutation({
     mutationFn: (data: NewStayData & { propertyId: string }) => {
-      const { documentPhoto: _photo, ...rest } = data
+      // CHECK-IN C1.5 hotfix (2026-05-29) — strip checkInNow del payload
+      // antes de POST: es un flag SOLO frontend (decide si abrir
+      // ConfirmCheckinDialog automático post-create). El backend
+      // CreateGuestStayDto NO lo acepta — global validation pipe rechaza
+      // con "property checkInNow should not exist" (forbidNonWhitelisted).
+      const { documentPhoto: _photo, checkInNow: _checkInNow, ...rest } = data
       return guestStaysApi.create({
         ...rest,
         propertyId: data.propertyId,
