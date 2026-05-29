@@ -22,10 +22,42 @@ export type WizardStepKey =
   | 'legal-entity'
   | 'properties'
   | 'inventory'
+  // Sprint CHANNEX-AUTO-PROVISION Day 3 — channels selection (OTAs).
+  // Step 5.5 conceptual: separa "qué vende el hotel" (inventory) de
+  // "dónde lo vende" (canales OTA). Skippable si channexPushEnabled=false.
+  | 'channels'
   | 'staff'
   | 'integrations'
   | 'plan-discount'
   | 'activation'
+
+/** Sprint CHANNEX-AUTO-PROVISION Day 3 — channel types alineados con
+ *  ChannexChannelType del gateway. AirbnbCom requiere OAuth post-trial
+ *  (regla regulatoria Airbnb 2022) — no se puede establecer connection
+ *  programática desde el wizard. */
+export type WizardChannelType =
+  | 'BookingCom'
+  | 'ExpediaCom'
+  | 'AirbnbCom'
+  | 'AgodaCom'
+  | 'GoogleHotelAds'
+  | 'VRBOCom'
+  | 'OpenChannel'
+
+export interface WizardChannelState {
+  tempId: string
+  type: WizardChannelType
+  title: string
+  /** Credentials channel-specific (Booking: hotel_id+username+password,
+   *  Expedia: eqc_id+username+password, Airbnb: listing_id, etc.).
+   *  Backend cifra AES-256-GCM antes de persistir. NUNCA almacenar plain
+   *  en localStorage post-submit — limpiar al markCompleted del step. */
+  credentials: Record<string, string>
+  /** Si true → backend marca Channel.status='pending_credentials' y skip
+   *  enviar settings a Channex. Permite que el consultor avance sin
+   *  bloquear el wizard cuando el cliente no tiene las credentials a la mano. */
+  configureLater: boolean
+}
 
 export type WizardPlanTier = 'STARTER' | 'PRO' | 'ENTERPRISE'
 export type WizardBillingCycle = 'monthly' | 'annual'
@@ -87,6 +119,17 @@ export interface WizardState {
   /** Rate plans draft — mismo patrón. */
   inventoryRatePlans: WizardRatePlanDraft[]
 
+  // Step 5.5 — Channels (Sprint CHANNEX-AUTO-PROVISION Day 3)
+  /** Master switch — si false, backend skip TODO el provisioning Channex
+   *  al activar. Útil para clientes que NO usan Channex (Activate Lite
+   *  bundle) o que prefieren onboarding OTAs manual post-trial. Default
+   *  true porque CHANNEX-AUTO-PROVISION es valor diferencial v1.0.0. */
+  channexPushEnabled: boolean
+  /** Lista de canales OTA a habilitar al activar. Cada uno con type +
+   *  credentials encriptadas server-side. Vacío = no canales (cliente
+   *  los agrega después en /nova/billing/channex). */
+  channels: WizardChannelState[]
+
   // Step 6 — Staff
   orgOwnerEmail: string
   orgOwnerName: string
@@ -130,6 +173,10 @@ export interface WizardState {
   removeRatePlan: (tempId: string) => void
   /** Reemplaza inventoryRoomTypes/RatePlans con los defaults del template. */
   loadInventoryTemplate: (template: WizardState['inventoryTemplate']) => void
+  // Step 5.5 — Channels (Sprint CHANNEX-AUTO-PROVISION Day 3)
+  addChannel: (ch: Omit<WizardChannelState, 'tempId'>) => void
+  updateChannel: (tempId: string, patch: Partial<Omit<WizardChannelState, 'tempId'>>) => void
+  removeChannel: (tempId: string) => void
   reset: () => void
 }
 
@@ -236,6 +283,9 @@ const initialState = {
   inventoryTemplate: 'BOUTIQUE' as WizardState['inventoryTemplate'],
   inventoryRoomTypes: [] as WizardRoomTypeDraft[],
   inventoryRatePlans: [] as WizardRatePlanDraft[],
+  // Step 5.5 — Channels (Sprint CHANNEX-AUTO-PROVISION Day 3)
+  channexPushEnabled: true,
+  channels: [] as WizardChannelState[],
   orgOwnerEmail: '',
   orgOwnerName: '',
   planTier: 'PRO' as WizardPlanTier,
@@ -338,6 +388,27 @@ export const useWizardStore = create<WizardState>()(
           }
         }),
 
+      // ── Channels (Step 5.5 — Sprint CHANNEX-AUTO-PROVISION Day 3) ────
+      addChannel: (ch) =>
+        set((state) => ({
+          channels: [
+            ...state.channels,
+            { ...ch, tempId: makeDraftId('chn') },
+          ],
+        })),
+
+      updateChannel: (tempId, patch) =>
+        set((state) => ({
+          channels: state.channels.map((c) =>
+            c.tempId === tempId ? { ...c, ...patch } : c,
+          ),
+        })),
+
+      removeChannel: (tempId) =>
+        set((state) => ({
+          channels: state.channels.filter((c) => c.tempId !== tempId),
+        })),
+
       reset: () => set({ ...initialState, completedSteps: new Set<WizardStepKey>() }),
     }),
     {
@@ -371,10 +442,11 @@ export const WIZARD_STEPS: StepMeta[] = [
   { key: 'legal-entity', number: 3, label: 'Legal Entity', hint: 'Razón social + PAC' },
   { key: 'properties', number: 4, label: 'Properties', hint: 'Propiedades del cliente' },
   { key: 'inventory', number: 5, label: 'Inventory', hint: 'Habitaciones + rate plans' },
-  { key: 'staff', number: 6, label: 'Staff', hint: 'Org Owner + equipo' },
-  { key: 'integrations', number: 7, label: 'Integrations', hint: '4 health-checks' },
-  { key: 'plan-discount', number: 8, label: 'Plan y cobro', hint: 'Plan + descuento opcional' },
-  { key: 'activation', number: 9, label: 'Activación', hint: 'Go-live + setup link' },
+  { key: 'channels', number: 6, label: 'Canales OTA', hint: 'Booking / Expedia / Airbnb' },
+  { key: 'staff', number: 7, label: 'Staff', hint: 'Org Owner + equipo' },
+  { key: 'integrations', number: 8, label: 'Integrations', hint: '4 health-checks' },
+  { key: 'plan-discount', number: 9, label: 'Plan y cobro', hint: 'Plan + descuento opcional' },
+  { key: 'activation', number: 10, label: 'Activación', hint: 'Go-live + setup link' },
 ]
 
 // ─── Validation helpers (forcing functions per step) ───────────────
@@ -403,6 +475,11 @@ export function canCompleteStep(step: WizardStepKey, s: WizardState): { ok: bool
       return { ok: true }
     case 'inventory':
       return { ok: true } // diferido a Day 15
+    case 'channels':
+      // Sprint CHANNEX-AUTO-PROVISION Day 3 — siempre OK avanzar. Si
+      // channexPushEnabled=false el step es informativo. Validación per-channel
+      // (credentials completas o configureLater) la hace el dialog server-side.
+      return { ok: true }
     case 'staff':
       if (!s.orgOwnerEmail.includes('@'))
         return { ok: false, reason: 'Email válido del Org Owner requerido' }

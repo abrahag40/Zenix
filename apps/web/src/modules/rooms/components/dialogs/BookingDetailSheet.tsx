@@ -51,9 +51,10 @@ import {
 
 import { getStayStatus } from '../../utils/timeline.utils'
 import { PaymentStatusBadge } from '../shared/PaymentStatusBadge'
-import { useLogContact, useChargeNoShow, useWaiveNoShow, useEarlyCheckout, useUpdateGuestStay, useStayPayments, useVoidPayment, useRegisterPayment, useStayContext } from '../../hooks/useGuestStays'
+import { useLogContact, useEarlyCheckout, useUpdateGuestStay, useStayPayments, useVoidPayment, useRegisterPayment, useStayContext, useRegisterNoShowCharge } from '../../hooks/useGuestStays'
 import { useStayUpdatedSSE } from '../../hooks/useStayUpdatedSSE'
 import { EarlyCheckoutDialog } from './EarlyCheckoutDialog'
+import { RegisterNoShowChargeDialog } from './RegisterNoShowChargeDialog'
 import { InlineEditField } from '../shared/InlineEditField'
 import { ReservationNotesThread } from '../shared/ReservationNotesThread'
 import { ChangeConfirmDialog } from '../shared/ChangeConfirmDialog'
@@ -695,11 +696,6 @@ export function BookingDetailSheet({
   const [noShowReason, setNoShowReason] = useState('')
   const [waiveCharge, setWaiveCharge] = useState(false)
   const logContact  = useLogContact(stay?.id ?? '')
-  const chargeNoShow = useChargeNoShow(stay?.id ?? '')
-  const waiveNoShow  = useWaiveNoShow(stay?.id ?? '')
-  const [showWaiveInput, setShowWaiveInput] = useState(false)
-  const [waiveReason, setWaiveReason] = useState('')
-  const [waiveError, setWaiveError] = useState<string | null>(null)
   const { shakeClass: waiveShake, trigger: triggerWaiveShake } = useShakeOnInvalid()
 
   // W3.2 — Maintenance tickets activos en la habitación de esta reserva.
@@ -710,6 +706,10 @@ export function BookingDetailSheet({
     : []
   const [showEarlyCheckout, setShowEarlyCheckout] = useState(false)
   const earlyCheckoutMutation = useEarlyCheckout(propertyId ?? '')
+
+  // No-show admin charge — Sprint POST-NETFLIX-TRIAL (2026-05-29)
+  const [showNoShowChargeDialog, setShowNoShowChargeDialog] = useState(false)
+  const registerNoShowChargeMut = useRegisterNoShowCharge(propertyId ?? '')
 
   // Sprint EDIT-RESERVATION — hook único para todas las ediciones inline.
   // Backend aplica matriz phase×campo + audit log. El frontend solo dispatcha.
@@ -1753,125 +1753,134 @@ export function BookingDetailSheet({
                     )}
                   </p>
 
-                  {/* Estado PENDING + sin tarjeta */}
-                  {stay.noShowChargeStatus === 'PENDING' && !stay.stripePaymentMethodId && (
-                    <p className="text-[11px] text-red-600">
-                      Sin tarjeta registrada — cobro manual necesario.
-                    </p>
+                  {/*
+                    Sprint POST-NETFLIX-TRIAL (2026-05-29) — flujo admin del cobro.
+                    Stripe NO se usa para no-show (fuera del scope — Stripe solo
+                    para subscription billing del hotel + booking engine). Recepción
+                    cobra fuera de Zenix (efectivo / OTA VCC / POS) y registra el
+                    outcome via POST /v1/guest-stays/:id/register-noshow-charge.
+                  */}
+
+                  {/* OTA Guarantee — datos de tarjeta enviados por la OTA en booking_new */}
+                  {stay.channexGuaranteeMeta && (
+                    <div className="rounded-lg border border-sky-200 bg-sky-50/60 px-2.5 py-2 text-[11px] text-sky-900">
+                      <div className="font-semibold flex items-center gap-1.5">
+                        <CreditCard className="h-3 w-3" />
+                        Datos OTA para cobro
+                        {stay.channexGuaranteeMeta.isVirtual && (
+                          <span className="ml-auto rounded bg-sky-200 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-sky-900">
+                            Virtual Card
+                          </span>
+                        )}
+                      </div>
+                      <dl className="mt-1.5 grid grid-cols-2 gap-x-2 gap-y-0.5">
+                        {stay.channexGuaranteeMeta.cardType && (
+                          <>
+                            <dt className="text-sky-700">Tipo</dt>
+                            <dd className="font-mono text-sky-900">{stay.channexGuaranteeMeta.cardType}</dd>
+                          </>
+                        )}
+                        {stay.channexGuaranteeMeta.masked && (
+                          <>
+                            <dt className="text-sky-700">Tarjeta</dt>
+                            <dd className="font-mono text-sky-900">{stay.channexGuaranteeMeta.masked}</dd>
+                          </>
+                        )}
+                        {stay.channexGuaranteeMeta.expirationDate && (
+                          <>
+                            <dt className="text-sky-700">Vence</dt>
+                            <dd className="font-mono text-sky-900">{stay.channexGuaranteeMeta.expirationDate}</dd>
+                          </>
+                        )}
+                        {stay.channexGuaranteeMeta.meta?.balance != null && (
+                          <>
+                            <dt className="text-sky-700">Balance VCC</dt>
+                            <dd className="font-mono text-sky-900">
+                              {stay.channexGuaranteeMeta.meta.currency ?? ''}{' '}
+                              {String(stay.channexGuaranteeMeta.meta.balance)}
+                            </dd>
+                          </>
+                        )}
+                        {stay.channexGuaranteeMeta.meta?.effectiveDate && (
+                          <>
+                            <dt className="text-sky-700">VCC activa</dt>
+                            <dd className="font-mono text-sky-900">{stay.channexGuaranteeMeta.meta.effectiveDate}</dd>
+                          </>
+                        )}
+                      </dl>
+                      <p className="mt-1.5 text-[10px] text-sky-700">
+                        Usa estos datos en tu terminal POS para procesar el cargo manualmente,
+                        luego registra el resultado aquí.
+                      </p>
+                    </div>
                   )}
 
-                  {/* Estado PENDING + hay tarjeta → botones de acción */}
-                  {stay.noShowChargeStatus === 'PENDING' && stay.stripePaymentMethodId && (
-                    <>
-                      {!showWaiveInput ? (
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            className="flex-1 text-xs bg-red-600 hover:bg-red-700 text-white h-8"
-                            disabled={chargeNoShow.isPending}
-                            onClick={() => chargeNoShow.mutate()}
-                          >
-                            <CreditCard className="h-3.5 w-3.5 mr-1.5" />
-                            {chargeNoShow.isPending ? 'Procesando…' : 'Procesar cargo'}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="flex-1 text-xs h-8 border-red-200 text-red-700 hover:bg-red-100"
-                            onClick={() => setShowWaiveInput(true)}
-                          >
-                            <HandCoins className="h-3.5 w-3.5 mr-1.5" />
-                            Perdonar
-                          </Button>
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          <div className={waiveShake}>
-                            <input
-                              autoFocus
-                              type="text"
-                              placeholder="Razón para perdonar"
-                              value={waiveReason}
-                              onChange={(e) => {
-                                setWaiveReason(e.target.value)
-                                if (waiveError) setWaiveError(null)
-                              }}
-                              className={`w-full text-xs border rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-red-300 ${
-                                waiveError ? 'border-red-400' : 'border-red-200'
-                              }`}
-                            />
-                          </div>
-                          {waiveError && (
-                            <p className="text-[11px] text-red-600">{waiveError}</p>
-                          )}
-                          <div className="flex gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="flex-1 text-xs h-8"
-                              onClick={() => { setShowWaiveInput(false); setWaiveReason(''); setWaiveError(null) }}
-                            >
-                              Cancelar
-                            </Button>
-                            <Button
-                              size="sm"
-                              className="flex-1 text-xs h-8 bg-amber-600 hover:bg-amber-700 text-white"
-                              disabled={waiveNoShow.isPending}
-                              onClick={() => {
-                                if (waiveReason.trim().length < 5) {
-                                  setWaiveError('Escribe al menos 5 caracteres explicando el motivo.')
-                                  triggerWaiveShake()
-                                  return
-                                }
-                                setWaiveError(null)
-                                waiveNoShow.mutate(waiveReason)
-                                setShowWaiveInput(false)
-                                setWaiveReason('')
-                              }}
-                            >
-                              Confirmar perdón
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-                    </>
+                  {/* Estado actual del cargo */}
+                  {stay.noShowChargeStatus === 'PENDING' && (
+                    <div className="space-y-2">
+                      <p className="text-[11px] text-amber-700">
+                        Cargo pendiente — cobra en caja / terminal / OTA VCC y registra el resultado.
+                      </p>
+                      <Button
+                        size="sm"
+                        onClick={() => setShowNoShowChargeDialog(true)}
+                        className="w-full h-8 bg-emerald-600 hover:bg-emerald-700 text-white text-xs"
+                      >
+                        Registrar cobro
+                      </Button>
+                    </div>
                   )}
 
-                  {/* Estado CHARGED */}
                   {stay.noShowChargeStatus === 'CHARGED' && (
-                    <p className="text-[11px] font-semibold text-emerald-700 flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
-                      Cargo procesado ✓
-                    </p>
-                  )}
-
-                  {/* Estado FAILED → reintentar */}
-                  {stay.noShowChargeStatus === 'FAILED' && (
-                    <div className="space-y-1.5">
-                      <p className="text-[11px] text-red-700 font-semibold">Cobro fallido</p>
-                      {stay.stripePaymentMethodId && (
-                        <Button
-                          size="sm"
-                          className="w-full text-xs bg-red-600 hover:bg-red-700 text-white h-8"
-                          disabled={chargeNoShow.isPending}
-                          onClick={() => chargeNoShow.mutate()}
-                        >
-                          <CreditCard className="h-3.5 w-3.5 mr-1.5" />
-                          {chargeNoShow.isPending ? 'Procesando…' : '↻ Reintentar cobro'}
-                        </Button>
+                    <div className="space-y-1">
+                      <p className="text-[11px] font-semibold text-emerald-700 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+                        Cobro registrado ✓
+                      </p>
+                      {stay.noShowChargeMethod && (
+                        <p className="text-[10px] text-slate-600">
+                          Método: <span className="font-medium">{stay.noShowChargeMethod}</span>
+                          {stay.noShowChargeReference && <> · Ref: <span className="font-mono">{stay.noShowChargeReference}</span></>}
+                          {stay.noShowChargeAt && (
+                            <> · {format(stay.noShowChargeAt, "d MMM HH:mm", { locale: es })}</>
+                          )}
+                        </p>
                       )}
                     </div>
                   )}
 
-                  {/* Estado WAIVED */}
-                  {stay.noShowChargeStatus === 'WAIVED' && (
-                    <p className="text-[11px] font-semibold text-amber-700 flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
-                      Cargo perdonado
-                    </p>
+                  {stay.noShowChargeStatus === 'FAILED' && (
+                    <div className="space-y-2">
+                      <p className="text-[11px] text-red-700 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-red-500 inline-block" />
+                        Cobro fallido
+                        {stay.noShowChargeMethod && (
+                          <span className="text-slate-500">· {stay.noShowChargeMethod}</span>
+                        )}
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setShowNoShowChargeDialog(true)}
+                        className="w-full h-8 text-xs"
+                      >
+                        Reintentar / actualizar outcome
+                      </Button>
+                    </div>
                   )}
 
-                  {/* Estado NOT_APPLICABLE */}
+                  {stay.noShowChargeStatus === 'WAIVED' && (
+                    <div className="space-y-1">
+                      <p className="text-[11px] font-semibold text-amber-700 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
+                        Cargo perdonado
+                      </p>
+                      {stay.noShowChargeReason && (
+                        <p className="text-[10px] text-slate-600 italic">"{stay.noShowChargeReason}"</p>
+                      )}
+                    </div>
+                  )}
+
                   {stay.noShowChargeStatus === 'NOT_APPLICABLE' && (
                     <p className="text-[11px] text-slate-500">Sin cargo aplicable</p>
                   )}
@@ -2316,6 +2325,24 @@ export function BookingDetailSheet({
       roomLabel={stay.roomNumber ? `Hab. ${stay.roomNumber}` : 'Habitación'}
       checkinAt={new Date(stay.checkIn)}
       scheduledCheckout={new Date(stay.checkOut)}
+    />
+
+    {/* Sprint POST-NETFLIX-TRIAL (2026-05-29) — registro admin del cobro del no-show. */}
+    <RegisterNoShowChargeDialog
+      open={showNoShowChargeDialog}
+      onClose={() => setShowNoShowChargeDialog(false)}
+      onConfirm={(dto) => {
+        const stayId = stay.guestStayId ?? stay.id
+        registerNoShowChargeMut.mutate(
+          { stayId, ...dto },
+          { onSuccess: () => setShowNoShowChargeDialog(false) },
+        )
+      }}
+      isPending={registerNoShowChargeMut.isPending}
+      guestName={stay.guestName}
+      feeAmount={stay.noShowFeeAmount}
+      feeCurrency={stay.noShowFeeCurrency}
+      hasOtaGuarantee={!!stay.channexGuaranteeMeta}
     />
 
     {/* ── ChangeConfirmDialog: approval flow para paxCount/rate post-checkin.

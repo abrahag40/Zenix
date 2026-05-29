@@ -41,12 +41,37 @@ export interface GuestStayBlock {
   noShowFeeAmount?: number
   noShowFeeCurrency?: string
   noShowChargeStatus?: 'NOT_APPLICABLE' | 'PENDING' | 'CHARGED' | 'FAILED' | 'WAIVED'
+  // Sprint POST-NETFLIX-TRIAL (2026-05-29) — outcome del cobro manual
+  noShowChargeMethod?: 'cash' | 'transfer' | 'ota_card' | 'manual_card' | 'ota_collect' | 'other' | null
+  noShowChargeReference?: string | null
+  noShowChargeAt?: Date | null
+  noShowChargeReason?: string | null
+  /**
+   * OTA guarantee data captured by Channex webhook on booking_new.
+   * For Booking Genius VCC / Expedia Collect this includes a PCI-safe
+   * masked card number (last 4) + expiration + virtual card balance.
+   * Recepción usa estos datos para cobrar via terminal POS manualmente.
+   * Backend persiste en GuestStay.channex_guarantee_meta (Json).
+   */
+  channexGuaranteeMeta?: {
+    cardType?: string
+    masked?: string
+    expirationDate?: string
+    isVirtual?: boolean
+    meta?: {
+      currency?: string
+      balance?: number | string
+      effectiveDate?: string
+      expirationDate?: string
+    }
+  } | null
   // Cancel-Archive (Sprint 2026-05-16)
   cancelledAt?: Date
   cancelInitiator?: 'GUEST' | 'HOTEL' | 'OTA' | 'ADMIN_ERROR' | 'SYSTEM'
   cancelReason?: string
   cancelReasonCode?: string
-  stripePaymentMethodId?: string
+  // stripePaymentMethodId eliminado 2026-05-29 — no-show charging vía Stripe
+  // estaba fuera del scope. Cargo se registra manual en flujo PMS.
   otaName?: string
   otaReservationId?: string
   pmsReservationId?: string

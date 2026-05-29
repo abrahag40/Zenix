@@ -115,3 +115,30 @@ export class CreateCustomerPortalSessionDto {
   @IsString()
   returnUrl?: string
 }
+
+// ─── Netflix-style trial flow ──────────────────────────────────────────
+// Sprint NETFLIX-TRIAL Day 1. Sub queda en 'pending_payment_method' hasta
+// que webhook setup_intent.succeeded dispare activateAfterSetupIntent().
+
+export class CreatePendingSubscriptionDto extends CreateSubscriptionDto {
+  // Hereda todos los campos del CreateSubscriptionDto. La diferencia es
+  // semántica: este NO crea Stripe Subscription, solo el Customer + persiste
+  // local Sub con status='pending_payment_method' + pendingCouponId/pendingTrialDays
+  // para uso futuro del webhook handler.
+}
+
+export class CreateSetupCheckoutSessionDto {
+  @IsString()
+  @Length(8, 64)
+  organizationId!: string
+
+  // success_url al que Stripe redirige cuando el customer agrega tarjeta OK.
+  // Debe ser un URL del frontend con placeholder `{CHECKOUT_SESSION_ID}` que
+  // Stripe substituye al redirect — Zenix lo usa para fetch del status.
+  @IsString()
+  successUrl!: string
+
+  // cancel_url al que Stripe redirige si el customer abandona el flow.
+  @IsString()
+  cancelUrl!: string
+}

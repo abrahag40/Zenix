@@ -25,6 +25,14 @@ function makeBillingEmailMock() {
   } as never
 }
 
+function makeSubscriptionMock() {
+  return {
+    activateAfterSetupIntent: jest
+      .fn()
+      .mockResolvedValue({ activated: false, reason: 'no_pending_subscription' }),
+  } as never
+}
+
 function makePrismaMock(opts: { existingEvent?: boolean; existingSub?: boolean; throwP2002?: boolean } = {}) {
   return {
     subscriptionEvent: {
@@ -50,7 +58,7 @@ describe('WebhookHandlerService', () => {
   describe('idempotency', () => {
     it('skip si stripeEventId ya existe en DB', async () => {
       const prisma = makePrismaMock({ existingEvent: true })
-      const service = new WebhookHandlerService(prisma, makeBillingEmailMock())
+      const service = new WebhookHandlerService(prisma, makeBillingEmailMock(), makeSubscriptionMock())
       const result = await service.handle(makeEvent({ id: 'evt_dup' }))
       expect(result).toEqual({ handled: false, idempotent: true })
       expect((prisma as never as { subscriptionEvent: { create: jest.Mock } }).subscriptionEvent.create).not.toHaveBeenCalled()
@@ -58,7 +66,7 @@ describe('WebhookHandlerService', () => {
 
     it('UNIQUE constraint P2002 al insertar — swallow + idempotent', async () => {
       const prisma = makePrismaMock({ existingEvent: false, existingSub: true, throwP2002: true })
-      const service = new WebhookHandlerService(prisma, makeBillingEmailMock())
+      const service = new WebhookHandlerService(prisma, makeBillingEmailMock(), makeSubscriptionMock())
       // No throws — el handler P2002 lo swallow
       const result = await service.handle(
         makeEvent({
@@ -79,7 +87,7 @@ describe('WebhookHandlerService', () => {
   describe('dispatch', () => {
     it('routes customer.subscription.created', async () => {
       const prisma = makePrismaMock({ existingSub: true })
-      const service = new WebhookHandlerService(prisma, makeBillingEmailMock())
+      const service = new WebhookHandlerService(prisma, makeBillingEmailMock(), makeSubscriptionMock())
       const result = await service.handle(
         makeEvent({
           type: 'customer.subscription.created',
@@ -91,7 +99,7 @@ describe('WebhookHandlerService', () => {
 
     it('routes customer.subscription.updated con sub local existente', async () => {
       const prisma = makePrismaMock({ existingSub: true })
-      const service = new WebhookHandlerService(prisma, makeBillingEmailMock())
+      const service = new WebhookHandlerService(prisma, makeBillingEmailMock(), makeSubscriptionMock())
       const result = await service.handle(
         makeEvent({
           type: 'customer.subscription.updated',
@@ -109,7 +117,7 @@ describe('WebhookHandlerService', () => {
 
     it('skip customer.subscription.updated si sub local NO existe', async () => {
       const prisma = makePrismaMock({ existingSub: false })
-      const service = new WebhookHandlerService(prisma, makeBillingEmailMock())
+      const service = new WebhookHandlerService(prisma, makeBillingEmailMock(), makeSubscriptionMock())
       const result = await service.handle(
         makeEvent({
           type: 'customer.subscription.updated',
@@ -127,7 +135,7 @@ describe('WebhookHandlerService', () => {
 
     it('routes invoice.paid', async () => {
       const prisma = makePrismaMock({ existingSub: true })
-      const service = new WebhookHandlerService(prisma, makeBillingEmailMock())
+      const service = new WebhookHandlerService(prisma, makeBillingEmailMock(), makeSubscriptionMock())
       const result = await service.handle(
         makeEvent({
           type: 'invoice.paid',
@@ -146,7 +154,7 @@ describe('WebhookHandlerService', () => {
 
     it('routes invoice.payment_failed', async () => {
       const prisma = makePrismaMock({ existingSub: true })
-      const service = new WebhookHandlerService(prisma, makeBillingEmailMock())
+      const service = new WebhookHandlerService(prisma, makeBillingEmailMock(), makeSubscriptionMock())
       const result = await service.handle(
         makeEvent({
           type: 'invoice.payment_failed',
@@ -167,7 +175,7 @@ describe('WebhookHandlerService', () => {
 
     it('graceful skip para event type desconocido', async () => {
       const prisma = makePrismaMock()
-      const service = new WebhookHandlerService(prisma, makeBillingEmailMock())
+      const service = new WebhookHandlerService(prisma, makeBillingEmailMock(), makeSubscriptionMock())
       const result = await service.handle(
         makeEvent({ type: 'charge.captured', object: {} }),
       )
@@ -186,7 +194,7 @@ describe('WebhookHandlerService', () => {
           findUnique: jest.fn().mockResolvedValue({ id: 'local-1' }),
         },
       } as never
-      const service = new WebhookHandlerService(prisma, makeBillingEmailMock())
+      const service = new WebhookHandlerService(prisma, makeBillingEmailMock(), makeSubscriptionMock())
       await expect(
         service.handle(
           makeEvent({

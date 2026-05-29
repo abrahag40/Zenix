@@ -26,6 +26,51 @@ class MarkNoShowDto {
   waiveCharge?: boolean
 }
 
+/**
+ * Registra cómo recepción cobró el no-show post-marcado. Flujo 100%
+ * administrativo — Zenix NO procesa el cobro automáticamente (no usamos
+ * Stripe en check-in). Recepción cobra fuera de Zenix (efectivo, transfer,
+ * carga manual de tarjeta OTA, llamada a Booking VCC, etc.) y luego registra
+ * el resultado aquí para el tracking del estado.
+ *
+ * Una vez registrado, el `noShowChargeStatus` queda inmutable salvo
+ * revertNoShow. Para evidencia fiscal/chargeback.
+ */
+class RegisterNoShowChargeDto {
+  @IsIn(['CHARGED', 'FAILED', 'WAIVED'])
+  status!: 'CHARGED' | 'FAILED' | 'WAIVED'
+
+  /**
+   * Método físico del cobro:
+   *   · cash         — recepción cobró en efectivo
+   *   · transfer     — transferencia bancaria recibida
+   *   · ota_card     — tarjeta proporcionada por la OTA (Booking Genius VCC,
+   *                    Expedia virtual card, etc. — recepción la cargó manual
+   *                    en su POS o llamó al cardholder)
+   *   · manual_card  — tarjeta tipeada manual en POS independiente
+   *   · ota_collect  — OTA ya cobró al huésped, hotel recibirá payout
+   *   · other        — caso no estándar, requiere reference + reason
+   */
+  @IsIn(['cash', 'transfer', 'ota_card', 'manual_card', 'ota_collect', 'other'])
+  method!: 'cash' | 'transfer' | 'ota_card' | 'manual_card' | 'ota_collect' | 'other'
+
+  /**
+   * Referencia del cobro: número de aprobación POS, ID de transferencia
+   * bancaria, ticket de caja. Opcional pero recomendado para audit trail.
+   */
+  @IsOptional()
+  @IsString()
+  reference?: string
+
+  /**
+   * Razón obligatoria para status='WAIVED' (perdón del cargo) o
+   * status='FAILED'. Compliance + audit.
+   */
+  @IsOptional()
+  @IsString()
+  reason?: string
+}
+
 class ExtendStayDto {
   @IsString()
   newCheckOut: string
@@ -432,6 +477,35 @@ export class GuestStaysController {
     @CurrentUser() actor: JwtPayload,
   ) {
     return this.service.revertNoShow(id, actor.sub)
+  }
+
+  /**
+   * POST /v1/guest-stays/:id/register-noshow-charge
+   *
+   * Registra el resultado del cobro manual del no-show. Flujo administrativo
+   * 100% — Zenix NO procesa Stripe en check-in. Recepción cobra fuera de
+   * Zenix con los datos de la OTA (Booking Genius VCC, Expedia Collect),
+   * efectivo, transferencia, etc. — y registra aquí cómo le fue.
+   *
+   * Estados que acepta el endpoint:
+   *   · CHARGED → cargo cobrado OK
+   *   · FAILED  → tarjeta rechazada / fondos insuficientes / sin respuesta
+   *   · WAIVED  → recepción decidió perdonar (requiere reason)
+   *
+   * Sólo se puede registrar si:
+   *   · stay tiene noShowAt set (estadía ya marcada como no-show)
+   *   · noShowChargeStatus está en 'PENDING' (no se sobrescribe historial)
+   *
+   * Audit trail: actor, timestamp, method, reference, reason quedan en BD.
+   * Inmutable post-registro (sólo revertNoShow puede reabrir todo).
+   */
+  @Post(':id/register-noshow-charge')
+  registerNoShowCharge(
+    @Param('id') id: string,
+    @Body() dto: RegisterNoShowChargeDto,
+    @CurrentUser() actor: JwtPayload,
+  ) {
+    return this.service.registerNoShowCharge(id, actor.sub, dto)
   }
 
   /**

@@ -13,6 +13,8 @@ import { StepBrand } from '../components/wizard/StepBrand'
 import { StepLegalEntity } from '../components/wizard/StepLegalEntity'
 import { StepProperties } from '../components/wizard/StepProperties'
 import { StepInventory } from '../components/wizard/StepInventory'
+// Sprint CHANNEX-AUTO-PROVISION Day 3 — Step 5.5 channels OTA selection
+import { StepChannels } from '../components/wizard/StepChannels'
 import { StepStaff } from '../components/wizard/StepStaff'
 import { StepIntegrations } from '../components/wizard/StepIntegrations'
 import { StepPlanDiscount } from '../components/wizard/StepPlanDiscount'
@@ -42,6 +44,8 @@ export function NovaWizardPage() {
       return <StepProperties />
     case 'inventory':
       return <StepInventory />
+    case 'channels':
+      return <StepChannels />
     case 'staff':
       return <StepStaff />
     case 'integrations':

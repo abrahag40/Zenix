@@ -8,6 +8,7 @@ import { useAuthStore } from './store/auth'
 import { Sidebar } from './components/Sidebar'
 import { LoginPage } from './pages/LoginPage'
 import { SetupPage } from './pages/SetupPage'
+import { OnboardingCardCapture } from './pages/OnboardingCardCapture'
 import { DashboardPage } from './pages/DashboardPage'
 import { RoomsPage } from './pages/RoomsPage'
 import { RoomsPage as PmsPage } from './modules/rooms/pages/RoomsPage'
@@ -38,6 +39,7 @@ import { NovaWizardPage } from './nova/pages/NovaWizardPage'
 // Sprint BILLING-DISCOUNT-CODES Day 2-3 — Billing landing + codes CRUD
 import { NovaBillingPage } from './nova/pages/NovaBillingPage'
 import { NovaBillingCodesPage } from './nova/pages/NovaBillingCodesPage'
+import { NovaBillingChannexPage } from './nova/pages/NovaBillingChannexPage'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -95,6 +97,8 @@ export default function App() {
           {/* Day 17 — Org Owner activation. Public route. Token validation
               en backend (single-use, 72h TTL, SHA256 hashed at-rest). */}
           <Route path="/setup/:token" element={<SetupPage />} />
+          {/* Netflix-style trial — card capture post-password (Day 2) */}
+          <Route path="/onboarding/card" element={<OnboardingCardCapture />} />
           <Route path="/dashboard"       element={<ProtectedLayout><DashboardPage /></ProtectedLayout>} />
           {/* Sprint 9 D15 consolidación: /overrides y /planning → /kanban.
               Acciones operativas (confirmar salida, ad-hoc, forzar URGENT,
@@ -124,6 +128,7 @@ export default function App() {
           <Route path="/nova/wizard"     element={<NovaWizardPage />} />
           <Route path="/nova/billing"          element={<NovaBillingPage />} />
           <Route path="/nova/billing/codigos"  element={<NovaBillingCodesPage />} />
+          <Route path="/nova/billing/channex"  element={<NovaBillingChannexPage />} />
           <Route path="/nova/audit"      element={<NovaAuditLogPage />} />
           <Route path="/nova/settings"   element={<NovaSettingsPage />} />
           <Route path="*"                element={<Navigate to="/dashboard" replace />} />

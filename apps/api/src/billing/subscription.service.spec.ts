@@ -122,7 +122,32 @@ function makeStripeMock(opts: {
         }),
       },
     },
+    // Netflix-style trial mocks
+    checkout: {
+      sessions: {
+        create: jest.fn().mockResolvedValue({
+          id: 'cs_test_checkout_setup',
+          url: 'https://checkout.stripe.com/c/pay/cs_test_checkout_setup',
+          customer: 'cus_test_123',
+          mode: 'setup',
+          setup_intent: 'seti_test_pending',
+          status: 'open',
+          metadata: {},
+        }),
+      },
+    },
+    setupIntents: {
+      retrieve: jest.fn().mockResolvedValue({
+        id: 'seti_test_succeeded',
+        customer: 'cus_test_123',
+        payment_method: 'pm_card_visa',
+        status: 'succeeded',
+        metadata: { zenix_kind: 'NETFLIX_TRIAL_CARD_CAPTURE' },
+      }),
+    },
   }
+  // customers.update used by activateAfterSetupIntent
+  ;(stripe.customers as any).update = jest.fn().mockResolvedValue({ id: 'cus_test_123' })
   return stripe as any
 }
 
@@ -482,6 +507,212 @@ describe('SubscriptionService', () => {
       })
       const service = makeService({ stripe })
       await expect(service.createSubscription(createDtoBase, baseActor)).rejects.toThrow()
+    })
+  })
+
+  // ─── Netflix-style trial flow (Day 1) ──────────────────────────────────
+  describe('createPendingSubscription (Netflix trial)', () => {
+    it('crea Customer + persiste local Sub status=pending_payment_method', async () => {
+      const prisma = makePrismaMock()
+      // upsert devuelve la row tal cual la persistimos
+      prisma.subscription.upsert = jest.fn().mockImplementation(async (args: any) => ({
+        id: 'sub-local-pending',
+        ...args.create,
+      }))
+      const stripe = makeStripeMock()
+      const service = makeService({ prisma, stripe })
+      const sub = await service.createPendingSubscription(
+        { ...createDtoBase, trialDays: 14, stripeCouponId: 'coup_welcome10' },
+        baseActor,
+      )
+      expect(stripe.customers.create).toHaveBeenCalled()
+      expect(prisma.subscription.upsert).toHaveBeenCalled()
+      expect(sub.status).toBe('pending_payment_method')
+      expect(sub.pendingCouponId).toBe('coup_welcome10')
+      expect(sub.pendingTrialDays).toBe(14)
+      // stripeSubscriptionId tiene prefix 'pending_'
+      expect(String(sub.stripeSubscriptionId)).toMatch(/^pending_/)
+    })
+
+    it('Stripe no configurado → throws', async () => {
+      const billing = makeBillingMock({ stripeConfigured: false })
+      const service = makeService({ billing })
+      await expect(
+        service.createPendingSubscription(createDtoBase, baseActor),
+      ).rejects.toThrow()
+    })
+
+    it('Organization no existe → 404', async () => {
+      const prisma = makePrismaMock({ orgExists: false })
+      const service = makeService({ prisma })
+      await expect(
+        service.createPendingSubscription(createDtoBase, baseActor),
+      ).rejects.toThrow(NotFoundException)
+    })
+
+    it('Sub activa duplicada → 409', async () => {
+      const prisma = makePrismaMock({ existingSub: { status: 'active', id: 'sub-already' } })
+      const service = makeService({ prisma })
+      await expect(
+        service.createPendingSubscription(createDtoBase, baseActor),
+      ).rejects.toThrow(ConflictException)
+    })
+  })
+
+  describe('createSetupCheckoutSession (Netflix trial)', () => {
+    it('returns Stripe Checkout URL cuando Sub está en pending_payment_method', async () => {
+      const prisma = makePrismaMock({
+        existingSub: {
+          id: 'sub-pending-1',
+          organizationId: 'org-1',
+          stripeCustomerId: 'cus_test_123',
+          status: 'pending_payment_method',
+        },
+      })
+      const stripe = makeStripeMock()
+      const service = makeService({ prisma, stripe })
+      const result = await service.createSetupCheckoutSession(
+        {
+          organizationId: 'org-1',
+          successUrl: 'https://app.zenix.com/onboarding/card?payment=success',
+          cancelUrl: 'https://app.zenix.com/onboarding/card?payment=cancel',
+        },
+        baseActor,
+      )
+      expect(stripe.checkout.sessions.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mode: 'setup',
+          customer: 'cus_test_123',
+          payment_method_types: ['card'],
+        }),
+        expect.objectContaining({ idempotencyKey: expect.stringContaining('setup_checkout_') }),
+      )
+      expect(result.url).toContain('checkout.stripe.com')
+      expect(result.customerId).toBe('cus_test_123')
+    })
+
+    it('Sub status != pending_payment_method → 409', async () => {
+      const prisma = makePrismaMock({
+        existingSub: { id: 'sub-active', status: 'trialing', stripeCustomerId: 'cus_x' },
+      })
+      const service = makeService({ prisma })
+      await expect(
+        service.createSetupCheckoutSession(
+          {
+            organizationId: 'org-1',
+            successUrl: 'https://x',
+            cancelUrl: 'https://y',
+          },
+          baseActor,
+        ),
+      ).rejects.toThrow(ConflictException)
+    })
+
+    it('Sub no existe → 404', async () => {
+      const prisma = makePrismaMock() // existingSub default null
+      const service = makeService({ prisma })
+      await expect(
+        service.createSetupCheckoutSession(
+          {
+            organizationId: 'org-1',
+            successUrl: 'https://x',
+            cancelUrl: 'https://y',
+          },
+          baseActor,
+        ),
+      ).rejects.toThrow(NotFoundException)
+    })
+  })
+
+  describe('activateAfterSetupIntent (Netflix trial)', () => {
+    function makePendingSubMock(overrides: any = {}) {
+      const baseSub = {
+        id: 'sub-local-pending',
+        organizationId: 'org-1',
+        stripeCustomerId: 'cus_test_123',
+        stripeSubscriptionId: 'pending_uuid-x',
+        status: 'pending_payment_method',
+        planTier: 'PRO',
+        billingCycle: 'monthly',
+        currency: 'MXN' as const,
+        propertyCount: 1,
+        pendingCouponId: null,
+        pendingTrialDays: 14,
+        ...overrides,
+      }
+      return {
+        organization: {
+          findUnique: jest.fn().mockResolvedValue({ id: 'org-1', name: 'Test' }),
+        },
+        subscription: {
+          findFirst: jest.fn().mockResolvedValue(baseSub),
+          findUnique: jest.fn().mockResolvedValue(baseSub),
+          update: jest.fn().mockImplementation(async (args: any) => ({ ...baseSub, ...args.data })),
+        },
+      } as any
+    }
+
+    it('happy path — crea Stripe Sub real con default_payment_method + trial', async () => {
+      const prisma = makePendingSubMock()
+      const stripe = makeStripeMock()
+      const service = makeService({ prisma, stripe })
+      const result = await service.activateAfterSetupIntent('seti_test_succeeded')
+      expect(result.activated).toBe(true)
+      expect(stripe.customers.update).toHaveBeenCalledWith('cus_test_123', {
+        invoice_settings: { default_payment_method: 'pm_card_visa' },
+      })
+      expect(stripe.subscriptions.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          customer: 'cus_test_123',
+          default_payment_method: 'pm_card_visa',
+          trial_period_days: 14,
+        }),
+        expect.objectContaining({
+          idempotencyKey: expect.stringContaining('create_sub_after_setup_'),
+        }),
+      )
+      expect(prisma.subscription.update).toHaveBeenCalled()
+    })
+
+    it('setup_intent NOT succeeded → activated=false (no Stripe call)', async () => {
+      const prisma = makePendingSubMock()
+      const stripe = makeStripeMock()
+      stripe.setupIntents.retrieve = jest.fn().mockResolvedValue({
+        id: 'seti_pending',
+        customer: 'cus_x',
+        payment_method: null,
+        status: 'requires_action',
+        metadata: {},
+      })
+      const service = makeService({ prisma, stripe })
+      const result = await service.activateAfterSetupIntent('seti_pending')
+      expect(result.activated).toBe(false)
+      expect((result as any).reason).toBe('setup_intent_not_succeeded')
+      expect(stripe.subscriptions.create).not.toHaveBeenCalled()
+    })
+
+    it('no pending sub para customer → activated=false (idempotent retry safety)', async () => {
+      const prisma = makePendingSubMock()
+      prisma.subscription.findFirst = jest.fn().mockResolvedValue(null)
+      const stripe = makeStripeMock()
+      const service = makeService({ prisma, stripe })
+      const result = await service.activateAfterSetupIntent('seti_test_succeeded')
+      expect(result.activated).toBe(false)
+      expect((result as any).reason).toBe('no_pending_subscription')
+      expect(stripe.subscriptions.create).not.toHaveBeenCalled()
+    })
+
+    it('attacha pendingCouponId al crear Stripe Sub si existe', async () => {
+      const prisma = makePendingSubMock({ pendingCouponId: 'coup_welcome10' })
+      const stripe = makeStripeMock()
+      const service = makeService({ prisma, stripe })
+      await service.activateAfterSetupIntent('seti_test_succeeded')
+      expect(stripe.subscriptions.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          discounts: [{ coupon: 'coup_welcome10' }],
+        }),
+        expect.anything(),
+      )
     })
   })
 })

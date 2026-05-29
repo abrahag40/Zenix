@@ -138,8 +138,12 @@ export function SetupPage() {
           propertyName: null,
         } as any,
       } as any)
-      toast.success('¡Cuenta activada! Bienvenido a Zenix.', { duration: 4500 })
-      navigate('/dashboard', { replace: true })
+      toast.success('Contraseña guardada — último paso: agregar tarjeta', {
+        duration: 3500,
+      })
+      // Netflix-style trial: redirigimos a card capture page en vez de
+      // /dashboard. El cliente NO entra a Zenix sin tarjeta validada.
+      navigate('/onboarding/card', { replace: true })
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Activación falló'
       setSubmitError(msg)
