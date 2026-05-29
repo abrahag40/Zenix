@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster as SonnerToaster } from 'sonner'
 import { useAuthStore } from './store/auth'
 import { Sidebar } from './components/Sidebar'
+import { PacStatusBanner } from './components/PacStatusBanner'
 import { LoginPage } from './pages/LoginPage'
 import { SetupPage } from './pages/SetupPage'
 import { OnboardingCardCapture } from './pages/OnboardingCardCapture'
@@ -72,6 +73,14 @@ function ProtectedLayout({ children }: { children: React.ReactNode }) {
       <Sidebar />
       {/* pt-14 leaves room for the fixed top bar (h-14) */}
       <main className="pt-14 min-h-screen">
+        {/*
+          Sprint PAC-CLIENT-WARNING (2026-05-29) — banner inline al top
+          del contenido. Scrollea con la página (less intrusive que fixed)
+          pero siempre es lo primero que el cliente ve al cargar /dashboard
+          o cualquier otra ruta. NN/g 2022: non-blocking warnings deben ser
+          visibles sin obstruir flujo. Dismissible per-session (no per-render).
+        */}
+        <PacStatusBanner />
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-5 lg:py-6">
           {children}
         </div>

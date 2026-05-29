@@ -729,6 +729,21 @@ model LegalEntity {
   legalAddress          Json      @map("legal_address") // jsonb — formato per país
   baseCurrency          String    @map("base_currency") // ISO 4217: MXN, COP, CRC, USD, BRL...
   pacCredentials        Json?     @map("pac_credentials") // encrypted at-rest in v1.1+ (placeholder hoy)
+  // Sprint PAC-CLIENT-WARNING (2026-05-29) — visible al cliente cuando
+  // consultor skipea el health-check del wizard Step 8. Cliente recibe
+  // banner sticky en /dashboard + tooltip en botón "Generar CFDI"
+  // hasta que el PAC quede configurado y verificado.
+  //
+  // Valores:
+  //   · CONFIGURED   — credenciales presentes + último health-check OK
+  //   · PENDING      — consultor activó cliente sin PAC (skip warning)
+  //   · FAILED       — credenciales presentes pero health-check no pasa
+  //   · NOT_REQUIRED — el countryCode no requiere PAC (e.g. countries sin
+  //                    invoicing electrónico obligatorio)
+  pacStatus             String    @default("PENDING") @map("pac_status")
+  // Audit del último check + razón si skipped por consultor (Step 8 wizard)
+  pacStatusUpdatedAt    DateTime? @map("pac_status_updated_at")
+  pacStatusReason       String?   @map("pac_status_reason") // p.ej "Skipped en wizard por consultor — cliente lo configurará después"
   // CHANNEX-AUTO-PROVISION (Day 2) — Fase 2/3 migration path. Null = master
   // API key (Fase 1, default). Set = cliente contrató su propia API key
   // (Partner Program Fase 2 / enterprise BYO Fase 3). Encriptado at-rest v1.0.1+.

@@ -619,5 +619,36 @@ describe('WizardActivationService', () => {
         }),
       )
     })
+
+    // Sprint PAC-CLIENT-WARNING (2026-05-29) — pacStatus visible al cliente
+    it('pacOverrideAccepted=true → pacStatus=PENDING con reason explícita', async () => {
+      const prisma = makePrismaMock()
+      const service = new WizardActivationService(prisma, makeAuditMock(), makeEmailMock(), makeSubscriptionMock(), makeDiscountMock(), makeBillingMock(), makeChannexProvisionMock())
+      await service.activate(makeDto({ pacOverrideAccepted: true }), baseActor)
+      expect(prisma._tx.legalEntity.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            pacStatus: 'PENDING',
+            pacStatusUpdatedAt: expect.any(Date),
+            pacStatusReason: expect.stringContaining('sin verificar PAC'),
+          }),
+        }),
+      )
+    })
+
+    it('pacOverrideAccepted=false → pacStatus=CONFIGURED sin reason', async () => {
+      const prisma = makePrismaMock()
+      const service = new WizardActivationService(prisma, makeAuditMock(), makeEmailMock(), makeSubscriptionMock(), makeDiscountMock(), makeBillingMock(), makeChannexProvisionMock())
+      await service.activate(makeDto({ pacOverrideAccepted: false }), baseActor)
+      expect(prisma._tx.legalEntity.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            pacStatus: 'CONFIGURED',
+            pacStatusUpdatedAt: expect.any(Date),
+            pacStatusReason: null,
+          }),
+        }),
+      )
+    })
   })
 })

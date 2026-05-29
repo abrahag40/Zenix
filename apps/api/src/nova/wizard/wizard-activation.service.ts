@@ -114,6 +114,14 @@ export class WizardActivationService {
             pendingConfiguration: true,
             overrideAccepted: dto.pacOverrideAccepted ?? false,
           },
+          // Sprint PAC-CLIENT-WARNING (2026-05-29) — visibilidad al cliente
+          // del estado real del PAC. Si consultor skipea health-check,
+          // queda PENDING y el cliente recibe banner sticky + tooltip CFDI.
+          pacStatus: dto.pacOverrideAccepted ? 'PENDING' : 'CONFIGURED',
+          pacStatusUpdatedAt: new Date(),
+          pacStatusReason: dto.pacOverrideAccepted
+            ? 'Activado por consultor sin verificar PAC en wizard. Cliente debe configurar credenciales antes de facturar.'
+            : null,
           active: true,
         },
       })

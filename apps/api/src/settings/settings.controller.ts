@@ -19,4 +19,18 @@ export class SettingsController {
   update(@CurrentUser() user: JwtPayload, @Body() dto: UpdateSettingsDto) {
     return this.service.update(user.propertyId, dto)
   }
+
+  /**
+   * Sprint PAC-CLIENT-WARNING (2026-05-29).
+   * GET /v1/settings/legal-entity-status
+   *
+   * Retorna el estado del PAC del LegalEntity asociado al property activo.
+   * El frontend usa esto para renderizar banner sticky + tooltip CFDI.
+   * Endpoint específico (no flatten en /settings) porque el shape es
+   * legalEntity-scope, no property-scope.
+   */
+  @Get('legal-entity-status')
+  legalEntityStatus(@CurrentUser() user: JwtPayload) {
+    return this.service.getLegalEntityStatus(user.propertyId)
+  }
 }
