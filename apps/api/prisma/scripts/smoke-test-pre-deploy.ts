@@ -221,6 +221,112 @@ async function checkHttpEndpoints() {
   }
 }
 
+// ─── Check 7: Resend (welcome email) ─────────────────────────────────────
+
+async function checkResend() {
+  console.log('\n[7] Resend (welcome email) — opt-in feature')
+  const key = process.env.RESEND_API_KEY
+  if (!key) {
+    pass('Resend', 'RESEND_API_KEY no set — welcome emails wizard NO se envían (fail-soft OK)')
+    return
+  }
+  try {
+    // GET /domains es read-only — verifies key works sin enviar email real
+    const res = await fetch('https://api.resend.com/domains', {
+      headers: { Authorization: `Bearer ${key}` },
+    })
+    if (!res.ok) return fail('Resend /domains', `HTTP ${res.status} (key invalid?)`)
+    const body = (await res.json()) as { data?: any[] }
+    pass('Resend /domains HTTP 200', `${body.data?.length ?? 0} domains configured`)
+  } catch (err) {
+    fail('Resend /domains', String(err).slice(0, 100))
+  }
+}
+
+// ─── Check 8: Banxico FX (USD/MXN) ────────────────────────────────────────
+
+async function checkBanxico() {
+  console.log('\n[8] Banxico FX (USD/MXN) — opt-in feature')
+  const token = process.env.BANXICO_TOKEN
+  if (!token) {
+    pass('Banxico', 'BANXICO_TOKEN no set — FX cron NO corre (fail-soft OK)')
+    return
+  }
+  try {
+    // GET SF43718 = USD/MXN FIX más reciente
+    const res = await fetch(
+      `https://www.banxico.org.mx/SieAPIRest/service/v1/series/SF43718/datos/oportuno?token=${token}`,
+    )
+    if (!res.ok) return fail('Banxico SF43718', `HTTP ${res.status} (token invalid?)`)
+    const body = (await res.json()) as any
+    const dato = body?.bmx?.series?.[0]?.datos?.[0]
+    pass(
+      'Banxico SF43718 HTTP 200',
+      `rate=${dato?.dato ?? '?'} effectiveDate=${dato?.fecha ?? '?'}`,
+    )
+  } catch (err) {
+    fail('Banxico SF43718', String(err).slice(0, 100))
+  }
+}
+
+// ─── Check 9: PAC adapter (CFDI emission MX) ─────────────────────────────
+
+async function checkPacAdapter() {
+  console.log('\n[9] PAC adapter (Facturama / SW Sapien) — opt-in feature')
+  const facturamaUser = process.env.FACTURAMA_USERNAME
+  const facturamaPass = process.env.FACTURAMA_PASSWORD
+  if (!facturamaUser || !facturamaPass) {
+    pass(
+      'PAC Facturama',
+      'FACTURAMA_USERNAME/PASSWORD no set — CFDI no se emite (fail-soft OK; cliente puede operar sin facturar)',
+    )
+    return
+  }
+  try {
+    // GET /api/Profile = verify credentials sin emitir folio
+    const res = await fetch('https://apisandbox.facturama.mx/api/Profile', {
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${facturamaUser}:${facturamaPass}`).toString('base64')}`,
+      },
+    })
+    if (res.status === 401) return fail('Facturama auth', 'HTTP 401 — credenciales inválidas')
+    if (!res.ok) return fail('Facturama /Profile', `HTTP ${res.status}`)
+    pass('Facturama /api/Profile HTTP 200', 'credentials válidas (sandbox)')
+  } catch (err) {
+    fail('Facturama /Profile', String(err).slice(0, 100))
+  }
+}
+
+// ─── Check 10: Migrations pending ────────────────────────────────────────
+
+async function checkMigrationsPending() {
+  console.log('\n[10] Prisma migrations sin pending')
+  try {
+    // Lista files en filesystem
+    const fs = require('fs') as typeof import('fs')
+    const migrationsDir = path.join(__dirname, '..', 'migrations')
+    const allFiles = fs.readdirSync(migrationsDir).filter((f: string) =>
+      fs.statSync(path.join(migrationsDir, f)).isDirectory(),
+    )
+    // Lista aplicadas en BD
+    const appliedRows = await prisma.$queryRawUnsafe<{ migration_name: string }[]>(
+      'SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NOT NULL',
+    )
+    const applied = new Set(appliedRows.map((r) => r.migration_name))
+    const pending = allFiles.filter((f) => !applied.has(f))
+    if (pending.length === 0) {
+      pass('Migrations sync', `${allFiles.length} migrations, todas applied`)
+    } else {
+      fail(
+        'Migrations pending',
+        `${pending.length} not applied: ${pending.slice(0, 3).join(', ')}${pending.length > 3 ? '...' : ''}`,
+      )
+    }
+  } catch (err) {
+    fail('Migrations sync query', String(err).slice(0, 100))
+  }
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -233,6 +339,10 @@ async function main() {
   await checkKek()
   await checkMigrations()
   await checkHttpEndpoints()
+  await checkResend()
+  await checkBanxico()
+  await checkPacAdapter()
+  await checkMigrationsPending()
 
   console.log('\n=== Summary ===')
   const passed = results.filter((r) => r.ok).length
