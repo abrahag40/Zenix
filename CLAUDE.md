@@ -35,7 +35,7 @@
 ## Estado actual del proyecto (2026-05-29)
 
 - **Versión en curso:** v1.0.0 (piloto comercial — Hotel Monica Tulum)
-- **Sprint ACTIVO:** **PAC-CLIENT-WARNING** (siguiente). BILLING-DAY1 (PR #48 merged) + DISCOUNT-APPROVAL-UI (branch `feature/discount-approval-ui` PR pendiente) cerrados 2026-05-29. Orden restante v1.0.0: PAC-CLIENT-WARNING → CHANNEX-CERT-B1 → WIZARD-E2E → close wizard plan → CHECK-IN modal redesign → RATES-METRICS-COMPSET-CORE → QA-α → CI-RESCUE → Channex Stage 4 walkthrough → tag v1.0.0. Total ~28-39 días-dev = ~7-8 sem calendar. Target ago-sep 2026.
+- **Sprint ACTIVO:** **CLIENT-RETENTION-DISCOUNTS** (siguiente, owner-requested 2026-05-29). PAC-CLIENT-WARNING (branch `feature/pac-client-warning` PR pendiente) cerrado 2026-05-29. PRs mergeados a main: #47 (5 sprints + plan) + #48 (BILLING-DAY1) + #49 (DISCOUNT-APPROVAL-UI). Orden restante v1.0.0: CLIENT-RETENTION-DISCOUNTS (1-2d, backend listo) → CHANNEX-CERT-B1 → WIZARD-E2E → close wizard plan → CHECK-IN modal redesign → RATES-METRICS-COMPSET-CORE → QA-α → CI-RESCUE → Channex Stage 4 walkthrough → tag v1.0.0. Total ~28-39 días-dev = ~7-8 sem calendar. Target ago-sep 2026.
 - **Sprint anterior cerrado:** **NOSHOW-ADMIN-CHARGING** (2026-05-29, commit `6d13131`) — 5 columnas append-only `noShowCharge*` + endpoint `POST /v1/guest-stays/:id/register-noshow-charge` + `RegisterNoShowChargeDialog` con 3-status × 6-method UX + `channexGuaranteeMeta` (OTA VCC PCI-safe) expuesto en BookingDetailSheet. 43/43 tests guest-stays.no-show verdes. Decisiones §195-§199 D-NOSHOW-1..5. Resuelve gap dejado por commit `5cc4869` (eliminación módulo `payments/` por scope misalignment Stripe vs no-show).
 - **Sprint anterior:** **CHANNEX-AUTO-PROVISION** (Days 1-7 cerrados 2026-05-28 — branch `feature/netflix-trial-flow` compuesto). Wizard ahora empuja Property + RoomTypes + RatePlans + Channels OTA a Channex automáticamente al activar (best-effort outside-tx, idempotent retry desde `/nova/billing/channex`). Multi-tenant Modelo D adaptado (1 master + Groups + RBAC `NovaActingOrgGuard`). Credenciales OTA AES-256-GCM con KEK en .env. Airbnb siempre `requires_oauth` (regla regulatoria). 886/920 backend tests verdes (30+ nuevos AUTO-PROVISION + 10 Netflix; 9 fails pre-existentes en main, no relacionados). Sprint anterior cerrado: **NETFLIX-TRIAL** (2/2 días, Days 1-2 commits previos del mismo branch) — Stripe Checkout setup mode captura tarjeta upfront antes de que cliente entre a Zenix. Sprint anterior: **BILLING-DISCOUNT-CODES** + **BILLING-CORE** (PR #45+#46 mergeados a `main` 2026-05-27).
 - **Pendientes post-CHANNEX-AUTO-PROVISION:**
@@ -981,7 +981,43 @@ housekeeping3/
 
 208. **D-DAYAPPR-5 — Bell auto-mark-as-read del approval notif (patrón §100).** `recordApproval` ya auto-marca via `AppNotificationRead` entries. Frontend `useApproveDiscount` + `useRejectDiscount` invalidan ambos `['billing', 'approvals']` y `['notifications']` queries → bell counter actualiza in-place. Sin necesidad de polling.
 
-> **Sprint DISCOUNT-APPROVAL-UI — implementación cerrada 2026-05-29 con 95/95 tests billing verdes (2 nuevos discount-code.service.spec: enrichment con org/user/subscription joins + fallback user sin firstName/lastName). 4 fails pre-existentes en access-control.service.spec.ts no relacionados.**
+> **Sprint DISCOUNT-APPROVAL-UI — implementación cerrada 2026-05-29 con 95/95 tests billing verdes. Mergeado a main 2026-05-29 PR #49 commit `a94324b`.**
+
+### PAC client visibility — Sprint PAC-CLIENT-WARNING (2026-05-29)
+
+> Sprint #3 del plan de cierre wizard. Resuelve el gap operativo: cuando el consultor skipea el health-check PAC en wizard Step 8 (override controlado), el cliente queda activado sin saber que su CFDI no funciona. Lo descubre con un huésped frente al counter pidiendo factura — peor momento posible.
+
+209. **D-PAC-CLIENT-1 — `LegalEntity.pacStatus` es la fuente única de verdad cliente-facing.** Enum string (no Prisma enum para evitar migration churn) `CONFIGURED | PENDING | FAILED | NOT_REQUIRED`. Campo persiste en BD migration `20260607000000_legal_entity_pac_status` con `default 'PENDING'` (fail-safe — si una entity histórica no tiene status, asumimos PENDING y el cliente decide con su consultor). Acompañado de `pacStatusUpdatedAt` (timestamp transición) + `pacStatusReason` (text humano, ej. "Skipped en wizard por consultor — cliente lo configurará después"). Index `pac_status_idx` para queries de reportes.
+
+210. **D-PAC-CLIENT-2 — Wizard activate ramifica el status según `pacOverrideAccepted`.** `WizardActivationService.activate` setea en el mismo `$transaction` que crea LegalEntity:
+   - `pacOverrideAccepted=true` (consultor skipeó health-check) → `pacStatus='PENDING'` + reason "Activado por consultor sin verificar PAC en wizard. Cliente debe configurar credenciales antes de facturar."
+   - `pacOverrideAccepted=false` (health-check pasó) → `pacStatus='CONFIGURED'` + reason `null`
+
+   El `pacCredentials.overrideAccepted` legacy se mantiene para backward-compat con audit existente; el nuevo `pacStatus` es la columna canónica.
+
+211. **D-PAC-CLIENT-3 — Endpoint específico `GET /v1/settings/legal-entity-status`.** No agrupado en el `/settings` general porque (a) shape es legalEntity-scope no property-scope, (b) flatten cambiaría contrato existente del SettingsService. `SettingsService.getLegalEntityStatus(propertyId)`:
+   - Property no existe → `NotFoundException`
+   - Property sin `legalEntityId` (Property.legalEntityId nullable hasta v1.1 backfill §65) → retorna `{ pacStatus: 'NOT_REQUIRED' }` gracioso (no throw — caso histórico válido)
+   - LegalEntity FK rota → `NotFoundException`
+   - Happy: retorna `{ legalEntityId, pacStatus, pacStatusUpdatedAt, pacStatusReason, countryCode, legalEntityName }`
+
+   No expone `pacCredentials` (sensible, encriptado en v1.1+). Visible al RECEPTIONIST + SUPERVISOR (no requiere SUPERVISOR-only — informativo).
+
+212. **D-PAC-CLIENT-4 — `PacStatusBanner` componente cliente-facing inline al top de `<main>`.** Decisión rechazada: position fixed. Rechazado porque requiere medir altura del banner para ajustar pt-* del main dinámicamente — fragility. Decisión aceptada: banner inline al top del `<main>` (no fixed). Trade-off: scrollea con contenido. Mitigación: siempre es lo primero que el cliente ve al cargar cualquier ruta + dismiss per-session (no per-render — el banner reaparece en próximo login para no olvidar el problema). NN/g 2022 "non-blocking warnings deben ser visibles sin obstruir flujo". Pattern Apple HIG H4 (visibility of system status) + Nielsen H1 (status feedback).
+
+   Filtro `PAC_REQUIRED_COUNTRIES = ['MX']` (MX hoy, CO/PE/CR cuando se active el adapter respectivo). Países no listados no muestran banner. Status `CONFIGURED` o `NOT_REQUIRED` no renderiza nada. Refresh cada 5min — si consultor configura PAC desde Nova mientras el cliente tiene el tab abierto, el banner desaparece automáticamente sin reload.
+
+   Tone visual: `PENDING` → amber, `FAILED` → red (Mehrabian-Russell 1974 + §31 color psychology). Botón "Configurar ahora" lleva a `/settings/legal-entity` con instrucciones.
+
+213. **D-PAC-CLIENT-5 — Nueva sección `/settings/legal-entity` con instrucciones cliente-facing.** Tab nuevo "🧾 Facturación" en `SettingsPage`. Renderiza:
+   - Card top con nombre de la LegalEntity + countryCode
+   - Card status con tono adaptativo (emerald/amber/red/slate)
+   - Si `PENDING`/`FAILED`: lista numerada con 4 pasos para que el cliente sepa qué hacer (contacta consultor → comparte credenciales → consultor configura desde Nova → estado cambia a CONFIGURED automático)
+   - Caption diferente si es SUPERVISOR vs no-supervisor
+
+   En v1.0.1 esta sección se ampliará con form de upload de credenciales PAC para que el cliente las gestione él mismo (hoy lo hace el consultor desde Nova para mantener compliance encryption-at-rest).
+
+> **Sprint PAC-CLIENT-WARNING — implementación cerrada 2026-05-29 con 6/6 tests settings + 29/29 tests wizard verdes (2 nuevos wizard-activation.service.spec: pacOverrideAccepted=true → pacStatus=PENDING con reason / pacOverrideAccepted=false → pacStatus=CONFIGURED sin reason; 6 nuevos settings.service.spec: NotFoundException property no existe / NOT_REQUIRED si sin legalEntityId / NotFoundException FK rota / CONFIGURED shape / PENDING con reason / FAILED con reason). Schema migration `20260607000000_legal_entity_pac_status` con 3 columnas + index. PR pendiente de creación.**
 
 ---
 
@@ -1167,7 +1203,7 @@ Hoy el código siempre usa `mode='setup'` aunque `trialDays=0`, lo cual hace que
 |---|--------|----------|---------|
 | ✅1 | ~~**BILLING-DAY1**~~ — Cerrado 2026-05-29 — branch `feature/billing-day1`. Stripe Checkout `mode='subscription'` con line_items cuando `pendingTrialDays===0`. Email hero box ramifica. §200-§203 D-DAY1-1..4. | — | — |
 | ✅2 | ~~**DISCOUNT-APPROVAL-UI**~~ — Cerrado 2026-05-29 — branch `feature/discount-approval-ui`. Página `/nova/billing/aprobaciones` con cards enriquecidas + Reject dialog forcing function. Backend `listPendingApprovals` enriquece con org/user/subscription joins. §204-§208 D-DAYAPPR-1..5. | — | — |
-| 3 | **PAC-CLIENT-WARNING** — Schema `LegalEntity.pacStatus` enum `configured|pending|failed` + skip wizard Step 8 setea `pending` + AppNotification permanente al ORG_OWNER al activar + Banner sticky top en `/dashboard` cliente cuando pacStatus≠'configured' + tooltip en botón "Generar CFDI" + página `/settings/legal-entities/:id/pac-setup` con instrucciones | 0.5-1d | Piloto MX |
+| ✅3 | ~~**PAC-CLIENT-WARNING**~~ — Cerrado 2026-05-29 — branch `feature/pac-client-warning`. Schema `LegalEntity.pacStatus` 4 valores + wizard ramifica + endpoint `GET /v1/settings/legal-entity-status` + Banner cliente-facing inline + Tab "Facturación" en /settings. §209-§213 D-PAC-CLIENT-1..5. | — | — |
 | 3.5 | **CLIENT-RETENTION-DISCOUNTS** (nuevo 2026-05-29, owner-requested) — **Backend ya 100% listo** (`DiscountCodeService.generate` acepta status `active\|trialing\|past_due` y llama `stripe.subscriptions.update({ discounts })` real, líneas 522-535). Solo falta UI: nueva sección dentro de `/nova/clientes/:id` con: (a) view de subscription actual + history `SubscriptionDiscount`, (b) botón "Aplicar descuento de retención" → modal eligiendo template existente o configurando ad-hoc `(percentOff + duration + durationInMonths + reason)`, (c) integración con cap+approval flow ya existente. Use cases owner: cliente mes 4 con descuento puntual (`duration='once'`) o 3 meses (`duration='repeating' durationInMonths=3`) y vuelve a normal mes 7 automático. Stripe nativo respeta el `duration` — sin scheduler propio. Diferenciador retención SaaS (Netflix "win-back offers", Spotify "we miss you"). | 1-2d | Piloto retención |
 | 4 | **CHANNEX-CERT-B1** — Fix Retry-After header parsing en `channex-outbound-worker.service.ts:266`: gateway propaga `ChannexRateLimitError(status, retryAfterSeconds)` parseando `res.headers.get('retry-after')` + worker usa el valor real + actualizar CLAUDE.md §134 doc drift "30min" → "15min" (cron real) | 0.5-1d | Cert Stage 4 |
 | 5 | **WIZARD-E2E** — Playwright suite cubriendo: consultor abre wizard → completa 10 steps → activate → email Resend → cliente click setup link → password → /onboarding/card → Stripe Checkout (success_url) → /dashboard. Caso happy + 3 edge cases (token expired, password weak, Stripe declined card). | 1-2d | Confianza piloto |

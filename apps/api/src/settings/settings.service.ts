@@ -102,4 +102,62 @@ export class SettingsService {
       data: dto,
     })
   }
+
+  /**
+   * Sprint PAC-CLIENT-WARNING (2026-05-29) — visibilidad del estado real
+   * del PAC al cliente.
+   *
+   * Si el consultor skipeó el health-check PAC durante el wizard Step 8
+   * (`pacOverrideAccepted=true`), la LegalEntity queda con `pacStatus='PENDING'`
+   * y el cliente debe ser informado vía banner sticky en /dashboard +
+   * tooltip en botón "Generar CFDI".
+   *
+   * Retorna info mínima necesaria para renderizar el banner — no expone
+   * `pacCredentials` (sensible, encriptado en v1.1+).
+   *
+   * @param propertyId UUID del property activo en el JWT
+   * @returns LegalEntity status info para banner cliente
+   */
+  async getLegalEntityStatus(propertyId: string) {
+    const property = await this.prisma.property.findUnique({
+      where: { id: propertyId },
+      select: { id: true, legalEntityId: true },
+    })
+    if (!property) throw new NotFoundException('Property not found')
+
+    // Property.legalEntityId es nullable hasta v1.1 (migration backfill, ver §65).
+    // Sin LegalEntity, no aplica el warning — cliente no puede facturar tampoco.
+    if (!property.legalEntityId) {
+      return {
+        legalEntityId: null,
+        pacStatus: 'NOT_REQUIRED' as const,
+        pacStatusUpdatedAt: null,
+        pacStatusReason: null,
+        countryCode: null,
+        legalEntityName: null,
+      }
+    }
+
+    const legalEntity = await this.prisma.legalEntity.findUnique({
+      where: { id: property.legalEntityId },
+      select: {
+        id: true,
+        name: true,
+        countryCode: true,
+        pacStatus: true,
+        pacStatusUpdatedAt: true,
+        pacStatusReason: true,
+      },
+    })
+    if (!legalEntity) throw new NotFoundException('LegalEntity not found')
+
+    return {
+      legalEntityId: legalEntity.id,
+      pacStatus: legalEntity.pacStatus as 'CONFIGURED' | 'PENDING' | 'FAILED' | 'NOT_REQUIRED',
+      pacStatusUpdatedAt: legalEntity.pacStatusUpdatedAt,
+      pacStatusReason: legalEntity.pacStatusReason,
+      countryCode: legalEntity.countryCode,
+      legalEntityName: legalEntity.name,
+    }
+  }
 }

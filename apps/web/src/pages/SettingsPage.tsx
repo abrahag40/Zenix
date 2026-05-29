@@ -21,15 +21,16 @@ import { FxSection } from '../components/settings/FxSection'
 import type { UnitDto, PropertySettingsDto, RoomDto, StaffDto } from '@zenix/shared'
 import { Capability, StaffRole, RoomCategory } from '@zenix/shared'
 
-type Section = 'rooms' | 'staff' | 'scheduling' | 'property' | 'fx' | 'support'
+type Section = 'rooms' | 'staff' | 'scheduling' | 'property' | 'fx' | 'legal-entity' | 'support'
 
 const TABS: { key: Section; label: string; icon: string }[] = [
-  { key: 'rooms',      label: 'Habitaciones', icon: '🛏️' },
-  { key: 'staff',      label: 'Personal',     icon: '👥' },
-  { key: 'scheduling', label: 'Recamaristas', icon: '🧹' },
-  { key: 'property',   label: 'Propiedad',    icon: '⚙️' },
-  { key: 'fx',         label: 'Tipo de cambio', icon: '💱' },
-  { key: 'support',    label: 'Soporte',      icon: '🛟' },
+  { key: 'rooms',        label: 'Habitaciones', icon: '🛏️' },
+  { key: 'staff',        label: 'Personal',     icon: '👥' },
+  { key: 'scheduling',   label: 'Recamaristas', icon: '🧹' },
+  { key: 'property',     label: 'Propiedad',    icon: '⚙️' },
+  { key: 'fx',           label: 'Tipo de cambio', icon: '💱' },
+  { key: 'legal-entity', label: 'Facturación',  icon: '🧾' },
+  { key: 'support',      label: 'Soporte',      icon: '🛟' },
 ]
 
 export function SettingsPage() {
@@ -77,6 +78,7 @@ export function SettingsPage() {
       {section === 'scheduling' && <HousekeepingScheduleSection />}
       {section === 'property'   && <PropertySection isSupervisor={isSupervisor} />}
       {section === 'fx'         && <FxSection isSupervisor={isSupervisor} />}
+      {section === 'legal-entity' && <LegalEntitySection isSupervisor={isSupervisor} />}
       {section === 'support'    && <SupportSection isSupervisor={isSupervisor} />}
     </div>
   )
@@ -929,6 +931,141 @@ type SupportTab = 'testing'
 const SUPPORT_TABS: { key: SupportTab; label: string }[] = [
   { key: 'testing', label: 'Testing' },
 ]
+
+// ─── Legal Entity / PAC status (Sprint PAC-CLIENT-WARNING) ───────────────────
+//
+// El cliente ve aquí el estado real de su LegalEntity:
+//   · Tax ID + countryCode
+//   · PAC status (CONFIGURED / PENDING / FAILED / NOT_REQUIRED)
+//   · Razón si PENDING/FAILED + última actualización
+//   · Instrucciones para configurar PAC (el cliente coordina con su consultor)
+//
+// En v1.0.1 esta sección incluirá form de upload de credenciales PAC para que
+// el cliente las gestione él mismo. Por ahora es informativo: el cliente sabe
+// qué está pasando y a quién contactar.
+
+function LegalEntitySection({ isSupervisor }: { isSupervisor: boolean }) {
+  const { data, isLoading, isError } = useQuery<{
+    legalEntityId: string | null
+    pacStatus: 'CONFIGURED' | 'PENDING' | 'FAILED' | 'NOT_REQUIRED'
+    pacStatusUpdatedAt: string | null
+    pacStatusReason: string | null
+    countryCode: string | null
+    legalEntityName: string | null
+  }>({
+    queryKey: ['legal-entity-status'],
+    queryFn: () => api.get('/v1/settings/legal-entity-status'),
+  })
+
+  if (isLoading) {
+    return <div className="text-sm text-slate-500">Cargando…</div>
+  }
+  if (isError || !data) {
+    return (
+      <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+        No se pudo cargar la información fiscal. Si el problema persiste, contacta a tu consultor.
+      </div>
+    )
+  }
+
+  if (!data.legalEntityId) {
+    return (
+      <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600">
+        Tu propiedad aún no tiene una entidad fiscal asociada. Contacta a tu consultor para configurarla.
+      </div>
+    )
+  }
+
+  const status = data.pacStatus
+  const tone =
+    status === 'CONFIGURED' ? 'ok' : status === 'NOT_REQUIRED' ? 'neutral' : status === 'FAILED' ? 'error' : 'warning'
+  const updatedAt = data.pacStatusUpdatedAt ? new Date(data.pacStatusUpdatedAt) : null
+
+  return (
+    <div className="space-y-4 max-w-2xl">
+      {/* Header info */}
+      <div className="rounded-lg border border-slate-200 bg-white p-4">
+        <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">Entidad fiscal</div>
+        <div className="text-base font-semibold text-slate-900">{data.legalEntityName}</div>
+        {data.countryCode && (
+          <div className="mt-0.5 text-xs text-slate-500 font-mono">{data.countryCode}</div>
+        )}
+      </div>
+
+      {/* PAC status card */}
+      <div
+        className={
+          'rounded-lg border p-4 ' +
+          (tone === 'ok'
+            ? 'border-emerald-200 bg-emerald-50'
+            : tone === 'error'
+              ? 'border-red-200 bg-red-50'
+              : tone === 'warning'
+                ? 'border-amber-200 bg-amber-50'
+                : 'border-slate-200 bg-slate-50')
+        }
+      >
+        <div className="flex items-start gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">
+              Facturación electrónica (PAC)
+            </div>
+            <div
+              className={
+                'text-base font-semibold ' +
+                (tone === 'ok'
+                  ? 'text-emerald-800'
+                  : tone === 'error'
+                    ? 'text-red-800'
+                    : tone === 'warning'
+                      ? 'text-amber-800'
+                      : 'text-slate-700')
+              }
+            >
+              {status === 'CONFIGURED' && '✓ Configurado'}
+              {status === 'PENDING' && '⏳ Pendiente de configurar'}
+              {status === 'FAILED' && '✗ Error en validación'}
+              {status === 'NOT_REQUIRED' && 'No requerido'}
+            </div>
+            {data.pacStatusReason && (
+              <div className="mt-2 text-xs text-slate-700 italic">
+                "{data.pacStatusReason}"
+              </div>
+            )}
+            {updatedAt && (
+              <div className="mt-2 text-[11px] text-slate-500">
+                Última actualización: {updatedAt.toLocaleString('es-MX')}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {(status === 'PENDING' || status === 'FAILED') && (
+          <div className="mt-3 pt-3 border-t border-slate-200 text-xs text-slate-700 space-y-1.5">
+            <p className="font-medium">¿Qué necesitas hacer?</p>
+            <ol className="list-decimal list-inside space-y-1 ml-1 text-slate-600">
+              <li>Contacta a tu consultor Zenix.</li>
+              <li>Comparte tus credenciales PAC (Facturama / SW Sapien / otro).</li>
+              <li>Tu consultor configurará el PAC desde Nova; este estado cambiará a <strong>Configurado</strong> automáticamente.</li>
+              <li>A partir de ahí podrás emitir CFDI al cobrar a tus huéspedes.</li>
+            </ol>
+            <p className="mt-2 text-[11px] text-slate-500">
+              {isSupervisor
+                ? 'Mientras el PAC esté pendiente, no podrás emitir CFDI a tus huéspedes.'
+                : 'Solo el supervisor puede gestionar la configuración del PAC.'}
+            </p>
+          </div>
+        )}
+
+        {status === 'CONFIGURED' && (
+          <div className="mt-3 pt-3 border-t border-slate-200 text-xs text-slate-600">
+            Tu PAC está activo y verificado. Puedes emitir CFDI sin restricciones.
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 function SupportSection({ isSupervisor }: { isSupervisor: boolean }) {
   const [tab, setTab] = useState<SupportTab>('testing')
