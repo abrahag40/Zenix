@@ -35,7 +35,7 @@
 ## Estado actual del proyecto (2026-05-29)
 
 - **Versión en curso:** v1.0.0 (piloto comercial — Hotel Monica Tulum)
-- **Sprint ACTIVO:** **DISCOUNT-APPROVAL-UI** (siguiente). BILLING-DAY1 cerrado 2026-05-29 en branch `feature/billing-day1` con 93/93 tests billing + 175/175 nova verdes. Orden restante v1.0.0: DISCOUNT-APPROVAL-UI → PAC-CLIENT-WARNING → CHANNEX-CERT-B1 → WIZARD-E2E → close wizard plan → CHECK-IN modal redesign → RATES-METRICS-COMPSET-CORE → QA-α → CI-RESCUE → Channex Stage 4 walkthrough → tag v1.0.0. Total ~30-41 días-dev = ~7-9 sem calendar. Target ago-sep 2026.
+- **Sprint ACTIVO:** **PAC-CLIENT-WARNING** (siguiente). BILLING-DAY1 (PR #48 merged) + DISCOUNT-APPROVAL-UI (branch `feature/discount-approval-ui` PR pendiente) cerrados 2026-05-29. Orden restante v1.0.0: PAC-CLIENT-WARNING → CHANNEX-CERT-B1 → WIZARD-E2E → close wizard plan → CHECK-IN modal redesign → RATES-METRICS-COMPSET-CORE → QA-α → CI-RESCUE → Channex Stage 4 walkthrough → tag v1.0.0. Total ~28-39 días-dev = ~7-8 sem calendar. Target ago-sep 2026.
 - **Sprint anterior cerrado:** **NOSHOW-ADMIN-CHARGING** (2026-05-29, commit `6d13131`) — 5 columnas append-only `noShowCharge*` + endpoint `POST /v1/guest-stays/:id/register-noshow-charge` + `RegisterNoShowChargeDialog` con 3-status × 6-method UX + `channexGuaranteeMeta` (OTA VCC PCI-safe) expuesto en BookingDetailSheet. 43/43 tests guest-stays.no-show verdes. Decisiones §195-§199 D-NOSHOW-1..5. Resuelve gap dejado por commit `5cc4869` (eliminación módulo `payments/` por scope misalignment Stripe vs no-show).
 - **Sprint anterior:** **CHANNEX-AUTO-PROVISION** (Days 1-7 cerrados 2026-05-28 — branch `feature/netflix-trial-flow` compuesto). Wizard ahora empuja Property + RoomTypes + RatePlans + Channels OTA a Channex automáticamente al activar (best-effort outside-tx, idempotent retry desde `/nova/billing/channex`). Multi-tenant Modelo D adaptado (1 master + Groups + RBAC `NovaActingOrgGuard`). Credenciales OTA AES-256-GCM con KEK en .env. Airbnb siempre `requires_oauth` (regla regulatoria). 886/920 backend tests verdes (30+ nuevos AUTO-PROVISION + 10 Netflix; 9 fails pre-existentes en main, no relacionados). Sprint anterior cerrado: **NETFLIX-TRIAL** (2/2 días, Days 1-2 commits previos del mismo branch) — Stripe Checkout setup mode captura tarjeta upfront antes de que cliente entre a Zenix. Sprint anterior: **BILLING-DISCOUNT-CODES** + **BILLING-CORE** (PR #45+#46 mergeados a `main` 2026-05-27).
 - **Pendientes post-CHANNEX-AUTO-PROVISION:**
@@ -957,7 +957,31 @@ housekeeping3/
 
 203. **D-DAY1-4 — `WizardActivateResponse.subscription` expone `baseMonthlyAmount + currency`.** Necesario para que el email ramifique correctamente. Backward-compat: campos opcionales — tests legacy sin pricing context siguen funcionando (email no muestra hero, sólo plan + cycle).
 
-> **Sprint BILLING-DAY1 — implementación cerrada 2026-05-29 con 93/93 tests billing + 175/175 tests nova verdes (3 nuevos tests subscription.service.spec: Day-1 line_items + Day-1 + pendingCouponId + Netflix path explicit pendingTrialDays>0; 7 nuevos tests activation-email.spec: HTML/text branching Netflix vs Day-1 + multi-property + USD formatting + fallback sin pricing). 4 fails pre-existentes en `access-control.service.spec.ts` no relacionados — pendientes del CI-RESCUE residual. PR pendiente de creación.**
+> **Sprint BILLING-DAY1 — implementación cerrada 2026-05-29 con 93/93 tests billing + 175/175 tests nova verdes. Mergeado a main 2026-05-29 PR #48 commit `2293a2c`.**
+
+### Discount approval queue UI — Sprint DISCOUNT-APPROVAL-UI (2026-05-29)
+
+> Sprint #2 del plan de cierre wizard. Resuelve el caso reportado en CLAUDE.md §Plan v1.0.0: cuando un consultor aplica un template que excede su tier cap, el backend marca `discountStatus='pending_approval'` y crea AppNotification ACTION_REQUIRED al PARTNER_ADMIN — pero hasta este sprint NO existía UI para cerrar el loop. Subscriptions quedaban colgadas indefinidamente.
+
+204. **D-DAYAPPR-1 — `listPendingApprovals` enriquece con relations sin agregar FK formales.** El schema `DiscountApprovalRequest` no tenía `@relation` con `Organization`/`User`/`Subscription` (decisión histórica para evitar migration sobre tabla productiva). El service ahora hace **manual join batched** post-query: `organization.findMany({ id: { in: orgIds } })`, `user.findMany({ id: { in: userIds } })`, `subscription.findMany({ id: { in: subIds } })` — 3 queries paralelas via `Promise.all`. Mapeo client-side con `Map<id, row>`. Response enriquecida con `organizationName`, `organizationSlug`, `requestedByName`, `requestedByEmail`, `subscription: { planTier, currency, baseMonthlyAmount, propertyCount, billingCycle }`. Patrón estándar Prisma "manual join" cuando no quieres FK formal — costo aceptable porque N approvals es siempre <100 (acción por excepción humana).
+
+205. **D-DAYAPPR-2 — `/nova/billing/aprobaciones` solo PARTNER_ADMIN + PLATFORM.** Backend ya tenía guards (`NovaTiers('PLATFORM', 'PARTNER_ADMIN', 'PARTNER_MEMBER')` en controller, pero el service filtra `isApproverTier(actor)` que excluye PARTNER_MEMBER). PARTNER_ADMIN ve solo `assignedOrgIds`; PLATFORM ve todo. UI registrada en App.tsx + sub-nav del Billing landing actualizado a `status='available'`.
+
+206. **D-DAYAPPR-3 — Card incluye contexto comercial suficiente para decisión sin abrir cliente.** Pattern Salesforce CPQ Approval Inbox: el PARTNER_ADMIN nunca debería tener que navegar fuera de la queue para decidir. Cada card muestra:
+   - Cliente (nombre + slug)
+   - PercentOff destacado + duración (once / N meses / forever)
+   - **Grid contexto comercial 4-col**: Plan × cycle / Tarifa actual × propertyCount / Después del desc. / Ahorro mensual (todos formateados con `Intl.NumberFormat` per `subscription.currency`)
+   - Consultor solicitante (nombre + email + role chip neutral)
+   - Razón en bloque cita italic con border-l-2
+   - Timestamps creación + expiración (chip warning con AlertTriangle si <24h)
+
+   Diseño Apple HIG: información jerárquica, primary action ([Aprobar] solid emerald) a la derecha, secondary destructive ([Rechazar]) con `variant="ghost"` rojo a su izquierda. No requiere confirmación bloqueante para approve — patrón Salesforce ("aprobaste el descuento" toast, undo no implementado en v1.0.0).
+
+207. **D-DAYAPPR-4 — Reject dialog con forcing function razón ≥10 chars.** Backend `RejectApprovalDto` enforce `@MinLength(10) @MaxLength(500)` (audit trail compliance). Frontend mirror: textarea con contador en vivo + feedback color red cuando insuficiente. Botón "Rechazar descuento" `variant="destructive"` solo habilitado cuando válido. Razón se persiste en `DiscountApprovalRequest.rejectionReason` y se notifica al consultor — no editable después (inmutabilidad audit §11).
+
+208. **D-DAYAPPR-5 — Bell auto-mark-as-read del approval notif (patrón §100).** `recordApproval` ya auto-marca via `AppNotificationRead` entries. Frontend `useApproveDiscount` + `useRejectDiscount` invalidan ambos `['billing', 'approvals']` y `['notifications']` queries → bell counter actualiza in-place. Sin necesidad de polling.
+
+> **Sprint DISCOUNT-APPROVAL-UI — implementación cerrada 2026-05-29 con 95/95 tests billing verdes (2 nuevos discount-code.service.spec: enrichment con org/user/subscription joins + fallback user sin firstName/lastName). 4 fails pre-existentes en access-control.service.spec.ts no relacionados.**
 
 ---
 
@@ -1142,7 +1166,7 @@ Hoy el código siempre usa `mode='setup'` aunque `trialDays=0`, lo cual hace que
 | # | Sprint | Esfuerzo | Bloquea |
 |---|--------|----------|---------|
 | ✅1 | ~~**BILLING-DAY1**~~ — Cerrado 2026-05-29 — branch `feature/billing-day1`. Stripe Checkout `mode='subscription'` con line_items cuando `pendingTrialDays===0`. Email hero box ramifica. §200-§203 D-DAY1-1..4. | — | — |
-| 2 | **DISCOUNT-APPROVAL-UI** — `/nova/billing/aprobaciones` para PARTNER_ADMIN: lista subscriptions con `discountStatus='pending_approval'` + botones aprobar/rechazar con razón + endpoint `POST /v1/nova/billing/discounts/:subId/approve|reject` ya existe en backend (`nova-billing.controller.ts:125`) — solo falta UI + auto-mark-as-read del bell (patrón §100) | 1-2d | Piloto operativo |
+| ✅2 | ~~**DISCOUNT-APPROVAL-UI**~~ — Cerrado 2026-05-29 — branch `feature/discount-approval-ui`. Página `/nova/billing/aprobaciones` con cards enriquecidas + Reject dialog forcing function. Backend `listPendingApprovals` enriquece con org/user/subscription joins. §204-§208 D-DAYAPPR-1..5. | — | — |
 | 3 | **PAC-CLIENT-WARNING** — Schema `LegalEntity.pacStatus` enum `configured|pending|failed` + skip wizard Step 8 setea `pending` + AppNotification permanente al ORG_OWNER al activar + Banner sticky top en `/dashboard` cliente cuando pacStatus≠'configured' + tooltip en botón "Generar CFDI" + página `/settings/legal-entities/:id/pac-setup` con instrucciones | 0.5-1d | Piloto MX |
 | 4 | **CHANNEX-CERT-B1** — Fix Retry-After header parsing en `channex-outbound-worker.service.ts:266`: gateway propaga `ChannexRateLimitError(status, retryAfterSeconds)` parseando `res.headers.get('retry-after')` + worker usa el valor real + actualizar CLAUDE.md §134 doc drift "30min" → "15min" (cron real) | 0.5-1d | Cert Stage 4 |
 | 5 | **WIZARD-E2E** — Playwright suite cubriendo: consultor abre wizard → completa 10 steps → activate → email Resend → cliente click setup link → password → /onboarding/card → Stripe Checkout (success_url) → /dashboard. Caso happy + 3 edge cases (token expired, password weak, Stripe declined card). | 1-2d | Confianza piloto |

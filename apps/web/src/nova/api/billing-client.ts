@@ -45,6 +45,49 @@ export interface ApplyTemplateResult {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// DISCOUNT-APPROVAL-UI (Sprint 2026-05-29) — Pending approvals queue
+// ─────────────────────────────────────────────────────────────────────
+
+/** Subscription context (opcional cuando subscriptionId set en el request). */
+export interface DiscountApprovalSubscriptionContext {
+  id: string
+  planTier: string
+  currency: string
+  baseMonthlyAmount: number
+  propertyCount: number
+  billingCycle: 'monthly' | 'annual'
+}
+
+/** Pending approval enriquecido — espejo de listPendingApprovals. */
+export interface DiscountApprovalRequest {
+  id: string
+  requestedById: string
+  requestedByRole: string
+  organizationId: string
+  subscriptionId: string | null
+  percentOff: number
+  duration: DiscountDuration
+  durationInMonths: number | null
+  reason: string
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED'
+  createdAt: string
+  expiresAt: string
+  reviewedById?: string | null
+  reviewedAt?: string | null
+  // Enriched fields (DISCOUNT-APPROVAL-UI)
+  organizationName: string | null
+  organizationSlug: string | null
+  requestedByName: string | null
+  requestedByEmail: string | null
+  subscription: DiscountApprovalSubscriptionContext | null
+}
+
+export interface RejectApprovalInput {
+  /** Razón del rechazo — obligatoria ≥10 chars (audit trail). */
+  rejectionReason: string
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Client
 // ─────────────────────────────────────────────────────────────────────
 
@@ -61,6 +104,22 @@ export const billingClient = {
   applyTemplate: (id: string, input: ApplyTemplateInput) =>
     api.post<ApplyTemplateResult>(
       `/v1/nova/billing/discount-templates/${id}/apply`,
+      input,
+    ),
+
+  // Discount approval queue (PARTNER_ADMIN + PLATFORM only)
+  listPendingApprovals: () =>
+    api.get<DiscountApprovalRequest[]>('/v1/nova/billing/discount-approvals/pending'),
+
+  approveDiscount: (id: string) =>
+    api.post<{ ok: true; discountId?: string }>(
+      `/v1/nova/billing/discount-approvals/${id}/approve`,
+      {},
+    ),
+
+  rejectDiscount: (id: string, input: RejectApprovalInput) =>
+    api.post<{ ok: true }>(
+      `/v1/nova/billing/discount-approvals/${id}/reject`,
       input,
     ),
 }
