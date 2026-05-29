@@ -5,6 +5,7 @@ import {
   ChannexAvailabilityEntry,
   ChannexGateway,
   ChannexHttpError,
+  ChannexRateLimitError,
   ChannexRestrictionEntry,
 } from '../channex.gateway'
 import { ChannexOutboundNotifService } from './channex-outbound-notif.service'
@@ -263,11 +264,30 @@ export class ChannexOutboundWorker {
       return 'DEAD_LETTER'
     }
 
-    // 429 → backoff por Retry-After (no podemos parsearlo desde
-    // ChannexHttpError v1; default 60s = mínimo recomendado por docs).
-    // 5xx / network → exp backoff 2^attempts seconds.
-    const backoffSeconds =
-      status === 429 ? Math.max(60, Math.pow(2, attempts)) : Math.pow(2, attempts)
+    // Sprint CHANNEX-CERT-B1 (2026-05-29) — backoff strategy:
+    //
+    // 429 RATE LIMIT — respetar `Retry-After` que Channex provee. El gateway
+    //   parsea el header (RFC 7231 §7.1.3, formato delta-seconds o HTTP-date)
+    //   y lo expone como `err.retryAfterSeconds`. Si no viene (header missing
+    //   / malformed), usamos floor de 60s (recomendación oficial Channex).
+    //   `max(60, retryAfterSeconds)` garantiza que NUNCA bajemos del minimum
+    //   incluso si Channex pide 1 segundo (defensa contra bug del server).
+    //
+    // 5xx / network — exponential backoff 2^attempts seconds (1, 2, 4, 8, 16).
+    //
+    // CRÍTICO PARA CERT STAGE 4 (Anti-pattern AP-2.3): ignorar Retry-After
+    // gatilla rechazo automático en walkthrough. El reviewer verifica
+    // logs del worker durante el test de rate limit (Test 12 oficial).
+    let backoffSeconds: number
+    if (status === 429) {
+      const rateLimitError = err instanceof ChannexRateLimitError ? err : null
+      const channexProvided = rateLimitError?.retryAfterSeconds
+      backoffSeconds = channexProvided !== null && channexProvided !== undefined
+        ? Math.max(60, channexProvided)
+        : 60
+    } else {
+      backoffSeconds = Math.pow(2, attempts)
+    }
     const nextAttemptAt = new Date(Date.now() + backoffSeconds * 1000)
 
     await this.prisma.channexOutboundQueue.update({

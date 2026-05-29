@@ -35,7 +35,7 @@
 ## Estado actual del proyecto (2026-05-29)
 
 - **Versión en curso:** v1.0.0 (piloto comercial — Hotel Monica Tulum)
-- **Sprint ACTIVO:** **CLIENT-RETENTION-DISCOUNTS** (siguiente, owner-requested 2026-05-29). PAC-CLIENT-WARNING (branch `feature/pac-client-warning` PR pendiente) cerrado 2026-05-29. PRs mergeados a main: #47 (5 sprints + plan) + #48 (BILLING-DAY1) + #49 (DISCOUNT-APPROVAL-UI). Orden restante v1.0.0: CLIENT-RETENTION-DISCOUNTS (1-2d, backend listo) → CHANNEX-CERT-B1 → WIZARD-E2E → close wizard plan → CHECK-IN modal redesign → RATES-METRICS-COMPSET-CORE → QA-α → CI-RESCUE → Channex Stage 4 walkthrough → tag v1.0.0. Total ~28-39 días-dev = ~7-8 sem calendar. Target ago-sep 2026.
+- **Sprint ACTIVO:** **WIZARD-E2E** o **CLIENT-RETENTION-DISCOUNTS** (siguiente, decisión owner). CHANNEX-CERT-B1 (branch `feature/channex-cert-b1` PR pendiente) cerrado 2026-05-29. PRs mergeados a main: #47 (5 sprints + plan) + #48 (BILLING-DAY1) + #49 (DISCOUNT-APPROVAL-UI) + #50 (PAC-CLIENT-WARNING). Orden restante v1.0.0: WIZARD-E2E → CLIENT-RETENTION-DISCOUNTS (1-2d backend listo) → close wizard plan → CHECK-IN modal redesign → RATES-METRICS-COMPSET-CORE → QA-α → CI-RESCUE → Channex Stage 4 walkthrough → tag v1.0.0. Total ~26-37 días-dev = ~7-8 sem calendar. Target ago-sep 2026.
 - **Sprint anterior cerrado:** **NOSHOW-ADMIN-CHARGING** (2026-05-29, commit `6d13131`) — 5 columnas append-only `noShowCharge*` + endpoint `POST /v1/guest-stays/:id/register-noshow-charge` + `RegisterNoShowChargeDialog` con 3-status × 6-method UX + `channexGuaranteeMeta` (OTA VCC PCI-safe) expuesto en BookingDetailSheet. 43/43 tests guest-stays.no-show verdes. Decisiones §195-§199 D-NOSHOW-1..5. Resuelve gap dejado por commit `5cc4869` (eliminación módulo `payments/` por scope misalignment Stripe vs no-show).
 - **Sprint anterior:** **CHANNEX-AUTO-PROVISION** (Days 1-7 cerrados 2026-05-28 — branch `feature/netflix-trial-flow` compuesto). Wizard ahora empuja Property + RoomTypes + RatePlans + Channels OTA a Channex automáticamente al activar (best-effort outside-tx, idempotent retry desde `/nova/billing/channex`). Multi-tenant Modelo D adaptado (1 master + Groups + RBAC `NovaActingOrgGuard`). Credenciales OTA AES-256-GCM con KEK en .env. Airbnb siempre `requires_oauth` (regla regulatoria). 886/920 backend tests verdes (30+ nuevos AUTO-PROVISION + 10 Netflix; 9 fails pre-existentes en main, no relacionados). Sprint anterior cerrado: **NETFLIX-TRIAL** (2/2 días, Days 1-2 commits previos del mismo branch) — Stripe Checkout setup mode captura tarjeta upfront antes de que cliente entre a Zenix. Sprint anterior: **BILLING-DISCOUNT-CODES** + **BILLING-CORE** (PR #45+#46 mergeados a `main` 2026-05-27).
 - **Pendientes post-CHANNEX-AUTO-PROVISION:**
@@ -756,7 +756,7 @@ housekeeping3/
 
 ### Channex inbound — Sprint CHANNEX-INBOUND (Days 1-7, 2026-05-22)
 
-129. **D-CHX1 — Webhook real-time es el mecanismo PRIMARIO, polling es safety net.** Endpoint `POST /api/webhooks/channex` responde 200 en <100ms y dispara `setImmediate(() => puller.processOutboxRow(outboxId))` fire-and-forget. Latencia P95 end-to-end ~2-3s (Day 7 latency boost). `ChannexOutboxScheduler` cron cada 30s y `ChannexFeedScheduler` cron cada 30min UTC son recovery — NO el primary path. Polling sin webhook fue explícitamente descartado por la doc oficial Channex y desalineado con cert Stage 4.
+129. **D-CHX1 — Webhook real-time es el mecanismo PRIMARIO, polling es safety net.** Endpoint `POST /api/webhooks/channex` responde 200 en <100ms y dispara `setImmediate(() => puller.processOutboxRow(outboxId))` fire-and-forget. Latencia P95 end-to-end ~2-3s (Day 7 latency boost). `ChannexOutboxScheduler` cron cada 30s y `ChannexFeedScheduler` cron cada 15min UTC son recovery — NO el primary path. (Doc drift fix 2026-05-29: §134 originalmente decía "30min"; el cron real es `*/15 * * * *` per audit-A6 docs oficiales Channex 2024 que recomiendan 15-20min.) Polling sin webhook fue explícitamente descartado por la doc oficial Channex y desalineado con cert Stage 4.
 
 130. **D-CHX2 — Idempotencia estricta por `GuestStay.channexBookingId @unique` + dedup en `ChannexOutbox`.** Channex puede emitir webhooks duplicados; `acceptDelivery` rechaza encolar si ya existe outbox PENDING/IN_PROGRESS/SUCCEEDED para la misma `revisionId`. El log `ChannexWebhookLog` SÍ se escribe siempre (forense). Sin esto, retries de Channex crean stays fantasma.
 
@@ -766,7 +766,7 @@ housekeeping3/
 
 133. **D-CHX5 — Conflict resolution: persistir + revisar humano, NUNCA overwrite silente.** Si `booking_new` solapa con stay existente (case C de overbooking race), creamos GuestStay con `channexConflict=true` + placeholder room. Frontend `/channex/conflicts` (SUPERVISOR-only) muestra ranking smart de alternativas (`ChannexRoomSuggesterService` algoritmo weighted: 30 mismo channexRoomTypeId + 25 mismo RoomType + 15 categoría + 15 capacity + 10 floor + 5 status AVAILABLE). 4 acciones: MOVE_ROOM (con suggestion preseleccionada) / CANCEL_LOCAL / CANCEL_AT_OTA (propaga vía Channex CRS PUT status=cancelled) / MARK_REVIEWED. Pattern Mews "Space alternatives" + Cloudbeds "Room move suggestions".
 
-134. **D-CHX6 — `booking_revisions/feed` reconciliation cron cada 30min UTC.** Single call que cubre TODAS las properties accesibles por api-key (sin `filter[property_id]`) per recomendación oficial Channex 2024-12. Paginación canónica: short page (revisions.length < PAGE_SIZE) O totalSeen >= meta.total → break. Cada revision se enqueue vía `ChannexInboundService.acceptDelivery` con `eventType='feed_recovery'` — reutiliza la pipeline canónica del webhook. Dedup automático. Defensa contra webhook delivery failures + Channex `non_acked_booking` event después de 30 min.
+134. **D-CHX6 — `booking_revisions/feed` reconciliation cron cada 15min UTC.** Single call que cubre TODAS las properties accesibles por api-key (sin `filter[property_id]`) per recomendación oficial Channex 2024-12. Paginación canónica: short page (revisions.length < PAGE_SIZE) O totalSeen >= meta.total → break. Cada revision se enqueue vía `ChannexInboundService.acceptDelivery` con `eventType='feed_recovery'` — reutiliza la pipeline canónica del webhook. Dedup automático. Defensa contra webhook delivery failures + Channex `non_acked_booking` event después de 30 min. (Doc drift fix 2026-05-29: originalmente decía "30min"; el cron real desde audit-A6 es `*/15 * * * *` per recomendación oficial Channex 2024 de 15-20min — más frecuente reduce ventana de drift entre webhook miss y reconciliación.)
 
 135. **D-CHX7 — `BookingCancelHandler` bridge al sprint CANCEL-ARCHIVE.** OTA cancellations escriben las MISMAS columnas que un cancel manual (`cancelInitiator='OTA'`, `cancelledFromChannel='CHANNEX_WEBHOOK'`, `cancelMetadata` con channexRevisionId+otaName) + cascade journey/segments + audit `GuestStayLog event=CANCELLED actorType=SYSTEM` + room status AVAILABLE si era la única active. `requiresFiscalReview=true` cuando `amountPaid > 0` (seed para v1.0.2 CFDI E emission). Decisión matrix de 5 ramas: not_found idempotent / already_cancelled idempotent / checked-in manual_review / checked-out review / no-show review / ARRIVING soft-cancel. NO reutilizamos `GuestStaysService.cancelStay` porque lee tenant del JWT (webhook es Public).
 
@@ -1017,7 +1017,42 @@ housekeeping3/
 
    En v1.0.1 esta sección se ampliará con form de upload de credenciales PAC para que el cliente las gestione él mismo (hoy lo hace el consultor desde Nova para mantener compliance encryption-at-rest).
 
-> **Sprint PAC-CLIENT-WARNING — implementación cerrada 2026-05-29 con 6/6 tests settings + 29/29 tests wizard verdes (2 nuevos wizard-activation.service.spec: pacOverrideAccepted=true → pacStatus=PENDING con reason / pacOverrideAccepted=false → pacStatus=CONFIGURED sin reason; 6 nuevos settings.service.spec: NotFoundException property no existe / NOT_REQUIRED si sin legalEntityId / NotFoundException FK rota / CONFIGURED shape / PENDING con reason / FAILED con reason). Schema migration `20260607000000_legal_entity_pac_status` con 3 columnas + index. PR pendiente de creación.**
+> **Sprint PAC-CLIENT-WARNING — implementación cerrada 2026-05-29 con 6/6 tests settings + 29/29 tests wizard verdes. Mergeado a main 2026-05-29 PR #50 commit `0629ee3`.**
+
+### Channex cert Stage 4 hardening — Sprint CHANNEX-CERT-B1 (2026-05-29)
+
+> Sprint #4 del plan de cierre wizard. Resuelve el bloqueante cert identificado en auditoría 2026-05-29: el worker computaba `Math.max(60, 2^attempts)` ignorando el header `Retry-After` que Channex provee en sus 429 — discrepancia código vs CLAUDE.md §144 D-CHX-OUT-6. Cert Stage 4 anti-pattern AP-2.3 exige respetar el valor exacto.
+
+214. **D-CHX-B1-1 — `ChannexRateLimitError extends ChannexHttpError` con `retryAfterSeconds: number | null`.** Subclase semántica del error que el gateway lanza específicamente en 429. El worker discrimina via `err instanceof ChannexRateLimitError` y consume `.retryAfterSeconds` directamente. Otros 4xx/5xx siguen usando `ChannexHttpError` plano — el worker aplica sus reglas estándar (terminal_4xx → DEAD_LETTER si != 429, exp backoff 2^attempts en 5xx).
+
+215. **D-CHX-B1-2 — `parseRetryAfter(headerValue): number | null` puro y testeable.** Implementa RFC 7231 §7.1.3 con los dos formatos válidos:
+   - **delta-seconds**: `Retry-After: 120` → `120` (también `30.4` → `31` via `Math.ceil`)
+   - **HTTP-date**: `Retry-After: Wed, 21 Oct 2026 07:28:00 GMT` → seconds hasta esa fecha
+   - **Missing / undefined / vacío** → `null`
+   - **Malformed** (`not-a-number`) → `null` (fail-soft, no throw)
+   - **HTTP-date pasado** (server bug) → `null` (no devuelve negativo)
+   - **delta-seconds negativo** (`-100`) → `null` (inválido per spec)
+
+   Exportado del gateway module para test directo. Cobertura: 6 tests del parser puro + 6 integration tests con gateway.
+
+216. **D-CHX-B1-3 — Helper privado `throwIfNotOk(res, opLabel)` centraliza el patrón.** Reemplazó el patrón duplicado en 22 call sites del gateway:
+   ```ts
+   if (!res.ok) { const text = await res.text(); throw new ChannexHttpError(`${op} HTTP ${status}: ${text}`, status) }
+   ```
+   con:
+   ```ts
+   await this.throwIfNotOk(res, opLabel)
+   ```
+   El helper lee headers en TODAS las llamadas (no solo ARI push). Beneficio defense-in-depth: si en el futuro Channex implementa rate limit en endpoints CRUD del wizard (createGroup, createProperty, etc.), el comportamiento es correcto desde día 1. Aplica al 100% del surface del gateway que llama a Channex.
+
+217. **D-CHX-B1-4 — Worker backoff strategy refactorizado.** En `processFailure`:
+   - **429** con `ChannexRateLimitError`: `backoffSeconds = Math.max(60, err.retryAfterSeconds ?? 60)`. El floor de 60s defiende contra bugs server (Channex pide 1s → usamos 60s mínimo). `null` fallback a 60s.
+   - **5xx / network**: `backoffSeconds = Math.pow(2, attempts)` (exp backoff inalterado, 1/2/4/8/16s).
+   - Logs incluyen `retryIn=${backoffSeconds}s status=${status}` para auditabilidad ante reviewer Stage 4.
+
+218. **D-CHX-B1-5 — Doc drift §134 + §129 corregido: 30min → 15min.** El cron real es `*/15 * * * *` desde audit-A6 (recomendación oficial Channex 2024 de 15-20min). CLAUDE.md tenía "30min" en 2 lugares. Documentar la realidad evita inconsistencia visible al reviewer durante walkthrough. R3 (audit auth fail-open) confirmado sólido: `PropertySettings.channexWebhookSecretRequired @default(true)` en schema + `ChannexAuthGuard` rechaza con 401 si `secretRequired=true` + secret null. Fail-open path requiere opt-in EXPLÍCITO (sandbox/dev).
+
+> **Sprint CHANNEX-CERT-B1 — implementación cerrada 2026-05-29 con 93/93 tests Channex verdes (12 nuevos: 6 parseRetryAfter pure + 6 throwIfNotOk integration + 3 worker backoff con retryAfter present/null/floor). 22 call sites del gateway refactorizados a `throwIfNotOk` helper. Doc drift §134+§129 30min→15min corregido. R3 verificado: webhook auth fail-open requiere opt-in explícito. Bloqueante cert AP-2.3 cerrado: worker ahora respeta `Retry-After` exacto que Channex provee.**
 
 ---
 
@@ -1205,7 +1240,7 @@ Hoy el código siempre usa `mode='setup'` aunque `trialDays=0`, lo cual hace que
 | ✅2 | ~~**DISCOUNT-APPROVAL-UI**~~ — Cerrado 2026-05-29 — branch `feature/discount-approval-ui`. Página `/nova/billing/aprobaciones` con cards enriquecidas + Reject dialog forcing function. Backend `listPendingApprovals` enriquece con org/user/subscription joins. §204-§208 D-DAYAPPR-1..5. | — | — |
 | ✅3 | ~~**PAC-CLIENT-WARNING**~~ — Cerrado 2026-05-29 — branch `feature/pac-client-warning`. Schema `LegalEntity.pacStatus` 4 valores + wizard ramifica + endpoint `GET /v1/settings/legal-entity-status` + Banner cliente-facing inline + Tab "Facturación" en /settings. §209-§213 D-PAC-CLIENT-1..5. | — | — |
 | 3.5 | **CLIENT-RETENTION-DISCOUNTS** (nuevo 2026-05-29, owner-requested) — **Backend ya 100% listo** (`DiscountCodeService.generate` acepta status `active\|trialing\|past_due` y llama `stripe.subscriptions.update({ discounts })` real, líneas 522-535). Solo falta UI: nueva sección dentro de `/nova/clientes/:id` con: (a) view de subscription actual + history `SubscriptionDiscount`, (b) botón "Aplicar descuento de retención" → modal eligiendo template existente o configurando ad-hoc `(percentOff + duration + durationInMonths + reason)`, (c) integración con cap+approval flow ya existente. Use cases owner: cliente mes 4 con descuento puntual (`duration='once'`) o 3 meses (`duration='repeating' durationInMonths=3`) y vuelve a normal mes 7 automático. Stripe nativo respeta el `duration` — sin scheduler propio. Diferenciador retención SaaS (Netflix "win-back offers", Spotify "we miss you"). | 1-2d | Piloto retención |
-| 4 | **CHANNEX-CERT-B1** — Fix Retry-After header parsing en `channex-outbound-worker.service.ts:266`: gateway propaga `ChannexRateLimitError(status, retryAfterSeconds)` parseando `res.headers.get('retry-after')` + worker usa el valor real + actualizar CLAUDE.md §134 doc drift "30min" → "15min" (cron real) | 0.5-1d | Cert Stage 4 |
+| ✅4 | ~~**CHANNEX-CERT-B1**~~ — Cerrado 2026-05-29 — branch `feature/channex-cert-b1`. ChannexRateLimitError + parseRetryAfter (RFC 7231) + throwIfNotOk helper refactorizó 22 call sites + worker respeta Retry-After exacto con floor 60s. Doc drift §134+§129 30→15min. §214-§218 D-CHX-B1-1..5. | — | — |
 | 5 | **WIZARD-E2E** — Playwright suite cubriendo: consultor abre wizard → completa 10 steps → activate → email Resend → cliente click setup link → password → /onboarding/card → Stripe Checkout (success_url) → /dashboard. Caso happy + 3 edge cases (token expired, password weak, Stripe declined card). | 1-2d | Confianza piloto |
 | 6 | **WIZARD-CLOSE** — Commit doc marcando wizard plan como cerrado oficialmente + decisiones §200-§204 (D-DAY1-1 / D-DISC-APPROVAL-1 / D-PAC-WARN-1 / D-CHX-B1 / D-WIZ-E2E) §-numeradas en CLAUDE.md | 0.5d | — |
 | 7 | **CHECKIN-MODAL-REDESIGN** — Apple HIG / SwiftUI Form pattern con max-w-2xl/3xl, grid 2-col donde corresponda, spacing 8pt consistente. Ver §105-§110 decisiones existentes — solo es el dimensionado del modal, la lógica está cerrada | 1-2d | UX recepcionista |

@@ -16,7 +16,7 @@
  */
 
 import { Test } from '@nestjs/testing'
-import { ChannexGateway, ChannexHttpError } from '../channex.gateway'
+import { ChannexGateway, ChannexHttpError, ChannexRateLimitError } from '../channex.gateway'
 import { PrismaService } from '../../../prisma/prisma.service'
 import { ChannexOutboundNotifService } from './channex-outbound-notif.service'
 import { ChannexOutboundWorker } from './channex-outbound-worker.service'
@@ -223,7 +223,7 @@ describe('ChannexOutboundWorker', () => {
     expect(update.data.attempts).toBeUndefined()
   })
 
-  it('429 → FAILED con backoff min 60s', async () => {
+  it('429 (legacy ChannexHttpError sin retryAfter) → FAILED con floor 60s', async () => {
     prisma.$queryRaw.mockResolvedValueOnce([{ id: 'out-1' }])
     prisma.channexOutboundQueue.findUnique.mockResolvedValue(makeRow({ attempts: 1 }))
     gateway.pushAvailability.mockRejectedValue(new ChannexHttpError('rate limit', 429))
@@ -239,6 +239,65 @@ describe('ChannexOutboundWorker', () => {
     const nextAttempt = failedUpdate?.[0].data.nextAttemptAt as Date
     const delaySec = (nextAttempt.getTime() - before) / 1000
     expect(delaySec).toBeGreaterThanOrEqual(60) // min 60s per Channex docs
+    expect(delaySec).toBeLessThanOrEqual(65)
+  })
+
+  // ── Sprint CHANNEX-CERT-B1 (2026-05-29) — Retry-After header respect ──────
+  it('429 con Retry-After=180 → backoff exacto 180s (respeta server)', async () => {
+    prisma.$queryRaw.mockResolvedValueOnce([{ id: 'out-1' }])
+    prisma.channexOutboundQueue.findUnique.mockResolvedValue(makeRow({ attempts: 1 }))
+    gateway.pushAvailability.mockRejectedValue(
+      new ChannexRateLimitError('rate limit retry-after=180', 180),
+    )
+
+    const before = Date.now()
+    await worker.drain()
+
+    const failedUpdate = prisma.channexOutboundQueue.update.mock.calls.find(
+      (c) => c[0].data.status === 'FAILED',
+    )
+    const nextAttempt = failedUpdate?.[0].data.nextAttemptAt as Date
+    const delaySec = (nextAttempt.getTime() - before) / 1000
+    expect(delaySec).toBeGreaterThanOrEqual(178)
+    expect(delaySec).toBeLessThanOrEqual(185)
+  })
+
+  it('429 con Retry-After=10 (server pide muy bajo) → floor 60s', async () => {
+    prisma.$queryRaw.mockResolvedValueOnce([{ id: 'out-1' }])
+    prisma.channexOutboundQueue.findUnique.mockResolvedValue(makeRow({ attempts: 1 }))
+    // Server bug: pide 10s — nuestro floor de 60s lo sobrescribe (defensa)
+    gateway.pushAvailability.mockRejectedValue(
+      new ChannexRateLimitError('rate limit retry-after=10', 10),
+    )
+
+    const before = Date.now()
+    await worker.drain()
+
+    const failedUpdate = prisma.channexOutboundQueue.update.mock.calls.find(
+      (c) => c[0].data.status === 'FAILED',
+    )
+    const nextAttempt = failedUpdate?.[0].data.nextAttemptAt as Date
+    const delaySec = (nextAttempt.getTime() - before) / 1000
+    expect(delaySec).toBeGreaterThanOrEqual(60)
+    expect(delaySec).toBeLessThanOrEqual(65)
+  })
+
+  it('429 con Retry-After=null (header missing) → fallback 60s', async () => {
+    prisma.$queryRaw.mockResolvedValueOnce([{ id: 'out-1' }])
+    prisma.channexOutboundQueue.findUnique.mockResolvedValue(makeRow({ attempts: 3 }))
+    gateway.pushAvailability.mockRejectedValue(
+      new ChannexRateLimitError('rate limit retry-after=none', null),
+    )
+
+    const before = Date.now()
+    await worker.drain()
+
+    const failedUpdate = prisma.channexOutboundQueue.update.mock.calls.find(
+      (c) => c[0].data.status === 'FAILED',
+    )
+    const nextAttempt = failedUpdate?.[0].data.nextAttemptAt as Date
+    const delaySec = (nextAttempt.getTime() - before) / 1000
+    expect(delaySec).toBeGreaterThanOrEqual(60)
     expect(delaySec).toBeLessThanOrEqual(65)
   })
 

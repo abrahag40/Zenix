@@ -366,13 +366,7 @@ export class ChannexGateway {
       body: JSON.stringify({ values }),
     })
 
-    if (!res.ok) {
-      const text = await res.text()
-      throw new ChannexHttpError(
-        `pushAvailability HTTP ${res.status} entries=${entries.length}: ${text}`,
-        res.status,
-      )
-    }
+    await this.throwIfNotOk(res, `pushAvailability entries=${entries.length}`)
 
     this.logger.log(`[Channex] pushAvailability OK entries=${entries.length}`)
   }
@@ -445,13 +439,7 @@ export class ChannexGateway {
       body: JSON.stringify({ values }),
     })
 
-    if (!res.ok) {
-      const text = await res.text()
-      throw new ChannexHttpError(
-        `pushRestrictions HTTP ${res.status} entries=${entries.length}: ${text}`,
-        res.status,
-      )
-    }
+    await this.throwIfNotOk(res, `pushRestrictions entries=${entries.length}`)
 
     this.logger.log(`[Channex] pushRestrictions OK entries=${entries.length}`)
   }
@@ -480,13 +468,7 @@ export class ChannexGateway {
       },
     })
 
-    if (!res.ok) {
-      const text = await res.text()
-      throw new ChannexHttpError(
-        `getBookingRevision ${revisionId} HTTP ${res.status}: ${text}`,
-        res.status,
-      )
-    }
+    await this.throwIfNotOk(res, `getBookingRevision ${revisionId}`)
 
     const json = (await res.json()) as { data?: { attributes?: ChannexBookingRevision } }
     const attrs = json.data?.attributes
@@ -533,11 +515,9 @@ export class ChannexGateway {
       )
       return { acked: true, alreadyAcked: true }
     }
-    const text = await res.text()
-    throw new ChannexHttpError(
-      `ackBookingRevision ${revisionId} HTTP ${res.status}: ${text}`,
-      res.status,
-    )
+    await this.throwIfNotOk(res, `ackBookingRevision ${revisionId}`)
+    // throwIfNotOk threw — unreachable but TS requires return
+    return { acked: false, alreadyAcked: false }
   }
 
   /**
@@ -566,10 +546,7 @@ export class ChannexGateway {
       },
     })
 
-    if (!res.ok) {
-      const text = await res.text()
-      throw new ChannexHttpError(`listBookingRevisionsFeed HTTP ${res.status}: ${text}`, res.status)
-    }
+    await this.throwIfNotOk(res, 'listBookingRevisionsFeed')
 
     const json = (await res.json()) as {
       data?: Array<{ attributes: ChannexBookingRevision }>
@@ -593,10 +570,7 @@ export class ChannexGateway {
         'Content-Type': 'application/json',
       },
     })
-    if (!res.ok) {
-      const text = await res.text()
-      throw new ChannexHttpError(`listProperties HTTP ${res.status}: ${text}`, res.status)
-    }
+    await this.throwIfNotOk(res, 'listProperties')
     const json = (await res.json()) as {
       data?: Array<{ id: string; attributes: { title: string; timezone: string; currency: string } }>
     }
@@ -645,11 +619,9 @@ export class ChannexGateway {
       this.logger.log(`[Channex] cancelBookingAtChannex OK booking=${bookingId}`)
       return { ok: true, status: res.status }
     }
-    const text = await res.text()
-    throw new ChannexHttpError(
-      `cancelBookingAtChannex ${bookingId} HTTP ${res.status}: ${text}`,
-      res.status,
-    )
+    await this.throwIfNotOk(res, `cancelBookingAtChannex ${bookingId}`)
+    // unreachable but TS requires return
+    return { ok: false, status: res.status }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -685,9 +657,7 @@ export class ChannexGateway {
     const res = await fetch(url, {
       headers: { 'user-api-key': this.apiKey! },
     })
-    if (!res.ok) {
-      throw new ChannexHttpError(`listRoomTypes HTTP ${res.status}`, res.status)
-    }
+    await this.throwIfNotOk(res, 'listRoomTypes')
     const json = (await res.json()) as { data: Array<{ id: string; attributes: ChannexRoomType }> }
     return json.data.map((d) => ({ ...d.attributes, id: d.id }))
   }
@@ -714,10 +684,7 @@ export class ChannexGateway {
       },
       body: JSON.stringify(body),
     })
-    if (!res.ok) {
-      const text = await res.text()
-      throw new ChannexHttpError(`createRoomType HTTP ${res.status}: ${text}`, res.status)
-    }
+    await this.throwIfNotOk(res, 'createRoomType')
     const json = (await res.json()) as { data: { id: string; attributes: ChannexRoomType } }
     this.logger.log(`[Channex] createRoomType OK id=${json.data.id} title="${input.title}"`)
     return { ...json.data.attributes, id: json.data.id }
@@ -741,10 +708,7 @@ export class ChannexGateway {
       },
       body: JSON.stringify(body),
     })
-    if (!res.ok) {
-      const text = await res.text()
-      throw new ChannexHttpError(`updateRoomType HTTP ${res.status}: ${text}`, res.status)
-    }
+    await this.throwIfNotOk(res, 'updateRoomType')
     const json = (await res.json()) as { data: { id: string; attributes: ChannexRoomType } }
     this.logger.log(`[Channex] updateRoomType OK id=${id}`)
     return { ...json.data.attributes, id: json.data.id }
@@ -756,10 +720,7 @@ export class ChannexGateway {
       method: 'DELETE',
       headers: { 'user-api-key': this.apiKey! },
     })
-    if (!res.ok) {
-      const text = await res.text()
-      throw new ChannexHttpError(`deleteRoomType ${id} HTTP ${res.status}: ${text}`, res.status)
-    }
+    await this.throwIfNotOk(res, 'deleteRoomType ${id}')
     this.logger.log(`[Channex] deleteRoomType OK id=${id}`)
   }
 
@@ -771,9 +732,7 @@ export class ChannexGateway {
     const res = await fetch(url, {
       headers: { 'user-api-key': this.apiKey! },
     })
-    if (!res.ok) {
-      throw new ChannexHttpError(`listRatePlans HTTP ${res.status}`, res.status)
-    }
+    await this.throwIfNotOk(res, 'listRatePlans')
     const json = (await res.json()) as { data: Array<{ id: string; attributes: ChannexRatePlan }> }
     return json.data.map((d) => ({ ...d.attributes, id: d.id }))
   }
@@ -805,10 +764,7 @@ export class ChannexGateway {
       },
       body: JSON.stringify(body),
     })
-    if (!res.ok) {
-      const text = await res.text()
-      throw new ChannexHttpError(`createRatePlan HTTP ${res.status}: ${text}`, res.status)
-    }
+    await this.throwIfNotOk(res, 'createRatePlan')
     const json = (await res.json()) as { data: { id: string; attributes: ChannexRatePlan } }
     this.logger.log(`[Channex] createRatePlan OK id=${json.data.id} title="${input.title}"`)
     return { ...json.data.attributes, id: json.data.id }
@@ -830,10 +786,7 @@ export class ChannexGateway {
       },
       body: JSON.stringify(body),
     })
-    if (!res.ok) {
-      const text = await res.text()
-      throw new ChannexHttpError(`updateRatePlan HTTP ${res.status}: ${text}`, res.status)
-    }
+    await this.throwIfNotOk(res, 'updateRatePlan')
     const json = (await res.json()) as { data: { id: string; attributes: ChannexRatePlan } }
     this.logger.log(`[Channex] updateRatePlan OK id=${id}`)
     return { ...json.data.attributes, id: json.data.id }
@@ -845,10 +798,7 @@ export class ChannexGateway {
       method: 'DELETE',
       headers: { 'user-api-key': this.apiKey! },
     })
-    if (!res.ok) {
-      const text = await res.text()
-      throw new ChannexHttpError(`deleteRatePlan ${id} HTTP ${res.status}: ${text}`, res.status)
-    }
+    await this.throwIfNotOk(res, 'deleteRatePlan ${id}')
     this.logger.log(`[Channex] deleteRatePlan OK id=${id}`)
   }
 
@@ -913,9 +863,7 @@ export class ChannexGateway {
     const res = await fetch(url, {
       headers: { 'user-api-key': this.apiKey! },
     })
-    if (!res.ok) {
-      throw new ChannexHttpError(`listChannels HTTP ${res.status}`, res.status)
-    }
+    await this.throwIfNotOk(res, 'listChannels')
     const json = (await res.json()) as { data: Array<{ id: string; attributes: ChannexChannel }> }
     return json.data.map((d) => ({ ...d.attributes, id: d.id }))
   }
@@ -966,10 +914,7 @@ export class ChannexGateway {
       },
       body: JSON.stringify(body),
     })
-    if (!res.ok) {
-      const text = await res.text()
-      throw new ChannexHttpError(`createProperty HTTP ${res.status}: ${text}`, res.status)
-    }
+    await this.throwIfNotOk(res, 'createProperty')
     const json = (await res.json()) as { data: { id: string; attributes: ChannexProperty } }
     this.logger.log(`[Channex] createProperty OK id=${json.data.id} title="${input.title}"`)
     return { ...json.data.attributes, id: json.data.id }
@@ -996,10 +941,7 @@ export class ChannexGateway {
       },
       body: JSON.stringify(body),
     })
-    if (!res.ok) {
-      const text = await res.text()
-      throw new ChannexHttpError(`updateProperty HTTP ${res.status}: ${text}`, res.status)
-    }
+    await this.throwIfNotOk(res, 'updateProperty')
     const json = (await res.json()) as { data: { id: string; attributes: ChannexProperty } }
     this.logger.log(`[Channex] updateProperty OK id=${id}`)
     return { ...json.data.attributes, id: json.data.id }
@@ -1014,9 +956,7 @@ export class ChannexGateway {
     const res = await fetch(`${this.baseUrl}/properties/${id}`, {
       headers: { 'user-api-key': this.apiKey! },
     })
-    if (!res.ok) {
-      throw new ChannexHttpError(`getProperty HTTP ${res.status}`, res.status)
-    }
+    await this.throwIfNotOk(res, 'getProperty')
     const json = (await res.json()) as { data: { id: string; attributes: ChannexProperty } }
     return { ...json.data.attributes, id: json.data.id }
   }
@@ -1042,10 +982,7 @@ export class ChannexGateway {
       },
       body: JSON.stringify(body),
     })
-    if (!res.ok) {
-      const text = await res.text()
-      throw new ChannexHttpError(`createGroup HTTP ${res.status}: ${text}`, res.status)
-    }
+    await this.throwIfNotOk(res, 'createGroup')
     const json = (await res.json()) as { data: { id: string; attributes: ChannexGroup } }
     this.logger.log(`[Channex] createGroup OK id=${json.data.id} title="${input.title}"`)
     return { ...json.data.attributes, id: json.data.id }
@@ -1102,10 +1039,7 @@ export class ChannexGateway {
       },
       body: JSON.stringify(body),
     })
-    if (!res.ok) {
-      const text = await res.text()
-      throw new ChannexHttpError(`createChannel HTTP ${res.status}: ${text}`, res.status)
-    }
+    await this.throwIfNotOk(res, 'createChannel')
     const json = (await res.json()) as { data: { id: string; attributes: ChannexChannel } }
     this.logger.log(
       `[Channex] createChannel OK id=${json.data.id} type=${input.type} title="${input.title}"`,
@@ -1131,10 +1065,7 @@ export class ChannexGateway {
       },
       body: JSON.stringify(body),
     })
-    if (!res.ok) {
-      const text = await res.text()
-      throw new ChannexHttpError(`updateChannel HTTP ${res.status}: ${text}`, res.status)
-    }
+    await this.throwIfNotOk(res, 'updateChannel')
     const json = (await res.json()) as { data: { id: string; attributes: ChannexChannel } }
     this.logger.log(`[Channex] updateChannel OK id=${id}`)
     return { ...json.data.attributes, id: json.data.id }
@@ -1150,10 +1081,7 @@ export class ChannexGateway {
       method: 'DELETE',
       headers: { 'user-api-key': this.apiKey! },
     })
-    if (!res.ok) {
-      const text = await res.text()
-      throw new ChannexHttpError(`deleteChannel ${id} HTTP ${res.status}: ${text}`, res.status)
-    }
+    await this.throwIfNotOk(res, 'deleteChannel ${id}')
     this.logger.log(`[Channex] deleteChannel OK id=${id}`)
   }
 
@@ -1184,10 +1112,7 @@ export class ChannexGateway {
       },
       body: JSON.stringify(body),
     })
-    if (!res.ok) {
-      const text = await res.text()
-      throw new ChannexHttpError(`upsertChannelRoomType HTTP ${res.status}: ${text}`, res.status)
-    }
+    await this.throwIfNotOk(res, 'upsertChannelRoomType')
     this.logger.log(
       `[Channex] upsertChannelRoomType OK channel=${mapping.channelId} roomType=${mapping.roomTypeId} → external=${mapping.externalRoomTypeId}`,
     )
@@ -1215,10 +1140,7 @@ export class ChannexGateway {
       },
       body: JSON.stringify(body),
     })
-    if (!res.ok) {
-      const text = await res.text()
-      throw new ChannexHttpError(`upsertChannelRatePlan HTTP ${res.status}: ${text}`, res.status)
-    }
+    await this.throwIfNotOk(res, 'upsertChannelRatePlan')
     this.logger.log(
       `[Channex] upsertChannelRatePlan OK channel=${mapping.channelId} ratePlan=${mapping.ratePlanId} → external=${mapping.externalRatePlanId}`,
     )
@@ -1228,6 +1150,46 @@ export class ChannexGateway {
     if (!this.enabled) {
       throw new ChannexHttpError(`[Channex] ${op} called but CHANNEX_API_KEY not set`, 503)
     }
+  }
+
+  /**
+   * Sprint CHANNEX-CERT-B1 (2026-05-29) — helper centralizado para verificar
+   * respuestas Channex. Reemplaza el patrón duplicado en cada método:
+   *
+   *   if (!res.ok) {
+   *     const text = await res.text()
+   *     throw new ChannexHttpError(`opLabel HTTP ${res.status}: ${text}`, res.status)
+   *   }
+   *
+   * Beneficio principal: parsea `Retry-After` header cuando 429 y lanza
+   * `ChannexRateLimitError` con el valor real (no estimado). El worker
+   * consume `error.retryAfterSeconds` para respetar el backoff exacto que
+   * Channex pide. Esto es cert-mandatory per Stage 4 anti-pattern AP-2.3.
+   *
+   * El método NO consume el body en caso 2xx — el caller sigue haciendo
+   * `await res.json()` después. Solo se consume cuando hay error
+   * (para incluir el contexto en el mensaje).
+   */
+  private async throwIfNotOk(res: Response, opLabel: string): Promise<void> {
+    if (res.ok) return
+    let text = ''
+    try {
+      text = await res.text()
+    } catch {
+      // Body unreadable — no añadimos detalle pero no fallamos el throw
+    }
+    if (res.status === 429) {
+      const retryAfterHeader = res.headers.get('retry-after') ?? res.headers.get('Retry-After')
+      const retryAfterSeconds = parseRetryAfter(retryAfterHeader)
+      this.logger.warn(
+        `[Channex] ${opLabel} 429 rate-limited (retry-after=${retryAfterSeconds ?? 'none'}s): ${text.slice(0, 200)}`,
+      )
+      throw new ChannexRateLimitError(
+        `${opLabel} HTTP 429 rate-limited (retry-after=${retryAfterSeconds ?? 'none'}s): ${text}`,
+        retryAfterSeconds,
+      )
+    }
+    throw new ChannexHttpError(`${opLabel} HTTP ${res.status}: ${text}`, res.status)
   }
 }
 
@@ -1303,10 +1265,70 @@ export interface ChannexFeedMeta {
 }
 
 export class ChannexHttpError extends Error {
-  constructor(message: string, public readonly status: number) {
+  constructor(
+    message: string,
+    public readonly status: number,
+    /**
+     * Parsed `Retry-After` header value in seconds. Only populated for 429 responses.
+     * - Numeric `Retry-After: 120` → 120
+     * - HTTP-date `Retry-After: Wed, 21 Oct 2026 07:28:00 GMT` → seconds until that date
+     * - Missing/malformed → null
+     *
+     * Sprint CHANNEX-CERT-B1 (2026-05-29). Cert Stage 4 requirement: worker
+     * MUST respect the value Channex provides. Anti-pattern AP-2.3 mitigation.
+     */
+    public readonly retryAfterSeconds: number | null = null,
+  ) {
     super(message)
     this.name = 'ChannexHttpError'
   }
+}
+
+/**
+ * Specialized 429 error — semantic clarity for worker dispatch.
+ * Used by `ChannexOutboundWorker` to differentiate rate limit (respect
+ * server-provided backoff) from other 4xx/5xx (own backoff policy).
+ */
+export class ChannexRateLimitError extends ChannexHttpError {
+  constructor(message: string, retryAfterSeconds: number | null) {
+    super(message, 429, retryAfterSeconds)
+    this.name = 'ChannexRateLimitError'
+  }
+}
+
+/**
+ * Parse the `Retry-After` HTTP header per RFC 7231 §7.1.3.
+ *
+ * Two valid formats:
+ *  · Delta-seconds:  `Retry-After: 120`
+ *  · HTTP-date:      `Retry-After: Wed, 21 Oct 2026 07:28:00 GMT`
+ *
+ * Returns:
+ *  · positive integer seconds when parseable and in the future
+ *  · `null` when missing, malformed, or in the past (server bug)
+ *
+ * Exported for unit tests (Sprint CHANNEX-CERT-B1).
+ */
+export function parseRetryAfter(headerValue: string | null | undefined): number | null {
+  if (!headerValue) return null
+  const trimmed = headerValue.trim()
+  if (!trimmed) return null
+
+  // Try delta-seconds first (most common form per Channex docs)
+  const asNumber = Number(trimmed)
+  if (Number.isFinite(asNumber) && asNumber >= 0) {
+    return Math.ceil(asNumber)
+  }
+
+  // Try HTTP-date
+  const asDate = Date.parse(trimmed)
+  if (!Number.isNaN(asDate)) {
+    const diffMs = asDate - Date.now()
+    if (diffMs > 0) return Math.ceil(diffMs / 1000)
+    // Past date is malformed/buggy — fall through to null
+  }
+
+  return null
 }
 
 // ── ARI Push entry types (Sprint CHANNEX-OUTBOUND-CERT) ─────────────────────

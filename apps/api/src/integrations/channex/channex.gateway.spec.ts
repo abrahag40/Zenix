@@ -9,7 +9,12 @@
 
 import { ConfigService } from '@nestjs/config'
 import { Test } from '@nestjs/testing'
-import { ChannexGateway, ChannexHttpError } from './channex.gateway'
+import {
+  ChannexGateway,
+  ChannexHttpError,
+  ChannexRateLimitError,
+  parseRetryAfter,
+} from './channex.gateway'
 
 function mockFetchOnce(status: number, body: string | object = '') {
   const text = typeof body === 'string' ? body : JSON.stringify(body)
@@ -318,5 +323,178 @@ describe('ChannexGateway.pushRestrictions (Sprint OUTBOUND-CERT)', () => {
     ])
     const body = JSON.parse(fetchMock.mock.calls[0][1].body)
     expect(body.values[0].days).toEqual(['fr', 'sa'])
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Sprint CHANNEX-CERT-B1 (2026-05-29) — Retry-After header parsing
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Cert Stage 4 anti-pattern AP-2.3: ignorar `Retry-After` que Channex provee
+// gatilla rechazo automático. El gateway debe parsearlo y lanzar
+// ChannexRateLimitError con el valor exacto.
+//
+// Casos cubiertos:
+//   1. parseRetryAfter pure function: delta-seconds / HTTP-date / null / malformed
+//   2. Gateway 429 con header → throws ChannexRateLimitError con valor parseado
+//   3. Gateway 429 sin header → throws con retryAfterSeconds=null
+//   4. Gateway 4xx no-429 → throws ChannexHttpError plano (no rate limit)
+//   5. Gateway 5xx → throws ChannexHttpError plano
+
+describe('parseRetryAfter (RFC 7231 §7.1.3)', () => {
+  it('delta-seconds numérico → integer', () => {
+    expect(parseRetryAfter('120')).toBe(120)
+    expect(parseRetryAfter('0')).toBe(0)
+    expect(parseRetryAfter('  300  ')).toBe(300)
+  })
+
+  it('delta-seconds decimal → ceil hacia arriba', () => {
+    expect(parseRetryAfter('30.4')).toBe(31)
+    expect(parseRetryAfter('59.999')).toBe(60)
+  })
+
+  it('HTTP-date futuro → seconds calculados', () => {
+    const future = new Date(Date.now() + 90_000)
+    const httpDate = future.toUTCString()
+    const result = parseRetryAfter(httpDate)
+    expect(result).toBeGreaterThanOrEqual(88)
+    expect(result).toBeLessThanOrEqual(92)
+  })
+
+  it('HTTP-date pasado → null (server bug, no overshoot a negativo)', () => {
+    const past = new Date(Date.now() - 60_000).toUTCString()
+    expect(parseRetryAfter(past)).toBe(null)
+  })
+
+  it('null / undefined / vacío → null', () => {
+    expect(parseRetryAfter(null)).toBe(null)
+    expect(parseRetryAfter(undefined)).toBe(null)
+    expect(parseRetryAfter('')).toBe(null)
+    expect(parseRetryAfter('   ')).toBe(null)
+  })
+
+  it('malformed → null (no throw)', () => {
+    expect(parseRetryAfter('not-a-number')).toBe(null)
+    expect(parseRetryAfter('foo bar')).toBe(null)
+    expect(parseRetryAfter('-100')).toBe(null) // negative seconds inválido (parseFloat OK pero -100 < 0)
+  })
+})
+
+describe('ChannexGateway — throwIfNotOk (Sprint CHANNEX-CERT-B1)', () => {
+  let gateway: ChannexGateway
+
+  beforeEach(async () => {
+    const mod = await Test.createTestingModule({
+      providers: [
+        ChannexGateway,
+        {
+          provide: ConfigService,
+          useValue: {
+            get: (k: string) => {
+              if (k === 'CHANNEX_API_KEY') return 'test-key'
+              if (k === 'CHANNEX_BASE_URL') return 'https://staging.channex.io/api/v1'
+              return undefined
+            },
+          },
+        },
+      ],
+    }).compile()
+    gateway = mod.get(ChannexGateway)
+  })
+
+  function mockFetchWithHeaders(status: number, headers: Record<string, string> = {}, body: string = '') {
+    ;(global as { fetch: unknown }).fetch = jest.fn().mockResolvedValue({
+      ok: status >= 200 && status < 300,
+      status,
+      text: () => Promise.resolve(body),
+      json: () => Promise.resolve({}),
+      headers: {
+        get: (name: string) => headers[name.toLowerCase()] ?? headers[name] ?? null,
+      },
+    })
+  }
+
+  it('429 con Retry-After=180 → ChannexRateLimitError con retryAfterSeconds=180', async () => {
+    mockFetchWithHeaders(429, { 'retry-after': '180' }, 'rate limited')
+    try {
+      await gateway.pushAvailability([
+        { propertyId: 'p1', roomTypeId: 'rt1', date: '2026-06-01', availability: 5 },
+      ])
+      fail('Expected throw')
+    } catch (err) {
+      expect(err).toBeInstanceOf(ChannexRateLimitError)
+      expect((err as ChannexRateLimitError).status).toBe(429)
+      expect((err as ChannexRateLimitError).retryAfterSeconds).toBe(180)
+    }
+  })
+
+  it('429 con Retry-After HTTP-date → ChannexRateLimitError con seconds calculados', async () => {
+    const future = new Date(Date.now() + 120_000).toUTCString()
+    mockFetchWithHeaders(429, { 'retry-after': future })
+    try {
+      await gateway.pushAvailability([
+        { propertyId: 'p1', roomTypeId: 'rt1', date: '2026-06-01', availability: 5 },
+      ])
+      fail('Expected throw')
+    } catch (err) {
+      expect(err).toBeInstanceOf(ChannexRateLimitError)
+      const seconds = (err as ChannexRateLimitError).retryAfterSeconds
+      expect(seconds).toBeGreaterThanOrEqual(115)
+      expect(seconds).toBeLessThanOrEqual(125)
+    }
+  })
+
+  it('429 sin Retry-After header → ChannexRateLimitError con retryAfterSeconds=null', async () => {
+    mockFetchWithHeaders(429, {}, 'over limit')
+    try {
+      await gateway.pushAvailability([
+        { propertyId: 'p1', roomTypeId: 'rt1', date: '2026-06-01', availability: 5 },
+      ])
+      fail('Expected throw')
+    } catch (err) {
+      expect(err).toBeInstanceOf(ChannexRateLimitError)
+      expect((err as ChannexRateLimitError).retryAfterSeconds).toBe(null)
+    }
+  })
+
+  it('429 con Retry-After malformed → ChannexRateLimitError con null (fail-soft)', async () => {
+    mockFetchWithHeaders(429, { 'retry-after': 'not-a-number' })
+    try {
+      await gateway.pushAvailability([
+        { propertyId: 'p1', roomTypeId: 'rt1', date: '2026-06-01', availability: 5 },
+      ])
+      fail('Expected throw')
+    } catch (err) {
+      expect(err).toBeInstanceOf(ChannexRateLimitError)
+      expect((err as ChannexRateLimitError).retryAfterSeconds).toBe(null)
+    }
+  })
+
+  it('400 (bad payload) → ChannexHttpError plano, NO ChannexRateLimitError', async () => {
+    mockFetchWithHeaders(400, {}, '{"errors":"bad"}')
+    try {
+      await gateway.pushAvailability([
+        { propertyId: 'p1', roomTypeId: 'rt1', date: '2026-06-01', availability: 5 },
+      ])
+      fail('Expected throw')
+    } catch (err) {
+      expect(err).toBeInstanceOf(ChannexHttpError)
+      expect(err).not.toBeInstanceOf(ChannexRateLimitError)
+      expect((err as ChannexHttpError).status).toBe(400)
+    }
+  })
+
+  it('500 → ChannexHttpError plano (worker hace exp backoff propio)', async () => {
+    mockFetchWithHeaders(500, {}, 'server error')
+    try {
+      await gateway.pushAvailability([
+        { propertyId: 'p1', roomTypeId: 'rt1', date: '2026-06-01', availability: 5 },
+      ])
+      fail('Expected throw')
+    } catch (err) {
+      expect(err).toBeInstanceOf(ChannexHttpError)
+      expect(err).not.toBeInstanceOf(ChannexRateLimitError)
+      expect((err as ChannexHttpError).status).toBe(500)
+    }
   })
 })
