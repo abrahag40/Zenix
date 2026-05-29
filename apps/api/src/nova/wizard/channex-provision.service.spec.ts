@@ -52,6 +52,7 @@ function makeGatewayMock(opts: {
       if (opts.createChannelThrows) throw new Error('Channex 422: invalid type')
       return { id: 'chn-uuid', title: 't', channel: 'booking_com', is_active: false }
     }),
+    deleteChannel: jest.fn().mockResolvedValue(undefined),
   } as any
 }
 
@@ -108,6 +109,8 @@ function makePrismaMock(opts: {
     },
     channel: {
       create: jest.fn().mockResolvedValue({ id: 'ch-row-1' }),
+      findMany: jest.fn().mockResolvedValue([]),
+      delete: jest.fn().mockResolvedValue({ id: 'ch-deleted' }),
     },
   } as any
 }
@@ -361,6 +364,75 @@ describe('ChannexProvisionService', () => {
       })
       expect(crypto.encrypt).not.toHaveBeenCalled()
       expect(result.errors.some((e) => /KEK no configurada/.test(e.message))).toBe(true)
+    })
+  })
+
+  describe('retryProperty — Day 5 close', () => {
+    it('vanilla retry sin force → no toca channels existentes (idempotent natural)', async () => {
+      const prisma = makePrismaMock()
+      const gateway = makeGatewayMock()
+      const svc = new ChannexProvisionService(prisma, gateway, makeCryptoMock())
+      await svc.retryProperty('prop-1', [], {})
+      // sin force, NUNCA llama channel.findMany para delete preexisting
+      expect(prisma.channel.findMany).not.toHaveBeenCalled()
+      expect(gateway.deleteChannel).not.toHaveBeenCalled()
+    })
+
+    it('force=true → busca channels existentes por type + delete en BD y Channex antes de recrear', async () => {
+      const prisma = makePrismaMock()
+      prisma.channel.findMany = jest.fn().mockResolvedValue([
+        { id: 'ch-old-1', channexChannelId: 'chn-existing-uuid', type: 'BookingCom' },
+      ])
+      const gateway = makeGatewayMock()
+      const svc = new ChannexProvisionService(prisma, gateway, makeCryptoMock())
+      await svc.retryProperty(
+        'prop-1',
+        [
+          {
+            type: 'BookingCom',
+            title: 'Booking',
+            credentials: { hotel_id: '999', username: 'u', password: 'p' },
+            configureLater: false,
+          },
+        ],
+        { force: true },
+      )
+      expect(prisma.channel.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ propertyId: 'prop-1', type: { in: ['BookingCom'] } }),
+        }),
+      )
+      expect(gateway.deleteChannel).toHaveBeenCalledWith('chn-existing-uuid')
+      expect(prisma.channel.delete).toHaveBeenCalledWith({ where: { id: 'ch-old-1' } })
+      // recreate succeed
+      expect(gateway.createChannel).toHaveBeenCalled()
+    })
+
+    it('force=true con Channex deleteChannel error → log warn + delete BD igual + recreate', async () => {
+      const prisma = makePrismaMock()
+      prisma.channel.findMany = jest.fn().mockResolvedValue([
+        { id: 'ch-old-2', channexChannelId: 'chn-zombie-uuid', type: 'BookingCom' },
+      ])
+      const gateway = makeGatewayMock()
+      gateway.deleteChannel = jest.fn().mockRejectedValue(new Error('Channex 404: not found'))
+      const svc = new ChannexProvisionService(prisma, gateway, makeCryptoMock())
+      const result = await svc.retryProperty(
+        'prop-1',
+        [
+          {
+            type: 'BookingCom',
+            title: 'Booking',
+            credentials: { hotel_id: '999', username: 'u', password: 'p' },
+            configureLater: false,
+          },
+        ],
+        { force: true },
+      )
+      // delete BD se ejecuta aunque Channex falle (force semantics — limpia
+      // estado local; inconsistencia se resuelve al recrear).
+      expect(prisma.channel.delete).toHaveBeenCalledWith({ where: { id: 'ch-old-2' } })
+      // El error de delete NO debe contaminar result.errors — es info, no fail
+      expect(result.errors.filter((e) => e.step === 'force_delete').length).toBe(0)
     })
   })
 })

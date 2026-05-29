@@ -95,22 +95,49 @@ function actingOrgHeader(): Record<string, string> {
 export const channexMgmtClient = {
   /** Lista provisioning status de todas las properties de la acting org. */
   listProvisioning: (): Promise<ChannexProvisioningProperty[]> =>
-    api.get<ChannexProvisioningProperty[]>('/v1/nova/channex/provisioning', {
+    api.get<ChannexProvisioningProperty[]>('/v1/nova/organizations/provisioning', {
       headers: actingOrgHeader(),
     }),
 
   /**
-   * Re-dispara el provisioning para una Property. Idempotent — si la property
-   * ya tiene mappings completos, retorna sin tocar Channex. Si no se proveen
-   * channels, solo re-intenta property + room types + rate plans existentes.
+   * Re-dispara el provisioning para una Property. Idempotent por default — si
+   * la property ya tiene mappings completos, retorna sin tocar Channex.
+   *
+   * `force=true` → delete + recreate de los channels provistos en BD/Channex
+   * (caso: cliente cambió credentials Booking/Expedia y el partner exige
+   * re-binding). NO usar cuando el canal está published — perdería reservas
+   * en flight.
    */
   retryProvision: (
     propertyId: string,
     channels: RetryChannelInput[] = [],
+    opts: { force?: boolean } = {},
   ): Promise<ChannexProvisionResult> =>
     api.post<ChannexProvisionResult>(
-      `/v1/nova/channex/provision/${propertyId}`,
-      { channels },
+      `/v1/nova/properties/${propertyId}/channex/provision`,
+      { channels, force: opts.force ?? false },
+      { headers: actingOrgHeader() },
+    ),
+
+  /**
+   * Completa credentials de un Channel pre-existente (status='pending_credentials').
+   * Backend cifra AES-256-GCM antes de persistir + propaga a Channex via
+   * updateChannel(settings). Si Channex rechaza las credentials, retorna 400.
+   * Airbnb → 400 (requiere OAuth handshake en extranet, no admite manual).
+   */
+  completeChannelCredentials: (
+    channelId: string,
+    credentials: Record<string, string>,
+  ): Promise<{
+    id: string
+    type: string
+    title: string
+    status: string
+    lastSyncedAt: string | null
+  }> =>
+    api.post(
+      `/v1/nova/channex/channels/${channelId}/credentials`,
+      { credentials },
       { headers: actingOrgHeader() },
     ),
 }

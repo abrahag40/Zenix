@@ -152,12 +152,19 @@ export class ChannexProvisionService {
   }
 
   /**
-   * Idempotent retry endpoint. Llamado desde POST /v1/nova/properties/:id/channex/provision.
-   * Solo provisiona la Property específica + channels solicitados.
+   * Idempotent retry endpoint. Llamado desde
+   * POST /v1/nova/properties/:id/channex/provision.
+   *
+   * Opciones:
+   *   force=false (default) — skip si Channel.channexChannelId ya existe en BD
+   *   force=true            — delete + recreate de los channels provistos
+   *                           (caso: cliente cambió credentials Booking/Expedia
+   *                           y partner exige re-binding)
    */
   async retryProperty(
     propertyId: string,
     channels: ProvisionChannelInput[],
+    opts: { force?: boolean } = {},
   ): Promise<ProvisionResult> {
     const prop = await this.prisma.property.findUnique({
       where: { id: propertyId },
@@ -176,6 +183,35 @@ export class ChannexProvisionService {
         errors: [{ step: 'lookup_property', message: `Property ${propertyId} no encontrada` }],
       }
     }
+
+    // force=true → delete channels existentes en BD para los types provistos
+    // ANTES de provisionOneProperty. provisionOneProperty entonces los re-crea.
+    // Idempotency natural: si force=false, el create-side filter en provision
+    // saltea los channels con channexChannelId existente.
+    if (opts.force && channels.length > 0) {
+      const types = channels.map((c) => c.type)
+      const existing = await this.prisma.channel.findMany({
+        where: { propertyId, type: { in: types } },
+        select: { id: true, channexChannelId: true, type: true },
+      })
+      for (const ch of existing) {
+        try {
+          await this.gateway.deleteChannel(ch.channexChannelId)
+        } catch (err) {
+          // Si Channex 404 (ya no existe) o 422 (mapping activo) — log + sigo.
+          // La row BD se borra igual; la inconsistencia con Channex se
+          // resuelve al recrear (force semantics).
+          this.logger.warn(
+            `[Provision] force=true deleteChannel ${ch.channexChannelId} (type=${ch.type}): ${String(err).slice(0, 200)}`,
+          )
+        }
+        await this.prisma.channel.delete({ where: { id: ch.id } })
+      }
+      this.logger.log(
+        `[Provision] force=true deleted ${existing.length} channels for property ${propertyId}`,
+      )
+    }
+
     const result: ProvisionResult = {
       status: 'completed',
       groupId: prop.organization.channexGroupId,
