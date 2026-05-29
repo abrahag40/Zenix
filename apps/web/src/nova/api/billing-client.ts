@@ -7,6 +7,16 @@
  * apps/api/src/billing/nova-billing.controller.ts.
  */
 import { api } from '../../api/client'
+import { useNovaStore } from '../../store/nova'
+
+/** Helper para inyectar X-Acting-Organization-Id en endpoints scope-org. */
+function actingOrgHeaders(): Record<string, string> {
+  const state = useNovaStore.getState()
+  if (!state.actingOrgId) {
+    throw new Error('Nova: no acting organization seleccionada')
+  }
+  return { 'X-Acting-Organization-Id': state.actingOrgId }
+}
 
 // ─────────────────────────────────────────────────────────────────────
 // Types — espejo de DiscountCodeService + DTOs
@@ -88,6 +98,90 @@ export interface RejectApprovalInput {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// CLIENT-RETENTION-DISCOUNTS (Sprint 2026-05-29)
+// ─────────────────────────────────────────────────────────────────────
+
+/** Subscription completa con history de discounts + events (audit trail). */
+export interface NovaSubscription {
+  id: string
+  organizationId: string
+  stripeSubscriptionId: string
+  stripeCustomerId: string
+  status: string
+  planTier: string
+  billingCycle: 'monthly' | 'annual'
+  currency: 'MXN' | 'USD'
+  baseMonthlyAmount: number | string
+  propertyCount: number
+  currentPeriodStart: string
+  currentPeriodEnd: string
+  nextRenewalDate: string | null
+  autoRenew: boolean
+  pendingTrialDays?: number | null
+  pendingCouponId?: string | null
+  trialNegotiatedBy?: string | null
+  cardCapturedAt?: string | null
+  discounts: NovaSubscriptionDiscount[]
+  events: NovaSubscriptionEvent[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface NovaSubscriptionDiscount {
+  id: string
+  subscriptionId: string
+  stripeCouponId: string
+  stripePromotionCodeId: string | null
+  promotionCode: string
+  percentOff: number
+  duration: DiscountDuration
+  durationInMonths: number | null
+  reason: string
+  generatedById: string
+  generatedByRole: string
+  approvedById: string | null
+  approvedAt: string | null
+  appliedAt: string
+  expiresAt: string | null
+  voidedAt?: string | null
+  voidReason?: string | null
+}
+
+export interface NovaSubscriptionEvent {
+  id: string
+  subscriptionId: string
+  type: string
+  description: string | null
+  metadata: Record<string, unknown> | null
+  createdAt: string
+}
+
+/** Input para aplicar un discount de retención a una sub activa. */
+export interface GenerateDiscountInput {
+  /** Sub ID local de la sub activa. */
+  subscriptionId: string
+  /** % off (5-50 enforced backend). */
+  percentOff: number
+  /** Duración del coupon Stripe. */
+  duration: DiscountDuration
+  /** Required cuando duration='repeating' (1-24 meses). */
+  durationInMonths?: number
+  /** Razón comercial (10-500 chars, audit trail). */
+  reason: string
+  /**
+   * Si percentOff > tier cap del consultor, auto-marca pending_approval
+   * en vez de fallar con 403. Default false (= require approval upfront).
+   */
+  autoRequestApprovalIfExceedsCap?: boolean
+}
+
+export interface GenerateDiscountResult {
+  kind: 'applied' | 'pending_approval'
+  discount?: NovaSubscriptionDiscount
+  request?: { id: string; status: string }
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Client
 // ─────────────────────────────────────────────────────────────────────
 
@@ -122,4 +216,28 @@ export const billingClient = {
       `/v1/nova/billing/discount-approvals/${id}/reject`,
       input,
     ),
+
+  // ── CLIENT-RETENTION-DISCOUNTS (Sprint 2026-05-29) ──────────────────
+
+  /**
+   * GET subscription completa del current acting org. Incluye history
+   * de discounts y events (audit trail). Usado por la página
+   * /nova/clientes/:id/billing.
+   */
+  getSubscriptionForActingOrg: () =>
+    api.get<NovaSubscription>('/v1/nova/billing/subscription', {
+      headers: actingOrgHeaders(),
+    }),
+
+  /**
+   * POST aplica un discount a una subscription activa. Backend valida
+   * que la sub esté en status `active|trialing|past_due` y llama
+   * `stripe.subscriptions.update({ discounts: [{ coupon }] })` real.
+   * Stripe aplica el discount desde el SIGUIENTE invoice y respeta
+   * `duration` para auto-revertir al precio del plan después de N meses.
+   */
+  generateRetentionDiscount: (input: GenerateDiscountInput) =>
+    api.post<GenerateDiscountResult>('/v1/nova/billing/discount-codes', input, {
+      headers: actingOrgHeaders(),
+    }),
 }

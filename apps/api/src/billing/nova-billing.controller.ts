@@ -36,6 +36,8 @@ import { NovaActingOrgGuard, RequireActingOrg } from '../nova/guards/nova-acting
 import { NovaTiers, NovaTiersGuard } from '../nova/guards/nova-tiers.guard'
 import { DiscountCodeService } from './discount-code.service'
 import { SubscriptionService } from './subscription.service'
+import { TenantContextService } from '../common/tenant-context.service'
+import { NotFoundException } from '@nestjs/common'
 import {
   CancelSubscriptionDto,
   ChangePlanDto,
@@ -55,6 +57,7 @@ export class NovaBillingController {
   constructor(
     private readonly subscription: SubscriptionService,
     private readonly discountCode: DiscountCodeService,
+    private readonly tenant: TenantContextService,
   ) {}
 
   // ── Subscriptions ─────────────────────────────────────────────────
@@ -72,6 +75,31 @@ export class NovaBillingController {
     // del JWT header X-Acting-Organization-Id.
     // El endpoint asume id es el ID interno (no Stripe).
     return this.subscription.getSubscriptionById(id)
+  }
+
+  /**
+   * Sprint CLIENT-RETENTION-DISCOUNTS (2026-05-29).
+   * GET /v1/nova/billing/subscription
+   *
+   * Retorna la subscription del current acting org (X-Acting-Organization-Id).
+   * Incluye discounts + events (audit trail). Usado por la página
+   * /nova/clientes/:id/billing para mostrar el estado de la sub +
+   * history de discounts antes de aplicar uno de retención.
+   *
+   * Si la org no tiene subscription → 404 (caso edge: cliente cuyo
+   * wizard activate falló en la creación de Stripe sub).
+   */
+  @Get('subscription')
+  @RequireActingOrg()
+  async getForActingOrg() {
+    const orgId = this.tenant.getActingOrgIdOrThrow()
+    const sub = await this.subscription.getSubscriptionForOrganization(orgId)
+    if (!sub) {
+      throw new NotFoundException(
+        `Organization ${orgId} no tiene subscription Stripe — verifica que el wizard se completó correctamente.`,
+      )
+    }
+    return sub
   }
 
   @Patch('subscriptions/:id/plan')
