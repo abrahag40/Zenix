@@ -51,9 +51,10 @@ import {
 
 import { getStayStatus } from '../../utils/timeline.utils'
 import { PaymentStatusBadge } from '../shared/PaymentStatusBadge'
-import { useLogContact, useEarlyCheckout, useUpdateGuestStay, useStayPayments, useVoidPayment, useRegisterPayment, useStayContext } from '../../hooks/useGuestStays'
+import { useLogContact, useEarlyCheckout, useUpdateGuestStay, useStayPayments, useVoidPayment, useRegisterPayment, useStayContext, useRegisterNoShowCharge } from '../../hooks/useGuestStays'
 import { useStayUpdatedSSE } from '../../hooks/useStayUpdatedSSE'
 import { EarlyCheckoutDialog } from './EarlyCheckoutDialog'
+import { RegisterNoShowChargeDialog } from './RegisterNoShowChargeDialog'
 import { InlineEditField } from '../shared/InlineEditField'
 import { ReservationNotesThread } from '../shared/ReservationNotesThread'
 import { ChangeConfirmDialog } from '../shared/ChangeConfirmDialog'
@@ -705,6 +706,10 @@ export function BookingDetailSheet({
     : []
   const [showEarlyCheckout, setShowEarlyCheckout] = useState(false)
   const earlyCheckoutMutation = useEarlyCheckout(propertyId ?? '')
+
+  // No-show admin charge — Sprint POST-NETFLIX-TRIAL (2026-05-29)
+  const [showNoShowChargeDialog, setShowNoShowChargeDialog] = useState(false)
+  const registerNoShowChargeMut = useRegisterNoShowCharge(propertyId ?? '')
 
   // Sprint EDIT-RESERVATION — hook único para todas las ediciones inline.
   // Backend aplica matriz phase×campo + audit log. El frontend solo dispatcha.
@@ -1749,51 +1754,133 @@ export function BookingDetailSheet({
                   </p>
 
                   {/*
-                    REMOVED 2026-05-29 — botones "Procesar cargo" / "Perdonar" /
-                    "Reintentar cobro" via Stripe. El no-show charging quedó
-                    fuera del scope (ver useGuestStays.ts). El registro del
-                    cobro ahora es manual (efectivo, OTA pre-paid, cobro al
-                    checkout, etc.) — recepción decide cómo procesar.
-
-                    Si en el futuro Booking Engine se integra con cobros
-                    online del huésped, ese pago será PARTE DE LA RESERVA
-                    INICIAL (no card-on-file para no-show retroactivo). El
-                    no-show de huésped pre-pagado vía Booking Engine seguiría
-                    políticas de cancellation del propio booking — no requiere
-                    UI front-desk.
+                    Sprint POST-NETFLIX-TRIAL (2026-05-29) — flujo admin del cobro.
+                    Stripe NO se usa para no-show (fuera del scope — Stripe solo
+                    para subscription billing del hotel + booking engine). Recepción
+                    cobra fuera de Zenix (efectivo / OTA VCC / POS) y registra el
+                    outcome via POST /v1/guest-stays/:id/register-noshow-charge.
                   */}
 
-                  {/* Estado PENDING — recordatorio recepción */}
+                  {/* OTA Guarantee — datos de tarjeta enviados por la OTA en booking_new */}
+                  {stay.channexGuaranteeMeta && (
+                    <div className="rounded-lg border border-sky-200 bg-sky-50/60 px-2.5 py-2 text-[11px] text-sky-900">
+                      <div className="font-semibold flex items-center gap-1.5">
+                        <CreditCard className="h-3 w-3" />
+                        Datos OTA para cobro
+                        {stay.channexGuaranteeMeta.isVirtual && (
+                          <span className="ml-auto rounded bg-sky-200 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-sky-900">
+                            Virtual Card
+                          </span>
+                        )}
+                      </div>
+                      <dl className="mt-1.5 grid grid-cols-2 gap-x-2 gap-y-0.5">
+                        {stay.channexGuaranteeMeta.cardType && (
+                          <>
+                            <dt className="text-sky-700">Tipo</dt>
+                            <dd className="font-mono text-sky-900">{stay.channexGuaranteeMeta.cardType}</dd>
+                          </>
+                        )}
+                        {stay.channexGuaranteeMeta.masked && (
+                          <>
+                            <dt className="text-sky-700">Tarjeta</dt>
+                            <dd className="font-mono text-sky-900">{stay.channexGuaranteeMeta.masked}</dd>
+                          </>
+                        )}
+                        {stay.channexGuaranteeMeta.expirationDate && (
+                          <>
+                            <dt className="text-sky-700">Vence</dt>
+                            <dd className="font-mono text-sky-900">{stay.channexGuaranteeMeta.expirationDate}</dd>
+                          </>
+                        )}
+                        {stay.channexGuaranteeMeta.meta?.balance != null && (
+                          <>
+                            <dt className="text-sky-700">Balance VCC</dt>
+                            <dd className="font-mono text-sky-900">
+                              {stay.channexGuaranteeMeta.meta.currency ?? ''}{' '}
+                              {String(stay.channexGuaranteeMeta.meta.balance)}
+                            </dd>
+                          </>
+                        )}
+                        {stay.channexGuaranteeMeta.meta?.effectiveDate && (
+                          <>
+                            <dt className="text-sky-700">VCC activa</dt>
+                            <dd className="font-mono text-sky-900">{stay.channexGuaranteeMeta.meta.effectiveDate}</dd>
+                          </>
+                        )}
+                      </dl>
+                      <p className="mt-1.5 text-[10px] text-sky-700">
+                        Usa estos datos en tu terminal POS para procesar el cargo manualmente,
+                        luego registra el resultado aquí.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Estado actual del cargo */}
                   {stay.noShowChargeStatus === 'PENDING' && (
-                    <p className="text-[11px] text-amber-700">
-                      Cargo pendiente — registrar manualmente en caja al cobrar.
-                    </p>
+                    <div className="space-y-2">
+                      <p className="text-[11px] text-amber-700">
+                        Cargo pendiente — cobra en caja / terminal / OTA VCC y registra el resultado.
+                      </p>
+                      <Button
+                        size="sm"
+                        onClick={() => setShowNoShowChargeDialog(true)}
+                        className="w-full h-8 bg-emerald-600 hover:bg-emerald-700 text-white text-xs"
+                      >
+                        Registrar cobro
+                      </Button>
+                    </div>
                   )}
 
-                  {/* Estado CHARGED — cargo registrado por recepción */}
                   {stay.noShowChargeStatus === 'CHARGED' && (
-                    <p className="text-[11px] font-semibold text-emerald-700 flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
-                      Cargo registrado ✓
-                    </p>
+                    <div className="space-y-1">
+                      <p className="text-[11px] font-semibold text-emerald-700 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+                        Cobro registrado ✓
+                      </p>
+                      {stay.noShowChargeMethod && (
+                        <p className="text-[10px] text-slate-600">
+                          Método: <span className="font-medium">{stay.noShowChargeMethod}</span>
+                          {stay.noShowChargeReference && <> · Ref: <span className="font-mono">{stay.noShowChargeReference}</span></>}
+                          {stay.noShowChargeAt && (
+                            <> · {format(stay.noShowChargeAt, "d MMM HH:mm", { locale: es })}</>
+                          )}
+                        </p>
+                      )}
+                    </div>
                   )}
 
-                  {/* Estado FAILED — registro manual del fallo */}
                   {stay.noShowChargeStatus === 'FAILED' && (
-                    <p className="text-[11px] text-red-700">
-                      Cobro fallido — registrar acción en caja.
-                    </p>
+                    <div className="space-y-2">
+                      <p className="text-[11px] text-red-700 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-red-500 inline-block" />
+                        Cobro fallido
+                        {stay.noShowChargeMethod && (
+                          <span className="text-slate-500">· {stay.noShowChargeMethod}</span>
+                        )}
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setShowNoShowChargeDialog(true)}
+                        className="w-full h-8 text-xs"
+                      >
+                        Reintentar / actualizar outcome
+                      </Button>
+                    </div>
                   )}
 
-                  {/* Estado WAIVED */}
                   {stay.noShowChargeStatus === 'WAIVED' && (
-                    <p className="text-[11px] font-semibold text-amber-700 flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
-                      Cargo perdonado
-                    </p>
+                    <div className="space-y-1">
+                      <p className="text-[11px] font-semibold text-amber-700 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
+                        Cargo perdonado
+                      </p>
+                      {stay.noShowChargeReason && (
+                        <p className="text-[10px] text-slate-600 italic">"{stay.noShowChargeReason}"</p>
+                      )}
+                    </div>
                   )}
 
-                  {/* Estado NOT_APPLICABLE */}
                   {stay.noShowChargeStatus === 'NOT_APPLICABLE' && (
                     <p className="text-[11px] text-slate-500">Sin cargo aplicable</p>
                   )}
@@ -2238,6 +2325,24 @@ export function BookingDetailSheet({
       roomLabel={stay.roomNumber ? `Hab. ${stay.roomNumber}` : 'Habitación'}
       checkinAt={new Date(stay.checkIn)}
       scheduledCheckout={new Date(stay.checkOut)}
+    />
+
+    {/* Sprint POST-NETFLIX-TRIAL (2026-05-29) — registro admin del cobro del no-show. */}
+    <RegisterNoShowChargeDialog
+      open={showNoShowChargeDialog}
+      onClose={() => setShowNoShowChargeDialog(false)}
+      onConfirm={(dto) => {
+        const stayId = stay.guestStayId ?? stay.id
+        registerNoShowChargeMut.mutate(
+          { stayId, ...dto },
+          { onSuccess: () => setShowNoShowChargeDialog(false) },
+        )
+      }}
+      isPending={registerNoShowChargeMut.isPending}
+      guestName={stay.guestName}
+      feeAmount={stay.noShowFeeAmount}
+      feeCurrency={stay.noShowFeeCurrency}
+      hasOtaGuarantee={!!stay.channexGuaranteeMeta}
     />
 
     {/* ── ChangeConfirmDialog: approval flow para paxCount/rate post-checkin.

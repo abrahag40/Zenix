@@ -1786,6 +1786,76 @@ export class GuestStaysService {
     return { success: true }
   }
 
+  /**
+   * Registra el resultado del cobro manual del no-show. Flujo administrativo
+   * 100% — Zenix NO procesa Stripe en check-in. Recepción cobra fuera de
+   * Zenix (efectivo, OTA card, transferencia) y registra aquí el outcome.
+   *
+   * Guards:
+   *   · stay debe existir + tenant scope match
+   *   · noShowAt no-null (debió pasar markAsNoShow primero)
+   *   · noShowChargeStatus === 'PENDING' (no se sobrescribe historial CHARGED/WAIVED/FAILED)
+   *   · status='WAIVED' requiere reason explícito (≥5 chars)
+   *
+   * Side effects:
+   *   · GuestStay.noShowChargeStatus → status del DTO
+   *   · GuestStay.noShowChargeMethod → method del DTO (cash/transfer/ota_card/...)
+   *   · GuestStay.noShowChargeReference → reference (opcional, audit)
+   *   · GuestStay.noShowChargeAt → now()
+   *   · GuestStay.noShowChargeById → actorId
+   *   · GuestStay.noShowChargeReason → reason (obligatorio si WAIVED)
+   *
+   * Estado post-call es INMUTABLE excepto via revertNoShow (que resetea todo).
+   */
+  async registerNoShowCharge(
+    stayId: string,
+    actorId: string,
+    dto: {
+      status: 'CHARGED' | 'FAILED' | 'WAIVED'
+      method: 'cash' | 'transfer' | 'ota_card' | 'manual_card' | 'ota_collect' | 'other'
+      reference?: string
+      reason?: string
+    },
+  ) {
+    const orgId = this.tenant.getOrganizationId()
+    const stay = await this.prisma.guestStay.findUnique({
+      where: { id: stayId, organizationId: orgId },
+    })
+    if (!stay) throw new NotFoundException('Estadía no encontrada')
+    if (!stay.noShowAt) {
+      throw new ConflictException(
+        'La estadía no está marcada como no-show — marca primero con /no-show antes de registrar el cargo',
+      )
+    }
+    if (stay.noShowChargeStatus !== 'PENDING') {
+      throw new ConflictException(
+        `El cargo ya está registrado como ${stay.noShowChargeStatus}. Para reabrir, usa revertNoShow primero.`,
+      )
+    }
+    if (dto.status === 'WAIVED' && (!dto.reason || dto.reason.trim().length < 5)) {
+      throw new BadRequestException(
+        'Perdonar el cargo requiere una razón explícita (≥5 caracteres) para audit trail.',
+      )
+    }
+
+    await this.prisma.guestStay.update({
+      where: { id: stayId },
+      data: {
+        noShowChargeStatus: dto.status,
+        noShowChargeMethod: dto.method,
+        noShowChargeReference: dto.reference?.trim() || null,
+        noShowChargeAt: new Date(),
+        noShowChargeById: actorId,
+        noShowChargeReason: dto.reason?.trim() || null,
+      },
+    })
+
+    this.logger.log(
+      `No-show charge registered: stay=${stayId} status=${dto.status} method=${dto.method} ref=${dto.reference ?? '∅'} actor=${actorId}`,
+    )
+    return { success: true }
+  }
+
   // ─── Helpers exposed for night-audit scheduler ────────────────────────────
 
   /** Exported so NightAuditScheduler can call it without tenant context (system actor). */

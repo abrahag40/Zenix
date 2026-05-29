@@ -1502,6 +1502,15 @@ model GuestStay {
   noShowFeeAmount       Decimal?            @map("no_show_fee_amount") @db.Decimal(10, 2)
   noShowFeeCurrency     String?             @map("no_show_fee_currency")
   noShowChargeStatus    NoShowChargeStatus? @map("no_show_charge_status")
+  // Sprint POST-NETFLIX-TRIAL (2026-05-29) — flujo admin del cobro manual.
+  // Recepción cobra fuera de Zenix (efectivo, OTA card via Booking VCC /
+  // Expedia Collect, transferencia, etc.) y registra el outcome aquí vía
+  // POST /v1/guest-stays/:id/register-noshow-charge. NO usa Stripe.
+  noShowChargeMethod    String?             @map("no_show_charge_method")    // cash | transfer | ota_card | manual_card | ota_collect | other
+  noShowChargeReference String?             @map("no_show_charge_reference") // POS approval ID, transfer ID, etc.
+  noShowChargeAt        DateTime?           @map("no_show_charge_at")
+  noShowChargeById      String?             @map("no_show_charge_by_id")
+  noShowChargeReason    String?             @map("no_show_charge_reason")    // obligatorio si status=WAIVED
   noShowRevertedAt      DateTime?           @map("no_show_reverted_at")
   noShowRevertedById    String?             @map("no_show_reverted_by_id")
   // ── Late checkout escalation (Sprint 9) ─────────────────────────────────

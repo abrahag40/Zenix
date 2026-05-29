@@ -48,8 +48,14 @@ function adaptStay(raw: Record<string, unknown>): GuestStayBlock {
     noShowFeeAmount:      raw.noShowFeeAmount != null ? Number(raw.noShowFeeAmount) : undefined,
     noShowFeeCurrency:    raw.noShowFeeCurrency as string | undefined,
     noShowChargeStatus:   raw.noShowChargeStatus as GuestStayBlock['noShowChargeStatus'],
-    // stripePaymentMethodId eliminado 2026-05-29 — ver comentario abajo en
-    // useChargeNoShow / useWaiveNoShow para contexto.
+    noShowChargeMethod:   (raw.noShowChargeMethod as GuestStayBlock['noShowChargeMethod']) ?? null,
+    noShowChargeReference:(raw.noShowChargeReference as string | null | undefined) ?? null,
+    noShowChargeAt:       raw.noShowChargeAt ? new Date(raw.noShowChargeAt as string) : null,
+    noShowChargeReason:   (raw.noShowChargeReason as string | null | undefined) ?? null,
+    // OTA guarantee data (Channex webhook booking_new) — PCI-safe masked card.
+    channexGuaranteeMeta: (raw.channexGuaranteeMeta as GuestStayBlock['channexGuaranteeMeta']) ?? null,
+    // stripePaymentMethodId eliminado 2026-05-29 — fuera del scope. Stripe en
+    // Zenix solo se usa para subscription billing del hotel + booking engine.
     cancelledAt:          raw.cancelledAt ? new Date(raw.cancelledAt as string) : undefined,
     cancelInitiator:      raw.cancelInitiator as GuestStayBlock['cancelInitiator'],
     cancelReason:         raw.cancelReason as string | undefined,
@@ -408,6 +414,38 @@ export function useRevertNoShow(propertyId: string) {
     },
     onError: (err: Error) => {
       toast.error(err.message ?? 'No se pudo revertir el no-show')
+    },
+  })
+}
+
+/**
+ * Registra el outcome del cobro manual del no-show.
+ * Sprint POST-NETFLIX-TRIAL (2026-05-29) — flujo 100% administrativo.
+ * Recepción cobra fuera de Zenix (cash / OTA VCC / transferencia / POS) y
+ * registra aquí el resultado. NO usa Stripe — Stripe es solo para subscription
+ * billing del hotel y booking engine público.
+ */
+export function useRegisterNoShowCharge(propertyId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      stayId,
+      ...dto
+    }: {
+      stayId: string
+      status: 'CHARGED' | 'FAILED' | 'WAIVED'
+      method: 'cash' | 'transfer' | 'ota_card' | 'manual_card' | 'ota_collect' | 'other'
+      reference?: string
+      reason?: string
+    }) => api.post(`/v1/guest-stays/${stayId}/register-noshow-charge`, dto),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ['guest-stays', propertyId], exact: false, refetchType: 'active' })
+      qc.invalidateQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false, refetchType: 'active' })
+      const labels = { CHARGED: 'Cobro registrado', FAILED: 'Cobro fallido registrado', WAIVED: 'Cargo perdonado' }
+      toast.success(labels[vars.status])
+    },
+    onError: (err: Error) => {
+      toast.error(err.message ?? 'No se pudo registrar el outcome del cobro')
     },
   })
 }

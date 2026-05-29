@@ -905,5 +905,142 @@ describe('GuestStaysService — no-show', () => {
       })
     })
   })
+
+  // ─── registerNoShowCharge — Sprint POST-NETFLIX-TRIAL (2026-05-29) ──────────
+  describe('registerNoShowCharge', () => {
+    it('rechaza si la estadía no existe', async () => {
+      prismaMock.guestStay.findUnique.mockResolvedValue(null)
+      await expect(
+        service.registerNoShowCharge('stay-missing', ACTOR_ID, {
+          status: 'CHARGED',
+          method: 'cash',
+        }),
+      ).rejects.toThrow(NotFoundException)
+    })
+
+    it('rechaza si la estadía no está marcada como no-show', async () => {
+      prismaMock.guestStay.findUnique.mockResolvedValue(
+        makeStay({ noShowAt: null }),
+      )
+      await expect(
+        service.registerNoShowCharge(STAY_ID, ACTOR_ID, {
+          status: 'CHARGED',
+          method: 'cash',
+        }),
+      ).rejects.toThrow(ConflictException)
+    })
+
+    it('rechaza si noShowChargeStatus ya no es PENDING', async () => {
+      prismaMock.guestStay.findUnique.mockResolvedValue(
+        makeStay({
+          noShowAt: new Date('2026-04-19T13:00:00.000Z'),
+          noShowChargeStatus: 'CHARGED',
+        }),
+      )
+      await expect(
+        service.registerNoShowCharge(STAY_ID, ACTOR_ID, {
+          status: 'CHARGED',
+          method: 'cash',
+        }),
+      ).rejects.toThrow(ConflictException)
+    })
+
+    it('WAIVED sin razón explícita ≥5 chars → BadRequest', async () => {
+      prismaMock.guestStay.findUnique.mockResolvedValue(
+        makeStay({
+          noShowAt: new Date('2026-04-19T13:00:00.000Z'),
+          noShowChargeStatus: 'PENDING',
+        }),
+      )
+      await expect(
+        service.registerNoShowCharge(STAY_ID, ACTOR_ID, {
+          status: 'WAIVED',
+          method: 'other',
+          reason: 'ok',
+        }),
+      ).rejects.toThrow()
+    })
+
+    it('CHARGED con método cash + reference → persiste outcome completo', async () => {
+      prismaMock.guestStay.findUnique.mockResolvedValue(
+        makeStay({
+          noShowAt: new Date('2026-04-19T13:00:00.000Z'),
+          noShowChargeStatus: 'PENDING',
+        }),
+      )
+      prismaMock.guestStay.update.mockResolvedValue({})
+
+      const res = await service.registerNoShowCharge(STAY_ID, ACTOR_ID, {
+        status: 'CHARGED',
+        method: 'cash',
+        reference: 'POS-12345',
+      })
+
+      expect(res).toEqual({ success: true })
+      expect(prismaMock.guestStay.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: STAY_ID },
+          data: expect.objectContaining({
+            noShowChargeStatus: 'CHARGED',
+            noShowChargeMethod: 'cash',
+            noShowChargeReference: 'POS-12345',
+            noShowChargeById: ACTOR_ID,
+            noShowChargeAt: expect.any(Date),
+          }),
+        }),
+      )
+    })
+
+    it('WAIVED con razón ≥5 chars → persiste reason', async () => {
+      prismaMock.guestStay.findUnique.mockResolvedValue(
+        makeStay({
+          noShowAt: new Date('2026-04-19T13:00:00.000Z'),
+          noShowChargeStatus: 'PENDING',
+        }),
+      )
+      prismaMock.guestStay.update.mockResolvedValue({})
+
+      await service.registerNoShowCharge(STAY_ID, ACTOR_ID, {
+        status: 'WAIVED',
+        method: 'other',
+        reason: 'Cliente recurrente, ajuste comercial aprobado por gerente',
+      })
+
+      expect(prismaMock.guestStay.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            noShowChargeStatus: 'WAIVED',
+            noShowChargeReason: 'Cliente recurrente, ajuste comercial aprobado por gerente',
+          }),
+        }),
+      )
+    })
+
+    it('FAILED con OTA virtual card → persiste outcome', async () => {
+      prismaMock.guestStay.findUnique.mockResolvedValue(
+        makeStay({
+          noShowAt: new Date('2026-04-19T13:00:00.000Z'),
+          noShowChargeStatus: 'PENDING',
+        }),
+      )
+      prismaMock.guestStay.update.mockResolvedValue({})
+
+      await service.registerNoShowCharge(STAY_ID, ACTOR_ID, {
+        status: 'FAILED',
+        method: 'ota_card',
+        reference: 'BOOKING-VCC-DECLINED-001',
+      })
+
+      expect(prismaMock.guestStay.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            noShowChargeStatus: 'FAILED',
+            noShowChargeMethod: 'ota_card',
+            noShowChargeReference: 'BOOKING-VCC-DECLINED-001',
+          }),
+        }),
+      )
+    })
+  })
 })
 
