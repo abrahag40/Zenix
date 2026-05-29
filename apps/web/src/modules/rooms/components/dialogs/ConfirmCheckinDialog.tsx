@@ -861,41 +861,39 @@ function PhotoCapture({
           <canvas ref={canvasRef} className="hidden" />
         </div>
       ) : (
-        /* Estado 3: idle — botones para iniciar captura o subir archivo */
+        /* Estado 3: idle — grid 2-col compacto cámara + upload.
+           Sprint CHECK-IN C1 user feedback (2026-05-29): el botón vertical
+           ocupaba ~140px en el modal. Grid 2-col reduce a ~50px sin perder
+           discoverability — ambas opciones visibles al mismo nivel
+           (Apple HIG paritarios para acciones equivalentes). */
         <div className="space-y-2">
-          <button
-            type="button"
-            onClick={startCamera}
-            className="w-full rounded-lg border-2 border-dashed border-emerald-300 hover:border-emerald-500
-                       bg-emerald-50/40 hover:bg-emerald-50 px-4 py-5 flex flex-col items-center gap-1.5
-                       transition-colors text-emerald-700"
-          >
-            <Camera className="h-6 w-6" />
-            <span className="text-xs font-semibold">Tomar foto con la cámara</span>
-            <span className="text-[10px] text-slate-500">
-              Apunta la webcam al documento del huésped
-            </span>
-          </button>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={startCamera}
+              className="rounded-lg border-2 border-dashed border-emerald-300 hover:border-emerald-500
+                         bg-emerald-50/40 hover:bg-emerald-50 px-3 py-2.5 flex items-center justify-center gap-2
+                         transition-colors text-emerald-700 text-xs font-semibold"
+            >
+              <Camera className="h-4 w-4" />
+              Tomar foto
+            </button>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="rounded-lg border border-slate-300 hover:border-slate-400
+                         bg-white hover:bg-slate-50 px-3 py-2.5 flex items-center justify-center gap-2
+                         transition-colors text-slate-600 text-xs font-medium"
+            >
+              <Upload className="h-3.5 w-3.5" />
+              Subir archivo
+            </button>
+          </div>
           {cameraError && (
             <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 leading-snug">
               {cameraError}
             </p>
           )}
-          <div className="flex items-center gap-2">
-            <div className="flex-1 h-px bg-slate-200" />
-            <span className="text-[10px] text-slate-400 uppercase tracking-wider">o</span>
-            <div className="flex-1 h-px bg-slate-200" />
-          </div>
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="w-full rounded-lg border border-slate-300 hover:border-slate-400
-                       bg-white hover:bg-slate-50 px-4 py-2.5 flex items-center justify-center gap-2
-                       transition-colors text-slate-600 text-xs font-medium"
-          >
-            <Upload className="h-3.5 w-3.5" />
-            Subir archivo (JPG / PNG, máx 5 MB)
-          </button>
         </div>
       )}
 
