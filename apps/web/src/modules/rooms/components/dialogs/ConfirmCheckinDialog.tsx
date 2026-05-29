@@ -28,9 +28,8 @@ import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import {
-  AlertTriangle, Camera, Check, ChevronDown, CreditCard, FileText,
-  Globe, IdCard, Loader2, LogIn, MapPin, ShieldCheck, StickyNote,
-  Upload, User as UserIcon, X,
+  AlertTriangle, Camera, Check, ChevronDown, CreditCard, Globe,
+  IdCard, Loader2, LogIn, ShieldCheck, StickyNote, Upload, X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -406,75 +405,64 @@ export function ConfirmCheckinDialog({
                 expanded={identityExpanded}
                 onToggle={() => setIdentityExpanded((v) => !v)}
               >
-                {/* CHECK-IN C1.6 (2026-05-29) — Layout 2-col estilo rich del
-                    ReservationDetailPage Huésped tab. Col izq: cards con
-                    íconos circulares pastel + labels uppercase + inputs subtle.
-                    Col der: foto del documento (PhotoCapture). Apple Settings
-                    list pattern + Gestalt continuidad. Responsive: 1-col en
-                    mobile/iPad portrait. */}
+                {/* CHECK-IN C1.6 (2026-05-29 iter 2) — Layout 2-col:
+                    izquierda info estructurada con inputs simples,
+                    derecha PhotoCapture estilo card ReservationDetailPage
+                    (empty state grande con border dashed + 2 CTAs apilados). */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* COLUMNA IZQUIERDA — info estructurada en cards icónicas */}
-                  <div className="rounded-2xl bg-white border border-slate-200/80 shadow-[0_1px_2px_rgba(0,0,0,0.03)] overflow-hidden">
-                    {/* Nacionalidad + Género en grid 2-col con divider */}
-                    <div className="grid grid-cols-2 divide-x divide-slate-100">
-                      <EditableInfoCard
-                        icon={MapPin}
-                        iconBg="bg-blue-50 text-blue-600"
-                        label="Nacionalidad"
-                        optional
-                      >
-                        <input
-                          type="text"
-                          value={nationality}
-                          onChange={(e) => setNationality(e.target.value)}
-                          placeholder="MX, US, FR…"
-                          maxLength={50}
-                          className="w-full bg-transparent text-sm font-bold text-slate-800 mt-0.5
-                                     placeholder:text-slate-300 placeholder:font-normal
-                                     focus:outline-none"
-                        />
-                      </EditableInfoCard>
-                      <EditableInfoCard
-                        icon={UserIcon}
-                        iconBg="bg-rose-50 text-rose-600"
-                        label="Género"
-                        optional
-                      >
-                        <select
-                          value={guestSex}
-                          onChange={(e) => setGuestSex(e.target.value)}
-                          className="w-full bg-transparent text-sm font-bold text-slate-800 mt-0.5
-                                     focus:outline-none cursor-pointer"
-                        >
-                          <option value="">—</option>
-                          <option value="F">Femenino</option>
-                          <option value="M">Masculino</option>
-                          <option value="O">Otro / No binario</option>
-                          <option value="N">Prefiere no decir</option>
-                        </select>
-                      </EditableInfoCard>
-                    </div>
-                    {/* Tipo de documento — full width */}
-                    <EditableInfoCard
-                      icon={FileText}
-                      iconBg="bg-slate-100 text-slate-700"
-                      label="Tipo de documento"
-                      required
-                    >
+                  {/* COLUMNA IZQUIERDA — info en inputs simples */}
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                        Tipo de documento *
+                      </label>
                       <select
                         value={documentType}
                         onChange={(e) => setDocumentType(e.target.value)}
-                        className="w-full bg-transparent text-sm font-bold text-slate-800 mt-0.5
-                                   focus:outline-none cursor-pointer"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm
+                                   text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-300"
                       >
                         {DOCUMENT_TYPES.map((dt) => (
                           <option key={dt.value} value={dt.value}>{dt.label}</option>
                         ))}
                       </select>
-                    </EditableInfoCard>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                        Nacionalidad <span className="text-slate-400 normal-case font-normal">(opcional)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={nationality}
+                        onChange={(e) => setNationality(e.target.value)}
+                        placeholder="Ej: Mexicana, US, EU…"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm
+                                   text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                        maxLength={50}
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                        Género <span className="text-slate-400 normal-case font-normal">(opcional)</span>
+                      </label>
+                      <select
+                        value={guestSex}
+                        onChange={(e) => setGuestSex(e.target.value)}
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm
+                                   text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                      >
+                        <option value="">— No especificado —</option>
+                        <option value="F">Femenino</option>
+                        <option value="M">Masculino</option>
+                        <option value="O">Otro / No binario</option>
+                        <option value="N">Prefiere no decir</option>
+                      </select>
+                    </div>
                   </div>
 
-                  {/* COLUMNA DERECHA — captura visual (PhotoCapture incluye su propio label) */}
+                  {/* COLUMNA DERECHA — PhotoCapture (estilo card grande) */}
                   <PhotoCapture
                     photoDataUrl={docPhotoDataUrl}
                     fileInputRef={fileInputRef}
@@ -699,57 +687,6 @@ function Section({
 }
 
 /**
- * EditableInfoCard — Card para campos del huésped con icono circular pastel
- * + label uppercase + input subtle. Sprint CHECK-IN C1.6 (2026-05-29).
- *
- * Replica el patrón visual del ReservationDetailPage Huésped tab (GuestInfoLine)
- * pero adaptado para INPUT FORM (no read-only display). Mantiene la jerarquía
- * iconográfica + Apple Settings list pattern + Gestalt continuidad.
- *
- * Diseño:
- *   - Icon container circular (h-9 w-9) con tinte pastel del campo
- *   - Label uppercase tracking-wider [10px] (mismo que MetaRow)
- *   - Value área = children (input/select sin border visible — se ve "natural")
- *   - Padding 3-4 + border bottom para divider entre rows (al apilar)
- *
- * Usado solo en la sección Identidad del modal de check-in. Si en el futuro
- * crece a otros formularios, extraerlo a un shared component.
- */
-function EditableInfoCard({
-  icon: Icon,
-  iconBg,
-  label,
-  optional = false,
-  required = false,
-  children,
-}: {
-  icon: React.ElementType
-  iconBg: string
-  label: string
-  optional?: boolean
-  required?: boolean
-  children: React.ReactNode
-}) {
-  return (
-    <div className="flex items-center gap-3 px-3.5 py-2.5 border-b border-slate-100 last:border-b-0">
-      <div className={cn('h-9 w-9 rounded-full flex items-center justify-center shrink-0', iconBg)}>
-        <Icon className="h-4 w-4" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-          {label}
-          {required && <span className="text-rose-500 normal-case font-normal">*</span>}
-          {optional && (
-            <span className="text-slate-300 normal-case font-normal">· opcional</span>
-          )}
-        </div>
-        {children}
-      </div>
-    </div>
-  )
-}
-
-/**
  * PhotoCapture — Webcam-first capture del documento del huésped.
  *
  * Sprint 2026-05-17 refactor: el flow primario ahora es CÁMARA EN VIVO de la
@@ -926,36 +863,43 @@ function PhotoCapture({
           <canvas ref={canvasRef} className="hidden" />
         </div>
       ) : (
-        /* Estado 3: idle — grid 2-col compacto cámara + upload.
-           Sprint CHECK-IN C1 user feedback (2026-05-29): el botón vertical
-           ocupaba ~140px en el modal. Grid 2-col reduce a ~50px sin perder
-           discoverability — ambas opciones visibles al mismo nivel
-           (Apple HIG paritarios para acciones equivalentes). */
-        <div className="space-y-2">
-          <div className="grid grid-cols-2 gap-2">
+        /* Estado 3: idle — Big empty state card estilo ReservationDetailPage
+           Huésped tab (Sprint CHECK-IN C1.6 iter 3, 2026-05-29 user feedback).
+           Pattern Apple HIG card vacía con anchor visual + 2 CTAs apilados. */
+        <div className="h-full min-h-[220px] rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-4 flex flex-col items-center justify-center text-center gap-3">
+          <div className="h-14 w-14 rounded-full bg-white border border-slate-200 flex items-center justify-center shadow-sm">
+            <Camera className="h-6 w-6 text-slate-400" />
+          </div>
+          <div>
+            <p className="text-sm font-bold text-slate-700">Sin foto del documento</p>
+            <p className="text-[11px] text-slate-500 mt-1 leading-snug max-w-[280px]">
+              Capturada al check-in como evidencia (Visa §5.9.2). Cárgala ahora.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 w-full max-w-[260px]">
             <button
               type="button"
               onClick={startCamera}
-              className="rounded-lg border-2 border-dashed border-emerald-300 hover:border-emerald-500
-                         bg-emerald-50/40 hover:bg-emerald-50 px-3 py-2.5 flex items-center justify-center gap-2
-                         transition-colors text-emerald-700 text-xs font-semibold"
+              className="inline-flex items-center justify-center gap-1.5 rounded-full
+                         bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold
+                         px-3 py-2 shadow-sm transition-colors"
             >
-              <Camera className="h-4 w-4" />
-              Tomar foto
+              <Camera className="h-3.5 w-3.5" />
+              Tomar con cámara
             </button>
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="rounded-lg border border-slate-300 hover:border-slate-400
-                         bg-white hover:bg-slate-50 px-3 py-2.5 flex items-center justify-center gap-2
-                         transition-colors text-slate-600 text-xs font-medium"
+              className="inline-flex items-center justify-center gap-1.5 rounded-full
+                         bg-white hover:bg-slate-100 border border-slate-200
+                         text-slate-700 text-xs font-semibold px-3 py-2 transition-colors"
             >
               <Upload className="h-3.5 w-3.5" />
-              Subir archivo
+              Cargar archivo
             </button>
           </div>
           {cameraError && (
-            <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 leading-snug">
+            <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 leading-snug max-w-[280px]">
               {cameraError}
             </p>
           )}
