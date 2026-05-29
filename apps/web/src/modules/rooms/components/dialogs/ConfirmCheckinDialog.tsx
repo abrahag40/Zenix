@@ -405,38 +405,31 @@ export function ConfirmCheckinDialog({
                 expanded={identityExpanded}
                 onToggle={() => setIdentityExpanded((v) => !v)}
               >
-                <div className="space-y-3">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                      Tipo de documento *
-                    </label>
-                    <select
-                      value={documentType}
-                      onChange={(e) => setDocumentType(e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm
-                                 text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-300"
-                    >
-                      {DOCUMENT_TYPES.map((dt) => (
-                        <option key={dt.value} value={dt.value}>{dt.label}</option>
-                      ))}
-                    </select>
-                  </div>
+                {/* CHECK-IN C1.6 (2026-05-29) — layout 2-col Apple HIG Form pattern:
+                    izquierda info estructurada (tipo doc + nacionalidad + género)
+                    apilada vertical, derecha captura visual (foto).
+                    Replica el layout del BookingDetailSheet (info → izq, foto → der).
+                    Aprovecha el max-w-3xl del modal (768px) sin desperdiciar
+                    horizontal — ambas columnas alineadas top, fluyen al colapsar. */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* COLUMNA IZQUIERDA — info estructurada */}
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                        Tipo de documento *
+                      </label>
+                      <select
+                        value={documentType}
+                        onChange={(e) => setDocumentType(e.target.value)}
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm
+                                   text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                      >
+                        {DOCUMENT_TYPES.map((dt) => (
+                          <option key={dt.value} value={dt.value}>{dt.label}</option>
+                        ))}
+                      </select>
+                    </div>
 
-                  <PhotoCapture
-                    photoDataUrl={docPhotoDataUrl}
-                    fileInputRef={fileInputRef}
-                    onChange={handlePhotoChange}
-                    onRemove={() => {
-                      setDocPhotoDataUrl(null)
-                      if (fileInputRef.current) fileInputRef.current.value = ''
-                    }}
-                  />
-
-                  {/* CHECK-IN C1 (2026-05-29) — opcionales analytics-LATAM.
-                      Diferenciador vs Mews: campo género visible para dorms
-                      mixtos. NN/g 2024 minimalismo: ambos opcionales y en
-                      grid 2-col para no agregar altura excesiva al modal. */}
-                  <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
                       <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                         Nacionalidad <span className="text-slate-400 normal-case font-normal">(opcional)</span>
@@ -451,6 +444,7 @@ export function ConfirmCheckinDialog({
                         maxLength={50}
                       />
                     </div>
+
                     <div className="space-y-1">
                       <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                         Género <span className="text-slate-400 normal-case font-normal">(opcional)</span>
@@ -470,6 +464,16 @@ export function ConfirmCheckinDialog({
                     </div>
                   </div>
 
+                  {/* COLUMNA DERECHA — captura visual (PhotoCapture incluye su propio label) */}
+                  <PhotoCapture
+                    photoDataUrl={docPhotoDataUrl}
+                    fileInputRef={fileInputRef}
+                    onChange={handlePhotoChange}
+                    onRemove={() => {
+                      setDocPhotoDataUrl(null)
+                      if (fileInputRef.current) fileInputRef.current.value = ''
+                    }}
+                  />
                 </div>
               </Section>
 
