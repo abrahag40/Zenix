@@ -112,6 +112,18 @@ type Step2Data   = z.output<typeof step2Schema>
 
 export interface NewStayData extends Step1Data, Step2Data {
   roomId: string
+  /**
+   * Sprint CHECK-IN C1.5 (2026-05-29) — walk-in fast-path inline.
+   * Cuando checkIn === today + true: el TimelineScheduler abre
+   * automáticamente el ConfirmCheckinDialog tras la creación de la stay.
+   * Resuelve UX issue: antes el recepcionista creaba la reserva y luego
+   * tenía que cazar el bloque del calendario para empezar el check-in
+   * (2 steps para el mismo objetivo). Ahora 1 flow continuo opcional.
+   *
+   * Opcional intencional: puede que el huésped llegue más tarde el mismo
+   * día, o cancele, o no se presente. Caja por defecto desmarcada.
+   */
+  checkInNow?: boolean
 }
 
 // ── ERROR FIELD ───────────────────────────────────────────────
@@ -152,6 +164,8 @@ export function CheckInDialog({
   useSoftLock(open && initialRoomId ? initialRoomId : null, propertyId ?? null)
   const [step, setStep] = useState(1)
   const [showCancelAlert, setShowCancelAlert] = useState(false)
+  // CHECK-IN C1.5 walk-in fast-path inline (2026-05-29)
+  const [checkInNow, setCheckInNow] = useState(false)
 
   // ── AVAILABILITY STATE ──
   // 'idle'      — no check run yet (dates not set or just reset)
@@ -215,6 +229,7 @@ export function CheckInDialog({
     setStep(1)
     setAvailStatus('idle')
     setAvailConflicts([])
+    setCheckInNow(false)
   }, [open]) // eslint-disable-line
 
   // Detectar si hay datos para la alerta de cierre
@@ -259,10 +274,14 @@ export function CheckInDialog({
     // NewStayData (numbers already coerced from the inputs' string values).
     const step1 = step1Schema.parse(f1.getValues())
     const step2 = step2Schema.parse(f2.getValues())
+    // CHECK-IN C1.5: solo passable si el checkIn es hoy. El TimelineScheduler
+    // abrirá ConfirmCheckinDialog automáticamente cuando llegue checkInNow=true.
+    const isToday = step2.checkIn && isSameDay(new Date(step2.checkIn), new Date())
     onConfirm({
       ...step1,
       ...step2,
       roomId: initialRoomId ?? '',
+      checkInNow: isToday ? checkInNow : false,
     })
     onClose()
   }
@@ -867,6 +886,40 @@ export function CheckInDialog({
                       </ul>
                     </div>
                   </div>
+
+                  {/* CHECK-IN C1.5 walk-in fast-path (2026-05-29) — checkbox
+                      opcional cuando el checkIn es hoy. Visible SOLO si la
+                      fecha de check-in coincide con today: evita confusión
+                      cuando la reserva es para días futuros. Default off:
+                      consultor decide por reserva si quiere fluir directo
+                      al check-in (huésped presente) o no (huésped llegará
+                      más tarde / posible no-show). */}
+                  {s.checkIn && isSameDay(new Date(s.checkIn), new Date()) && (
+                    <label
+                      htmlFor="checkin-now-toggle"
+                      className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl
+                                 border-2 border-emerald-200 bg-emerald-50/40
+                                 hover:bg-emerald-50/70 cursor-pointer transition-colors"
+                    >
+                      <input
+                        id="checkin-now-toggle"
+                        type="checkbox"
+                        checked={checkInNow}
+                        onChange={(e) => setCheckInNow(e.target.checked)}
+                        className="mt-0.5 h-4 w-4 rounded border-emerald-300 text-emerald-600
+                                   focus:ring-emerald-500 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <div className="text-xs font-semibold text-emerald-900">
+                          Hacer check-in ahora
+                        </div>
+                        <p className="text-[11px] text-emerald-700 mt-0.5 leading-snug">
+                          El huésped está aquí — captura foto del documento + pago en el mismo flujo.
+                          Desmarca si el huésped llegará más tarde.
+                        </p>
+                      </div>
+                    </label>
+                  )}
                 </div>
               )
             })()}

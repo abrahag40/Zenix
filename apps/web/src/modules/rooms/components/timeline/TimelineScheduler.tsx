@@ -1209,9 +1209,24 @@ export function TimelineScheduler() {
         initialCheckIn={checkInDialog.checkIn}
         propertyId={PROPERTY_ID}
         onClose={() => setCheckInDialog({ open: false })}
-        onConfirm={(data: NewStayData) => {
-          createStay.mutate({ ...data, propertyId: PROPERTY_ID })
+        onConfirm={async (data: NewStayData) => {
           setCheckInDialog({ open: false })
+          // CHECK-IN C1.5 walk-in fast-path (2026-05-29) — si el consultor
+          // marcó "Hacer check-in ahora" (solo disponible cuando checkIn=today),
+          // esperamos a que la creación termine + abrimos ConfirmCheckinDialog
+          // con el stayId nuevo. Sin esto, recepcionista debía cazar el bloque
+          // del calendario después de crear (2 steps para 1 objetivo).
+          try {
+            const created = await createStay.mutateAsync({ ...data, propertyId: PROPERTY_ID }) as { id?: string } | undefined
+            if (data.checkInNow && created?.id) {
+              // Pequeño delay para que la cache se refresque y el bloque
+              // aparezca renderizado antes de abrir el siguiente modal.
+              setTimeout(() => setCheckinDialog({ stayId: created.id! }), 150)
+            }
+          } catch {
+            // El error ya fue manejado por useCreateGuestStay (toast).
+            // No reabrimos checkInDialog para no perder el feedback de error.
+          }
         }}
       />
 
