@@ -42,6 +42,7 @@ import { NovaBillingPage } from './nova/pages/NovaBillingPage'
 import { NovaBillingCodesPage } from './nova/pages/NovaBillingCodesPage'
 import { NovaBillingChannexPage } from './nova/pages/NovaBillingChannexPage'
 import { NovaBillingApprovalsPage } from './nova/pages/NovaBillingApprovalsPage'
+import { NovaBillingClientPage } from './nova/pages/NovaBillingClientPage'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -140,6 +141,7 @@ export default function App() {
           <Route path="/nova/billing/codigos"      element={<NovaBillingCodesPage />} />
           <Route path="/nova/billing/channex"      element={<NovaBillingChannexPage />} />
           <Route path="/nova/billing/aprobaciones" element={<NovaBillingApprovalsPage />} />
+          <Route path="/nova/billing/cliente"      element={<NovaBillingClientPage />} />
           <Route path="/nova/audit"      element={<NovaAuditLogPage />} />
           <Route path="/nova/settings"   element={<NovaSettingsPage />} />
           <Route path="*"                element={<Navigate to="/dashboard" replace />} />

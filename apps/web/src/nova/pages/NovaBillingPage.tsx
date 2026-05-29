@@ -85,6 +85,15 @@ const BILLING_SECTIONS: Array<{
     accent: 'amber',
   },
   {
+    label: 'Suscripción del cliente',
+    description:
+      'Gestión de la subscription del cliente seleccionado: estado actual, descuento activo, historial y aplicar descuentos de retención (Netflix-style win-back).',
+    to: '/nova/billing/cliente',
+    icon: TrendingUp,
+    status: 'available',
+    accent: 'violet',
+  },
+  {
     label: 'Configuración de precios',
     description:
       'Solo PLATFORM Admin: ajustar precios MXN/USD, descuento anual, partner tier caps.',
