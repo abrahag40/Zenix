@@ -405,64 +405,74 @@ export function ConfirmCheckinDialog({
                 expanded={identityExpanded}
                 onToggle={() => setIdentityExpanded((v) => !v)}
               >
-                {/* CHECK-IN C1.6 (2026-05-29 iter 2) — Layout 2-col:
-                    izquierda info estructurada con inputs simples,
-                    derecha PhotoCapture estilo card ReservationDetailPage
-                    (empty state grande con border dashed + 2 CTAs apilados). */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* COLUMNA IZQUIERDA — info en inputs simples */}
-                  <div className="space-y-3">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                        Tipo de documento *
-                      </label>
-                      <select
-                        value={documentType}
-                        onChange={(e) => setDocumentType(e.target.value)}
-                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm
-                                   text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-300"
-                      >
-                        {DOCUMENT_TYPES.map((dt) => (
-                          <option key={dt.value} value={dt.value}>{dt.label}</option>
-                        ))}
-                      </select>
+                {/* CHECK-IN C1.6 iter 3 (2026-05-29) — Layout 2-col balanceado:
+                    izquierda inputs en card subtle (mismo peso visual que der),
+                    derecha PhotoCapture en card dashed empty state. Header
+                    label arriba de cada col para simetría + jerarquía clara.
+                    items-stretch garantiza heights iguales (Apple HIG paridad). */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
+                  {/* COLUMNA IZQUIERDA — info en card subtle */}
+                  <div className="flex flex-col gap-2">
+                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider px-1 flex items-center gap-1">
+                      Datos del huésped
+                      <span className="text-slate-400 normal-case font-normal">— captura básica</span>
                     </div>
+                    <div className="flex-1 rounded-2xl bg-white border border-slate-200/80 shadow-[0_1px_2px_rgba(0,0,0,0.03)] p-4 space-y-3.5">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                          Tipo de documento <span className="text-rose-500 font-normal">*</span>
+                        </label>
+                        <select
+                          value={documentType}
+                          onChange={(e) => setDocumentType(e.target.value)}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm
+                                     text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-300
+                                     transition-shadow"
+                        >
+                          {DOCUMENT_TYPES.map((dt) => (
+                            <option key={dt.value} value={dt.value}>{dt.label}</option>
+                          ))}
+                        </select>
+                      </div>
 
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                        Nacionalidad <span className="text-slate-400 normal-case font-normal">(opcional)</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={nationality}
-                        onChange={(e) => setNationality(e.target.value)}
-                        placeholder="Ej: Mexicana, US, EU…"
-                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm
-                                   text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-300"
-                        maxLength={50}
-                      />
-                    </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                          Nacionalidad <span className="text-slate-400 normal-case font-normal">· opcional</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={nationality}
+                          onChange={(e) => setNationality(e.target.value)}
+                          placeholder="Ej: Mexicana, US, EU…"
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm
+                                     text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-300
+                                     transition-shadow"
+                          maxLength={50}
+                        />
+                      </div>
 
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                        Género <span className="text-slate-400 normal-case font-normal">(opcional)</span>
-                      </label>
-                      <select
-                        value={guestSex}
-                        onChange={(e) => setGuestSex(e.target.value)}
-                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm
-                                   text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-300"
-                      >
-                        <option value="">— No especificado —</option>
-                        <option value="F">Femenino</option>
-                        <option value="M">Masculino</option>
-                        <option value="O">Otro / No binario</option>
-                        <option value="N">Prefiere no decir</option>
-                      </select>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                          Género <span className="text-slate-400 normal-case font-normal">· opcional</span>
+                        </label>
+                        <select
+                          value={guestSex}
+                          onChange={(e) => setGuestSex(e.target.value)}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm
+                                     text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-300
+                                     transition-shadow"
+                        >
+                          <option value="">— No especificado —</option>
+                          <option value="F">Femenino</option>
+                          <option value="M">Masculino</option>
+                          <option value="O">Otro / No binario</option>
+                          <option value="N">Prefiere no decir</option>
+                        </select>
+                      </div>
                     </div>
                   </div>
 
-                  {/* COLUMNA DERECHA — PhotoCapture (estilo card grande) */}
+                  {/* COLUMNA DERECHA — PhotoCapture (incluye su propio header) */}
                   <PhotoCapture
                     photoDataUrl={docPhotoDataUrl}
                     fileInputRef={fileInputRef}
@@ -802,13 +812,14 @@ function PhotoCapture({
   }
 
   return (
-    <div className="space-y-1.5">
-      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+    <div className="flex flex-col gap-2">
+      <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider px-1 flex items-center gap-1">
         Foto del documento
-        <span className="font-normal normal-case text-slate-400 ml-1.5">
-          — requerido (Visa CRR evidence)
+        <span className="text-rose-500 normal-case font-normal">*</span>
+        <span className="font-normal normal-case text-slate-400 ml-1">
+          — Visa CRR evidence
         </span>
-      </label>
+      </div>
 
       {/* Estado 1: ya hay foto capturada */}
       {photoDataUrl ? (
