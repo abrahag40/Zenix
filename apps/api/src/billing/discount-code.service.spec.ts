@@ -110,6 +110,8 @@ function makePrismaMock(opts: {
               stripeCustomerId: 'cus_x',
             },
       ),
+      // DISCOUNT-APPROVAL-UI (2026-05-29) — enrichment lookup
+      findMany: jest.fn().mockResolvedValue([]),
     },
     partnerMember: {
       findUnique: jest.fn().mockResolvedValue(
@@ -177,6 +179,13 @@ function makePrismaMock(opts: {
       findMany: jest.fn().mockResolvedValue([]),
       findUnique: jest.fn(),
       delete: jest.fn().mockResolvedValue({}),
+    },
+    // DISCOUNT-APPROVAL-UI (2026-05-29) — enrichment de listPendingApprovals
+    organization: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    user: {
+      findMany: jest.fn().mockResolvedValue([]),
     },
   } as any
 }
@@ -542,6 +551,91 @@ describe('DiscountCodeService', () => {
         }),
       )
       expect(res).toEqual([])
+    })
+
+    // ── DISCOUNT-APPROVAL-UI (2026-05-29) ──────────────────────────────
+    it('enriquece con organizationName + requestedByName + subscription context', async () => {
+      const prisma = makePrismaMock()
+      prisma.discountApprovalRequest.findMany.mockResolvedValueOnce([
+        {
+          id: 'req-1',
+          requestedById: 'consultor-1',
+          requestedByRole: 'PARTNER_MEMBER',
+          organizationId: 'org-1',
+          subscriptionId: 'sub-1',
+          percentOff: 25,
+          duration: 'repeating',
+          durationInMonths: 6,
+          reason: 'Cliente VIP referido por owner',
+          status: 'PENDING',
+          createdAt: new Date('2026-05-29T10:00:00Z'),
+          expiresAt: new Date('2026-06-05T10:00:00Z'),
+        },
+      ])
+      prisma.organization.findMany.mockResolvedValueOnce([
+        { id: 'org-1', name: 'Hotel Boutique Tulum', slug: 'tulum-boutique' },
+      ])
+      prisma.user.findMany.mockResolvedValueOnce([
+        { id: 'consultor-1', firstName: 'Pedro', lastName: 'García', email: 'pedro@consultor.com' },
+      ])
+      prisma.subscription.findMany.mockResolvedValueOnce([
+        {
+          id: 'sub-1',
+          planTier: 'PRO',
+          currency: 'MXN',
+          baseMonthlyAmount: 2400,
+          propertyCount: 2,
+          billingCycle: 'monthly',
+        },
+      ])
+      const service = makeService({ prisma })
+      const res = await service.listPendingApprovals(
+        baseActor({ actorTier: 'PLATFORM', role: 'PLATFORM_ADMIN' }),
+      )
+      expect(res).toHaveLength(1)
+      expect(res[0]).toMatchObject({
+        id: 'req-1',
+        organizationName: 'Hotel Boutique Tulum',
+        organizationSlug: 'tulum-boutique',
+        requestedByName: 'Pedro García',
+        requestedByEmail: 'pedro@consultor.com',
+        subscription: {
+          id: 'sub-1',
+          planTier: 'PRO',
+          currency: 'MXN',
+          baseMonthlyAmount: 2400,
+          propertyCount: 2,
+          billingCycle: 'monthly',
+        },
+      })
+    })
+
+    it('user sin firstName/lastName → requestedByName=null gracioso', async () => {
+      const prisma = makePrismaMock()
+      prisma.discountApprovalRequest.findMany.mockResolvedValueOnce([
+        {
+          id: 'req-x',
+          requestedById: 'consultor-x',
+          organizationId: 'org-x',
+          subscriptionId: null,
+          percentOff: 15,
+          duration: 'once',
+          status: 'PENDING',
+          createdAt: new Date(),
+          expiresAt: new Date(Date.now() + 7 * 86400 * 1000),
+        },
+      ])
+      prisma.organization.findMany.mockResolvedValueOnce([])
+      prisma.user.findMany.mockResolvedValueOnce([
+        { id: 'consultor-x', firstName: null, lastName: null, email: 'x@y.com' },
+      ])
+      const service = makeService({ prisma })
+      const res = await service.listPendingApprovals(
+        baseActor({ actorTier: 'PLATFORM', role: 'PLATFORM_ADMIN' }),
+      )
+      expect(res[0].requestedByName).toBeNull()
+      expect(res[0].requestedByEmail).toBe('x@y.com')
+      expect(res[0].subscription).toBeNull()
     })
   })
 

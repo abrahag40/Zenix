@@ -257,22 +257,90 @@ export class DiscountCodeService {
     if (!this.isApproverTier(actor)) {
       throw new ForbiddenException()
     }
+
     // PARTNER_ADMIN ve solo sus orgs asignadas; PLATFORM_ADMIN ve todo.
-    if ((actor as any).actorTier === 'PLATFORM') {
-      return this.prisma.discountApprovalRequest.findMany({
-        where: { status: 'PENDING' },
-        orderBy: { createdAt: 'desc' },
-      })
+    const where: any = { status: 'PENDING' }
+    if ((actor as any).actorTier !== 'PLATFORM') {
+      const assignedOrgIds = (actor as any).assignedOrgIds ?? []
+      if (assignedOrgIds.length === 0) return []
+      where.organizationId = { in: assignedOrgIds }
     }
-    // PARTNER_ADMIN — filtrar por assignedOrgIds
-    const assignedOrgIds = (actor as any).assignedOrgIds ?? []
-    if (assignedOrgIds.length === 0) return []
-    return this.prisma.discountApprovalRequest.findMany({
-      where: {
-        status: 'PENDING',
-        organizationId: { in: assignedOrgIds },
-      },
+
+    const requests = await this.prisma.discountApprovalRequest.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
+    })
+
+    if (requests.length === 0) return []
+
+    // ── Sprint DISCOUNT-APPROVAL-UI (2026-05-29) ────────────────────────
+    // Enriquecemos la respuesta con datos que la UI necesita para tomar
+    // decisión informada sin N round-trips: nombre del cliente
+    // (Organization), nombre + email del consultor que solicitó
+    // (User), y el contexto comercial de la Subscription
+    // (planTier + currency + baseMonthlyAmount + propertyCount) cuando
+    // existe el FK opcional.
+    //
+    // No agregamos `@relation` en el schema para evitar migration sobre
+    // tabla productiva — usamos batched queries con `findMany` por id-set.
+    // Patrón estándar Prisma "manual join" cuando no quieres FK formal.
+    const orgIds = Array.from(new Set(requests.map((r) => r.organizationId)))
+    const userIds = Array.from(new Set(requests.map((r) => r.requestedById)))
+    const subIds = Array.from(
+      new Set(requests.map((r) => r.subscriptionId).filter((id): id is string => !!id)),
+    )
+
+    const [orgs, users, subs] = await Promise.all([
+      this.prisma.organization.findMany({
+        where: { id: { in: orgIds } },
+        select: { id: true, name: true, slug: true },
+      }),
+      this.prisma.user.findMany({
+        where: { id: { in: userIds } },
+        select: { id: true, firstName: true, lastName: true, email: true },
+      }),
+      subIds.length > 0
+        ? this.prisma.subscription.findMany({
+            where: { id: { in: subIds } },
+            select: {
+              id: true,
+              planTier: true,
+              currency: true,
+              baseMonthlyAmount: true,
+              propertyCount: true,
+              billingCycle: true,
+            },
+          })
+        : Promise.resolve([] as any[]),
+    ])
+
+    const orgById = new Map(orgs.map((o) => [o.id, o]))
+    const userById = new Map(users.map((u) => [u.id, u]))
+    const subById = new Map(subs.map((s) => [s.id, s]))
+
+    return requests.map((r) => {
+      const org = orgById.get(r.organizationId) ?? null
+      const requester = userById.get(r.requestedById) ?? null
+      const subscription = r.subscriptionId ? subById.get(r.subscriptionId) ?? null : null
+      return {
+        ...r,
+        organizationName: org?.name ?? null,
+        organizationSlug: org?.slug ?? null,
+        requestedByName: requester
+          ? `${requester.firstName ?? ''} ${requester.lastName ?? ''}`.trim() || null
+          : null,
+        requestedByEmail: requester?.email ?? null,
+        subscription: subscription
+          ? {
+              id: subscription.id,
+              planTier: subscription.planTier,
+              currency: subscription.currency,
+              baseMonthlyAmount: Number(subscription.baseMonthlyAmount),
+              propertyCount: subscription.propertyCount,
+              billingCycle: subscription.billingCycle,
+            }
+          : null,
+      }
     })
   }
 

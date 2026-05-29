@@ -81,7 +81,7 @@ const BILLING_SECTIONS: Array<{
       'Cuando un consultor crea un descuento que excede su cap, queda pendiente de aprobación de un PARTNER_ADMIN.',
     to: '/nova/billing/aprobaciones',
     icon: ShieldCheck,
-    status: 'soon',
+    status: 'available',
     accent: 'amber',
   },
   {
