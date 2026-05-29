@@ -1525,12 +1525,20 @@ model GuestStay {
   // Habilita pace/lead-time analysis (top wanted report en cross-research)
   // sin recomputar `differenceInDays` en cada query agregada. Trivial cost.
   bookingLeadDays       Int?                @map("booking_lead_days")
-  // ── Stripe card-on-file (Sprint 8) ───────────────────────────────────────
-  // Guardados al hacer check-in via SetupIntent (usage: 'off_session').
-  // stripePaymentIntentId se genera al procesar el cargo de no-show.
-  stripeCustomerId      String?             @map("stripe_customer_id")
-  stripePaymentMethodId String?             @map("stripe_payment_method_id")
-  stripePaymentIntentId String?             @map("stripe_payment_intent_id")
+  // ── Stripe card-on-file ELIMINADO 2026-05-29 ─────────────────────────────
+  // Los campos stripeCustomerId, stripePaymentMethodId y stripePaymentIntentId
+  // del GuestStay fueron eliminados porque el no-show charging via Stripe
+  // (Sprint Mx-1) estaba fuera del scope productivo.
+  //
+  // VISIÓN ZENIX para Stripe (confirmada 2026-05-29):
+  //   1. Cobro al dueño del hotel — suscripción SaaS Zenix (flow Netflix-trial)
+  //   2. Booking Engine (sprint futuro) — huésped paga reserva online + se
+  //      genera el bloque GuestStay automáticamente. SIN tarjeta del huésped
+  //      retenida en check-in.
+  //
+  // El tracking interno del no-show (noShowChargeStatus, noShowFeeAmount)
+  // SE MANTIENE para que recepción registre el cargo manual (efectivo, OTA
+  // pre-paid, cobro al checkout, etc.) sin pasar por Stripe.
   deletedAt             DateTime?           @map("deleted_at")
   createdAt             DateTime            @default(now()) @map("created_at")
   updatedAt             DateTime            @updatedAt @map("updated_at")

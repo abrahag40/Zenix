@@ -51,7 +51,7 @@ import {
 
 import { getStayStatus } from '../../utils/timeline.utils'
 import { PaymentStatusBadge } from '../shared/PaymentStatusBadge'
-import { useLogContact, useChargeNoShow, useWaiveNoShow, useEarlyCheckout, useUpdateGuestStay, useStayPayments, useVoidPayment, useRegisterPayment, useStayContext } from '../../hooks/useGuestStays'
+import { useLogContact, useEarlyCheckout, useUpdateGuestStay, useStayPayments, useVoidPayment, useRegisterPayment, useStayContext } from '../../hooks/useGuestStays'
 import { useStayUpdatedSSE } from '../../hooks/useStayUpdatedSSE'
 import { EarlyCheckoutDialog } from './EarlyCheckoutDialog'
 import { InlineEditField } from '../shared/InlineEditField'
@@ -695,11 +695,6 @@ export function BookingDetailSheet({
   const [noShowReason, setNoShowReason] = useState('')
   const [waiveCharge, setWaiveCharge] = useState(false)
   const logContact  = useLogContact(stay?.id ?? '')
-  const chargeNoShow = useChargeNoShow(stay?.id ?? '')
-  const waiveNoShow  = useWaiveNoShow(stay?.id ?? '')
-  const [showWaiveInput, setShowWaiveInput] = useState(false)
-  const [waiveReason, setWaiveReason] = useState('')
-  const [waiveError, setWaiveError] = useState<string | null>(null)
   const { shakeClass: waiveShake, trigger: triggerWaiveShake } = useShakeOnInvalid()
 
   // W3.2 — Maintenance tickets activos en la habitación de esta reserva.
@@ -1753,114 +1748,41 @@ export function BookingDetailSheet({
                     )}
                   </p>
 
-                  {/* Estado PENDING + sin tarjeta */}
-                  {stay.noShowChargeStatus === 'PENDING' && !stay.stripePaymentMethodId && (
-                    <p className="text-[11px] text-red-600">
-                      Sin tarjeta registrada — cobro manual necesario.
+                  {/*
+                    REMOVED 2026-05-29 — botones "Procesar cargo" / "Perdonar" /
+                    "Reintentar cobro" via Stripe. El no-show charging quedó
+                    fuera del scope (ver useGuestStays.ts). El registro del
+                    cobro ahora es manual (efectivo, OTA pre-paid, cobro al
+                    checkout, etc.) — recepción decide cómo procesar.
+
+                    Si en el futuro Booking Engine se integra con cobros
+                    online del huésped, ese pago será PARTE DE LA RESERVA
+                    INICIAL (no card-on-file para no-show retroactivo). El
+                    no-show de huésped pre-pagado vía Booking Engine seguiría
+                    políticas de cancellation del propio booking — no requiere
+                    UI front-desk.
+                  */}
+
+                  {/* Estado PENDING — recordatorio recepción */}
+                  {stay.noShowChargeStatus === 'PENDING' && (
+                    <p className="text-[11px] text-amber-700">
+                      Cargo pendiente — registrar manualmente en caja al cobrar.
                     </p>
                   )}
 
-                  {/* Estado PENDING + hay tarjeta → botones de acción */}
-                  {stay.noShowChargeStatus === 'PENDING' && stay.stripePaymentMethodId && (
-                    <>
-                      {!showWaiveInput ? (
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            className="flex-1 text-xs bg-red-600 hover:bg-red-700 text-white h-8"
-                            disabled={chargeNoShow.isPending}
-                            onClick={() => chargeNoShow.mutate()}
-                          >
-                            <CreditCard className="h-3.5 w-3.5 mr-1.5" />
-                            {chargeNoShow.isPending ? 'Procesando…' : 'Procesar cargo'}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="flex-1 text-xs h-8 border-red-200 text-red-700 hover:bg-red-100"
-                            onClick={() => setShowWaiveInput(true)}
-                          >
-                            <HandCoins className="h-3.5 w-3.5 mr-1.5" />
-                            Perdonar
-                          </Button>
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          <div className={waiveShake}>
-                            <input
-                              autoFocus
-                              type="text"
-                              placeholder="Razón para perdonar"
-                              value={waiveReason}
-                              onChange={(e) => {
-                                setWaiveReason(e.target.value)
-                                if (waiveError) setWaiveError(null)
-                              }}
-                              className={`w-full text-xs border rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-red-300 ${
-                                waiveError ? 'border-red-400' : 'border-red-200'
-                              }`}
-                            />
-                          </div>
-                          {waiveError && (
-                            <p className="text-[11px] text-red-600">{waiveError}</p>
-                          )}
-                          <div className="flex gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="flex-1 text-xs h-8"
-                              onClick={() => { setShowWaiveInput(false); setWaiveReason(''); setWaiveError(null) }}
-                            >
-                              Cancelar
-                            </Button>
-                            <Button
-                              size="sm"
-                              className="flex-1 text-xs h-8 bg-amber-600 hover:bg-amber-700 text-white"
-                              disabled={waiveNoShow.isPending}
-                              onClick={() => {
-                                if (waiveReason.trim().length < 5) {
-                                  setWaiveError('Escribe al menos 5 caracteres explicando el motivo.')
-                                  triggerWaiveShake()
-                                  return
-                                }
-                                setWaiveError(null)
-                                waiveNoShow.mutate(waiveReason)
-                                setShowWaiveInput(false)
-                                setWaiveReason('')
-                              }}
-                            >
-                              Confirmar perdón
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  )}
-
-                  {/* Estado CHARGED */}
+                  {/* Estado CHARGED — cargo registrado por recepción */}
                   {stay.noShowChargeStatus === 'CHARGED' && (
                     <p className="text-[11px] font-semibold text-emerald-700 flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
-                      Cargo procesado ✓
+                      Cargo registrado ✓
                     </p>
                   )}
 
-                  {/* Estado FAILED → reintentar */}
+                  {/* Estado FAILED — registro manual del fallo */}
                   {stay.noShowChargeStatus === 'FAILED' && (
-                    <div className="space-y-1.5">
-                      <p className="text-[11px] text-red-700 font-semibold">Cobro fallido</p>
-                      {stay.stripePaymentMethodId && (
-                        <Button
-                          size="sm"
-                          className="w-full text-xs bg-red-600 hover:bg-red-700 text-white h-8"
-                          disabled={chargeNoShow.isPending}
-                          onClick={() => chargeNoShow.mutate()}
-                        >
-                          <CreditCard className="h-3.5 w-3.5 mr-1.5" />
-                          {chargeNoShow.isPending ? 'Procesando…' : '↻ Reintentar cobro'}
-                        </Button>
-                      )}
-                    </div>
+                    <p className="text-[11px] text-red-700">
+                      Cobro fallido — registrar acción en caja.
+                    </p>
                   )}
 
                   {/* Estado WAIVED */}

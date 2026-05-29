@@ -32,7 +32,6 @@ import { Injectable, Logger } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 import { BillingEmailService } from './billing-email.service'
 import { SubscriptionService } from './subscription.service'
-import { PaymentsService } from '../payments/payments.service'
 
 // Stripe v22 SDK no exporta types nominales (Stripe.Event, Stripe.Subscription)
 // via require import. Usamos shapes mínimas inline para los handlers — al
@@ -100,10 +99,6 @@ export class WebhookHandlerService {
     private readonly prisma: PrismaService,
     private readonly billingEmail: BillingEmailService,
     private readonly subscriptionService: SubscriptionService,
-    // PaymentsService — para PMS guest-stay charges (no-show charge, setup
-    // intent del check-in con tarjeta del huésped). Sprint POST-NETFLIX
-    // consolida ambos handlers Stripe en este único dispatcher.
-    private readonly paymentsService: PaymentsService,
   ) {}
 
   /**
@@ -151,23 +146,19 @@ export class WebhookHandlerService {
           return this.handleInvoicePaymentActionRequired(event)
         case 'invoice.voided':
           return this.handleInvoiceVoided(event)
-        // Setup intent — dispatch por metadata:
-        //   · metadata.zenix_kind=NETFLIX_TRIAL_CARD_CAPTURE → SubscriptionService
-        //     (Netflix flow: activa Sub real post-trial card capture)
-        //   · metadata.stayId set → PaymentsService.onSetupIntentSucceeded
-        //     (PMS guest check-in con tarjeta del huésped, no-show defense)
-        //   · sin metadata reconocible → skip + log debug
+        // Setup intent — solo procesamos los del flow Netflix (Sprint NETFLIX-TRIAL).
+        // metadata.zenix_kind=NETFLIX_TRIAL_CARD_CAPTURE → SubscriptionService
+        // activa Sub real post-trial card capture. Cualquier otro setup_intent
+        // (Customer Portal payment method update, etc.) lo manejan los handlers
+        // de customer.subscription.updated.
+        //
+        // NOTA HISTÓRICA: en sprints anteriores (PMS Mx-1) existía dispatch a
+        // PaymentsService.onSetupIntentSucceeded para guardar tarjeta del huésped
+        // al check-in para garantía de no-show. Esa feature fue eliminada
+        // 2026-05-29 por estar fuera del scope del producto (Stripe solo se usa
+        // para SaaS subscription Zenix + Booking Engine futuro).
         case 'setup_intent.succeeded':
           return this.handleSetupIntentSucceeded(event)
-
-        // PMS guest-stay payments — antes vivían en payments/payments.controller.ts
-        // (legacy StripeWebhookController duplicado). Sprint POST-NETFLIX
-        // consolidó todo bajo este dispatcher para evitar route collision con
-        // /v1/webhooks/stripe (bug detectado durante validation E2E).
-        case 'payment_intent.succeeded':
-          return this.handlePaymentIntentSucceeded(event)
-        case 'payment_intent.payment_failed':
-          return this.handlePaymentIntentFailed(event)
         default:
           // Event tipo no manejado — log + return sin acción.
           // Importante: NO bloqueamos el webhook (Stripe espera 2xx).
@@ -376,131 +367,32 @@ export class WebhookHandlerService {
    */
   private async handleSetupIntentSucceeded(event: StripeEvent) {
     const intent = event.data.object as StripeSetupIntent
-    const metadata = intent.metadata ?? {}
-
-    // Dispatch by metadata — three known sources of setup_intent.succeeded:
-    //
-    // 1) Netflix trial flow → SubscriptionService.activateAfterSetupIntent
-    //    Cliente acaba de capturar tarjeta en Stripe Checkout (mode=setup)
-    //    post-wizard. Activamos la Sub real con default_payment_method.
-    if (metadata.zenix_kind === 'NETFLIX_TRIAL_CARD_CAPTURE') {
-      try {
-        const result = await this.subscriptionService.activateAfterSetupIntent(intent.id)
-        if (result.activated && result.subscription) {
-          await this.logEvent(event, result.subscription.id, 'CREATED', {
-            kind: 'netflix_trial_activation',
-            setupIntentId: intent.id,
-            stripeSubscriptionId: result.subscription.stripeSubscriptionId,
-          })
-        }
-        this.logger.log(
-          `[WebhookHandler] setup_intent.succeeded ${intent.id} → activated=${result.activated} reason=${(result as any).reason ?? 'ok'}`,
-        )
-        return { handled: result.activated, idempotent: !result.activated }
-      } catch (err) {
-        this.logger.error(
-          `[WebhookHandler] setup_intent.succeeded ${intent.id} (NETFLIX_TRIAL) failed: ${String(err).slice(0, 300)}`,
-        )
-        throw err
-      }
-    }
-
-    // 2) PMS guest-stay check-in con tarjeta del huésped → PaymentsService
-    //    Crea SetupIntent con metadata.stayId al check-in para guardar la
-    //    tarjeta para potential no-show charge. Sin cobro real.
-    if (metadata.stayId) {
-      try {
-        await this.paymentsService.onSetupIntentSucceeded(intent.id)
-        this.logger.log(
-          `[WebhookHandler] setup_intent.succeeded ${intent.id} (PMS stay=${metadata.stayId}) → card saved`,
-        )
-        return { handled: true, idempotent: false }
-      } catch (err) {
-        this.logger.error(
-          `[WebhookHandler] setup_intent.succeeded ${intent.id} (PMS) failed: ${String(err).slice(0, 300)}`,
-        )
-        throw err
-      }
-    }
-
-    // 3) Cualquier otro origen (Customer Portal update payment method, etc.)
-    //    No procesamos — los cambios de PM viven en customer.subscription.updated.
-    this.logger.debug(
-      `[WebhookHandler] setup_intent.succeeded ${intent.id} sin metadata reconocible — skip`,
-    )
-    return { handled: false, idempotent: false }
-  }
-
-  /**
-   * payment_intent.succeeded — PMS no-show charge confirmado.
-   *
-   * Stripe confirma que el cobro contra la tarjeta del huésped tuvo éxito.
-   * Marcamos `GuestStay.noShowChargeStatus = 'CHARGED'` + persistimos el
-   * stripePaymentIntentId para auditoría / chargeback evidence.
-   *
-   * Idempotency: si stayId no está en metadata, el handler skip silencioso —
-   * NO todo payment_intent en Stripe vive en nuestro PMS (Customer Portal
-   * payments, etc.).
-   */
-  private async handlePaymentIntentSucceeded(event: StripeEvent) {
-    const pi = event.data.object as { id: string; metadata?: Record<string, string> }
-    const stayId = pi.metadata?.stayId
-    if (!stayId) {
+    // Solo procesamos los SetupIntents originados de nuestro flow Netflix
+    // (metadata.zenix_kind='NETFLIX_TRIAL_CARD_CAPTURE'). Otros SetupIntents
+    // pueden venir de Customer Portal (cliente actualizando método de pago en
+    // sub activa) — esos los maneja `customer.subscription.updated`.
+    if (intent.metadata?.zenix_kind !== 'NETFLIX_TRIAL_CARD_CAPTURE') {
       this.logger.debug(
-        `[WebhookHandler] payment_intent.succeeded ${pi.id} sin metadata.stayId — skip (no-PMS event)`,
+        `[WebhookHandler] setup_intent.succeeded ${intent.id} sin zenix_kind=NETFLIX_TRIAL_CARD_CAPTURE — skip`,
       )
       return { handled: false, idempotent: false }
     }
     try {
-      await this.prisma.guestStay.update({
-        where: { id: stayId },
-        data: { noShowChargeStatus: 'CHARGED', stripePaymentIntentId: pi.id },
-      })
+      const result = await this.subscriptionService.activateAfterSetupIntent(intent.id)
+      if (result.activated && result.subscription) {
+        await this.logEvent(event, result.subscription.id, 'CREATED', {
+          kind: 'netflix_trial_activation',
+          setupIntentId: intent.id,
+          stripeSubscriptionId: result.subscription.stripeSubscriptionId,
+        })
+      }
       this.logger.log(
-        `[WebhookHandler] payment_intent.succeeded ${pi.id} → GuestStay ${stayId} CHARGED`,
+        `[WebhookHandler] setup_intent.succeeded ${intent.id} → activated=${result.activated} reason=${(result as any).reason ?? 'ok'}`,
       )
-      return { handled: true, idempotent: false }
+      return { handled: result.activated, idempotent: !result.activated }
     } catch (err) {
       this.logger.error(
-        `[WebhookHandler] payment_intent.succeeded ${pi.id} failed: ${String(err).slice(0, 300)}`,
-      )
-      throw err
-    }
-  }
-
-  /**
-   * payment_intent.payment_failed — PMS no-show charge falló (tarjeta declined,
-   * fondos insuficientes, etc.).
-   *
-   * Marcamos `GuestStay.noShowChargeStatus = 'FAILED'` para que recepción
-   * decida acción manual (cobrar en efectivo al check-out, perdonar, etc.).
-   */
-  private async handlePaymentIntentFailed(event: StripeEvent) {
-    const pi = event.data.object as {
-      id: string
-      metadata?: Record<string, string>
-      last_payment_error?: { message?: string }
-    }
-    const stayId = pi.metadata?.stayId
-    const failureMsg = pi.last_payment_error?.message ?? 'desconocido'
-    if (!stayId) {
-      this.logger.debug(
-        `[WebhookHandler] payment_intent.payment_failed ${pi.id} sin metadata.stayId — skip`,
-      )
-      return { handled: false, idempotent: false }
-    }
-    try {
-      await this.prisma.guestStay.update({
-        where: { id: stayId },
-        data: { noShowChargeStatus: 'FAILED' },
-      })
-      this.logger.warn(
-        `[WebhookHandler] payment_intent.payment_failed ${pi.id} → GuestStay ${stayId} FAILED reason="${failureMsg}"`,
-      )
-      return { handled: true, idempotent: false }
-    } catch (err) {
-      this.logger.error(
-        `[WebhookHandler] payment_intent.payment_failed ${pi.id} update failed: ${String(err).slice(0, 300)}`,
+        `[WebhookHandler] setup_intent.succeeded ${intent.id} failed: ${String(err).slice(0, 300)}`,
       )
       throw err
     }

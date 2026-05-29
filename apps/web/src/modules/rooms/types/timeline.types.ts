@@ -46,7 +46,8 @@ export interface GuestStayBlock {
   cancelInitiator?: 'GUEST' | 'HOTEL' | 'OTA' | 'ADMIN_ERROR' | 'SYSTEM'
   cancelReason?: string
   cancelReasonCode?: string
-  stripePaymentMethodId?: string
+  // stripePaymentMethodId eliminado 2026-05-29 — no-show charging vía Stripe
+  // estaba fuera del scope. Cargo se registra manual en flujo PMS.
   otaName?: string
   otaReservationId?: string
   pmsReservationId?: string

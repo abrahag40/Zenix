@@ -48,7 +48,8 @@ function adaptStay(raw: Record<string, unknown>): GuestStayBlock {
     noShowFeeAmount:      raw.noShowFeeAmount != null ? Number(raw.noShowFeeAmount) : undefined,
     noShowFeeCurrency:    raw.noShowFeeCurrency as string | undefined,
     noShowChargeStatus:   raw.noShowChargeStatus as GuestStayBlock['noShowChargeStatus'],
-    stripePaymentMethodId: raw.stripePaymentMethodId as string | undefined,
+    // stripePaymentMethodId eliminado 2026-05-29 — ver comentario abajo en
+    // useChargeNoShow / useWaiveNoShow para contexto.
     cancelledAt:          raw.cancelledAt ? new Date(raw.cancelledAt as string) : undefined,
     cancelInitiator:      raw.cancelInitiator as GuestStayBlock['cancelInitiator'],
     cancelReason:         raw.cancelReason as string | undefined,
@@ -683,34 +684,11 @@ export function useLogContact(stayId: string) {
   })
 }
 
-export function useChargeNoShow(stayId: string) {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: () => api.post(`/v1/payments/guest-stays/${stayId}/charge-noshow`, {}),
-    onSuccess: () => {
-      toast.success('Cargo procesado')
-      qc.invalidateQueries({ queryKey: ['guest-stays'], refetchType: 'active' })
-    },
-    onError: (err: ApiError) => {
-      toast.error(err.message ?? 'No se pudo procesar el cargo')
-    },
-  })
-}
-
-export function useWaiveNoShow(stayId: string) {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (reason: string) =>
-      api.post(`/v1/payments/guest-stays/${stayId}/waive-noshow`, { reason }),
-    onSuccess: () => {
-      toast.success('Cargo perdonado')
-      qc.invalidateQueries({ queryKey: ['guest-stays'], refetchType: 'active' })
-    },
-    onError: (err: ApiError) => {
-      toast.error(err.message ?? 'No se pudo perdonar el cargo')
-    },
-  })
-}
+// useChargeNoShow + useWaiveNoShow eliminados 2026-05-29 — el no-show charging
+// via Stripe (Sprint Mx-1) estaba fuera del scope productivo Zenix. Stripe se
+// usa solo para: SaaS subscription al dueño del hotel + Booking Engine futuro.
+// El registro manual del cargo (efectivo, OTA pre-paid, cobro al checkout)
+// queda como flujo PMS sin pasar por Stripe — recepción decide cómo procesar.
 
 export function useRoomReadinessTasks(propertyId: string) {
   return useQuery({

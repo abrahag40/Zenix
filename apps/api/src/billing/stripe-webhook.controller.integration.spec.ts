@@ -11,7 +11,7 @@
  *   1. bodyParser.raw() ponía buffer en req.body, no en req.rawBody → todos
  *      los webhooks Stripe HTTP 500 en producción ("rawBody no disponible").
  *   2. Dos StripeWebhookController declaraban POST /v1/webhooks/stripe →
- *      silent fail si module order cambiaba.
+ *      silent fail si module order cambiaba (eliminado 2026-05-29).
  *
  * Los unit tests no los detectaron porque pasaban el StripeEvent directo al
  * service, saltando el HTTP layer completo.
@@ -27,14 +27,12 @@ import * as request from 'supertest'
 import { Test } from '@nestjs/testing'
 import type { INestApplication } from '@nestjs/common'
 import * as bodyParser from 'body-parser'
-import { Module } from '@nestjs/common'
 import { StripeWebhookController } from './stripe-webhook.controller'
 import { WebhookHandlerService } from './webhook-handler.service'
 import { BillingService } from './billing.service'
 import { BillingEmailService } from './billing-email.service'
 import { SubscriptionService } from './subscription.service'
 import { PrismaService } from '../prisma/prisma.service'
-import { PaymentsService } from '../payments/payments.service'
 
 const TEST_WEBHOOK_SECRET = 'whsec_test_only_do_not_use_in_production_xyz'
 
@@ -92,9 +90,6 @@ function makePrismaMock() {
     subscription: {
       findUnique: jest.fn().mockResolvedValue(null),
     },
-    guestStay: {
-      update: jest.fn().mockResolvedValue({ id: 'stay-test' }),
-    },
   } as never
 }
 
@@ -107,37 +102,16 @@ function makeSubscriptionServiceMock() {
   } as never
 }
 
-function makePaymentsServiceMock() {
-  return {
-    onSetupIntentSucceeded: jest.fn().mockResolvedValue(undefined),
-  } as never
-}
-
 function makeBillingEmailMock() {
   return {
     sendReceipt: jest.fn().mockResolvedValue({ sent: true }),
   } as never
 }
 
-// Module minimal para tener StripeWebhookController + dispatcher
-@Module({
-  controllers: [StripeWebhookController],
-  providers: [
-    { provide: BillingService, useFactory: () => makeBillingServiceMock() },
-    { provide: PrismaService, useFactory: () => makePrismaMock() },
-    { provide: WebhookHandlerService, useFactory: () => null }, // override en test
-    { provide: SubscriptionService, useFactory: () => makeSubscriptionServiceMock() },
-    { provide: PaymentsService, useFactory: () => makePaymentsServiceMock() },
-    { provide: BillingEmailService, useFactory: () => makeBillingEmailMock() },
-  ],
-})
-class TestBillingModule {}
-
 describe('Stripe webhook HTTP integration', () => {
   let app: INestApplication
   let prismaMock: any
   let subscriptionMock: any
-  let paymentsMock: any
   let originalSecret: string | undefined
 
   beforeAll(async () => {
@@ -146,7 +120,6 @@ describe('Stripe webhook HTTP integration', () => {
 
     prismaMock = makePrismaMock()
     subscriptionMock = makeSubscriptionServiceMock()
-    paymentsMock = makePaymentsServiceMock()
 
     const builder = await Test.createTestingModule({
       controllers: [StripeWebhookController],
@@ -158,18 +131,11 @@ describe('Stripe webhook HTTP integration', () => {
           useFactory: (
             email: BillingEmailService,
             sub: SubscriptionService,
-            pay: PaymentsService,
             prisma: PrismaService,
-          ) => new WebhookHandlerService(prisma, email, sub, pay),
-          inject: [
-            BillingEmailService,
-            SubscriptionService,
-            PaymentsService,
-            PrismaService,
-          ],
+          ) => new WebhookHandlerService(prisma, email, sub),
+          inject: [BillingEmailService, SubscriptionService, PrismaService],
         },
         { provide: SubscriptionService, useValue: subscriptionMock },
-        { provide: PaymentsService, useValue: paymentsMock },
         { provide: BillingEmailService, useValue: makeBillingEmailMock() },
       ],
     }).compile()
@@ -248,31 +214,9 @@ describe('Stripe webhook HTTP integration', () => {
       .send(rawBody)
     expect(res.status).toBe(200)
     expect(subscriptionMock.activateAfterSetupIntent).toHaveBeenCalledWith('seti_netflix_test')
-    expect(paymentsMock.onSetupIntentSucceeded).not.toHaveBeenCalled()
   })
 
-  it('setup_intent.succeeded con metadata.stayId → PaymentsService.onSetupIntentSucceeded', async () => {
-    const rawBody = makeStripeEvent({
-      type: 'setup_intent.succeeded',
-      data: {
-        object: {
-          id: 'seti_pms_test',
-          metadata: { stayId: 'stay-abc123' },
-        },
-      },
-    })
-    const signature = generateStripeSignature(rawBody, TEST_WEBHOOK_SECRET)
-    const res = await request(app.getHttpServer())
-      .post('/v1/webhooks/stripe')
-      .set('stripe-signature', signature)
-      .set('Content-Type', 'application/json')
-      .send(rawBody)
-    expect(res.status).toBe(200)
-    expect(paymentsMock.onSetupIntentSucceeded).toHaveBeenCalledWith('seti_pms_test')
-    expect(subscriptionMock.activateAfterSetupIntent).not.toHaveBeenCalled()
-  })
-
-  it('setup_intent.succeeded sin metadata reconocible → HTTP 200 + skip silent', async () => {
+  it('setup_intent.succeeded sin metadata zenix_kind → HTTP 200 + skip silent', async () => {
     const rawBody = makeStripeEvent({
       type: 'setup_intent.succeeded',
       data: { object: { id: 'seti_unknown', metadata: {} } },
@@ -285,14 +229,15 @@ describe('Stripe webhook HTTP integration', () => {
       .send(rawBody)
     expect(res.status).toBe(200)
     expect(subscriptionMock.activateAfterSetupIntent).not.toHaveBeenCalled()
-    expect(paymentsMock.onSetupIntentSucceeded).not.toHaveBeenCalled()
   })
 
-  it('payment_intent.succeeded con metadata.stayId → GuestStay update', async () => {
+  it('payment_intent.succeeded → HTTP 200 + skip (no manejado)', async () => {
+    // Después de eliminar el scope no-show charging via Stripe (2026-05-29),
+    // el dispatcher YA NO procesa payment_intent.* — devuelve skip silencioso.
     const rawBody = makeStripeEvent({
       type: 'payment_intent.succeeded',
       data: {
-        object: { id: 'pi_test', metadata: { stayId: 'stay-charged-test' } },
+        object: { id: 'pi_test', metadata: { stayId: 'stay-test' } },
       },
     })
     const signature = generateStripeSignature(rawBody, TEST_WEBHOOK_SECRET)
@@ -302,12 +247,5 @@ describe('Stripe webhook HTTP integration', () => {
       .set('Content-Type', 'application/json')
       .send(rawBody)
     expect(res.status).toBe(200)
-    expect(prismaMock.guestStay.update).toHaveBeenCalledWith({
-      where: { id: 'stay-charged-test' },
-      data: expect.objectContaining({
-        noShowChargeStatus: 'CHARGED',
-        stripePaymentIntentId: 'pi_test',
-      }),
-    })
   })
 })

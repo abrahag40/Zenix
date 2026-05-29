@@ -38,7 +38,10 @@ import { StayJourneysModule } from './pms/stay-journeys/stay-journeys.module'
 import { RatesModule } from './pms/rates/rates.module'
 import { DashboardModule } from './dashboard/dashboard.module'
 import { BlocksModule } from './blocks/blocks.module'
-import { PaymentsModule } from './payments/payments.module'
+// PaymentsModule eliminado 2026-05-29 — no-show charging via Stripe estaba
+// fuera del scope productivo (Stripe solo se usa para SaaS subscription
+// Zenix + Booking Engine futuro). El campo GuestStay.noShowChargeStatus
+// queda como tracking interno del PMS (cobro manual en efectivo/checkout).
 import { SoftLockModule } from './soft-lock/soft-lock.module'
 import { NotificationCenterModule } from './notification-center/notification-center.module'
 // Sprint 8H — Housekeeping scheduling foundation
@@ -97,7 +100,6 @@ import { PropertyScopeGuard } from './common/guards/property-scope.guard'
     RatesModule,
     DashboardModule,
     BlocksModule,
-    PaymentsModule,
     SoftLockModule,
     NotificationCenterModule,
     // Sprint 8H — Housekeeping scheduling foundation
