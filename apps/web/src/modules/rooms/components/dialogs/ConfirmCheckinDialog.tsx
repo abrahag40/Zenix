@@ -23,7 +23,7 @@
  * Amounts: todos los displays usan formatMoney() con Intl.NumberFormat —
  * respeta decimales por currency (USD/MXN: 2; JPY/CLP/COP: 0).
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -116,11 +116,18 @@ export function ConfirmCheckinDialog({
   // parent, preferimos `guestStayId` cuando existe.
   const resolvedStayId = stay.guestStayId ?? stay.id
 
+  // CHECK-IN C1.8 perf (2026-05-29) — cache 30s para que re-aperturas
+  // rápidas (Cmd+Enter accidental → reopen) no refetcheen. Antes staleTime:0
+  // forzaba refetch en cada mount, lo cual hacía el modal sentirse lento al
+  // abrir incluso con SSE actualizando background. 30s es seguro porque el
+  // ctx no cambia salvo por payment/check-in events que invalidan la query.
   const ctxQuery = useQuery({
     queryKey: ['checkin-context', resolvedStayId],
     queryFn:  () => guestStaysApi.getCheckinContext(resolvedStayId),
     enabled:  open,
-    staleTime: 0,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   })
 
   const ctx = ctxQuery.data
@@ -184,30 +191,41 @@ export function ConfirmCheckinDialog({
   }, [ctx])
 
   // ── Derived flags ───────────────────────────────────────────────────────
-  // Moneda primaria = propertyCurrency (decisión iteración 2, 5/5 PMS).
-  const propertyCurrency = ctx?.propertyCurrency ?? ctx?.balanceProjection.currency ?? stay.currency
+  // CHECK-IN C1.8 perf (2026-05-29) — TODOS los derived useMemo para evitar
+  // recompute en cada keystroke (modal se sentía lento al teclear).
+  // Reglas: deps mínimas precisas; evitar recompute si solo cambió ej.
+  // documentType pero no payments.
+  const propertyCurrency = useMemo(
+    () => ctx?.propertyCurrency ?? ctx?.balanceProjection.currency ?? stay.currency,
+    [ctx?.propertyCurrency, ctx?.balanceProjection.currency, stay.currency],
+  )
   const balance       = ctx?.balanceProjection.balance ?? 0
   const isOtaCollect  = ctx?.paymentModel === 'OTA_COLLECT'
   const isAlreadyPaid = !isOtaCollect && balance <= 0
   const needsPayment  = !isOtaCollect && balance > 0
 
-  const paymentSum       = payments.reduce((s, p) => s + (p.amount || 0), 0)
+  const paymentSum = useMemo(
+    () => payments.reduce((s, p) => s + (p.amount || 0), 0),
+    [payments],
+  )
   const projectedBalance = balance - paymentSum
-  // Overpayment guard frontend (paridad backend BALANCE_OVERPAID, tolerancia 0.01).
-  const isOverpayment = needsPayment && projectedBalance < -0.01
+  const isOverpayment    = needsPayment && projectedBalance < -0.01
 
-  const paymentErrors = payments.map((p) => {
-    if (
-      (p.method === PaymentMethod.CARD_TERMINAL || p.method === PaymentMethod.BANK_TRANSFER) &&
-      !p.reference?.trim()
-    ) return 'Referencia requerida para este método'
-    if (
-      (p.method === PaymentMethod.COMP || p.amount === 0) &&
-      (!p.approvedById?.trim() || !p.approvalReason?.trim())
-    ) return 'Código y razón de aprobación requeridos'
-    return null
-  })
-  const hasPaymentErrors = paymentErrors.some(Boolean)
+  const paymentErrors = useMemo(
+    () => payments.map((p) => {
+      if (
+        (p.method === PaymentMethod.CARD_TERMINAL || p.method === PaymentMethod.BANK_TRANSFER) &&
+        !p.reference?.trim()
+      ) return 'Referencia requerida para este método'
+      if (
+        (p.method === PaymentMethod.COMP || p.amount === 0) &&
+        (!p.approvedById?.trim() || !p.approvalReason?.trim())
+      ) return 'Código y razón de aprobación requeridos'
+      return null
+    }),
+    [payments],
+  )
+  const hasPaymentErrors = useMemo(() => paymentErrors.some(Boolean), [paymentErrors])
 
   const paymentValid = useMemo(() => {
     if (!needsPayment) return true
@@ -219,37 +237,31 @@ export function ConfirmCheckinDialog({
     return hasOverride || projectedBalance <= 0.01
   }, [needsPayment, hasPaymentErrors, isOverpayment, payments, projectedBalance])
 
-  // Identidad válida — Sprint 2026-05-17 refactor (sin checkbox).
-  //
-  // CHECK-IN C1 (2026-05-29) — Bug fix #1: alineación cliente↔servidor.
-  // Anteriormente el cliente exigía SIEMPRE foto del documento, pero el
-  // server marca `identityCaptured=true` cuando hay `documentType + documentNumber`
-  // pre-cargados de OTA (sin foto). El badge mostraba "Documento en reserva"
-  // (verde) pero el CTA quedaba bloqueado sin pista — UX bug confirmado.
-  //
-  // Nueva lógica: si el server dice "ya capturado" (documentType + número
-  // pre-OTA), confiamos en eso. Si el server dice "falta", exigimos foto
-  // + tipo (path normal). Esto mantiene Visa CRR §5.9.2 (audit trail OTA
-  // ya tiene el ID en su backend) sin bloquear walk-ups con OTA pre-fill.
-  const identityValid =
-    !!ctx?.identityCaptured ||
-    (!!documentType && !!docPhotoDataUrl)
+  // Identidad válida — pre-fill OTA (server check) o foto+tipo (path normal).
+  const identityValid = useMemo(
+    () => !!ctx?.identityCaptured || (!!documentType && !!docPhotoDataUrl),
+    [ctx?.identityCaptured, documentType, docPhotoDataUrl],
+  )
 
-  const canConfirm =
-    !!ctx &&
-    ctx.canCheckIn.ok &&
-    identityValid &&
-    paymentValid &&
-    !isPending
+  const canConfirm = useMemo(
+    () => !!ctx && ctx.canCheckIn.ok && identityValid && paymentValid && !isPending,
+    [ctx, identityValid, paymentValid, isPending],
+  )
 
   // ── Dirty detection + dismiss ───────────────────────────────────────────
-  const isDirty =
-    !!docPhotoDataUrl ||
-    arrivalNotes.trim() !== '' ||
-    payments.some((p) => p.amount > 0 || (p.reference?.trim() ?? '') !== '') ||
-    documentType !== (ctx?.stay.documentType ?? '') ||
-    nationality !== (ctx?.stay.nationality ?? '') ||
-    guestSex !== ((ctx?.stay as { guestSex?: string } | undefined)?.guestSex ?? '')
+  const isDirty = useMemo(
+    () =>
+      !!docPhotoDataUrl ||
+      arrivalNotes.trim() !== '' ||
+      payments.some((p) => p.amount > 0 || (p.reference?.trim() ?? '') !== '') ||
+      documentType !== (ctx?.stay.documentType ?? '') ||
+      nationality !== (ctx?.stay.nationality ?? '') ||
+      guestSex !== ((ctx?.stay as { guestSex?: string } | undefined)?.guestSex ?? ''),
+    [
+      docPhotoDataUrl, arrivalNotes, payments, documentType, nationality, guestSex,
+      ctx?.stay.documentType, ctx?.stay.nationality, (ctx?.stay as { guestSex?: string } | undefined)?.guestSex,
+    ],
+  )
 
   const { requestClose, onBackdropClick, dialogElement: discardPrompt } = useModalDismiss({
     isDirty,
@@ -260,25 +272,12 @@ export function ConfirmCheckinDialog({
     confirmLabel: 'Descartar',
   })
 
-  // Cmd/Ctrl+Enter → confirm si CTA enabled.
-  useEffect(() => {
-    if (!open) return
-    function handler(e: KeyboardEvent) {
-      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && canConfirm) {
-        e.preventDefault()
-        handleConfirm()
-      }
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, canConfirm])
-
   // ── Photo upload ────────────────────────────────────────────────────────
-  function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
+  // CHECK-IN C1.8 perf: useCallback estabiliza la ref para que React.memo
+  // de PhotoCapture no se invalide en cada keystroke del padre.
+  const handlePhotoChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    // Límite blando 5MB para evitar payloads excesivos en data URI base64.
     if (file.size > 5 * 1024 * 1024) {
       alert('La foto excede 5 MB. Toma una nueva foto de menor calidad.')
       return
@@ -286,29 +285,57 @@ export function ConfirmCheckinDialog({
     const reader = new FileReader()
     reader.onload = () => setDocPhotoDataUrl(typeof reader.result === 'string' ? reader.result : null)
     reader.readAsDataURL(file)
-  }
+  }, [])
+
+  const handlePhotoRemove = useCallback(() => {
+    setDocPhotoDataUrl(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }, [])
 
   // ── Submit ──────────────────────────────────────────────────────────────
-  function handleConfirm() {
+  const handleConfirm = useCallback(() => {
     if (!canConfirm) return
     onConfirm({
       documentVerified: true,
       documentType:     documentType || undefined,
       documentPhotoUrl: docPhotoDataUrl ?? undefined,
       arrivalNotes:     arrivalNotes.trim() || undefined,
-      // CHECK-IN C1 (2026-05-29) — opcionales analytics-LATAM
       nationality:      nationality.trim() || undefined,
       guestSex:         guestSex || undefined,
       payments:         isOtaCollect || isAlreadyPaid ? [] : payments,
     })
-  }
+  }, [
+    canConfirm, onConfirm, documentType, docPhotoDataUrl, arrivalNotes,
+    nationality, guestSex, isOtaCollect, isAlreadyPaid, payments,
+  ])
 
   // ── Payment helpers ─────────────────────────────────────────────────────
-  const updatePayment = (idx: number, patch: Partial<PaymentEntryInput>) => {
+  const updatePayment = useCallback((idx: number, patch: Partial<PaymentEntryInput>) => {
     setPayments((prev) => prev.map((p, i) => (i === idx ? { ...p, ...patch } : p)))
-  }
-  const addPayment    = () => setPayments((prev) => [...prev, emptyPayment()])
-  const removePayment = (idx: number) => setPayments((prev) => prev.filter((_, i) => i !== idx))
+  }, [])
+  const addPayment    = useCallback(() => setPayments((prev) => [...prev, emptyPayment()]), [])
+  const removePayment = useCallback((idx: number) => setPayments((prev) => prev.filter((_, i) => i !== idx)), [])
+
+  // Cmd/Ctrl+Enter → confirm si CTA enabled.
+  // CHECK-IN C1.8 perf: refs estables para que el listener NO se re-registre
+  // en cada keystroke (canConfirm + handleConfirm cambiaban refs aunque la
+  // función sea estable funcionalmente). Listener se registra UNA SOLA VEZ
+  // mientras el modal esté abierto.
+  const canConfirmRef = useRef(canConfirm)
+  const handleConfirmRef = useRef(handleConfirm)
+  useEffect(() => { canConfirmRef.current = canConfirm }, [canConfirm])
+  useEffect(() => { handleConfirmRef.current = handleConfirm }, [handleConfirm])
+  useEffect(() => {
+    if (!open) return
+    function handler(e: KeyboardEvent) {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && canConfirmRef.current) {
+        e.preventDefault()
+        handleConfirmRef.current()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [open])
 
   // ── Header info ─────────────────────────────────────────────────────────
   const header = ctx?.stay ?? {
@@ -330,7 +357,10 @@ export function ConfirmCheckinDialog({
       aria-modal="true"
       aria-labelledby="checkin-dialog-title"
     >
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px] pointer-events-none" />
+      {/* CHECK-IN C1.8 perf: backdrop-blur eliminado — GPU paint cost
+          notorio durante scroll del body. bg-black/30 sólido es indistinguible
+          visualmente pero ~10x más barato per frame. */}
+      <div className="absolute inset-0 bg-black/30 pointer-events-none" />
 
       <div className="relative z-10 w-full max-w-3xl bg-white rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
         {/* Brand stripe */}
@@ -528,10 +558,7 @@ export function ConfirmCheckinDialog({
                     photoDataUrl={docPhotoDataUrl}
                     fileInputRef={fileInputRef}
                     onChange={handlePhotoChange}
-                    onRemove={() => {
-                      setDocPhotoDataUrl(null)
-                      if (fileInputRef.current) fileInputRef.current.value = ''
-                    }}
+                    onRemove={handlePhotoRemove}
                   />
                 </div>
               </Section>
@@ -693,7 +720,7 @@ export function ConfirmCheckinDialog({
 
 // ── Subcomponentes ──────────────────────────────────────────────────────────
 
-function Section({
+const Section = memo(function Section({
   icon, title, badge, expanded, onToggle, collapsedSummary, children,
 }: {
   icon:    React.ReactNode
@@ -745,7 +772,7 @@ function Section({
       ) : null}
     </section>
   )
-}
+})
 
 /**
  * PrefilledRow — Display row para campos ya capturados (al crear reserva o
@@ -761,7 +788,7 @@ function Section({
  *   - Pencil icon pequeño a la der (hover → emerald)
  *   - Click entero del row → activa edit mode
  */
-function PrefilledRow({
+const PrefilledRow = memo(function PrefilledRow({
   label,
   value,
   required = false,
@@ -804,7 +831,7 @@ function PrefilledRow({
       </button>
     </div>
   )
-}
+})
 
 /**
  * PhotoCapture — Webcam-first capture del documento del huésped.
@@ -826,7 +853,7 @@ function PrefilledRow({
  * el botón "Subir archivo" como alternativa. Algunos hostales sin webcam
  * o setups remotos pueden necesitarlo.
  */
-function PhotoCapture({
+const PhotoCapture = memo(function PhotoCapture({
   photoDataUrl, fileInputRef, onChange, onRemove,
 }: {
   photoDataUrl: string | null
@@ -1037,9 +1064,9 @@ function PhotoCapture({
       />
     </div>
   )
-}
+})
 
-function BalanceBadge({
+const BalanceBadge = memo(function BalanceBadge({
   paymentModel, balance, totalAmount, propertyCurrency, secondaryRates, source,
 }: {
   paymentModel: 'HOTEL_COLLECT' | 'OTA_COLLECT' | 'HYBRID_DEPOSIT'
@@ -1085,9 +1112,9 @@ function BalanceBadge({
       )}
     </div>
   )
-}
+})
 
-function BalanceCard({
+const BalanceCard = memo(function BalanceCard({
   label, amount, currency, secondaryRates, tone,
 }: {
   label: string
@@ -1118,9 +1145,9 @@ function BalanceCard({
       <ConversionLine amount={amount} rates={secondaryRates} align="end" />
     </div>
   )
-}
+})
 
-function ConversionLine({
+const ConversionLine = memo(function ConversionLine({
   amount, rates, align = 'start',
 }: {
   amount: number
@@ -1141,9 +1168,9 @@ function ConversionLine({
       {parts.join(' · ')}
     </p>
   )
-}
+})
 
-function PaymentRow({
+const PaymentRow = memo(function PaymentRow({
   payment, idx, canRemove, currency, secondaryRates, error, onChange, onRemove,
 }: {
   payment:   PaymentEntryInput
@@ -1271,4 +1298,4 @@ function PaymentRow({
       )}
     </div>
   )
-}
+})
