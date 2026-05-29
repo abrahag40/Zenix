@@ -9,6 +9,11 @@ build
 .next
 .turbo
 
+# Playwright artifacts
+playwright-report
+test-results
+.last-run.json
+
 # TypeScript declaration + source-map artifacts (workspace packages built locally)
 packages/shared/src/*.d.ts
 packages/shared/src/*.d.ts.map
