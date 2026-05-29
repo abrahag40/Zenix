@@ -42,7 +42,9 @@ export function PacStatusBanner() {
 
   const { data } = useQuery<LegalEntityStatus>({
     queryKey: ['legal-entity-status'],
-    queryFn: () => api.get<LegalEntityStatus>('/v1/settings/legal-entity-status'),
+    // Settings controller usa @Controller('settings') sin /v1 (consistente
+    // con resto del repo /settings + /settings/legal-entity-status).
+    queryFn: () => api.get<LegalEntityStatus>('/settings/legal-entity-status'),
     // Refresh cada 5min — si el consultor configura PAC desde Nova mientras
     // el cliente tiene el tab abierto, el banner desaparece automáticamente
     refetchInterval: 5 * 60_000,

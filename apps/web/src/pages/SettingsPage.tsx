@@ -954,7 +954,7 @@ function LegalEntitySection({ isSupervisor }: { isSupervisor: boolean }) {
     legalEntityName: string | null
   }>({
     queryKey: ['legal-entity-status'],
-    queryFn: () => api.get('/v1/settings/legal-entity-status'),
+    queryFn: () => api.get('/settings/legal-entity-status'),
   })
 
   if (isLoading) {
