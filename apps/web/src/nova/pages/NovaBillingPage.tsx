@@ -28,6 +28,7 @@ import {
   Users,
   AlertCircle,
   ArrowRight,
+  Globe2,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { NovaShell } from '../NovaShell'
@@ -64,6 +65,15 @@ const BILLING_SECTIONS: Array<{
     icon: Tag,
     status: 'available',
     accent: 'violet',
+  },
+  {
+    label: 'Channex provisioning',
+    description:
+      'Estado del push automático a Channex per property. Re-dispara las que fallaron al activar el wizard — idempotente.',
+    to: '/nova/billing/channex',
+    icon: Globe2,
+    status: 'available',
+    accent: 'emerald',
   },
   {
     label: 'Aprobaciones pendientes',

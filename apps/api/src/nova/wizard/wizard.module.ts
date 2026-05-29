@@ -35,12 +35,14 @@ import { MxSwSapienAdapter } from './pac/mx-sw-sapien.adapter'
 // Sprint CHANNEX-AUTO-PROVISION Day 2
 import { ChannelCredentialsCryptoService } from './channel-credentials-crypto.service'
 import { ChannexProvisionService } from './channex-provision.service'
+// Sprint CHANNEX-AUTO-PROVISION Day 5 — recovery/retry endpoints
+import { ChannexProvisionController } from './channex-provision.controller'
 
 @Module({
   // AuthModule provee JwtModule (re-exported) para que SetupService firme
   // JWTs post-activación y haga auto-login del Org Owner.
   imports: [PrismaModule, ChannexModule, AuthModule, NovaModule, BillingModule],
-  controllers: [WizardController, SetupController],
+  controllers: [WizardController, SetupController, ChannexProvisionController],
   providers: [
     WizardHealthService,
     WizardActivationService,

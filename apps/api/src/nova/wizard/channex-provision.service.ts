@@ -194,6 +194,56 @@ export class ChannexProvisionService {
     return result
   }
 
+  /**
+   * Lista el estado de provisioning Channex de todas las Properties de una
+   * Organization. Alimenta la UI de recovery en /nova/billing/channex.
+   * Day 5 — incluye channels per property con su status.
+   */
+  async listProvisioningStatus(organizationId: string): Promise<
+    Array<{
+      propertyId: string
+      propertyName: string
+      channexPropertyId: string | null
+      provisioningStatus: string | null
+      provisioningError: string | null
+      lastProvisionedAt: Date | null
+      channels: Array<{
+        id: string
+        type: string
+        title: string
+        status: string
+      }>
+    }>
+  > {
+    const properties = await this.prisma.property.findMany({
+      where: { organizationId, deletedAt: null },
+      include: {
+        settings: {
+          select: {
+            channexPropertyId: true,
+            channexProvisioningStatus: true,
+            channexProvisioningError: true,
+            channexLastProvisionedAt: true,
+          },
+        },
+        channels: {
+          select: { id: true, type: true, title: true, status: true },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+      orderBy: { name: 'asc' },
+    })
+    return properties.map((p) => ({
+      propertyId: p.id,
+      propertyName: p.name,
+      channexPropertyId: p.settings?.channexPropertyId ?? null,
+      provisioningStatus: p.settings?.channexProvisioningStatus ?? null,
+      provisioningError: p.settings?.channexProvisioningError ?? null,
+      lastProvisionedAt: p.settings?.channexLastProvisionedAt ?? null,
+      channels: p.channels,
+    }))
+  }
+
   // ─── Privates ───────────────────────────────────────────────────
 
   private async provisionOneProperty(

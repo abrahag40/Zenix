@@ -39,6 +39,7 @@ import { NovaWizardPage } from './nova/pages/NovaWizardPage'
 // Sprint BILLING-DISCOUNT-CODES Day 2-3 — Billing landing + codes CRUD
 import { NovaBillingPage } from './nova/pages/NovaBillingPage'
 import { NovaBillingCodesPage } from './nova/pages/NovaBillingCodesPage'
+import { NovaBillingChannexPage } from './nova/pages/NovaBillingChannexPage'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -127,6 +128,7 @@ export default function App() {
           <Route path="/nova/wizard"     element={<NovaWizardPage />} />
           <Route path="/nova/billing"          element={<NovaBillingPage />} />
           <Route path="/nova/billing/codigos"  element={<NovaBillingCodesPage />} />
+          <Route path="/nova/billing/channex"  element={<NovaBillingChannexPage />} />
           <Route path="/nova/audit"      element={<NovaAuditLogPage />} />
           <Route path="/nova/settings"   element={<NovaSettingsPage />} />
           <Route path="*"                element={<Navigate to="/dashboard" replace />} />
