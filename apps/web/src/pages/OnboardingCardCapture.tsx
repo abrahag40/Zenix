@@ -73,7 +73,7 @@ const POLL_TIMEOUT_MS = 60_000
 export function OnboardingCardCapture() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const token = useAuthStore((s) => s.accessToken)
+  const token = useAuthStore((s) => s.token)
 
   const [stage, setStage] = useState<Stage>(() => {
     const payment = searchParams.get('payment')

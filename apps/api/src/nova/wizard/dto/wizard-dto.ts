@@ -201,6 +201,57 @@ export class WizardActivateDto {
   @IsOptional()
   @IsString() @Length(8, 64)
   discountTemplateId?: string
+
+  // Sprint CHANNEX-AUTO-PROVISION Day 3 — Step 5.5 wizard channels.
+  // channexPushEnabled default true. Si false, backend skip TODO el flow
+  // Channex (no crea property/rt/rp/channels).
+  @IsOptional()
+  @IsBoolean()
+  channexPushEnabled?: boolean
+
+  // Lista de canales OTA a habilitar al activar. Cada uno con type + title +
+  // credentials encriptadas server-side. Vacío = sin canales (cliente los
+  // agrega después en /nova/billing/channex).
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => WizardChannelDto)
+  channels?: WizardChannelDto[]
+}
+
+// ─── Sprint CHANNEX-AUTO-PROVISION Day 3 — channels DTO ─────────────────
+
+export class WizardChannelDto {
+  @IsIn([
+    'BookingCom',
+    'ExpediaCom',
+    'AirbnbCom',
+    'AgodaCom',
+    'GoogleHotelAds',
+    'VRBOCom',
+    'OpenChannel',
+  ])
+  type!:
+    | 'BookingCom'
+    | 'ExpediaCom'
+    | 'AirbnbCom'
+    | 'AgodaCom'
+    | 'GoogleHotelAds'
+    | 'VRBOCom'
+    | 'OpenChannel'
+
+  @IsString() @MinLength(2) @MaxLength(120)
+  title!: string
+
+  /** Plain credentials del cliente (hotel_id+user+pass para Booking/Expedia/
+   *  Agoda; listing_id para Airbnb; partner_id+booking_link_template para
+   *  Google Hotel Ads). Backend cifra AES-256-GCM antes de persistir.
+   *  Vacío permitido si configureLater=true. */
+  @IsOptional()
+  credentials?: Record<string, string>
+
+  @IsBoolean()
+  configureLater!: boolean
 }
 
 // ─── Response types ───────────────────────────────────────────────────
@@ -238,5 +289,20 @@ export interface WizardActivateResponse {
     planTier: string
     discountApplied: boolean
     discountStatus?: 'applied' | 'pending_approval' | null
+  } | null
+
+  /** Sprint CHANNEX-AUTO-PROVISION Day 3 — outcome del provisioning Channex
+   *  outside-tx. null si channexPushEnabled=false o no hay properties.
+   *  status='partial' o 'failed' → frontend muestra CTA "Revisar en
+   *  /nova/billing/channex". */
+  channexProvisioning?: {
+    status: 'completed' | 'partial' | 'failed'
+    propertiesProvisioned: number
+    roomTypesCreated: number
+    ratePlansCreated: number
+    channelsCreated: number
+    channelsRequiringOauth: number
+    channelsPendingCredentials: number
+    errors: Array<{ step: string; propertyId?: string; message: string }>
   } | null
 }

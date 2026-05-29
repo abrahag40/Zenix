@@ -34,6 +34,7 @@ import { ActivationEmailService } from './activation-email.service'
 import { SubscriptionService } from '../../billing/subscription.service'
 import { DiscountCodeService } from '../../billing/discount-code.service'
 import { BillingService } from '../../billing/billing.service'
+import { ChannexProvisionService } from './channex-provision.service'
 import type { WizardActivateDto, WizardActivateResponse } from './dto/wizard-dto'
 
 @Injectable()
@@ -47,6 +48,7 @@ export class WizardActivationService {
     private readonly subscription: SubscriptionService,
     private readonly discountCode: DiscountCodeService,
     private readonly billing: BillingService,
+    private readonly channexProvision: ChannexProvisionService,
   ) {}
 
   async activate(dto: WizardActivateDto, actor: JwtPayload): Promise<WizardActivateResponse> {
@@ -268,6 +270,41 @@ export class WizardActivationService {
       )
     }
 
+    // ── Channex auto-provisioning (Sprint CHANNEX-AUTO-PROVISION Day 3) ──
+    // Outside-tx best-effort. Errores se persisten en
+    // PropertySettings.channexProvisioningStatus pero NO bloquean activación.
+    // El consultor puede re-disparar desde /nova/billing/channex post-activación.
+    let channexProvisioning: Awaited<
+      ReturnType<typeof this.channexProvision.provisionFromWizard>
+    > | null = null
+    const channexEnabled = dto.channexPushEnabled !== false // default true
+    if (channexEnabled && created.propertyIds.length > 0) {
+      try {
+        channexProvisioning = await this.channexProvision.provisionFromWizard({
+          organizationId: created.organizationId,
+          propertyIds: created.propertyIds,
+          channels: (dto.channels ?? []).map((c) => ({
+            type: c.type,
+            title: c.title,
+            credentials: c.credentials,
+            configureLater: c.configureLater,
+          })),
+          actor,
+        })
+        this.logger.log(
+          `[WizardActivation] Channex provision org=${created.organizationId} status=${channexProvisioning.status} properties=${channexProvisioning.propertiesProvisioned}/${created.propertyIds.length} channels=${channexProvisioning.channelsCreated} errors=${channexProvisioning.errors.length}`,
+        )
+      } catch (err) {
+        this.logger.error(
+          `[WizardActivation] Channex provision threw para org ${created.organizationId}: ${String(err).slice(0, 300)}. Cliente activado; consultor puede re-trigger desde /nova/billing/channex.`,
+        )
+      }
+    } else if (!channexEnabled) {
+      this.logger.log(
+        `[WizardActivation] channexPushEnabled=false — skip provision para org ${created.organizationId}`,
+      )
+    }
+
     // ── AuditLog (outside-tx best-effort) ──────────────────────
     let auditLogged = true
     try {
@@ -365,6 +402,18 @@ export class WizardActivationService {
       auditLogged,
       emailSent,
       subscription: subscriptionResult,
+      channexProvisioning: channexProvisioning
+        ? {
+            status: channexProvisioning.status,
+            propertiesProvisioned: channexProvisioning.propertiesProvisioned,
+            roomTypesCreated: channexProvisioning.roomTypesCreated,
+            ratePlansCreated: channexProvisioning.ratePlansCreated,
+            channelsCreated: channexProvisioning.channelsCreated,
+            channelsRequiringOauth: channexProvisioning.channelsRequiringOauth,
+            channelsPendingCredentials: channexProvisioning.channelsPendingCredentials,
+            errors: channexProvisioning.errors,
+          }
+        : null,
     }
   }
 

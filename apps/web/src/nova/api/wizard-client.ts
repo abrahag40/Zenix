@@ -108,5 +108,13 @@ export const wizardClient = {
               reason: state.discountReason.trim(),
             }
           : undefined,
+      // Sprint CHANNEX-AUTO-PROVISION Day 3 — Step 5.5 channels selection
+      channexPushEnabled: state.channexPushEnabled,
+      channels: state.channels.map((c) => ({
+        type: c.type,
+        title: c.title,
+        credentials: c.configureLater ? undefined : c.credentials,
+        configureLater: c.configureLater,
+      })),
     }),
 }
