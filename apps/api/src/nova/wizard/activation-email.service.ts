@@ -49,6 +49,12 @@ export interface SendActivationEmailInput {
     discountPercent?: number
     discountDuration?: 'once' | 'repeating' | 'forever'
     discountMonths?: number
+    /** BILLING-DAY1 (2026-05-29) — monto + currency para mostrar
+     *  "Primera mensualidad: USD X" cuando trialDays=0. Opcional
+     *  para backward-compat con tests sin pricing context. */
+    monthlyAmount?: number
+    currency?: 'MXN' | 'USD'
+    propertyCount?: number
   }
 }
 
@@ -195,7 +201,8 @@ export class ActivationEmailService {
 
 // ─── HTML template ────────────────────────────────────────────────────
 
-function renderActivationHtml(input: SendActivationEmailInput): string {
+/** Exported para tests unitarios (BILLING-DAY1 hero box branching). */
+export function renderActivationHtml(input: SendActivationEmailInput): string {
   const propertyCopy =
     input.propertyCount === 1 ? '1 propiedad configurada' : `${input.propertyCount} propiedades configuradas`
 
@@ -312,18 +319,35 @@ function renderSubscriptionBox(sub: NonNullable<SendActivationEmailInput['subscr
       }</div>`
     : ''
 
-  // Trial es info CRÍTICA — la elevamos a hero del subscription box.
-  // Pattern Netflix/Spotify: el cliente debe saber claramente "tienes X
-  // días gratis" + "se cobra Y al terminar el trial".
-  const trialHero =
-    sub.trialDays > 0
-      ? `
+  // Hero box — pattern Netflix/Spotify para trial; pattern SaaS commercial
+  // para Day-1 charge. El cliente debe saber claramente cuándo se cobrará y
+  // cuánto. Mehrabian-Russell 1974: claridad reduce friction post-activate.
+  let hero = ''
+  if (sub.trialDays > 0) {
+    hero = `
                     <div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:12px;margin-bottom:12px;">
                       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#047857;margin-bottom:4px;">✨ Versión de prueba activa</div>
                       <div style="font-size:15px;font-weight:600;color:#064e3b;">${sub.trialDays} días gratis</div>
                       <div style="font-size:12px;color:#065f46;margin-top:4px;">Tu tarjeta NO se carga durante este período. El primer cobro será al finalizar la prueba.</div>
                     </div>`
-      : ''
+  } else if (sub.monthlyAmount != null && sub.currency) {
+    // BILLING-DAY1 — trialDays=0 → cobro inmediato 1ª mensualidad al activar.
+    // El consultor escogió la estrategia comercial Day-1 (default). Si el
+    // cliente prefiere garantía 30d ese es deal con consultor, no técnico.
+    const amount = formatCurrency(sub.monthlyAmount * (sub.propertyCount ?? 1), sub.currency)
+    hero = `
+                    <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:12px;margin-bottom:12px;">
+                      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#92400e;margin-bottom:4px;">💳 Pago inmediato al activar</div>
+                      <div style="font-size:15px;font-weight:600;color:#78350f;">Primera mensualidad: ${amount}</div>
+                      <div style="font-size:12px;color:#92400e;margin-top:4px;">Al confirmar tu tarjeta en Stripe se cobra la primera mensualidad. Cancela cuando quieras.</div>
+                    </div>`
+  }
+
+  // Foot copy ramificado según estrategia
+  const footCopy =
+    sub.trialDays > 0
+      ? `Al activar tu cuenta te pediremos los datos de tu tarjeta. Stripe hace una validación de <strong>$0</strong> para confirmar que la tarjeta es válida — <strong>NO se hace ningún cobro</strong> hasta que termine tu período de prueba.`
+      : `Al activar tu cuenta te pediremos los datos de tu tarjeta. Stripe procesa el cobro de la primera mensualidad de forma inmediata y segura. Las siguientes mensualidades se cobran automáticamente.`
 
   return `
               <!-- Caja billing — plan + cycle + trial + descuento -->
@@ -331,18 +355,32 @@ function renderSubscriptionBox(sub: NonNullable<SendActivationEmailInput['subscr
                 <tr>
                   <td style="font-size:13px;line-height:1.55;color:#475569;">
                     <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#7c3aed;margin-bottom:6px;">Tu suscripción</div>
-                    ${trialHero}
+                    ${hero}
                     <div style="font-size:14px;font-weight:600;color:#0f172a;">Plan ${escapeHtml(sub.planTier)} · ${cycleLabel}</div>
                     ${discountLine}
                     <div style="font-size:12px;color:#64748b;margin-top:10px;padding-top:8px;border-top:1px solid #e9d5ff;">
-                      Al activar tu cuenta te pediremos los datos de tu tarjeta. Stripe hace una validación de <strong>$0</strong> para confirmar que la tarjeta es válida — <strong>NO se hace ningún cobro</strong> hasta que termine tu período de prueba.
+                      ${footCopy}
                     </div>
                   </td>
                 </tr>
               </table>`
 }
 
-function renderActivationText(input: SendActivationEmailInput): string {
+/** Formatea monto con ISO 4217 decimals correctos (USD/MXN: 2). */
+function formatCurrency(amount: number, currency: 'MXN' | 'USD'): string {
+  try {
+    return new Intl.NumberFormat('es-MX', {
+      style: 'currency',
+      currency,
+      maximumFractionDigits: 2,
+    }).format(amount)
+  } catch {
+    return `${currency} ${amount.toFixed(2)}`
+  }
+}
+
+/** Exported para tests unitarios. */
+export function renderActivationText(input: SendActivationEmailInput): string {
   const lines: string[] = [
     `Hola ${input.ownerName},`,
     '',
@@ -361,6 +399,14 @@ function renderActivationText(input: SendActivationEmailInput): string {
       lines.push(`   Tu tarjeta NO se carga durante este período.`)
       lines.push(`   El primer cobro será al finalizar la prueba.`)
       lines.push('')
+    } else if (s.monthlyAmount != null && s.currency) {
+      // BILLING-DAY1 — pago inmediato 1ª mensualidad
+      const amount = formatCurrency(s.monthlyAmount * (s.propertyCount ?? 1), s.currency)
+      lines.push('')
+      lines.push(`💳 PAGO INMEDIATO AL ACTIVAR: ${amount}`)
+      lines.push(`   Al confirmar tu tarjeta se cobra la primera mensualidad.`)
+      lines.push(`   Las siguientes mensualidades se cobran automáticamente.`)
+      lines.push('')
     }
     if (s.discountApplied && s.discountPercent) {
       const dur =
@@ -370,8 +416,13 @@ function renderActivationText(input: SendActivationEmailInput): string {
       lines.push(`  🎉 Descuento aplicado: -${s.discountPercent}%${dur}`)
     }
     lines.push('  · Al activar tu cuenta te pediremos los datos de tu tarjeta.')
-    lines.push('  · Stripe hace una validación de $0 para confirmar que es válida.')
-    lines.push('  · NO se hace ningún cobro hasta que termine tu período de prueba.')
+    if (s.trialDays > 0) {
+      lines.push('  · Stripe hace una validación de $0 para confirmar que es válida.')
+      lines.push('  · NO se hace ningún cobro hasta que termine tu período de prueba.')
+    } else {
+      lines.push('  · Stripe procesa el cobro de la primera mensualidad de forma inmediata.')
+      lines.push('  · Las siguientes mensualidades se cobran automáticamente.')
+    }
     lines.push('')
   }
 

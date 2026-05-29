@@ -560,13 +560,14 @@ describe('SubscriptionService', () => {
   })
 
   describe('createSetupCheckoutSession (Netflix trial)', () => {
-    it('returns Stripe Checkout URL cuando Sub está en pending_payment_method', async () => {
+    it('Netflix path: pendingTrialDays > 0 → mode=setup ($0 SetupIntent)', async () => {
       const prisma = makePrismaMock({
         existingSub: {
           id: 'sub-pending-1',
           organizationId: 'org-1',
           stripeCustomerId: 'cus_test_123',
           status: 'pending_payment_method',
+          pendingTrialDays: 14, // Netflix path
         },
       })
       const stripe = makeStripeMock()
@@ -589,6 +590,81 @@ describe('SubscriptionService', () => {
       )
       expect(result.url).toContain('checkout.stripe.com')
       expect(result.customerId).toBe('cus_test_123')
+      expect((result as any).mode).toBe('setup')
+    })
+
+    // ── BILLING-DAY1 (Sprint 2026-05-29) ───────────────────────────────
+    it('Day-1 path: pendingTrialDays === 0 → mode=subscription con line_items + cobro inmediato', async () => {
+      const prisma = makePrismaMock({
+        existingSub: {
+          id: 'sub-day1-1',
+          organizationId: 'org-1',
+          stripeCustomerId: 'cus_day1_999',
+          status: 'pending_payment_method',
+          pendingTrialDays: 0, // Day-1 default
+          planTier: 'PRO',
+          currency: 'MXN' as const,
+          propertyCount: 2,
+          pendingCouponId: null,
+        },
+      })
+      const stripe = makeStripeMock()
+      const service = makeService({ prisma, stripe })
+      const result = await service.createSetupCheckoutSession(
+        {
+          organizationId: 'org-1',
+          successUrl: 'https://app.zenix.com/onboarding/card?payment=success',
+          cancelUrl: 'https://app.zenix.com/onboarding/card?payment=cancel',
+        },
+        baseActor,
+      )
+      expect(stripe.checkout.sessions.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mode: 'subscription',
+          customer: 'cus_day1_999',
+          line_items: [
+            expect.objectContaining({ quantity: 2 }),
+          ],
+          subscription_data: expect.objectContaining({
+            metadata: expect.objectContaining({ zenix_kind: 'DAY1_IMMEDIATE_CHARGE' }),
+          }),
+        }),
+        expect.objectContaining({ idempotencyKey: expect.stringContaining('day1_checkout_') }),
+      )
+      expect((result as any).mode).toBe('subscription')
+    })
+
+    it('Day-1 con pendingCouponId → Checkout incluye discounts', async () => {
+      const prisma = makePrismaMock({
+        existingSub: {
+          id: 'sub-day1-coupon',
+          organizationId: 'org-1',
+          stripeCustomerId: 'cus_day1_777',
+          status: 'pending_payment_method',
+          pendingTrialDays: 0,
+          planTier: 'PRO',
+          currency: 'USD' as const,
+          propertyCount: 1,
+          pendingCouponId: 'coupon_welcome10',
+        },
+      })
+      const stripe = makeStripeMock()
+      const service = makeService({ prisma, stripe })
+      await service.createSetupCheckoutSession(
+        {
+          organizationId: 'org-1',
+          successUrl: 'https://x',
+          cancelUrl: 'https://y',
+        },
+        baseActor,
+      )
+      expect(stripe.checkout.sessions.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mode: 'subscription',
+          discounts: [{ coupon: 'coupon_welcome10' }],
+        }),
+        expect.anything(),
+      )
     })
 
     it('Sub status != pending_payment_method → 409', async () => {

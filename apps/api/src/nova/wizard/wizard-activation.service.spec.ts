@@ -136,6 +136,9 @@ function makeSubscriptionMock() {
       stripeSubscriptionId: 'pending_test-uuid',
       status: 'pending_payment_method',
       planTier: 'PRO',
+      // BILLING-DAY1 (2026-05-29) — expone monto + currency para email hero box
+      baseMonthlyAmount: 2400,
+      currency: 'MXN' as const,
     }),
     // Mantenemos createSubscription en mock para tests legacy / por si algún
     // test cubre el endpoint admin que aún lo usa
@@ -410,6 +413,9 @@ describe('WizardActivationService', () => {
         planTier: 'PRO',
         discountApplied: false,
         discountStatus: null,
+        // BILLING-DAY1 (2026-05-29) — campos nuevos del email hero box
+        baseMonthlyAmount: 2400,
+        currency: 'MXN',
       })
     })
 

@@ -846,6 +846,92 @@ export class SubscriptionService {
     }
 
     const stripe = this.billing.getStripeClient() as any
+
+    // ── BILLING-DAY1 (Sprint 2026-05-29) ─────────────────────────────
+    // Ramifica el modo del Stripe Checkout según la estrategia comercial
+    // del consultor capturada en wizard (`pendingTrialDays`):
+    //
+    //   pendingTrialDays === 0  → mode='subscription' (Day-1 default)
+    //     Cobra la primera mensualidad inmediato al activar. Stripe
+    //     Checkout muestra el monto real; cliente confirma con tarjeta;
+    //     Stripe crea Customer + Subscription + factura inmediata.
+    //     Webhook `checkout.session.completed` con mode='subscription'
+    //     transiciona la Sub local pending → active.
+    //
+    //   pendingTrialDays  >  0  → mode='setup' (Netflix flow)
+    //     Captura tarjeta con $0 SetupIntent, agenda primer cobro al
+    //     final del trial. Path original sin cambios.
+    //
+    // Decisión owner 2026-05-29: el default comercial es Day-1 charge.
+    // El trial Netflix se activa cuando el consultor lo negocia
+    // explícitamente con el cliente como objeción ("te lo dejo gratis
+    // X días"). Garantía 30d es política comercial, no cambio técnico.
+    const isImmediateCharge = (sub.pendingTrialDays ?? 0) === 0
+
+    if (isImmediateCharge) {
+      // Resolve pricing del plan + cantidad de properties para line_items.
+      const pricingConfig = await this.billing.getPricingConfig(sub.planTier as PlanTier)
+      if (!pricingConfig) {
+        throw new InternalServerErrorException(
+          `Plan tier ${sub.planTier} no existe en pricing config`,
+        )
+      }
+      const stripePriceId =
+        sub.currency === 'MXN' ? pricingConfig.stripePriceIdMxn : pricingConfig.stripePriceIdUsd
+      if (!stripePriceId) {
+        throw new InternalServerErrorException(
+          `Stripe Price ID no configurado para ${sub.planTier} ${sub.currency}`,
+        )
+      }
+
+      try {
+        const session = await this.withRetry(
+          async () =>
+            (await stripe.checkout.sessions.create(
+              {
+                mode: 'subscription',
+                customer: sub.stripeCustomerId,
+                payment_method_types: ['card'],
+                line_items: [
+                  { price: stripePriceId, quantity: sub.propertyCount },
+                ],
+                ...(sub.pendingCouponId
+                  ? { discounts: [{ coupon: sub.pendingCouponId }] }
+                  : {}),
+                subscription_data: {
+                  // trial_period_days=0 = sin trial; cobro inmediato
+                  metadata: this.zenixMetadata({
+                    zenix_organization_id: dto.organizationId,
+                    zenix_subscription_id: sub.id,
+                    zenix_kind: 'DAY1_IMMEDIATE_CHARGE',
+                  }),
+                },
+                success_url: dto.successUrl,
+                cancel_url: dto.cancelUrl,
+                // Idempotency en Checkout sigue las reglas: mismo key
+                // dentro de 24h → retorna la misma session URL.
+                metadata: this.zenixMetadata({
+                  zenix_organization_id: dto.organizationId,
+                  zenix_subscription_id: sub.id,
+                  zenix_kind: 'DAY1_IMMEDIATE_CHARGE',
+                  actor_id: actor.sub,
+                }),
+              },
+              { idempotencyKey: `day1_checkout_${sub.id}` },
+            )) as StripeCheckoutSession,
+        )
+        return {
+          url: session.url,
+          sessionId: session.id,
+          customerId: sub.stripeCustomerId,
+          mode: 'subscription' as const,
+        }
+      } catch (err) {
+        throw this.translateStripeError(err)
+      }
+    }
+
+    // ── Path original Netflix trial (pendingTrialDays > 0) ───────────
     try {
       const session = await this.withRetry(
         async () =>
@@ -870,6 +956,7 @@ export class SubscriptionService {
         url: session.url,
         sessionId: session.id,
         customerId: sub.stripeCustomerId,
+        mode: 'setup' as const,
       }
     } catch (err) {
       throw this.translateStripeError(err)
@@ -1027,6 +1114,141 @@ export class SubscriptionService {
         setupIntentId,
         status: stripeSub.status,
         trialEndsAt: stripeSub.trial_end ? new Date(stripeSub.trial_end * 1000).toISOString() : null,
+        hadCoupon: !!sub.pendingCouponId,
+      },
+    })
+
+    return { activated: true, subscription: updated }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Day-1 immediate charge — activateAfterSubscriptionCheckout
+  // ═══════════════════════════════════════════════════════════════════
+  /**
+   * Called by WebhookHandler on `checkout.session.completed` event
+   * cuando `session.mode === 'subscription'` y `metadata.zenix_kind ===
+   * 'DAY1_IMMEDIATE_CHARGE'`.
+   *
+   * Stripe Checkout `mode='subscription'` ya hizo todo el trabajo pesado:
+   *  - Customer ya existe (creado en createPendingSubscription)
+   *  - Subscription real creada por Checkout con line_items
+   *  - Primera factura emitida y cobrada inmediato
+   *  - Discount aplicado si pendingCouponId set
+   *
+   * Lo único que falta es transicionar la Sub local de
+   * `pending_payment_method` → `active` (o `incomplete` si el cobro
+   * falló) y persistir el `stripeSubscriptionId` real.
+   *
+   * Idempotente: si la Sub local ya tiene un real stripeSubscriptionId
+   * (no `pending_*`), skip retornando existing. Webhook retry-safe.
+   *
+   * @param sessionId  Stripe Checkout Session ID (cs_*)
+   */
+  async activateAfterSubscriptionCheckout(sessionId: string) {
+    if (!this.billing.isStripeConfigured()) {
+      throw new InternalServerErrorException('Stripe no configurado.')
+    }
+
+    const stripe = this.billing.getStripeClient() as any
+    let session: any
+    try {
+      session = await stripe.checkout.sessions.retrieve(sessionId, {
+        expand: ['subscription', 'subscription.latest_invoice'],
+      })
+    } catch (err) {
+      throw this.translateStripeError(err)
+    }
+
+    if (session.mode !== 'subscription') {
+      this.logger.warn(
+        `[activateAfterSubscriptionCheckout] session ${sessionId} mode=${session.mode}, expected 'subscription' — skip`,
+      )
+      return { activated: false, reason: 'wrong_mode' }
+    }
+    if (session.payment_status !== 'paid' && session.payment_status !== 'no_payment_required') {
+      this.logger.warn(
+        `[activateAfterSubscriptionCheckout] session ${sessionId} payment_status=${session.payment_status} — skip; webhook retry on payment update`,
+      )
+      return { activated: false, reason: 'payment_pending' }
+    }
+    if (!session.subscription) {
+      this.logger.warn(
+        `[activateAfterSubscriptionCheckout] session ${sessionId} sin subscription — skip`,
+      )
+      return { activated: false, reason: 'no_subscription_on_session' }
+    }
+
+    const stripeSubFromSession =
+      typeof session.subscription === 'string'
+        ? null
+        : (session.subscription as StripeSubscription)
+    const stripeSubId =
+      typeof session.subscription === 'string'
+        ? session.subscription
+        : (session.subscription as StripeSubscription).id
+
+    // Lookup local Subscription. Preferimos lookup por metadata
+    // zenix_subscription_id (siempre presente en session.metadata).
+    const localSubId =
+      session.metadata?.zenix_subscription_id ?? session.subscription_data?.metadata?.zenix_subscription_id
+    let sub = localSubId
+      ? await this.prisma.subscription.findUnique({ where: { id: localSubId } })
+      : null
+
+    // Fallback: lookup por stripeCustomerId + status pending_payment_method
+    if (!sub && session.customer) {
+      sub = await this.prisma.subscription.findFirst({
+        where: {
+          stripeCustomerId: session.customer as string,
+          status: 'pending_payment_method',
+        },
+      })
+    }
+
+    if (!sub) {
+      // Activación idempotente — el webhook ya procesó esta session.
+      this.logger.log(
+        `[activateAfterSubscriptionCheckout] No pending sub para session ${sessionId} customer=${session.customer} — skip (ya activada o out-of-band)`,
+      )
+      return { activated: false, reason: 'no_pending_subscription' }
+    }
+
+    // Idempotency guard: ya tenemos el real Sub ID persistido
+    if (sub.stripeSubscriptionId && !sub.stripeSubscriptionId.startsWith('pending_')) {
+      this.logger.log(
+        `[activateAfterSubscriptionCheckout] sub ${sub.id} ya activada (stripeSubId=${sub.stripeSubscriptionId}) — skip idempotente`,
+      )
+      return { activated: false, reason: 'already_activated', subscription: sub }
+    }
+
+    // Si la subscription no vino expandida, retrieve manual
+    const stripeSub: StripeSubscription =
+      stripeSubFromSession ??
+      ((await stripe.subscriptions.retrieve(stripeSubId)) as StripeSubscription)
+
+    const updated = await this.prisma.subscription.update({
+      where: { id: sub.id },
+      data: {
+        stripeSubscriptionId: stripeSub.id,
+        status: stripeSub.status,
+        currentPeriodStart: new Date(stripeSub.current_period_start * 1000),
+        currentPeriodEnd: new Date(stripeSub.current_period_end * 1000),
+        nextRenewalDate: new Date(stripeSub.current_period_end * 1000),
+        cardCapturedAt: new Date(),
+        // pendingCouponId/pendingTrialDays remain for audit trail
+      },
+    })
+
+    await this.safeAuditLog({
+      organizationId: sub.organizationId,
+      actor: { sub: 'system:webhook', role: 'SYSTEM' } as unknown as JwtPayload,
+      action: 'SUBSCRIPTION_ACTIVATED_DAY1',
+      target: updated.id,
+      payload: {
+        stripeSubscriptionId: stripeSub.id,
+        checkoutSessionId: sessionId,
+        status: stripeSub.status,
+        firstInvoiceAmount: ((stripeSub as any).latest_invoice as any)?.amount_paid ?? null,
         hadCoupon: !!sub.pendingCouponId,
       },
     })

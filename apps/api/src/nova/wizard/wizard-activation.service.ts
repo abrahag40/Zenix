@@ -258,6 +258,10 @@ export class WizardActivationService {
           planTier: sub.planTier,
           discountApplied: discountStatus === 'applied',
           discountStatus,
+          // BILLING-DAY1 (2026-05-29) — expone monto + currency para
+          // el email hero box (renderiza Day-1 charge vs trial Netflix)
+          baseMonthlyAmount: Number(sub.baseMonthlyAmount),
+          currency: sub.currency as 'MXN' | 'USD',
         }
       } catch (err) {
         this.logger.error(
@@ -362,7 +366,10 @@ export class WizardActivationService {
         hoursUntilExpiry: 72,
         propertyCount: dto.properties.length,
         activationReportLink,
-        // Day 8 BILLING-CORE — pasar info de subscription si se creó
+        // Day 8 BILLING-CORE — pasar info de subscription si se creó.
+        // BILLING-DAY1 (2026-05-29) — incluye monthlyAmount + currency
+        // para que el hero box ramifique entre "trial gratis N días"
+        // vs "pago inmediato 1ª mensualidad: USD X" según trialDays.
         ...(subscriptionResult && {
           subscription: {
             planTier: subscriptionResult.planTier,
@@ -372,6 +379,9 @@ export class WizardActivationService {
             discountPercent: dto.discount?.percentOff,
             discountDuration: dto.discount?.duration,
             discountMonths: dto.discount?.durationInMonths,
+            monthlyAmount: subscriptionResult.baseMonthlyAmount,
+            currency: subscriptionResult.currency,
+            propertyCount: dto.properties.length,
           },
         }),
       })

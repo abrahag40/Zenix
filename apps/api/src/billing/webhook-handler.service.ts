@@ -159,6 +159,12 @@ export class WebhookHandlerService {
         // para SaaS subscription Zenix + Booking Engine futuro).
         case 'setup_intent.succeeded':
           return this.handleSetupIntentSucceeded(event)
+        // BILLING-DAY1 (Sprint 2026-05-29) — Stripe Checkout mode='subscription'
+        // dispara este evento cuando el cobro de la primera mensualidad
+        // queda exitoso. Filtramos por metadata.zenix_kind='DAY1_IMMEDIATE_CHARGE'
+        // para no procesar otras checkout sessions (e.g. Customer Portal addCard).
+        case 'checkout.session.completed':
+          return this.handleCheckoutSessionCompleted(event)
         default:
           // Event tipo no manejado — log + return sin acción.
           // Importante: NO bloqueamos el webhook (Stripe espera 2xx).
@@ -393,6 +399,58 @@ export class WebhookHandlerService {
     } catch (err) {
       this.logger.error(
         `[WebhookHandler] setup_intent.succeeded ${intent.id} failed: ${String(err).slice(0, 300)}`,
+      )
+      throw err
+    }
+  }
+
+  /**
+   * BILLING-DAY1 (Sprint 2026-05-29) — checkout.session.completed
+   * cuando session.mode === 'subscription'. Dispara la transición local
+   * `pending_payment_method` → `active` para subscriptions creadas
+   * con cobro inmediato (trialDays=0).
+   *
+   * Filtro: metadata.zenix_kind === 'DAY1_IMMEDIATE_CHARGE'. Otras
+   * checkout sessions (Customer Portal, future direct booking engine)
+   * pasarán por handlers distintos.
+   *
+   * Idempotencia: `activateAfterSubscriptionCheckout` chequea que la
+   * Sub local no tenga ya un `stripeSubscriptionId` real antes de
+   * persistir. Webhook retry-safe.
+   */
+  private async handleCheckoutSessionCompleted(event: StripeEvent) {
+    const session = event.data.object as {
+      id: string
+      mode: string
+      payment_status?: string
+      metadata?: Record<string, string>
+    }
+
+    // Solo procesamos sessions Day-1 (mode=subscription + nuestro marker).
+    // Customer Portal y otros flows tendrían distinto zenix_kind.
+    if (session.mode !== 'subscription' || session.metadata?.zenix_kind !== 'DAY1_IMMEDIATE_CHARGE') {
+      this.logger.debug(
+        `[WebhookHandler] checkout.session.completed ${session.id} mode=${session.mode} kind=${session.metadata?.zenix_kind ?? '∅'} — skip`,
+      )
+      return { handled: false, idempotent: false }
+    }
+
+    try {
+      const result = await this.subscriptionService.activateAfterSubscriptionCheckout(session.id)
+      if (result.activated && result.subscription) {
+        await this.logEvent(event, result.subscription.id, 'CREATED', {
+          kind: 'day1_immediate_charge_activation',
+          checkoutSessionId: session.id,
+          stripeSubscriptionId: result.subscription.stripeSubscriptionId,
+        })
+      }
+      this.logger.log(
+        `[WebhookHandler] checkout.session.completed ${session.id} → activated=${result.activated} reason=${(result as any).reason ?? 'ok'}`,
+      )
+      return { handled: result.activated, idempotent: !result.activated }
+    } catch (err) {
+      this.logger.error(
+        `[WebhookHandler] checkout.session.completed ${session.id} failed: ${String(err).slice(0, 300)}`,
       )
       throw err
     }

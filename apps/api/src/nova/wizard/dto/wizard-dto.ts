@@ -289,6 +289,9 @@ export interface WizardActivateResponse {
     planTier: string
     discountApplied: boolean
     discountStatus?: 'applied' | 'pending_approval' | null
+    /** BILLING-DAY1 (2026-05-29) — pricing del plan para hero email. */
+    baseMonthlyAmount?: number
+    currency?: 'MXN' | 'USD'
   } | null
 
   /** Sprint CHANNEX-AUTO-PROVISION Day 3 — outcome del provisioning Channex

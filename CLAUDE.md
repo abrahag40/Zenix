@@ -35,7 +35,7 @@
 ## Estado actual del proyecto (2026-05-29)
 
 - **Versión en curso:** v1.0.0 (piloto comercial — Hotel Monica Tulum)
-- **Sprint ACTIVO:** **BILLING-DAY1** (siguiente, ver "Plan de cierre wizard + arranque check-in" §Pending). Tras auditoría 2026-05-29 + clarificación owner del modelo Day-1 billing ("primera mensualidad inmediata al activar; trial gratis = objeción comercial, no default"), el orden de cierre v1.0.0 quedó: BILLING-DAY1 → DISCOUNT-APPROVAL-UI → PAC-CLIENT-WARNING → CHANNEX-CERT-B1 → WIZARD-E2E → close wizard plan → CHECK-IN modal redesign → RATES-METRICS-COMPSET-CORE → QA-α → CI-RESCUE → Channex Stage 4 walkthrough → tag v1.0.0. Total ~32-43 días-dev = ~7-9 sem calendar. Target ago-sep 2026.
+- **Sprint ACTIVO:** **DISCOUNT-APPROVAL-UI** (siguiente). BILLING-DAY1 cerrado 2026-05-29 en branch `feature/billing-day1` con 93/93 tests billing + 175/175 nova verdes. Orden restante v1.0.0: DISCOUNT-APPROVAL-UI → PAC-CLIENT-WARNING → CHANNEX-CERT-B1 → WIZARD-E2E → close wizard plan → CHECK-IN modal redesign → RATES-METRICS-COMPSET-CORE → QA-α → CI-RESCUE → Channex Stage 4 walkthrough → tag v1.0.0. Total ~30-41 días-dev = ~7-9 sem calendar. Target ago-sep 2026.
 - **Sprint anterior cerrado:** **NOSHOW-ADMIN-CHARGING** (2026-05-29, commit `6d13131`) — 5 columnas append-only `noShowCharge*` + endpoint `POST /v1/guest-stays/:id/register-noshow-charge` + `RegisterNoShowChargeDialog` con 3-status × 6-method UX + `channexGuaranteeMeta` (OTA VCC PCI-safe) expuesto en BookingDetailSheet. 43/43 tests guest-stays.no-show verdes. Decisiones §195-§199 D-NOSHOW-1..5. Resuelve gap dejado por commit `5cc4869` (eliminación módulo `payments/` por scope misalignment Stripe vs no-show).
 - **Sprint anterior:** **CHANNEX-AUTO-PROVISION** (Days 1-7 cerrados 2026-05-28 — branch `feature/netflix-trial-flow` compuesto). Wizard ahora empuja Property + RoomTypes + RatePlans + Channels OTA a Channex automáticamente al activar (best-effort outside-tx, idempotent retry desde `/nova/billing/channex`). Multi-tenant Modelo D adaptado (1 master + Groups + RBAC `NovaActingOrgGuard`). Credenciales OTA AES-256-GCM con KEK en .env. Airbnb siempre `requires_oauth` (regla regulatoria). 886/920 backend tests verdes (30+ nuevos AUTO-PROVISION + 10 Netflix; 9 fails pre-existentes en main, no relacionados). Sprint anterior cerrado: **NETFLIX-TRIAL** (2/2 días, Days 1-2 commits previos del mismo branch) — Stripe Checkout setup mode captura tarjeta upfront antes de que cliente entre a Zenix. Sprint anterior: **BILLING-DISCOUNT-CODES** + **BILLING-CORE** (PR #45+#46 mergeados a `main` 2026-05-27).
 - **Pendientes post-CHANNEX-AUTO-PROVISION:**
@@ -934,7 +934,30 @@ housekeeping3/
 
 199. **D-NOSHOW-5 — Eliminado el campo `GuestStay.stripePaymentMethodId` + 2 hooks frontend (`useChargeNoShow` / `useWaiveNoShow`) + módulo backend `payments/` completo.** Reason: el intento previo de cobrar via Stripe asumía que el check-in retenía tarjeta del huésped — lo cual nunca fue scope del producto. Migration `20260605000000_remove_guest_stay_stripe_fields` dropea las 3 columnas (`stripe_customer_id`, `stripe_payment_method_id`, `stripe_payment_intent_id`). 3 capas de defensa contra regresión: (a) canary test detecta route collision si alguien re-registra controller; (b) HTTP integration tests con supertest + HMAC validan el contrato Stripe webhook; (c) smoke test pre-deploy valida 15 invariantes runtime (Stripe, Channex, KEK roundtrip, migrations, Resend, Banxico, PAC).
 
-> **Sprint POST-NETFLIX-TRIAL — implementación cerrada 2026-05-29 con 43/43 tests guest-stays.no-show verdes (7 nuevos para `registerNoShowCharge`). Pendientes pre-merge `feature/netflix-trial-flow` → `main`: validación end-to-end manual del owner con cliente piloto real + rotación post-merge de las keys Stripe (rk_test_/sk_test_/rk_live_) que el owner pegó en chat durante validación.**
+> **Sprint POST-NETFLIX-TRIAL — implementación cerrada 2026-05-29 con 43/43 tests guest-stays.no-show verdes (7 nuevos para `registerNoShowCharge`). Mergeado a main 2026-05-29 PR #47 commit `52c7501`. Pendiente: validación end-to-end manual del owner con cliente piloto real + rotación post-merge de las keys Stripe (rk_test_/sk_test_/rk_live_) que el owner pegó en chat durante validación.**
+
+### Billing Day-1 charge — Sprint BILLING-DAY1 (2026-05-29)
+
+> Sprint #1 del plan de cierre wizard. Implementa el modelo Day-1 confirmado por owner 2026-05-29: el wizard ahora puede cobrar la primera mensualidad inmediato al activar (cuando `trialDays=0`) en vez de obligar al cliente a pasar siempre por trial Netflix-style.
+
+200. **D-DAY1-1 — Stripe Checkout ramifica `mode` según `pendingTrialDays`.** `subscription.service.ts:createSetupCheckoutSession` decide al runtime:
+   - `pendingTrialDays === 0` → `mode='subscription'` con `line_items` del plan + `quantity=propertyCount` + opcional `discounts` con `pendingCouponId`. Stripe Checkout cobra inmediato la primera mensualidad, crea la Subscription real y emite la factura. Webhook `checkout.session.completed` con `metadata.zenix_kind='DAY1_IMMEDIATE_CHARGE'` dispara `activateAfterSubscriptionCheckout(sessionId)` para transicionar la Sub local `pending_payment_method` → status real.
+   - `pendingTrialDays > 0` → `mode='setup'` (Netflix path original). $0 SetupIntent captura tarjeta sin cobrar; webhook `setup_intent.succeeded` crea Stripe Sub con `trial_period_days` y cobro al final del trial.
+
+   Decisión owner verbatim 2026-05-29: *"Mi estrategia de negociación ideal es cobrar desde el primer día, para debatir objeciones puede entrar el 'te lo dejo gratis por 30 días' o 'te cobro la primer mensualidad y si no te gusta en 30 días, te regreso tu dinero'. Por ejemplo, si en días de trial selecciono 0, el pago debería ser la primer mensualidad en el link de pago que recibe el dueño por email."* Garantía 30d es política comercial, no cambio técnico.
+
+201. **D-DAY1-2 — Idempotencia diferenciada por kind.** `setup_checkout_${sub.id}` para Netflix path (Stripe Checkout regenera misma URL durante 24h). `day1_checkout_${sub.id}` para Day-1. Webhooks ambos idempotentes via guard `sub.stripeSubscriptionId` ya real (no `pending_*`) → skip retornando existing. Auditable via `safeAuditLog` con action `SUBSCRIPTION_ACTIVATED_DAY1` vs `SUBSCRIPTION_ACTIVATED_AFTER_SETUP`.
+
+202. **D-DAY1-3 — Activation email hero box ramifica visualmente según `trialDays`.** `activation-email.service.ts:renderSubscriptionBox` muestra:
+   - `trialDays > 0` → caja emerald "Versión de prueba activa · N días gratis · Tu tarjeta NO se carga durante este período."
+   - `trialDays === 0` + `monthlyAmount` provisto → caja amber "💳 Pago inmediato al activar · Primera mensualidad: USD X · Al confirmar tu tarjeta en Stripe se cobra la primera mensualidad. Cancela cuando quieras."
+   - Foot copy también ramifica: "validación $0" vs "procesa el cobro de la primera mensualidad de forma inmediata".
+
+   Plain-text variant equivalente. Monto formateado con `Intl.NumberFormat('es-MX', { currency: 'USD'|'MXN' })`. Multiplica `monthlyAmount × propertyCount` para hoteles multi-property. Pattern Mehrabian-Russell 1974: claridad de monto + timing reduce friction post-activate; cliente sabe exactamente qué se cobrará y cuándo.
+
+203. **D-DAY1-4 — `WizardActivateResponse.subscription` expone `baseMonthlyAmount + currency`.** Necesario para que el email ramifique correctamente. Backward-compat: campos opcionales — tests legacy sin pricing context siguen funcionando (email no muestra hero, sólo plan + cycle).
+
+> **Sprint BILLING-DAY1 — implementación cerrada 2026-05-29 con 93/93 tests billing + 175/175 tests nova verdes (3 nuevos tests subscription.service.spec: Day-1 line_items + Day-1 + pendingCouponId + Netflix path explicit pendingTrialDays>0; 7 nuevos tests activation-email.spec: HTML/text branching Netflix vs Day-1 + multi-property + USD formatting + fallback sin pricing). 4 fails pre-existentes en `access-control.service.spec.ts` no relacionados — pendientes del CI-RESCUE residual. PR pendiente de creación.**
 
 ---
 
@@ -1118,7 +1141,7 @@ Hoy el código siempre usa `mode='setup'` aunque `trialDays=0`, lo cual hace que
 
 | # | Sprint | Esfuerzo | Bloquea |
 |---|--------|----------|---------|
-| 1 | **BILLING-DAY1** — Stripe Checkout ramificado: `trialDays===0` → `mode='subscription'` con `trial_period_days=0` (cobra primera mensualidad inmediato) + Email activation hero box muestra monto real (no $0) + tests path nuevo | 1-1.5d | Piloto comercial |
+| ✅1 | ~~**BILLING-DAY1**~~ — Cerrado 2026-05-29 — branch `feature/billing-day1`. Stripe Checkout `mode='subscription'` con line_items cuando `pendingTrialDays===0`. Email hero box ramifica. §200-§203 D-DAY1-1..4. | — | — |
 | 2 | **DISCOUNT-APPROVAL-UI** — `/nova/billing/aprobaciones` para PARTNER_ADMIN: lista subscriptions con `discountStatus='pending_approval'` + botones aprobar/rechazar con razón + endpoint `POST /v1/nova/billing/discounts/:subId/approve|reject` ya existe en backend (`nova-billing.controller.ts:125`) — solo falta UI + auto-mark-as-read del bell (patrón §100) | 1-2d | Piloto operativo |
 | 3 | **PAC-CLIENT-WARNING** — Schema `LegalEntity.pacStatus` enum `configured|pending|failed` + skip wizard Step 8 setea `pending` + AppNotification permanente al ORG_OWNER al activar + Banner sticky top en `/dashboard` cliente cuando pacStatus≠'configured' + tooltip en botón "Generar CFDI" + página `/settings/legal-entities/:id/pac-setup` con instrucciones | 0.5-1d | Piloto MX |
 | 4 | **CHANNEX-CERT-B1** — Fix Retry-After header parsing en `channex-outbound-worker.service.ts:266`: gateway propaga `ChannexRateLimitError(status, retryAfterSeconds)` parseando `res.headers.get('retry-after')` + worker usa el valor real + actualizar CLAUDE.md §134 doc drift "30min" → "15min" (cron real) | 0.5-1d | Cert Stage 4 |
