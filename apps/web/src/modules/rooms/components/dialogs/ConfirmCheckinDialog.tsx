@@ -29,7 +29,7 @@ import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import {
   AlertTriangle, Camera, Check, ChevronDown, CreditCard, Globe,
-  IdCard, Loader2, LogIn, ShieldCheck, StickyNote, Upload, X,
+  IdCard, Loader2, LogIn, Pencil, ShieldCheck, StickyNote, Upload, X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -139,6 +139,14 @@ export function ConfirmCheckinDialog({
   const [identityExpanded, setIdentityExpanded] = useState(false)
   const [paymentExpanded,  setPaymentExpanded]  = useState(false)
 
+  // CHECK-IN C1.7 (2026-05-29) — per-field display vs edit mode.
+  // Si el campo ya tiene valor (capturado al crear reserva o vino de OTA),
+  // se muestra como display row (no input). Click "editar" → edit mode.
+  // Cuando vacío: input directo. Pattern Apple HIG read-then-edit.
+  const [editingDocType, setEditingDocType] = useState(false)
+  const [editingNat,     setEditingNat]     = useState(false)
+  const [editingSex,     setEditingSex]     = useState(false)
+
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Hidratar form con context cuando llega.
@@ -154,6 +162,10 @@ export function ConfirmCheckinDialog({
     setArrivalNotes(ctx.stay.arrivalNotes ?? '')
     setNationality(ctx.stay.nationality ?? '')
     setGuestSex((ctx.stay as { guestSex?: string }).guestSex ?? '')
+    // Reset edit states (cada apertura del modal arranca en display si hay valor)
+    setEditingDocType(false)
+    setEditingNat(false)
+    setEditingSex(false)
     setIdentityExpanded(!ctx.identityCaptured)
     const needsPaymentCalc =
       ctx.paymentModel === 'HOTEL_COLLECT' && ctx.balanceProjection.balance > 0
@@ -418,57 +430,96 @@ export function ConfirmCheckinDialog({
                       <span className="text-slate-400 normal-case font-normal">— captura básica</span>
                     </div>
                     <div className="flex-1 rounded-2xl bg-white border border-slate-200/80 shadow-[0_1px_2px_rgba(0,0,0,0.03)] p-4 space-y-3.5">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                          Tipo de documento <span className="text-rose-500 font-normal">*</span>
-                        </label>
-                        <select
-                          value={documentType}
-                          onChange={(e) => setDocumentType(e.target.value)}
-                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm
-                                     text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-300
-                                     transition-shadow"
-                        >
-                          {DOCUMENT_TYPES.map((dt) => (
-                            <option key={dt.value} value={dt.value}>{dt.label}</option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                          Nacionalidad <span className="text-slate-400 normal-case font-normal">· opcional</span>
-                        </label>
-                        <input
-                          type="text"
-                          value={nationality}
-                          onChange={(e) => setNationality(e.target.value)}
-                          placeholder="Ej: Mexicana, US, EU…"
-                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm
-                                     text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-300
-                                     transition-shadow"
-                          maxLength={50}
+                      {/* TIPO DE DOCUMENTO — display si capturado, edit si vacío o click */}
+                      {documentType && !editingDocType ? (
+                        <PrefilledRow
+                          label="Tipo de documento"
+                          required
+                          value={DOCUMENT_TYPES.find((dt) => dt.value === documentType)?.label ?? documentType}
+                          onEdit={() => setEditingDocType(true)}
                         />
-                      </div>
+                      ) : (
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                            Tipo de documento <span className="text-rose-500 font-normal">*</span>
+                          </label>
+                          <select
+                            value={documentType}
+                            onChange={(e) => setDocumentType(e.target.value)}
+                            onBlur={() => documentType && setEditingDocType(false)}
+                            autoFocus={editingDocType}
+                            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm
+                                       text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-300
+                                       transition-shadow"
+                          >
+                            {DOCUMENT_TYPES.map((dt) => (
+                              <option key={dt.value} value={dt.value}>{dt.label}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
 
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                          Género <span className="text-slate-400 normal-case font-normal">· opcional</span>
-                        </label>
-                        <select
-                          value={guestSex}
-                          onChange={(e) => setGuestSex(e.target.value)}
-                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm
-                                     text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-300
-                                     transition-shadow"
-                        >
-                          <option value="">— No especificado —</option>
-                          <option value="F">Femenino</option>
-                          <option value="M">Masculino</option>
-                          <option value="O">Otro / No binario</option>
-                          <option value="N">Prefiere no decir</option>
-                        </select>
-                      </div>
+                      {/* NACIONALIDAD — display si capturado, edit si vacío o click */}
+                      {nationality && !editingNat ? (
+                        <PrefilledRow
+                          label="Nacionalidad"
+                          optional
+                          value={nationality}
+                          onEdit={() => setEditingNat(true)}
+                        />
+                      ) : (
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                            Nacionalidad <span className="text-slate-400 normal-case font-normal">· opcional</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={nationality}
+                            onChange={(e) => setNationality(e.target.value)}
+                            onBlur={() => nationality && setEditingNat(false)}
+                            autoFocus={editingNat}
+                            placeholder="Ej: Mexicana, US, EU…"
+                            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm
+                                       text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-300
+                                       transition-shadow"
+                            maxLength={50}
+                          />
+                        </div>
+                      )}
+
+                      {/* GÉNERO — display si capturado, edit si vacío o click */}
+                      {guestSex && !editingSex ? (
+                        <PrefilledRow
+                          label="Género"
+                          optional
+                          value={
+                            { F: 'Femenino', M: 'Masculino', O: 'Otro / No binario', N: 'Prefiere no decir' }[guestSex]
+                            ?? guestSex
+                          }
+                          onEdit={() => setEditingSex(true)}
+                        />
+                      ) : (
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                            Género <span className="text-slate-400 normal-case font-normal">· opcional</span>
+                          </label>
+                          <select
+                            value={guestSex}
+                            onChange={(e) => setGuestSex(e.target.value)}
+                            onBlur={() => guestSex && setEditingSex(false)}
+                            autoFocus={editingSex}
+                            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm
+                                       text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-300
+                                       transition-shadow"
+                          >
+                            <option value="">— No especificado —</option>
+                            <option value="F">Femenino</option>
+                            <option value="M">Masculino</option>
+                            <option value="O">Otro / No binario</option>
+                            <option value="N">Prefiere no decir</option>
+                          </select>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -693,6 +744,65 @@ function Section({
         </p>
       ) : null}
     </section>
+  )
+}
+
+/**
+ * PrefilledRow — Display row para campos ya capturados (al crear reserva o
+ * vía OTA). Sprint CHECK-IN C1.7 (2026-05-29).
+ *
+ * UX justification: el recepcionista ve INMEDIATAMENTE qué datos ya están
+ * (no pide re-captura redundante). Click "editar" → vuelve a input mode.
+ * Pattern Apple HIG read-then-edit + Stripe Dashboard.
+ *
+ * Diseño:
+ *   - Label uppercase [10px] tracking-wider (mismo que inputs)
+ *   - Value bold con check icon ✓ verde (señal "ya está")
+ *   - Pencil icon pequeño a la der (hover → emerald)
+ *   - Click entero del row → activa edit mode
+ */
+function PrefilledRow({
+  label,
+  value,
+  required = false,
+  optional = false,
+  onEdit,
+}: {
+  label: string
+  value: React.ReactNode
+  required?: boolean
+  optional?: boolean
+  onEdit: () => void
+}) {
+  return (
+    <div className="space-y-1">
+      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+        {label}
+        {required && <span className="text-rose-500 font-normal">*</span>}
+        {optional && (
+          <span className="text-slate-400 normal-case font-normal">· opcional</span>
+        )}
+      </label>
+      <button
+        type="button"
+        onClick={onEdit}
+        className="w-full group flex items-center justify-between gap-2 rounded-lg
+                   bg-emerald-50/40 hover:bg-emerald-50 border border-emerald-100
+                   px-3 py-2 text-left transition-colors"
+        aria-label={`Editar ${label}`}
+      >
+        <span className="flex items-center gap-2 min-w-0">
+          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 shrink-0">
+            <Check className="h-3 w-3" />
+          </span>
+          <span className="text-sm font-semibold text-slate-800 truncate">{value}</span>
+        </span>
+        <span className="inline-flex items-center gap-1 text-[11px] text-slate-400 group-hover:text-emerald-600 transition-colors shrink-0">
+          <Pencil className="h-3 w-3" />
+          editar
+        </span>
+      </button>
+    </div>
   )
 }
 
