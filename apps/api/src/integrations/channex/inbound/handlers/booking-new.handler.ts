@@ -1,25 +1,30 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
-import { ChannexBookingRevision } from '../../channex.gateway'
+import { ChannexBookingRevision, ChannexBookingRevisionRoom } from '../../channex.gateway'
 import { AvailabilityService } from '../../../../pms/availability/availability.service'
 import { NotificationsService } from '../../../../notifications/notifications.service'
 import { PrismaService } from '../../../../prisma/prisma.service'
 import { ChannexBookingMapper } from '../channex-booking.mapper'
 import { ChannexNotifService } from '../channex-notif.service'
 import { ChannexSystemStaffService } from '../channex-system-staff.service'
+import { titleCase } from '../../../../common/utils/title-case.util'
 
 export type BookingNewResult =
   | { kind: 'created'; stayId: string; roomId: string }
   | { kind: 'conflict'; stayId: string | null; reason: ConflictReason }
   | { kind: 'already_exists'; stayId: string }
   | { kind: 'stale'; stayId: string }
+  // CHECK-IN C2.2 — multi-room creates a ReservationGroup with N child stays.
+  // `hasConflicts` true cuando al menos una de las stays quedó channexConflict=true.
+  | { kind: 'group_created'; groupId: string; stayIds: string[]; hasConflicts: boolean }
+  | { kind: 'group_exists'; groupId: string; stayIds: string[] }
 
 export type ConflictReason =
   | 'NO_ROOM_TYPE_MATCH' // Channex room_type_id not mapped to any Zenix Room
   | 'AVAILABILITY_OVERLAP' // overlaps with existing GuestStay/Segment/Block
   | 'PROPERTY_NOT_FOUND' // Channex sent property_id we don't know
   | 'UNMAPPED_RATE_PLAN' // rate_plan_id null → cannot price, queue for human
-  | 'MULTI_ROOM_BOOKING' // booking has 2+ rooms — needs journey-linked stays (v1.0.1)
+  | 'MULTI_ROOM_BOOKING' // deprecated — kept for backward-compat audits
 
 /**
  * BookingNewHandler — invoked by ChannexRevisionPullerService when the
@@ -59,7 +64,26 @@ export class BookingNewHandler {
   ) {}
 
   async handle(revision: ChannexBookingRevision): Promise<BookingNewResult> {
-    // 1. Idempotency
+    // 1a. Idempotency — ReservationGroup (CHECK-IN C2.2 multi-room).
+    // El channexBookingId del grupo es UNIQUE; webhook replay de un grupo ya
+    // ingestado retorna el conjunto de stays existente sin re-crear.
+    const existingGroup = await this.prisma.reservationGroup.findUnique({
+      where: { channexBookingId: revision.booking_id },
+      select: { id: true, stays: { select: { id: true } } },
+    })
+    if (existingGroup) {
+      this.logger.debug(
+        `[Channex bookingNew] group already_exists booking=${revision.booking_id} ` +
+          `group=${existingGroup.id} stays=${existingGroup.stays.length}`,
+      )
+      return {
+        kind: 'group_exists',
+        groupId: existingGroup.id,
+        stayIds: existingGroup.stays.map((s) => s.id),
+      }
+    }
+
+    // 1b. Idempotency — single-room GuestStay (legacy path).
     const existing = await this.prisma.guestStay.findUnique({
       where: { channexBookingId: revision.booking_id },
       select: {
@@ -124,25 +148,13 @@ export class BookingNewHandler {
     const organizationId = property.organizationId
     const timezone = property.settings?.timezone ?? 'America/Cancun'
 
-    // Audit C1 — Multi-room bookings (Booking.com family/group reservations
-    // bring 2+ rooms in the same revision). v1.0.0 doesn't yet model
-    // journey-linked OTA stays — the previous code silently took only
-    // rooms[0] and dropped the rest. We now route these to the conflict
-    // queue with reason MULTI_ROOM_BOOKING so the SUPERVISOR creates the
-    // additional stays manually. Real fix lands in v1.0.1 PAY-CORE which
-    // implements multi-room → multi-stay-linked-via-StayJourney path.
+    // Sprint CHECK-IN C2.2 (2026-05-29) — auto-detección OTA multi-room §153-§158.
+    // Cuando rooms.length > 1 creamos UN ReservationGroup que agrega N stays
+    // hijas (cada una con groupRoomIndex 1-based + reservationGroupId). Auto-
+    // detección sin wizard — cero acción del recepcionista (Cloudbeds pattern,
+    // diferencial vs Opera Block setup manual 15min).
     if ((revision.rooms?.length ?? 0) > 1) {
-      this.logger.warn(
-        `[Channex bookingNew] multi-room booking=${revision.booking_id} ` +
-          `rooms=${revision.rooms.length} — routing to MULTI_ROOM_BOOKING conflict ` +
-          `(v1.0.0 limitation, real fix in v1.0.1 PAY-CORE)`,
-      )
-      return this.persistConflict(
-        revision,
-        { id: property.id, organizationId },
-        timezone,
-        'MULTI_ROOM_BOOKING',
-      )
+      return this.handleMultiRoom(revision, { id: property.id, organizationId }, timezone)
     }
 
     // 4. Room resolution (single-room booking path)
@@ -290,6 +302,296 @@ export class BookingNewHandler {
         `booking=${revision.booking_id} ota=${revision.ota_name ?? '∅'}`,
     )
     return { kind: 'created', stayId: stay.id, roomId: stay.roomId }
+  }
+
+  /**
+   * Sprint CHECK-IN C2.2 (2026-05-29) — auto-detección multi-room §153-§158.
+   *
+   * Flujo:
+   *  1. Para cada room del array Channex, resolver Zenix Room + conflict tag
+   *     (NO_ROOM_TYPE_MATCH / UNMAPPED_RATE_PLAN / AVAILABILITY_OVERLAP / null).
+   *  2. Si TODAS las rooms fallan resolver (no hay rooms en la property),
+   *     fallback al persistConflict legacy NO_ROOM_TYPE_MATCH.
+   *  3. Crear ReservationGroup + N GuestStays + N StayJourneys + N StaySegments
+   *     en MISMO $transaction. UNIQUE(channexBookingId) en group da idempotency
+   *     natural. Stays quedan con channexBookingId=null (omitChannexBookingId).
+   *  4. Notif SUPERVISOR GROUP_BOOKING_RECEIVED + SSE channex:group:created.
+   */
+  private async handleMultiRoom(
+    revision: ChannexBookingRevision,
+    property: { id: string; organizationId: string },
+    timezone: string,
+  ): Promise<BookingNewResult> {
+    const rooms = revision.rooms ?? []
+    this.logger.log(
+      `[Channex bookingNew] multi-room detected booking=${revision.booking_id} ` +
+        `rooms=${rooms.length} — creating ReservationGroup`,
+    )
+
+    // Sanity: ¿la property tiene AL MENOS un Room? Sin rooms no hay placeholder.
+    const propertyHasAnyRoom = await this.prisma.room.findFirst({
+      where: { propertyId: property.id, deletedAt: null },
+      select: { id: true },
+    })
+    if (!propertyHasAnyRoom) {
+      this.logger.error(
+        `[Channex bookingNew] property=${property.id} has no rooms — cannot persist multi-room group`,
+      )
+      return this.persistConflict(revision, property, timezone, 'NO_ROOM_TYPE_MATCH')
+    }
+
+    // 1. Resolver cada room → { zenixRoomId, conflict }
+    type RoomResolution = {
+      revisionRoom: ChannexBookingRevisionRoom
+      roomId: string
+      conflict: ConflictReason | null
+    }
+
+    const checkIn = ChannexBookingMapper.combineDateAndHour(
+      revision.arrival_date,
+      revision.arrival_hour,
+      timezone,
+      'checkin',
+    )
+    const checkOut = ChannexBookingMapper.combineDateAndHour(
+      revision.departure_date,
+      '11:00',
+      timezone,
+      'checkout',
+    )
+
+    const resolutions: RoomResolution[] = []
+    for (const revisionRoom of rooms) {
+      const roomTypeId = revisionRoom.room_type_id ?? null
+      const ratePlanId = revisionRoom.rate_plan_id ?? null
+
+      if (!roomTypeId) {
+        resolutions.push({
+          revisionRoom,
+          roomId: propertyHasAnyRoom.id,
+          conflict: 'NO_ROOM_TYPE_MATCH',
+        })
+        continue
+      }
+      if (!ratePlanId) {
+        resolutions.push({
+          revisionRoom,
+          roomId: propertyHasAnyRoom.id,
+          conflict: 'UNMAPPED_RATE_PLAN',
+        })
+        continue
+      }
+
+      const candidates = await this.prisma.room.findMany({
+        where: { propertyId: property.id, channexRoomTypeId: roomTypeId, deletedAt: null },
+        select: { id: true, number: true },
+      })
+
+      if (candidates.length === 0) {
+        resolutions.push({
+          revisionRoom,
+          roomId: propertyHasAnyRoom.id,
+          conflict: 'NO_ROOM_TYPE_MATCH',
+        })
+        continue
+      }
+
+      // Excluir rooms ya elegidas en este mismo grupo (evita asignar la misma
+      // habitación a 2 stays del mismo booking).
+      const alreadyChosen = new Set(
+        resolutions.filter((r) => r.conflict === null).map((r) => r.roomId),
+      )
+      let chosen: string | null = null
+      for (const candidate of candidates) {
+        if (alreadyChosen.has(candidate.id)) continue
+        const avail = await this.availability.check({
+          roomId: candidate.id,
+          from: checkIn,
+          to: checkOut,
+        })
+        if (avail.available) {
+          chosen = candidate.id
+          break
+        }
+      }
+
+      if (!chosen) {
+        resolutions.push({
+          revisionRoom,
+          roomId: candidates[0].id,
+          conflict: 'AVAILABILITY_OVERLAP',
+        })
+      } else {
+        resolutions.push({ revisionRoom, roomId: chosen, conflict: null })
+      }
+    }
+
+    // 2. Datos del titular (común al grupo)
+    const primaryFirst = titleCase(revision.customer?.name ?? '')
+    const primaryLast = titleCase(revision.customer?.surname ?? '')
+    const primaryGuestName =
+      `${primaryFirst} ${primaryLast}`.trim() ||
+      (revision.ota_reservation_code ? `Huésped ${revision.ota_reservation_code}` : 'Huésped sin nombre')
+
+    // groupSize = sumamos adults+children de cada room.occupancy. Fallback:
+    // si los rooms no traen occupancy individual, usar revision.occupancy o
+    // sumar guests.length por room.
+    let groupSize = 0
+    for (const r of rooms) {
+      if (r.occupancy) {
+        groupSize += Math.max(0, r.occupancy.adults) + Math.max(0, r.occupancy.children)
+      } else if (r.guests && r.guests.length > 0) {
+        groupSize += r.guests.length
+      }
+    }
+    if (groupSize === 0) {
+      // fallback a global occupancy o N rooms (1 persona min por hab)
+      groupSize =
+        (revision.occupancy?.adults ?? 0) + (revision.occupancy?.children ?? 0) || rooms.length
+    }
+
+    const checkedInById = await this.systemStaff.getOrCreate(property.id, property.organizationId)
+
+    // 3. Crear group + N stays/journeys/segments en MISMA tx
+    let groupId: string
+    let stayIds: string[] = []
+    let hasConflicts = false
+    try {
+      const txResult = await this.prisma.$transaction(async (tx) => {
+        const group = await tx.reservationGroup.create({
+          data: {
+            organizationId: property.organizationId,
+            propertyId: property.id,
+            channexBookingId: revision.booking_id,
+            channexOtaName: revision.ota_name ?? null,
+            primaryGuestName,
+            primaryGuestEmail: revision.customer?.mail ?? null,
+            primaryGuestPhone: revision.customer?.phone ?? null,
+            groupSize,
+            roomCount: rooms.length,
+            groupCheckIn: checkIn,
+            groupCheckOut: checkOut,
+          },
+          select: { id: true },
+        })
+
+        const createdStayIds: string[] = []
+        for (let i = 0; i < resolutions.length; i++) {
+          const res = resolutions[i]
+          const isConflict = res.conflict !== null
+          if (isConflict) hasConflicts = true
+
+          const data = ChannexBookingMapper.toGuestStayCreate({
+            revision,
+            propertyId: property.id,
+            organizationId: property.organizationId,
+            propertyTimezone: timezone,
+            roomId: res.roomId,
+            channexConflict: isConflict,
+            roomIndex: i,
+            omitChannexBookingId: true, // group carga el booking_id
+          })
+
+          const created = await tx.guestStay.create({
+            data: {
+              ...data,
+              checkedInById,
+              reservationGroupId: group.id,
+              groupRoomIndex: i + 1, // 1-based
+              notes: isConflict
+                ? [data.notes, `[Channex group conflict] ${res.conflict}`]
+                    .filter(Boolean)
+                    .join('\n')
+                : data.notes,
+            },
+            select: { id: true, checkinAt: true, scheduledCheckout: true, roomId: true },
+          })
+
+          const journey = await tx.stayJourney.create({
+            data: {
+              organizationId: property.organizationId,
+              propertyId: property.id,
+              guestName: data.guestName,
+              guestEmail: data.guestEmail,
+              guestStayId: created.id,
+              journeyCheckIn: created.checkinAt,
+              journeyCheckOut: created.scheduledCheckout,
+            },
+          })
+
+          await tx.staySegment.create({
+            data: {
+              journeyId: journey.id,
+              roomId: created.roomId,
+              guestStayId: created.id,
+              checkIn: created.checkinAt,
+              checkOut: created.scheduledCheckout,
+              status: 'ACTIVE',
+              reason: 'ORIGINAL',
+              rateSnapshot: new Prisma.Decimal(data.ratePerNight as Prisma.Decimal),
+            },
+          })
+
+          createdStayIds.push(created.id)
+        }
+
+        return { groupId: group.id, stayIds: createdStayIds }
+      })
+      groupId = txResult.groupId
+      stayIds = txResult.stayIds
+    } catch (err) {
+      // Race: webhook duplicado entre 1a (findUnique) y create.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        const existing = await this.prisma.reservationGroup.findUnique({
+          where: { channexBookingId: revision.booking_id },
+          select: { id: true, stays: { select: { id: true } } },
+        })
+        if (existing) {
+          return {
+            kind: 'group_exists',
+            groupId: existing.id,
+            stayIds: existing.stays.map((s) => s.id),
+          }
+        }
+      }
+      throw err
+    }
+
+    // 4. SSE para que el calendar refresque la bracket visual del grupo
+    this.notifications.emit(property.id, 'channex:group:created', {
+      groupId,
+      stayIds,
+      bookingId: revision.booking_id,
+      otaName: revision.ota_name ?? null,
+      roomCount: rooms.length,
+      hasConflicts,
+    })
+
+    // 5. Notif SUPERVISOR (§158 — priority adaptativa)
+    try {
+      await this.notif.raiseGroupBookingReceived({
+        organizationId: property.organizationId,
+        propertyId: property.id,
+        groupId,
+        bookingId: revision.booking_id,
+        otaName: revision.ota_name ?? null,
+        primaryGuestName,
+        groupSize,
+        roomCount: rooms.length,
+        groupCheckIn: checkIn,
+        hasConflicts,
+      })
+    } catch (err) {
+      this.logger.warn(
+        `[Channex bookingNew] group notif failed: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+
+    this.logger.log(
+      `[Channex bookingNew] group=${groupId} created with ${stayIds.length} stays ` +
+        `booking=${revision.booking_id} conflicts=${hasConflicts}`,
+    )
+    return { kind: 'group_created', groupId, stayIds, hasConflicts }
   }
 
   /**

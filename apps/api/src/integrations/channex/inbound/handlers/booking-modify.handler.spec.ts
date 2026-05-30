@@ -72,8 +72,11 @@ function makeExistingStay(overrides: Record<string, unknown> = {}) {
 
 function makePrismaMock() {
   return {
+    // CHECK-IN C2.2 — multi-room lookup. Default null = single-room legacy path.
+    reservationGroup: { findUnique: jest.fn().mockResolvedValue(null) },
     guestStay: {
       findUnique: jest.fn(),
+      findMany: jest.fn(),
       update: jest.fn().mockResolvedValue({}),
     },
     property: { findUnique: jest.fn() },

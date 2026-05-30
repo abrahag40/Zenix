@@ -39,11 +39,40 @@ export class ChannexBookingMapper {
     propertyTimezone: string
     roomId: string | null // null when no room match → UNASSIGNED conflict (D-CHX9)
     channexConflict: boolean
+    /**
+     * Sprint CHECK-IN C2.2 (2026-05-29) — multi-room support.
+     * Cuando `revision.rooms.length > 1`, el caller (BookingNewHandler)
+     * itera N veces invocando este mapper con `roomIndex = 0..N-1` para
+     * extraer per-room data (rate plan, guest, amount, dates). Default 0
+     * preserva backward-compat con single-room path. §153-§154 CLAUDE.md.
+     */
+    roomIndex?: number
+    /**
+     * Sprint CHECK-IN C2.2 — multi-room idempotency. `channexBookingId` es
+     * UNIQUE en GuestStay; en multi-room solo el ReservationGroup lo carga.
+     * Cuando `omitChannexBookingId=true` el create payload sale sin él
+     * (las stays se asocian al group via `reservationGroupId`).
+     */
+    omitChannexBookingId?: boolean
   }): Omit<Prisma.GuestStayUncheckedCreateInput, 'checkedInById'> {
-    const { revision, propertyId, organizationId, propertyTimezone, roomId, channexConflict } = args
+    const {
+      revision,
+      propertyId,
+      organizationId,
+      propertyTimezone,
+      roomId,
+      channexConflict,
+      roomIndex = 0,
+      omitChannexBookingId = false,
+    } = args
 
+    // Per-room sub-revision (CHECK-IN C2.2). Cuando roomIndex apunta a un
+    // room específico, computeTotalAmount usa SU amount/days, no la suma
+    // global de la revision. Para single-room (default 0) el comportamiento
+    // es idéntico al previo.
+    const targetRoom = revision.rooms?.[roomIndex]
     const nights = ChannexBookingMapper.computeNights(revision.arrival_date, revision.departure_date)
-    const total = ChannexBookingMapper.computeTotalAmount(revision)
+    const total = ChannexBookingMapper.computeTotalAmountForRoom(revision, roomIndex)
     const ratePerNight = nights > 0 ? total.dividedBy(nights) : new Prisma.Decimal(0)
     const currency = revision.currency ?? 'USD'
 
@@ -61,15 +90,21 @@ export class ChannexBookingMapper {
       'checkout',
     )
 
-    const occupancy = revision.occupancy ?? { adults: 1, children: 0, infants: 0 }
+    // CHECK-IN C2.2 — per-room occupancy cuando el revision viene multi-room.
+    // Si el targetRoom tiene su propio occupancy lo preferimos; si no caemos
+    // al global de la revision.
+    const occupancy =
+      targetRoom?.occupancy ?? revision.occupancy ?? { adults: 1, children: 0, infants: 0 }
     const paxCount = Math.max(1, occupancy.adults + occupancy.children)
 
     // CHECK-IN C1.12 (2026-05-29) — split BI nombre/apellido + title-case
     // obligatorio. Resuelve consistencia BD: algunas OTAs envían "JUAN PEREZ"
     // todo mayúsculas, otras "juan perez" todo minúsculas. Normalizamos al
     // mismo formato que el create manual del recepcionista.
+    // CHECK-IN C2.2 — targetRoom permite usar el guest específico del room
+    // (multi-room donde cada room tiene un guest distinto).
     const { firstName: guestFirstName, lastName: guestLastName } =
-      ChannexBookingMapper.composeGuestFirstLast(revision)
+      ChannexBookingMapper.composeGuestFirstLast(revision, roomIndex)
     const guestName = `${guestFirstName} ${guestLastName}`.trim() || 'Huésped sin nombre'
     const guestEmail = revision.customer?.mail ?? null
     const guestPhone = revision.customer?.phone ?? null
@@ -112,8 +147,11 @@ export class ChannexBookingMapper {
       source: sourceLabel,
       notes: ChannexBookingMapper.composeNotes(revision),
 
-      // Channex inbound idempotency + provenance
-      channexBookingId: revision.booking_id,
+      // Channex inbound idempotency + provenance.
+      // CHECK-IN C2.2 — en multi-room el channexBookingId solo vive en
+      // ReservationGroup; las stays quedan null para no chocar con el UNIQUE
+      // (la lookup hace primero group.findUnique, fallback stay.findUnique).
+      channexBookingId: omitChannexBookingId ? null : revision.booking_id,
       channexLastSyncAt: revision.inserted_at ? new Date(revision.inserted_at) : new Date(),
       channexConflict,
       channexOtaName: revision.ota_name ?? null,
@@ -204,16 +242,56 @@ export class ChannexBookingMapper {
    * Backward compat: composeGuestName sigue funcional para callers existentes;
    * delegates a este método.
    */
-  static composeGuestFirstLast(revision: ChannexBookingRevision): { firstName: string; lastName: string } {
+  static composeGuestFirstLast(
+    revision: ChannexBookingRevision,
+    roomIndex: number = 0,
+  ): { firstName: string; lastName: string } {
     // Prefer the room-level guest when present (more specific for multi-room
-    // bookings under a single customer account).
-    const firstRoomGuest = revision.rooms?.[0]?.guests?.[0]
-    const rawFirst = firstRoomGuest?.name ?? revision.customer?.name ?? ''
-    const rawLast  = firstRoomGuest?.surname ?? revision.customer?.surname ?? ''
+    // bookings under a single customer account). CHECK-IN C2.2 — `roomIndex`
+    // permite targetear un room específico del array.
+    const targetRoomGuest = revision.rooms?.[roomIndex]?.guests?.[0]
+    const rawFirst = targetRoomGuest?.name ?? revision.customer?.name ?? ''
+    const rawLast  = targetRoomGuest?.surname ?? revision.customer?.surname ?? ''
     return {
       firstName: titleCase(rawFirst),
       lastName:  titleCase(rawLast),
     }
+  }
+
+  /**
+   * CHECK-IN C2.2 — per-room amount computation. Para multi-room bookings,
+   * cada stay tiene su propio totalAmount derivado del `rooms[roomIndex]`
+   * (sea `.amount` directo o suma de `.days`). Default 0 = single-room
+   * behaviour (single-room sigue usando `computeTotalAmount` global).
+   */
+  static computeTotalAmountForRoom(
+    revision: ChannexBookingRevision,
+    roomIndex: number = 0,
+  ): Prisma.Decimal {
+    // Single-room path (preserva comportamiento previo)
+    if ((revision.rooms?.length ?? 0) <= 1) {
+      return ChannexBookingMapper.computeTotalAmount(revision)
+    }
+    const room = revision.rooms?.[roomIndex]
+    if (!room) return new Prisma.Decimal(0)
+    if (typeof room.amount === 'string' && room.amount.length > 0) {
+      try {
+        return new Prisma.Decimal(room.amount)
+      } catch {
+        /* fall through */
+      }
+    }
+    let sum = new Prisma.Decimal(0)
+    if (room.days) {
+      for (const v of Object.values(room.days)) {
+        try {
+          sum = sum.plus(new Prisma.Decimal(v))
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    return sum
   }
 
   static composeNotes(revision: ChannexBookingRevision): string | null {

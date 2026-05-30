@@ -564,6 +564,7 @@ model Organization {
   propertySettings    PropertySettings[]
   roomTypes           RoomType[]
   guestStays          GuestStay[]
+  reservationGroups   ReservationGroup[]
   roomTypeChecklists  RoomTypeChecklist[]
   roomReadinessTasks  RoomReadinessTask[]
   stayJourneys        StayJourney[]
@@ -859,6 +860,8 @@ model Property {
   channexChannelPauses    ChannexChannelPause[]
   // ── Sprint CHANNEX-AUTO-PROVISION (Day 2) — OTA channel connections ──────
   channels                Channel[]
+  // ── Sprint CHECK-IN C2 (2026-05-29) — OTA multi-room groups ──────────────
+  reservationGroups       ReservationGroup[]
 
   @@index([organizationId])
   @@index([legalEntityId])
@@ -1646,6 +1649,16 @@ model GuestStay {
   channexGuaranteeMeta Json?     @map("channex_guarantee_meta")
   // ──────────────────────────────────────────────────────────────────────
 
+  // ── Reservation Group (Sprint CHECK-IN C2, 2026-05-29) ───────────────────
+  // Cuando una reserva OTA viene con `rooms.length > 1` (familia, grupo
+  // corporativo, hostal multi-cama), creamos UN ReservationGroup que agrega
+  // las N GuestStays. groupRoomIndex (1-based) indica posición de esta stay
+  // dentro del grupo para UI ("Hab X/Y"). reservationGroupId nullable
+  // porque la mayoría de stays son singles. §153-§158 CLAUDE.md.
+  reservationGroupId String?           @map("reservation_group_id")
+  groupRoomIndex     Int?              @map("group_room_index")
+  reservationGroup   ReservationGroup? @relation(fields: [reservationGroupId], references: [id], onDelete: SetNull)
+
   organization       Organization        @relation(fields: [organizationId], references: [id])
   room               Room                @relation(fields: [roomId], references: [id])
   stayJourney        StayJourney?
@@ -1663,7 +1676,74 @@ model GuestStay {
   @@index([noShowAt])
   @@index([cancelledAt])
   @@index([channexConflict])
+  @@index([reservationGroupId])
   @@map("guest_stays")
+}
+
+// ====== Reservation Group (Sprint CHECK-IN C2, 2026-05-29) ===================
+//
+// Entidad de primera clase para reservas OTA multi-room. Diferenciador único
+// LATAM: ningún PMS competidor (Mews, Cloudbeds, Opera, Little Hotelier,
+// RoomRaccoon, Sirvoy) cubre simultáneamente auto-detección + bracket
+// visual calendar + check-in 3-modos hostal per-bed + cancel parcial como
+// MODIFY a Channex.
+//
+// Decisiones §153-§158 CLAUDE.md:
+//  · channexBookingId @unique — idempotency natural (1 group por reserva OTA)
+//  · primaryGuestName/Email/Phone — datos del titular común a todas las rooms
+//  · groupSize = total personas; roomCount = total habitaciones
+//  · groupCheckIn/Out = rango agregado (min/max de las stays)
+//  · cancelledAt = cuando TODAS las stays están canceladas (cascade desde
+//    la última stay activa que se cancela)
+//  · masterFolioId reservado para v1.0.1 PAY-CORE (folio agregado por grupo)
+//
+// Backward compat: reservationGroupId es NULLABLE en GuestStay. Stays single
+// existentes NO se tocan. Solo nuevas reservas OTA con rooms > 1 crean group.
+model ReservationGroup {
+  id                String       @id @default(uuid())
+  organizationId    String       @map("organization_id")
+  propertyId        String       @map("property_id")
+
+  // Channex OTA reference. UNIQUE garantiza idempotency (webhook replay no
+  // crea group duplicado). Null si el grupo nace de un flow manual futuro.
+  channexBookingId  String?      @unique @map("channex_booking_id")
+  channexOtaName    String?      @map("channex_ota_name")
+
+  // Datos del titular (común para todas las rooms del grupo). Vienen de
+  // revision.customer en Channex inbound.
+  primaryGuestName  String       @map("primary_guest_name")
+  primaryGuestEmail String?      @map("primary_guest_email")
+  primaryGuestPhone String?      @map("primary_guest_phone")
+
+  // Tamaño del grupo
+  groupSize         Int          @map("group_size")  // total personas (sum occupancy)
+  roomCount         Int          @map("room_count")  // total habitaciones
+
+  // Fechas del journey grupal (rango agregado)
+  groupCheckIn      DateTime     @map("group_check_in")
+  groupCheckOut     DateTime     @map("group_check_out")
+
+  // Cancel state — cascade desde stays. cancelledAt != null cuando TODAS
+  // las stays del grupo están canceladas.
+  cancelledAt       DateTime?    @map("cancelled_at")
+
+  // Hook v1.0.1 PAY-CORE — master folio agregado del grupo. Permite que el
+  // titular pague una sola cuenta consolidada en lugar de N folios separados.
+  // masterFolioId  String?      @map("master_folio_id")
+
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @updatedAt @map("updated_at")
+
+  // Relations
+  organization      Organization @relation(fields: [organizationId], references: [id])
+  property          Property     @relation(fields: [propertyId], references: [id])
+  stays             GuestStay[]
+
+  @@index([organizationId])
+  @@index([organizationId, propertyId])
+  @@index([channexBookingId])
+  @@index([cancelledAt])
+  @@map("reservation_groups")
 }
 
 // ===================== CHANNEX INBOUND (Sprint CHANNEX-INBOUND) =====================
