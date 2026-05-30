@@ -831,6 +831,10 @@ export type SseEventType =
   | 'channex:stay:cancelled'            // booking_cancel aplicado (Day 4)
   | 'channex:stay:conflict'             // overlap detectado, requiere review humano (D-CHX5)
   | 'channex:drift-detected'            // pull reconciliation encontró revision no procesada (Day 6)
+  // Sprint CHECK-IN C2.2 (2026-05-29) — multi-room ReservationGroup §153-§158
+  | 'channex:group:created'             // booking_new multi-room → ReservationGroup + N stays creadas
+  | 'channex:group:modified'            // booking_modify multi-room → safe-fields aplicadas a stays del grupo
+  | 'channex:group:cancelled'           // booking_cancel multi-room → cascade cancelado a todas las stays
 
 // ─── Offline Sync (Mobile) ────────────────────────────────────────────────────
 

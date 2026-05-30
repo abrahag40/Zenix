@@ -59,6 +59,19 @@ export class BookingModifyHandler {
   ) {}
 
   async handle(revision: ChannexBookingRevision): Promise<BookingModifyResult> {
+    // Sprint CHECK-IN C2.2 (2026-05-29) — multi-room lookup §153-§154.
+    // En grupos, channexBookingId vive en ReservationGroup. Cuando OTA emite
+    // un modify del booking_id, aplicamos los cambios safe-field a TODAS las
+    // stays del grupo (notes/guest contact). Cambios de fecha/room/precio en
+    // multi-room generan AppNotif manual review (mismo guard que single).
+    const existingGroup = await this.prisma.reservationGroup.findUnique({
+      where: { channexBookingId: revision.booking_id },
+      select: { id: true, stays: { select: { id: true } } },
+    })
+    if (existingGroup) {
+      return this.handleGroupModify(existingGroup, revision)
+    }
+
     const existing = await this.prisma.guestStay.findUnique({
       where: { channexBookingId: revision.booking_id },
       select: {
@@ -260,6 +273,92 @@ export class BookingModifyHandler {
       `[Channex modify] updated stay=${existing.id} datesChanged=${dateChanged} pmsCollected=${pmsHasCollected}`,
     )
     return { kind: 'updated', stayId: existing.id, restrictedToSafeFields: false }
+  }
+
+  /**
+   * Sprint CHECK-IN C2.2 (2026-05-29) — group modify §154.
+   * Aplicamos safe-fields (notes, guest info, OTA metadata) a CADA stay del
+   * grupo, usando el `roomIndex` correspondiente del array Channex. Cambios
+   * de fecha/room/pricing en multi-room son non-trivial (cada room puede
+   * cambiar independientemente) y se difieren a manual review para v1.0.0.
+   */
+  private async handleGroupModify(
+    group: { id: string; stays: Array<{ id: string }> },
+    revision: ChannexBookingRevision,
+  ): Promise<BookingModifyResult> {
+    const incomingTs = revision.inserted_at ? new Date(revision.inserted_at) : new Date()
+
+    // Pull cada stay con su groupRoomIndex para reaplicar mapper roomIndex.
+    const stays = await this.prisma.guestStay.findMany({
+      where: { reservationGroupId: group.id },
+      select: {
+        id: true,
+        organizationId: true,
+        propertyId: true,
+        roomId: true,
+        groupRoomIndex: true,
+        cancelledAt: true,
+        noShowAt: true,
+        actualCheckin: true,
+        actualCheckout: true,
+      },
+      orderBy: { groupRoomIndex: 'asc' },
+    })
+
+    // Property timezone — usar la primera stay activa (todas son misma property).
+    const firstStay = stays[0]
+    if (!firstStay) {
+      return { kind: 'not_found', bookingId: revision.booking_id }
+    }
+    const property = await this.prisma.property.findUnique({
+      where: { id: firstStay.propertyId },
+      select: { settings: { select: { timezone: true } } },
+    })
+    const timezone = property?.settings?.timezone ?? 'America/Cancun'
+
+    let updatedCount = 0
+    for (const stay of stays) {
+      if (stay.cancelledAt || stay.noShowAt || stay.actualCheckout) continue
+      // roomIndex = groupRoomIndex - 1 (groupRoomIndex es 1-based)
+      const roomIndex = Math.max(0, (stay.groupRoomIndex ?? 1) - 1)
+      const desired = ChannexBookingMapper.toGuestStayCreate({
+        revision,
+        propertyId: stay.propertyId,
+        organizationId: stay.organizationId,
+        propertyTimezone: timezone,
+        roomId: stay.roomId,
+        channexConflict: false,
+        roomIndex,
+        omitChannexBookingId: true, // mantener null en stays de grupo
+      })
+
+      await this.prisma.guestStay.update({
+        where: { id: stay.id },
+        data: {
+          guestName: desired.guestName,
+          guestEmail: desired.guestEmail,
+          guestPhone: desired.guestPhone,
+          nationality: desired.nationality,
+          notes: desired.notes,
+          channexLastSyncAt: incomingTs,
+          channexOtaName: desired.channexOtaName,
+        },
+      })
+      updatedCount++
+    }
+
+    this.notifications.emit(firstStay.propertyId, 'channex:group:modified', {
+      groupId: group.id,
+      bookingId: revision.booking_id,
+      otaName: revision.ota_name ?? null,
+      updatedCount,
+    })
+
+    this.logger.log(
+      `[Channex modify] group=${group.id} safe-fields updated stays=${updatedCount} ` +
+        `booking=${revision.booking_id}`,
+    )
+    return { kind: 'updated', stayId: firstStay.id, restrictedToSafeFields: true }
   }
 
   private async emitTerminal(

@@ -137,6 +137,105 @@ export class ChannexNotifService {
     )
   }
 
+  /**
+   * Sprint CHECK-IN C2.2 (2026-05-29) — GROUP_BOOKING_RECEIVED notif §158.
+   * Priority adaptativa según conflicts:
+   *  - HIGH (ACTION_REQUIRED) si al menos una stay del grupo quedó con
+   *    `channexConflict=true` (recepción debe asignar manualmente).
+   *  - MEDIUM (informativa) si todo el grupo auto-asignó OK.
+   *
+   * Body localizado es-MX. CTA "/reservation-groups/:id" (route futura
+   * C3; hoy puede caer a /channex/conflicts).
+   */
+  async raiseGroupBookingReceived(args: {
+    organizationId: string
+    propertyId: string
+    groupId: string
+    bookingId: string | null
+    otaName: string | null
+    primaryGuestName: string
+    groupSize: number
+    roomCount: number
+    groupCheckIn: Date
+    hasConflicts: boolean
+  }): Promise<{ notificationId: string }> {
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7d
+
+    const ota = args.otaName ?? 'OTA'
+    const title = args.hasConflicts
+      ? `Grupo de ${args.roomCount} habs requiere asignación — ${ota}`
+      : `Grupo de ${args.roomCount} habs recibido — ${ota}`
+
+    // Fecha es-MX corta DD/MM
+    const dd = String(args.groupCheckIn.getUTCDate()).padStart(2, '0')
+    const mm = String(args.groupCheckIn.getUTCMonth() + 1).padStart(2, '0')
+    const body =
+      `Grupo de ${args.roomCount} habitaciones — ${args.primaryGuestName} ` +
+      `(${args.groupSize} personas) · Llega ${dd}/${mm} · ${ota}` +
+      (args.hasConflicts ? ' · Requiere asignación manual.' : '')
+
+    const notif = await this.prisma.appNotification.create({
+      data: {
+        organizationId: args.organizationId,
+        propertyId: args.propertyId,
+        type: args.hasConflicts ? 'ACTION_REQUIRED' : 'INFORMATIONAL',
+        category: 'SYSTEM',
+        priority: args.hasConflicts ? 'HIGH' : 'MEDIUM',
+        title,
+        body,
+        metadata: {
+          channexGroupBooking: true,
+          groupId: args.groupId,
+          bookingId: args.bookingId,
+          otaName: args.otaName,
+          roomCount: args.roomCount,
+          groupSize: args.groupSize,
+          hasConflicts: args.hasConflicts,
+        } as Prisma.InputJsonValue,
+        actionUrl: `/reservation-groups/${args.groupId}`,
+        recipientType: 'ROLE',
+        recipientRole: 'SUPERVISOR',
+        triggeredById: null,
+        expiresAt,
+      },
+      select: { id: true },
+    })
+
+    this.sse.emit(args.propertyId, 'notification:new', {
+      id: notif.id,
+      type: args.hasConflicts ? 'ACTION_REQUIRED' : 'INFORMATIONAL',
+      category: 'SYSTEM',
+      priority: args.hasConflicts ? 'HIGH' : 'MEDIUM',
+      title,
+      body,
+      metadata: {
+        channexGroupBooking: true,
+        groupId: args.groupId,
+        bookingId: args.bookingId,
+      },
+      actionUrl: `/reservation-groups/${args.groupId}`,
+      createdAt: new Date(),
+    })
+
+    void this.firePushToSupervisors(
+      args.organizationId,
+      args.propertyId,
+      title,
+      body,
+      { groupId: args.groupId, notificationId: notif.id },
+    ).catch((err) =>
+      this.logger.warn(
+        `[Channex notif] group push failed: ${err instanceof Error ? err.message : String(err)}`,
+      ),
+    )
+
+    this.logger.log(
+      `[Channex notif] GROUP_BOOKING_RECEIVED notif=${notif.id} group=${args.groupId} ` +
+        `rooms=${args.roomCount} conflicts=${args.hasConflicts}`,
+    )
+    return { notificationId: notif.id }
+  }
+
   static bodyForReason(reason: string, otaName: string | null): string {
     const ota = otaName ?? 'el OTA'
     switch (reason) {

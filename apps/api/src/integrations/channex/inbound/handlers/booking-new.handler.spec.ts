@@ -59,6 +59,9 @@ function makePrismaMock() {
   const txStaySegmentCreate = jest.fn().mockResolvedValue({ id: 'segment-1' })
 
   return {
+    // CHECK-IN C2.2 — multi-room idempotency lookup. Single-room tests
+    // simulan "no group" con findUnique → null por default.
+    reservationGroup: { findUnique: jest.fn().mockResolvedValue(null) },
     guestStay: {
       findUnique: jest.fn(),
       // Para los conflict paths que NO usan $transaction (persistConflict),
@@ -287,48 +290,10 @@ describe('BookingNewHandler', () => {
     expect(availability.check).toHaveBeenCalledTimes(2)
   })
 
-  it('audit C1: revision con rooms.length > 1 → conflict MULTI_ROOM_BOOKING (NO silently truncate)', async () => {
-    prisma.guestStay.findUnique.mockResolvedValue(null)
-    prisma.property.findUnique.mockResolvedValue({
-      id: 'prop-1',
-      organizationId: 'org-1',
-      settings: { timezone: 'America/Cancun' },
-    })
-    prisma.room.findFirst.mockResolvedValue({ id: 'room-placeholder' })
-    prisma.guestStay.create.mockResolvedValue({ id: 'stay-multi' })
-
-    const multiRoomRevision = makeRevision({
-      rooms: [
-        {
-          amount: '450.00',
-          checkin_date: '2026-06-01',
-          checkout_date: '2026-06-04',
-          rate_plan_id: 'rate-bar',
-          room_type_id: 'rt-standard',
-          occupancy: { adults: 2, children: 0, infants: 0 },
-        },
-        {
-          amount: '300.00',
-          checkin_date: '2026-06-01',
-          checkout_date: '2026-06-04',
-          rate_plan_id: 'rate-bar',
-          room_type_id: 'rt-standard',
-          occupancy: { adults: 1, children: 0, infants: 0 },
-        },
-      ],
-    })
-
-    const result = await handler.handle(multiRoomRevision)
-
-    expect(result.kind).toBe('conflict')
-    expect((result as { reason: string }).reason).toBe('MULTI_ROOM_BOOKING')
-    // NO availability check happened (we short-circuit before that step)
-    expect(availability.check).not.toHaveBeenCalled()
-    // Conflict notification emitted
-    expect(channexNotif.raiseConflict).toHaveBeenCalledWith(
-      expect.objectContaining({ reason: 'MULTI_ROOM_BOOKING' }),
-    )
-  })
+  // CHECK-IN C2.2 (2026-05-29) — multi-room ahora crea ReservationGroup.
+  // El path MULTI_ROOM_BOOKING conflict del audit C1 fue reemplazado por
+  // auto-detección §153-§158. Tests dedicados en
+  // `booking-new.handler.multi-room.spec.ts`.
 
   it('audit C3: property con organizationId null → throw (no silent empty-string)', async () => {
     prisma.guestStay.findUnique.mockResolvedValue(null)
