@@ -45,6 +45,11 @@ interface Props {
   placeholder?: string
   hasError?: boolean
   disabled?: boolean
+  /** CHECK-IN C1.17 (2026-05-29) — disparado cuando el FOCUS abandona
+   *  el componente (input numérico + dropdown país). Implementado vía
+   *  `relatedTarget` outside-check para soportar focus en el popover del
+   *  país sin disparar onBlur falso. */
+  onBlur?: () => void
 }
 
 /** Obtiene dial code para un código ISO. Wrapper try/catch porque la lib
@@ -87,7 +92,7 @@ function parseE164(value: string, fallbackCountry: RpniCountry): { country: Coun
 }
 
 export function PhoneFieldWithCountry({
-  value, onChange, defaultCountry = 'MX', placeholder = '999 000 0000', hasError, disabled,
+  value, onChange, defaultCountry = 'MX', placeholder = '999 000 0000', hasError, disabled, onBlur,
 }: Props) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -187,8 +192,24 @@ export function PhoneFieldWithCountry({
 
   const totalCount = filtered.common.length + filtered.rest.length
 
+  // CHECK-IN C1.17 (2026-05-29) — onBlur del contenedor con outside-check.
+  // Disparamos onBlur SOLO cuando el focus va a un elemento fuera del
+  // wrapper (no entre input numérico → popover país, ej.). Esto evita
+  // false-positives durante navegación interna del componente.
+  const handleContainerBlur = (e: React.FocusEvent<HTMLDivElement>) => {
+    if (!onBlur) return
+    const next = e.relatedTarget as Node | null
+    if (!next || !e.currentTarget.contains(next)) {
+      // Si el popover del país está abierto, NO disparamos blur —
+      // el focus está dentro del Portal Radix (outside del wrapper DOM).
+      if (open) return
+      onBlur()
+    }
+  }
+
   return (
     <div
+      onBlur={handleContainerBlur}
       className={cn(
         'flex h-9 w-full rounded-md border bg-white overflow-hidden',
         'focus-within:ring-2 focus-within:ring-emerald-300 focus-within:border-emerald-400',

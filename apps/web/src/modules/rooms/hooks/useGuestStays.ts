@@ -195,20 +195,29 @@ export function useCreateGuestStay(propertyId: string) {
       console.error('[CheckIn] mutation error:', error)
     },
 
-    onSuccess: () => {
-      qc.invalidateQueries({
-        predicate: (q) =>
-          q.queryKey[0] === 'guest-stays' && q.queryKey[1] === propertyId,
-      })
-      qc.invalidateQueries({
-        queryKey: ['stay-journeys-timeline', propertyId],
-        exact: false,
-        refetchType: 'active',
-      })
-      qc.invalidateQueries({
-        predicate: (q) =>
-          q.queryKey[0] === 'rooms' && q.queryKey[1] === propertyId,
-      })
+    onSuccess: async () => {
+      // CHECK-IN C1.12 hotfix 2026-05-29 — usar refetchQueries con await en
+      // vez de invalidateQueries silencioso. Bug reportado: tras crear una
+      // reserva, abrir el sheet del bloque mostraba campos vacíos (phone/
+      // email/nationality). Causa: invalidateQueries marca stale pero no
+      // garantiza que el refetch complete antes que el user abra el sheet.
+      // El sheet usa `stays.find(s => s.id === sheetStayId)` → mientras la
+      // refetch no completa, encuentra la optimistic (temp-XXX) o nada.
+      await Promise.all([
+        qc.refetchQueries({
+          predicate: (q) =>
+            q.queryKey[0] === 'guest-stays' && q.queryKey[1] === propertyId,
+        }),
+        qc.invalidateQueries({
+          queryKey: ['stay-journeys-timeline', propertyId],
+          exact: false,
+          refetchType: 'active',
+        }),
+        qc.invalidateQueries({
+          predicate: (q) =>
+            q.queryKey[0] === 'rooms' && q.queryKey[1] === propertyId,
+        }),
+      ])
     },
   })
 }
@@ -804,12 +813,17 @@ export function useUpdateGuestStay(propertyId: string) {
       stayId: string
       patch: Parameters<typeof guestStaysApi.updateStay>[1]
     }) => guestStaysApi.updateStay(stayId, patch),
-    onSuccess: (result, vars) => {
+    onSuccess: async (result, vars) => {
       // Si server short-circuiteó (sin cambios reales), evitamos toast ruidoso.
       if (!result.changed) return
-      qc.invalidateQueries({ queryKey: ['guest-stays', propertyId], exact: false, refetchType: 'active' })
-      qc.invalidateQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false, refetchType: 'active' })
-      qc.invalidateQueries({ queryKey: ['checkin-context', vars.stayId], refetchType: 'active' })
+      // CHECK-IN C1.12 hotfix: usar refetchQueries para el checkin-context para
+      // garantizar que la UI muestra el cambio (e.g. foto del documento) ANTES
+      // de que el dialog se cierre. invalidateQueries no awaitea la refetch.
+      await Promise.all([
+        qc.refetchQueries({ queryKey: ['checkin-context', vars.stayId] }),
+        qc.invalidateQueries({ queryKey: ['guest-stays', propertyId], exact: false, refetchType: 'active' }),
+        qc.invalidateQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false, refetchType: 'active' }),
+      ])
       toast.success('Reserva actualizada')
     },
     onError: (err: Error) => {

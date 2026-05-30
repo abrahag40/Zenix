@@ -16,6 +16,7 @@ import {
 } from '../../integrations/channex/outbound/channex-outbound-events'
 import { TenantContextService } from '../../common/tenant-context.service'
 import { EmailService } from '../../common/email/email.service'
+import { titleCase } from '../../common/utils/title-case.util'
 import { CreateGuestStayDto } from './dto/create-guest-stay.dto'
 import { MoveRoomDto } from './dto/move-room.dto'
 import type { AvailabilityConflict, RoomAvailabilityResult } from '@zenix/shared'
@@ -235,7 +236,12 @@ export class GuestStaysService {
     )
     const total = dto.ratePerNight * nights
 
-    const guestName = `${dto.firstName} ${dto.lastName}`
+    // CHECK-IN C1.12 (2026-05-29) — title-case en source para consistencia BI.
+    // Recepción a veces tipea "aa aaa" o "JOSE PEREZ" — normalizamos antes
+    // de tocar BD. Mismo helper aplicado en OTA inbound (BookingNewHandler).
+    const firstName = titleCase(dto.firstName)
+    const lastName  = titleCase(dto.lastName)
+    const guestName = `${firstName} ${lastName}`.trim()
 
     const stay = await this.prisma.$transaction(async (tx) => {
       const propCode = room.property.propCode ?? '000'
@@ -254,6 +260,8 @@ export class GuestStaysService {
           roomId: dto.roomId,
           bookingRef,
           guestName,
+          guestFirstName: firstName || null,
+          guestLastName:  lastName || null,
           guestEmail: dto.guestEmail,
           guestPhone: dto.guestPhone,
           nationality: dto.nationality,
@@ -334,7 +342,7 @@ export class GuestStaysService {
       this.email
         .sendCheckinConfirmation({
           guestEmail: dto.guestEmail,
-          guestName: `${dto.firstName} ${dto.lastName}`,
+          guestName,
           propertyName: room.property.name,
           roomNumber: room.number,
           checkIn,
@@ -2008,6 +2016,10 @@ export class GuestStaysService {
         id:                 stay.id,
         bookingRef:         stay.bookingRef,
         guestName:          stay.guestName,
+        // CHECK-IN C1.12 (2026-05-29) — split BI nombre/apellido expuesto al UI.
+        // Si null (stays muy viejos sin backfill), UI deriva del guestName.
+        guestFirstName:     stay.guestFirstName,
+        guestLastName:      stay.guestLastName,
         guestEmail:         stay.guestEmail,
         guestPhone:         stay.guestPhone,
         documentType:       stay.documentType,
@@ -2327,6 +2339,18 @@ export class GuestStaysService {
           // Preserva valores existentes si dto vino vacío.
           nationality:            dto.nationality      ?? stay.nationality,
           guestSex:               dto.guestSex         ?? stay.guestSex,
+          // CHECK-IN C1.11 (2026-05-29) — recepción corrige tel/email
+          // si OTA pre-llenó con datos truncados/erróneos.
+          guestPhone:             dto.guestPhone       ?? stay.guestPhone,
+          guestEmail:             dto.guestEmail       ?? stay.guestEmail,
+          // CHECK-IN C1.12 (2026-05-29) — split BI nombre/apellido con
+          // title-case obligatorio (consistencia: "aa" → "Aa", "JOSE" → "Jose").
+          // Si se provee, sync guestName = "firstName lastName" para back-compat.
+          guestFirstName:         dto.guestFirstName  ? titleCase(dto.guestFirstName) : stay.guestFirstName,
+          guestLastName:          dto.guestLastName   ? titleCase(dto.guestLastName)  : stay.guestLastName,
+          guestName:              dto.guestFirstName || dto.guestLastName
+                                    ? `${titleCase(dto.guestFirstName ?? stay.guestFirstName ?? '')} ${titleCase(dto.guestLastName ?? stay.guestLastName ?? '')}`.trim() || stay.guestName
+                                    : stay.guestName,
           keyType:                dto.keyType          ?? null,
         },
       })

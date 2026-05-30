@@ -205,6 +205,37 @@
   .bell-pulse-ring { animation: none; }
 }
 
+/* ── Shake animation para validación requerida (CHECK-IN C1.18, 2026-05-29)
+   ───────────────────────────────────────────────────────────────────────
+   Estandar Zenix: cuando el user intenta confirmar con campos requeridos
+   vacíos, el campo vibra (shake) + se pone red border. Material Design 3
+   "input field validation" pattern + Apple HIG destructive confirmation.
+
+   Justificación timing:
+   · 360ms total — Apple HIG 2024 micro-interaction guideline (300-400ms
+     sweet spot: notable sin ser intrusivo)
+   · Curva ease-out-sine — desaceleración natural tipo "regreso al equilibrio"
+   · Translateexs ±4px = umbral pre-attentive Treisman 1980 (≥3px detectable
+     <200ms sin distraer)
+   · Solo translate, no rotation/scale — no compite con focus ring
+   · Re-disparable vía key prop o animationiteration counter (caller pattern)
+*/
+@keyframes shake-x {
+  0%   { transform: translateX(0); }
+  15%  { transform: translateX(-4px); }
+  30%  { transform: translateX(4px); }
+  45%  { transform: translateX(-3px); }
+  60%  { transform: translateX(3px); }
+  75%  { transform: translateX(-1.5px); }
+  100% { transform: translateX(0); }
+}
+.shake-x {
+  animation: shake-x 360ms cubic-bezier(0.39, 0.575, 0.565, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .shake-x { animation: none; }
+}
+
 /* ── shadcn/ui CSS variables (neutral / radix-nova) ───────────────────────── */
 @layer base {
   /* Channel-only values so Tailwind's <alpha-value> interpolation works:

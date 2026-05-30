@@ -46,6 +46,10 @@ export interface CheckinContext {
     id: string
     bookingRef: string | null
     guestName: string
+    /** Sprint CHECK-IN C1.12 — split BI nombre/apellido. Null en stays legacy
+     *  pre-backfill; UI deriva fallback de guestName.split. */
+    guestFirstName: string | null
+    guestLastName:  string | null
     guestEmail: string | null
     guestPhone: string | null
     documentType: string | null
