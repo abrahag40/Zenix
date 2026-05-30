@@ -151,21 +151,27 @@ interface CheckInDialogProps {
   initialRoomId?: string
   roomNumber?: string
   initialCheckIn?: Date
+  /** CHECK-IN C2.3 (2026-05-29) — Walk-in fast-path. Cuando true, pre-marca
+   *  el checkbox "Hacer check-in ahora" + auto-fills checkIn=hoy, checkOut=
+   *  mañana (si initialCheckIn no proveído). Botón Walk-in del TimelineTopBar
+   *  setea este flag. */
+  initialCheckInNow?: boolean
   onConfirm: (data: NewStayData) => void
   propertyId?: string
 }
 
 // ── COMPONENTE ────────────────────────────────────────────────
 export function CheckInDialog({
-  open, onClose, initialRoomId, roomNumber, initialCheckIn, onConfirm, propertyId
+  open, onClose, initialRoomId, roomNumber, initialCheckIn, initialCheckInNow, onConfirm, propertyId
 }: CheckInDialogProps) {
   // Advisory soft-lock: acquired while this dialog is open, released on close.
   // Other receptionists viewing the same calendar see a 🔒 badge on this room.
   useSoftLock(open && initialRoomId ? initialRoomId : null, propertyId ?? null)
   const [step, setStep] = useState(1)
   const [showCancelAlert, setShowCancelAlert] = useState(false)
-  // CHECK-IN C1.5 walk-in fast-path inline (2026-05-29)
-  const [checkInNow, setCheckInNow] = useState(false)
+  // CHECK-IN C1.5 walk-in fast-path inline (2026-05-29).
+  // CHECK-IN C2.3 — initial value desde el botón Walk-in del TopBar.
+  const [checkInNow, setCheckInNow] = useState(initialCheckInNow ?? false)
 
   // ── AVAILABILITY STATE ──
   // 'idle'      — no check run yet (dates not set or just reset)

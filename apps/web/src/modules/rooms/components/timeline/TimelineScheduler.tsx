@@ -439,7 +439,11 @@ export function TimelineScheduler() {
 
   // ─── Dialogs ────────────────────────────────────────────────
   const [checkInDialog, setCheckInDialog] = useState<{
-    open: boolean; roomId?: string; roomNumber?: string; checkIn?: Date
+    open: boolean; roomId?: string; roomNumber?: string; checkIn?: Date;
+    /** CHECK-IN C2.3 — fast-path walk-in: cuando true, el dialog pre-marca
+     *  checkInNow + defaultea fechas hoy/mañana. Activado por el botón
+     *  Walk-in del TimelineTopBar. */
+    walkIn?: boolean
   }>({ open: false })
 
   const [checkOutDialog, setCheckOutDialog] = useState<{
@@ -829,6 +833,7 @@ export function TimelineScheduler() {
     <div className="flex flex-col h-screen bg-white">
       <TimelineTopBar
         onNewReservation={() => setCheckInDialog({ open: true })}
+        onWalkIn={() => setCheckInDialog({ open: true, walkIn: true })}
       />
       <TimelineSubBar
         onNavigate={handleNavigate}
@@ -1203,10 +1208,15 @@ export function TimelineScheduler() {
       />
 
       <CheckInDialog
+        // CHECK-IN C2.3 (2026-05-29) — key fuerza remount cuando cambia
+        // de modo (walk-in vs nueva reserva). Sin key, el state interno
+        // (paso, checkInNow inicial, defaults) sobrevive entre aperturas.
+        key={`checkin-${checkInDialog.walkIn ? 'walkin' : 'new'}-${checkInDialog.open ? 'open' : 'closed'}`}
         open={checkInDialog.open}
         initialRoomId={checkInDialog.roomId}
         roomNumber={checkInDialog.roomNumber}
         initialCheckIn={checkInDialog.checkIn}
+        initialCheckInNow={checkInDialog.walkIn ?? false}
         propertyId={PROPERTY_ID}
         onClose={() => setCheckInDialog({ open: false })}
         onConfirm={async (data: NewStayData) => {
