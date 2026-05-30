@@ -298,6 +298,10 @@ export interface GuestStayDto {
   propertyId: string
   roomId: string
   guestName: string
+  /** Sprint CHECK-IN C1.12 — split BI nombre/apellido (null en stays legacy
+   *  pre-backfill; UI deriva fallback de guestName.split). */
+  guestFirstName: string | null
+  guestLastName:  string | null
   guestEmail: string | null
   guestPhone: string | null
   nationality: string | null
@@ -407,6 +411,16 @@ export interface ConfirmCheckinInput {
    */
   nationality?: string
   guestSex?: string
+  /**
+   * Sprint CHECK-IN C1.11 (2026-05-29) — recepción corrige tel/email
+   * si OTA pre-llenó truncado/erróneo. Persiste GuestStay.guestPhone/Email.
+   */
+  guestPhone?: string
+  guestEmail?: string
+  /** Sprint CHECK-IN C1.12 (2026-05-29) — BI split. Si vienen, service
+   *  sync guestName = "first last" para back-compat con reportes legacy. */
+  guestFirstName?: string
+  guestLastName?:  string
   keyType?: KeyDeliveryType
   payments: PaymentEntryInput[]
   managerApprovalCode?: string

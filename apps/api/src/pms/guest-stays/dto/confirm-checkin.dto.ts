@@ -66,6 +66,34 @@ export class ConfirmCheckinDto {
   @IsOptional()
   guestSex?: string
 
+  /**
+   * Sprint CHECK-IN C1.11 (2026-05-29) — recepción puede corregir
+   * teléfono/email durante check-in (típico: OTA pre-llenó con datos
+   * truncados o ilegibles, huésped los da correctos al confirmar).
+   * Backend persiste en `GuestStay.guestPhone/guestEmail`.
+   */
+  @IsString()
+  @IsOptional()
+  guestPhone?: string
+
+  @IsString()
+  @IsOptional()
+  guestEmail?: string
+
+  /**
+   * Sprint CHECK-IN C1.12 (2026-05-29) — split nombre/apellido para BI.
+   * Recepción captura ambos al confirmar check-in viendo documento físico.
+   * guestName se mantiene para backward compat (concat firstName+lastName
+   * actualizado en service post-write).
+   */
+  @IsString()
+  @IsOptional()
+  guestFirstName?: string
+
+  @IsString()
+  @IsOptional()
+  guestLastName?: string
+
   @IsEnum(KeyDeliveryType)
   @IsOptional()
   keyType?: KeyDeliveryType

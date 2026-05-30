@@ -1473,6 +1473,12 @@ model GuestStay {
   propertyId            String              @map("property_id")
   roomId                String              @map("room_id")
   guestName             String              @map("guest_name")
+  // Sprint CHECK-IN C1.12 (2026-05-29) — split BI: nombre/apellido separados.
+  // Capturados al confirmar check-in (recepción ve documento físico). Si null,
+  // guestName se usa como fallback en reportes (backward compat con stays
+  // viejos pre-split). UI deriva default de guestName.split(' ',2) al editar.
+  guestFirstName        String?             @map("guest_first_name")
+  guestLastName         String?             @map("guest_last_name")
   guestEmail            String?             @map("guest_email")
   guestPhone            String?             @map("guest_phone")
   documentType          String?             @map("document_type")

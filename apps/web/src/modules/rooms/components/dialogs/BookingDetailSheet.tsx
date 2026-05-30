@@ -1941,39 +1941,57 @@ export function BookingDetailSheet({
                       )}
 
                       {/* Lista de campos — display o input según editMode. */}
-                      {[
+                      {(() => {
+                        // CHECK-IN C1.12 hotfix 2026-05-29 — fallback a
+                        // stayContext.data.stay para los datos del huésped.
+                        // Bug: el `stay` prop viene del array `useGuestStays`
+                        // (queryKey `guest-stays`) que puede ser stale si
+                        // el create-reservation invalidate no completó refetch
+                        // a tiempo. stayContext usa queryKey distinto
+                        // (`checkin-context`) y SIEMPRE refetcha al abrir el
+                        // sheet — es la fuente más fresca. Aplica a fields
+                        // editables por el bulk-edit (guestName/Email/Phone/
+                        // nationality/documentType/documentNumber).
+                        const ctxStay = stayContext.data?.stay
+                        const guestName      = ctxStay?.guestName ?? stay.guestName
+                        const guestPhone     = ctxStay?.guestPhone ?? stay.guestPhone
+                        const guestEmail     = ctxStay?.guestEmail ?? stay.guestEmail
+                        const nationality    = ctxStay?.nationality ?? stay.nationality
+                        const documentType   = ctxStay?.documentType ?? stay.documentType
+                        const documentNumber = ctxStay?.documentNumber ?? stay.documentNumber
+                        return [
                         {
                           icon: User, label: 'Nombre', field: 'guestName' as const,
-                          value: stay.guestName, type: 'text',
+                          value: guestName, type: 'text',
                           placeholder: 'Nombre completo del huésped',
                         },
                         {
                           icon: Phone, label: 'WhatsApp', field: 'guestPhone' as const,
-                          value: stay.guestPhone, type: 'tel',
+                          value: guestPhone, type: 'tel',
                           placeholder: '+52 123 456 7890',
                         },
                         {
                           icon: MapPin, label: 'Nacionalidad', field: 'nationality' as const,
-                          value: stay.nationality, type: 'text',
+                          value: nationality, type: 'text',
                           placeholder: 'MX, US, FR…',
                         },
                         {
                           icon: FileText, label: 'Documento', field: 'documentNumber' as const,
-                          value: stay.documentNumber, type: 'text',
+                          value: documentNumber, type: 'text',
                           placeholder: 'Pasaporte / INE / Cédula',
-                          displayValue: stay.documentNumber
-                            ? (stay.documentType
-                                ? `${stay.documentType.toUpperCase()} · ${stay.documentNumber}`
-                                : stay.documentNumber)
+                          displayValue: documentNumber
+                            ? (documentType
+                                ? `${documentType.toUpperCase()} · ${documentNumber}`
+                                : documentNumber)
                             : null,
                           fiscalLocked: isPostCheckout,
                         },
                         {
                           icon: Mail, label: 'Email', field: 'guestEmail' as const,
-                          value: stay.guestEmail, type: 'email',
+                          value: guestEmail, type: 'email',
                           placeholder: 'huesped@ejemplo.com',
                         },
-                      ].map(({ icon: Icon, label, field, value, type, placeholder, displayValue, fiscalLocked }) => {
+                      ]})().map(({ icon: Icon, label, field, value, type, placeholder, displayValue, fiscalLocked }) => {
                         const isEditingThis = guestEditMode && !fiscalLocked
                         const error = guestErrors[field]
                         return (

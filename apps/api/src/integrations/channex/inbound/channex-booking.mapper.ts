@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client'
 import { ChannexBookingRevision } from '../channex.gateway'
+import { titleCase } from '../../../common/utils/title-case.util'
 
 /**
  * ChannexBookingMapper — pure function that turns a Channex booking revision
@@ -63,7 +64,13 @@ export class ChannexBookingMapper {
     const occupancy = revision.occupancy ?? { adults: 1, children: 0, infants: 0 }
     const paxCount = Math.max(1, occupancy.adults + occupancy.children)
 
-    const guestName = ChannexBookingMapper.composeGuestName(revision)
+    // CHECK-IN C1.12 (2026-05-29) — split BI nombre/apellido + title-case
+    // obligatorio. Resuelve consistencia BD: algunas OTAs envían "JUAN PEREZ"
+    // todo mayúsculas, otras "juan perez" todo minúsculas. Normalizamos al
+    // mismo formato que el create manual del recepcionista.
+    const { firstName: guestFirstName, lastName: guestLastName } =
+      ChannexBookingMapper.composeGuestFirstLast(revision)
+    const guestName = `${guestFirstName} ${guestLastName}`.trim() || 'Huésped sin nombre'
     const guestEmail = revision.customer?.mail ?? null
     const guestPhone = revision.customer?.phone ?? null
     const nationality = revision.customer?.country ?? null
@@ -88,6 +95,8 @@ export class ChannexBookingMapper {
       // este mapper requiere roomId ya resuelto (or null + skip create).
       roomId: roomId as string, // caller already validated non-null OR uses UNASSIGNED branch
       guestName,
+      guestFirstName: guestFirstName || null,
+      guestLastName:  guestLastName || null,
       guestEmail,
       guestPhone,
       nationality,
@@ -183,17 +192,28 @@ export class ChannexBookingMapper {
   }
 
   static composeGuestName(revision: ChannexBookingRevision): string {
+    const { firstName, lastName } = ChannexBookingMapper.composeGuestFirstLast(revision)
+    const composed = `${firstName} ${lastName}`.trim()
+    if (composed.length > 0) return composed
+    if (revision.ota_reservation_code) return `Huésped ${revision.ota_reservation_code}`
+    return 'Huésped sin nombre'
+  }
+
+  /**
+   * Sprint CHECK-IN C1.12 (2026-05-29) — split BI nombre/apellido + title-case.
+   * Backward compat: composeGuestName sigue funcional para callers existentes;
+   * delegates a este método.
+   */
+  static composeGuestFirstLast(revision: ChannexBookingRevision): { firstName: string; lastName: string } {
     // Prefer the room-level guest when present (more specific for multi-room
     // bookings under a single customer account).
     const firstRoomGuest = revision.rooms?.[0]?.guests?.[0]
-    const name = firstRoomGuest?.name ?? revision.customer?.name ?? ''
-    const surname = firstRoomGuest?.surname ?? revision.customer?.surname ?? ''
-    const composed = `${name} ${surname}`.trim()
-    if (composed.length > 0) return composed
-    // Last resort: OTA reservation code (cert reviewers expect a non-empty name).
-    // Cert audit D2: español es-MX para piloto LATAM.
-    if (revision.ota_reservation_code) return `Huésped ${revision.ota_reservation_code}`
-    return 'Huésped sin nombre'
+    const rawFirst = firstRoomGuest?.name ?? revision.customer?.name ?? ''
+    const rawLast  = firstRoomGuest?.surname ?? revision.customer?.surname ?? ''
+    return {
+      firstName: titleCase(rawFirst),
+      lastName:  titleCase(rawLast),
+    }
   }
 
   static composeNotes(revision: ChannexBookingRevision): string | null {

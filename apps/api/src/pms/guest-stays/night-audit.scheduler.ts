@@ -124,8 +124,14 @@ export class NightAuditScheduler {
       }
 
       // Ya se procesó hoy en esta timezone → saltar
+      // BUG FIX 2026-05-29: comparar UTC date directo en vez de convertir con
+      // toLocalDate(tz). Postgres `date` column se lee como midnight UTC del
+      // día N. Convertir con tz UTC-X (Cancún UTC-5) da el día N-1 → off-by-one
+      // → guard NUNCA matcheaba → cron procesaba misma propiedad cada 30min,
+      // marcando como no-show TODAS las reservas pendientes (incluso recién
+      // creadas durante el día). Comparamos UTC ISO date string directo.
       const lastProcessed = settings.noShowProcessedDate
-        ? toLocalDate(settings.noShowProcessedDate, tz)
+        ? settings.noShowProcessedDate.toISOString().slice(0, 10)
         : null
       if (lastProcessed === localDate) {
         skipped++
@@ -147,9 +153,13 @@ export class NightAuditScheduler {
           organizationId:    orgId ?? undefined,
           propertyId:        settings.propertyId,
           deletedAt:         null,
+          actualCheckin:     null, // BUG FIX 2026-05-29: sin esto, stays que YA
+                                   // hicieron check-in se marcaban como no-show
+                                   // (caso real: actualCheckin=17:11, noShowAt=17:30).
           actualCheckout:    null,
           noShowAt:          null,
           noShowRevertedAt:  null, // exclude stays that were manually reverted — don't re-mark
+          cancelledAt:       null, // no procesar canceladas
           checkinAt: { gte: dayStart, lte: dayEnd },
         },
         select: {
