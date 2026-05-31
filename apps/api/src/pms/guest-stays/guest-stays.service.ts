@@ -7,6 +7,7 @@ import {
   ConflictException,
 } from '@nestjs/common'
 import { EventEmitter2 } from '@nestjs/event-emitter'
+import { randomUUID } from 'crypto'
 import { PrismaService } from '../../prisma/prisma.service'
 import {
   CHANNEX_AVAILABILITY_CHANGED,
@@ -2616,7 +2617,8 @@ export class GuestStaysService {
     const stay = await this.prisma.guestStay.findUnique({
       where: { id: stayId, organizationId: orgId },
       select: {
-        id: true, propertyId: true, currency: true, amountPaid: true, totalAmount: true, noShowAt: true,
+        id: true, propertyId: true, currency: true, amountPaid: true, totalAmount: true,
+        noShowAt: true, reservationGroupId: true,
         room: { select: { property: { select: { settings: { select: { timezone: true } } } } } },
       },
     })
@@ -2629,16 +2631,36 @@ export class GuestStaysService {
     ) {
       throw new BadRequestException(`El método ${dto.method} requiere número de referencia`)
     }
-    if (
-      (dto.method === PaymentMethod.COMP || dto.amount === 0) &&
-      (!dto.approvedById?.trim() || !dto.approvalReason?.trim())
-    ) {
-      throw new ForbiddenException('Pagos COMP o $0 requieren aprobación del manager')
-    }
+    // GROUP-PAYMENTS Fase A — aprobación de manager para COMP/$0 REMOVIDA
+    // (coherente con §C1.13 + §120-bis del check-in: recepción conoce los
+    // códigos de cortesía, el control anti-fraude vive en el arqueo del turno
+    // CashierShift §85). El motivo, si aplica, va en las notas de la reserva.
 
     const now = new Date()
     const tz = stay.room?.property?.settings?.timezone ?? 'UTC'
     const shiftDate = shiftDateForTimezone(now, tz)
+
+    // ── Group payment path (D-GRP-A1/A4) ─────────────────────────────────────
+    // Si appliesToStayIds tiene >1 entrada (o una distinta a la stay en
+    // contexto), el pago se distribuye entre varias habitaciones del grupo.
+    const targetIds = dto.appliesToStayIds?.length ? dto.appliesToStayIds : [stayId]
+    const isGroupPayment = targetIds.length > 1 || (targetIds.length === 1 && targetIds[0] !== stayId)
+
+    if (isGroupPayment) {
+      return this.registerGroupPayment({
+        payerStayId: stayId,
+        payerGroupId: stay.reservationGroupId,
+        targetIds,
+        dto,
+        orgId,
+        propertyId: stay.propertyId,
+        currency: stay.currency,
+        shiftDate,
+        actorId,
+      })
+    }
+
+    // ── Single payment path ──────────────────────────────────────────────────
     const newAmountPaid = Number(stay.amountPaid) + dto.amount
     const totalAmount   = Number(stay.totalAmount)
 
@@ -2654,6 +2676,9 @@ export class GuestStaysService {
           reference:      dto.reference ?? null,
           approvedById:   dto.approvedById ?? null,
           approvalReason: dto.approvalReason ?? null,
+          // paidByStayId: pago de la propia stay salvo que un pagador de grupo
+          // se declare explícitamente (caso "Juan paga SOLO la hab de María").
+          paidByStayId:   dto.paidByStayId && dto.paidByStayId !== stayId ? dto.paidByStayId : null,
           shiftDate,
           collectedById:  actorId,
         },
@@ -2669,6 +2694,158 @@ export class GuestStaysService {
 
     this.logger.log(`[RegisterPayment] stay=${stayId} method=${dto.method} amount=${dto.amount}`)
     return log
+  }
+
+  /**
+   * GROUP-PAYMENTS Fase A (D-GRP-A1/A4) — distribuye UN cobro entre varias
+   * habitaciones del mismo grupo. El monto se reparte proporcionalmente al
+   * balance de cada stay; se crea un PaymentLog por stay (mismo
+   * transactionGroupId + paidByStayId = el pagador). Arqueo correcto (el
+   * dinero entró por el pagador) + balance correcto (cada habitación se salda).
+   */
+  private async registerGroupPayment(args: {
+    payerStayId: string
+    payerGroupId: string | null
+    targetIds: string[]
+    dto: RegisterPaymentDto
+    orgId: string
+    propertyId: string
+    currency: string
+    shiftDate: Date
+    actorId: string
+  }) {
+    const { payerStayId, payerGroupId, targetIds, dto, orgId, propertyId, currency, shiftDate, actorId } = args
+
+    if (!payerGroupId) {
+      throw new BadRequestException('La habitación pagadora no pertenece a un grupo')
+    }
+
+    // Cargar las stays destino — deben ser del MISMO grupo, misma org, activas.
+    const targets = await this.prisma.guestStay.findMany({
+      where: { id: { in: targetIds }, organizationId: orgId },
+      select: {
+        id: true, amountPaid: true, totalAmount: true,
+        noShowAt: true, cancelledAt: true, reservationGroupId: true,
+      },
+    })
+    if (targets.length !== targetIds.length) {
+      throw new NotFoundException('Una o más habitaciones del grupo no existen')
+    }
+    for (const t of targets) {
+      if (t.reservationGroupId !== payerGroupId) {
+        throw new BadRequestException('Todas las habitaciones deben pertenecer al mismo grupo')
+      }
+      if (t.noShowAt || t.cancelledAt) {
+        throw new BadRequestException('No se puede cobrar a una habitación cancelada o no-show')
+      }
+    }
+
+    // Balance pendiente por stay; solo se distribuye entre las que deben.
+    const withBalance = targets
+      .map((t) => ({ id: t.id, paid: Number(t.amountPaid), total: Number(t.totalAmount), balance: Math.max(0, Number(t.totalAmount) - Number(t.amountPaid)) }))
+      .filter((t) => t.balance > 0.001)
+    const totalBalance = withBalance.reduce((s, t) => s + t.balance, 0)
+    if (totalBalance <= 0.001) {
+      throw new BadRequestException('El grupo no tiene saldo pendiente')
+    }
+
+    // Distribución proporcional al balance; el remanente por redondeo se asigna
+    // a la última stay para que la suma cuadre exactamente con dto.amount.
+    const round2 = (n: number) => Math.round(n * 100) / 100
+    let allocated = 0
+    const transactionGroupId = randomUUID()
+    const shares = withBalance.map((t, i) => {
+      const isLast = i === withBalance.length - 1
+      const share = isLast ? round2(dto.amount - allocated) : round2(dto.amount * (t.balance / totalBalance))
+      allocated += share
+      return { ...t, share }
+    })
+
+    const logs = await this.prisma.$transaction(async (tx) => {
+      const created: Array<Awaited<ReturnType<typeof tx.paymentLog.create>>> = []
+      for (const s of shares) {
+        if (s.share <= 0) continue
+        const log = await tx.paymentLog.create({
+          data: {
+            organizationId: orgId,
+            propertyId,
+            stayId:             s.id,
+            method:             dto.method as any,
+            amount:             s.share,
+            currency,
+            reference:          dto.reference ?? null,
+            paidByStayId:       payerStayId,
+            transactionGroupId,
+            shiftDate,
+            collectedById:      actorId,
+          },
+        })
+        const newPaid = s.paid + s.share
+        await tx.guestStay.update({
+          where: { id: s.id },
+          data: {
+            amountPaid:    newPaid,
+            paymentStatus: newPaid >= s.total ? 'PAID' : newPaid > 0 ? 'PARTIAL' : 'PENDING',
+          },
+        })
+        created.push(log)
+      }
+      return created
+    })
+
+    this.logger.log(`[RegisterPayment][group] payer=${payerStayId} stays=${shares.length} total=${dto.amount} txn=${transactionGroupId}`)
+    // Backward-compat: el frontend espera un PaymentLog. Devolvemos el del
+    // pagador si pagó lo suyo, si no el primero del lote.
+    return logs.find((l) => l.stayId === payerStayId) ?? logs[0]
+  }
+
+  /**
+   * GET /v1/guest-stays/:id/group-balances
+   * GROUP-PAYMENTS Fase A (D-GRP-A3) — desglose de balances por habitación del
+   * grupo al que pertenece `stayId`. Alimenta la sección Grupo del
+   * BookingDetailSheet ("Hab 101 · Juan · ✓ Pagado" / "Hab 102 · María · Debe $X")
+   * + el selector "¿quién paga?" del check-in (D-GRP-A4).
+   */
+  async getGroupBalances(stayId: string) {
+    const orgId = this.tenant.getOrganizationId()
+    const stay = await this.prisma.guestStay.findUnique({
+      where: { id: stayId, organizationId: orgId },
+      select: { reservationGroupId: true },
+    })
+    if (!stay) throw new NotFoundException('Estadía no encontrada')
+    if (!stay.reservationGroupId) {
+      return { groupId: null as string | null, currency: null as string | null, stays: [] }
+    }
+
+    const stays = await this.prisma.guestStay.findMany({
+      where: { reservationGroupId: stay.reservationGroupId, organizationId: orgId },
+      select: {
+        id: true, guestName: true, currency: true, amountPaid: true, totalAmount: true,
+        paymentStatus: true, actualCheckin: true, noShowAt: true, cancelledAt: true,
+        groupRoomIndex: true,
+        room: { select: { number: true } },
+      },
+      orderBy: { groupRoomIndex: 'asc' },
+    })
+
+    return {
+      groupId: stay.reservationGroupId,
+      currency: stays[0]?.currency ?? null,
+      stays: stays.map((s) => ({
+        stayId:        s.id,
+        roomNumber:    s.room?.number ?? null,
+        roomIndex:     s.groupRoomIndex ?? null,
+        guestName:     s.guestName,
+        totalAmount:   Number(s.totalAmount),
+        amountPaid:    Number(s.amountPaid),
+        balance:       Math.max(0, Number(s.totalAmount) - Number(s.amountPaid)),
+        paymentStatus: s.paymentStatus,
+        checkedIn:     !!s.actualCheckin,
+        cancelled:     !!s.cancelledAt,
+        noShow:        !!s.noShowAt,
+        isContext:     s.id === stayId,
+      })),
+    }
   }
 
   /**

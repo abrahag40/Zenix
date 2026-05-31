@@ -24,13 +24,14 @@
  * respeta decimales por currency (USD/MXN: 2; JPY/CLP/COP: 0).
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import {
   AlertTriangle, Camera, Check, ChevronDown, CreditCard, FileText,
   Globe, IdCard, Loader2, LogIn, Mail, MapPin, Pencil, Phone,
-  ShieldCheck, StickyNote, Upload, User as UserIcon, X,
+  ShieldCheck, StickyNote, Upload, User as UserIcon, Users, X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -41,6 +42,7 @@ import { StyledSelect } from '../shared/StyledSelect'
 import { StyledInput } from '../shared/StyledInput'
 import { PhoneFieldWithCountry } from '../shared/PhoneFieldWithCountry'
 import { PaymentEntryFields } from '../shared/PaymentFields'
+import { PaymentMethodGrid } from '../shared/PaymentMethodGrid'
 import { PaymentMethod } from '@zenix/shared'
 import {
   guestStaysApi,
@@ -139,6 +141,18 @@ export function ConfirmCheckinDialog({
 
   const ctx = ctxQuery.data
 
+  const qc = useQueryClient()
+
+  // GROUP-PAYMENTS Fase A (D-GRP-A4) — balances de las habitaciones del grupo,
+  // para ofrecer "¿Quién paga?" en el check-in. Solo si la stay es de grupo.
+  const groupQuery = useQuery({
+    queryKey: ['group-balances', resolvedStayId],
+    queryFn:  () => guestStaysApi.getGroupBalances(resolvedStayId),
+    enabled:  open && !!stay.reservationGroupId,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+  })
+
   // ── Form state ──────────────────────────────────────────────────────────
   const [documentType,    setDocumentType]   = useState('')
   const [docPhotoDataUrl, setDocPhotoDataUrl] = useState<string | null>(null)
@@ -153,6 +167,16 @@ export function ConfirmCheckinDialog({
   const [guestEmail,      setGuestEmail]     = useState('')
   const [guestFirstName,  setGuestFirstName] = useState('')
   const [guestLastName,   setGuestLastName]  = useState('')
+
+  // GROUP-PAYMENTS Fase A (D-GRP-A4) — "¿Quién paga?" en el check-in.
+  //   groupMode=false → solo esta habitación (camino normal).
+  //   groupMode=true  → cobro de grupo (esta + las seleccionadas), 1 pago
+  //   atribuido a esta stay; luego check-in con saldo ya en 0.
+  const [groupMode,        setGroupMode]        = useState(false)
+  const [groupSelectedIds, setGroupSelectedIds] = useState<string[]>([])
+  const [groupMethod,      setGroupMethod]      = useState<PaymentMethod>(PaymentMethod.CASH)
+  const [groupRef,         setGroupRef]         = useState('')
+  const [groupPaying,      setGroupPaying]      = useState(false)
 
   // CHECK-IN C1.9 F-refined (2026-05-29) — Section colapsable eliminado.
   // Identidad/Pago/Notas siempre visibles (sin clicks de expand).
@@ -226,6 +250,11 @@ export function ConfirmCheckinDialog({
     setEditingLastName(false)
     setAttemptedConfirm(false)
     setStep(1) // reset stepper al abrir
+    // GROUP-PAYMENTS Fase A — reset del modo grupo en cada apertura.
+    setGroupMode(false)
+    setGroupSelectedIds([])
+    setGroupMethod(PaymentMethod.CASH)
+    setGroupRef('')
     const needsPaymentCalc =
       ctx.paymentModel === 'HOTEL_COLLECT' && ctx.balanceProjection.balance > 0
     // Bug fix #2: pre-fill amount cuando hay balance pendiente.
@@ -254,6 +283,32 @@ export function ConfirmCheckinDialog({
   const isOtaCollect  = ctx?.paymentModel === 'OTA_COLLECT'
   const isAlreadyPaid = !isOtaCollect && balance <= 0
   const needsPayment  = !isOtaCollect && balance > 0
+
+  // GROUP-PAYMENTS Fase A (D-GRP-A4) — derivados del cobro de grupo.
+  const groupStays = groupQuery.data?.stays ?? []
+  // Otras habitaciones del grupo cobrables desde aquí (activas con saldo).
+  const groupOtherPayable = useMemo(
+    () => groupStays.filter((s) => !s.isContext && !s.cancelled && !s.noShow && s.balance > 0.01),
+    [groupStays],
+  )
+  // El selector "¿Quién paga?" solo aplica si esta hab necesita pago Y hay
+  // otras habitaciones del grupo con saldo pendiente.
+  const canGroupPay = needsPayment && groupOtherPayable.length > 0
+  // Stays incluidas en el cobro de grupo = esta (siempre) + las seleccionadas.
+  const groupSelected = useMemo(
+    () => groupStays.filter(
+      (s) => !s.cancelled && !s.noShow && s.balance > 0.01 &&
+        (s.isContext || groupSelectedIds.includes(s.stayId)),
+    ),
+    [groupStays, groupSelectedIds],
+  )
+  const groupTotal = useMemo(
+    () => groupSelected.reduce((sum, s) => sum + s.balance, 0),
+    [groupSelected],
+  )
+  const groupRefRequired =
+    groupMethod === PaymentMethod.CARD_TERMINAL || groupMethod === PaymentMethod.BANK_TRANSFER
+  const groupPaymentValid = !groupRefRequired || !!groupRef.trim()
 
   const paymentSum = useMemo(
     () => payments.reduce((s, p) => s + (p.amount || 0), 0),
@@ -299,10 +354,13 @@ export function ConfirmCheckinDialog({
   // deferida en handleConfirm: si invalido, marca attemptedConfirm + no submit.
   // Habilita la affordance click→error visual en vez de "porqué disabled?".
   const canConfirm = useMemo(
-    () => !!ctx && ctx.canCheckIn.ok && !isPending,
-    [ctx, isPending],
+    () => !!ctx && ctx.canCheckIn.ok && !isPending && !groupPaying,
+    [ctx, isPending, groupPaying],
   )
-  const isFullyValid = identityValid && paymentValid
+  // En modo grupo la validez de pago la da el bloque de grupo (método +
+  // referencia), no la validación per-stay.
+  const effectivePaymentValid = groupMode ? groupPaymentValid : paymentValid
+  const isFullyValid = identityValid && effectivePaymentValid
 
   // ── Dirty detection + dismiss ───────────────────────────────────────────
   const isDirty = useMemo(
@@ -349,7 +407,7 @@ export function ConfirmCheckinDialog({
   }, [])
 
   // ── Submit ──────────────────────────────────────────────────────────────
-  const handleConfirm = useCallback(() => {
+  const handleConfirm = useCallback(async () => {
     if (!canConfirm) return
     // CHECK-IN C1.14 — validación deferida: si hay campos faltantes,
     // flipear attemptedConfirm para revelar borders rojos y no submitear.
@@ -359,7 +417,8 @@ export function ConfirmCheckinDialog({
       setAttemptNonce((n) => n + 1) // retrigger shake en cada click inválido
       return
     }
-    onConfirm({
+
+    const identityPayload = {
       documentVerified: true,
       documentType:     documentType || undefined,
       documentPhotoUrl: docPhotoDataUrl ?? undefined,
@@ -370,12 +429,48 @@ export function ConfirmCheckinDialog({
       guestEmail:       guestEmail.trim() || undefined,
       guestFirstName:   guestFirstName.trim() || undefined,
       guestLastName:    guestLastName.trim() || undefined,
-      payments:         isOtaCollect || isAlreadyPaid ? [] : payments,
+    }
+
+    // GROUP-PAYMENTS Fase A (D-GRP-A4) — cobro de grupo (enfoque A, chain):
+    // 1) registerPayment cubre esta habitación + las seleccionadas (monto =
+    //    suma de balances, atribuido a esta stay). 2) check-in de esta hab con
+    //    saldo ya en 0. No atómico pero recuperable (si el check-in falla, los
+    //    pagos quedan registrados y el operador reintenta el check-in).
+    if (groupMode && canGroupPay) {
+      try {
+        setGroupPaying(true)
+        await guestStaysApi.registerPayment(resolvedStayId, {
+          method:           groupMethod,
+          amount:           groupTotal,
+          reference:        groupRef.trim() || undefined,
+          paidByStayId:     resolvedStayId,
+          appliesToStayIds: groupSelected.map((s) => s.stayId),
+        })
+        // Refrescar para que los siblings reflejen su nuevo saldo aunque el
+        // check-in encadenado fallara.
+        qc.invalidateQueries({ queryKey: ['guest-stays'], exact: false, refetchType: 'active' })
+        qc.invalidateQueries({ queryKey: ['group-balances'], exact: false })
+        qc.invalidateQueries({ queryKey: ['checkin-context'], exact: false })
+      } catch (e) {
+        setGroupPaying(false)
+        toast.error(e instanceof Error ? e.message : 'No se pudo registrar el pago del grupo')
+        return
+      }
+      setGroupPaying(false)
+      onConfirm({ ...identityPayload, payments: [] })
+      return
+    }
+
+    // Camino normal (solo esta habitación).
+    onConfirm({
+      ...identityPayload,
+      payments: isOtaCollect || isAlreadyPaid ? [] : payments,
     })
   }, [
     canConfirm, isFullyValid, onConfirm, documentType, docPhotoDataUrl, arrivalNotes,
     nationality, guestSex, guestPhone, guestEmail, guestFirstName, guestLastName,
     isOtaCollect, isAlreadyPaid, payments,
+    groupMode, canGroupPay, resolvedStayId, groupMethod, groupTotal, groupRef, groupSelected, qc,
   ])
 
   // ── Payment helpers ─────────────────────────────────────────────────────
@@ -938,6 +1033,106 @@ export function ConfirmCheckinDialog({
                       </h3>
                     </div>
 
+                    {/* GROUP-PAYMENTS Fase A (D-GRP-A4) — selector "¿Quién paga?".
+                        Solo aparece si hay otras habitaciones del grupo con saldo. */}
+                    {canGroupPay && (
+                      <div className="grid grid-cols-2 gap-1.5 rounded-lg bg-slate-100 p-1">
+                        <button
+                          type="button"
+                          onClick={() => setGroupMode(false)}
+                          className={cn(
+                            'h-8 rounded-md text-[12px] font-semibold transition-colors',
+                            !groupMode ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700',
+                          )}
+                        >
+                          Solo esta hab.
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setGroupSelectedIds(groupOtherPayable.map((s) => s.stayId)); setGroupMode(true) }}
+                          className={cn(
+                            'h-8 rounded-md text-[12px] font-semibold inline-flex items-center justify-center gap-1 transition-colors',
+                            groupMode ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500 hover:text-slate-700',
+                          )}
+                        >
+                          <Users className="h-3.5 w-3.5" /> Todo el grupo
+                        </button>
+                      </div>
+                    )}
+
+                    {groupMode ? (
+                      /* ── Bloque de cobro de grupo ── */
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-3 space-y-3">
+                        <p className="text-[11px] text-slate-600 leading-snug">
+                          Selecciona las habitaciones a cobrar. El total se carga en un solo pago
+                          atribuido a esta habitación; cada folio queda saldado.
+                        </p>
+                        {/* Checkboxes — esta hab siempre incluida (locked) */}
+                        <div className="rounded-lg border border-slate-200 bg-white divide-y divide-slate-100">
+                          {groupStays
+                            .filter((s) => !s.cancelled && !s.noShow && s.balance > 0.01)
+                            .map((s) => {
+                              const checked = s.isContext || groupSelectedIds.includes(s.stayId)
+                              return (
+                                <label
+                                  key={s.stayId}
+                                  className={cn(
+                                    'flex items-center gap-2.5 px-3 py-2 text-xs',
+                                    s.isContext ? 'bg-emerald-50/60' : 'cursor-pointer hover:bg-slate-50',
+                                  )}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    disabled={s.isContext}
+                                    onChange={(e) => setGroupSelectedIds((prev) =>
+                                      e.target.checked
+                                        ? [...prev, s.stayId]
+                                        : prev.filter((id) => id !== s.stayId),
+                                    )}
+                                    className="h-3.5 w-3.5 accent-emerald-600 shrink-0"
+                                  />
+                                  <span className="font-bold tabular-nums text-slate-900 shrink-0">
+                                    Hab. {s.roomNumber ?? '—'}
+                                  </span>
+                                  <span className="truncate flex-1 text-slate-700">{s.guestName}</span>
+                                  {s.isContext && (
+                                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 rounded px-1.5 py-0.5 shrink-0">
+                                      ESTA
+                                    </span>
+                                  )}
+                                  <span className="font-semibold tabular-nums text-slate-700 shrink-0">
+                                    {formatMoney(s.balance, propertyCurrency)}
+                                  </span>
+                                </label>
+                              )
+                            })}
+                        </div>
+                        {/* Método de pago del grupo */}
+                        <PaymentMethodGrid
+                          value={groupMethod}
+                          onChange={(m) => { setGroupMethod(m); setGroupRef('') }}
+                        />
+                        {/* Referencia condicional (tarjeta / transferencia) */}
+                        {groupRefRequired && (
+                          <StyledInput
+                            type="text"
+                            value={groupRef}
+                            onChange={(e) => setGroupRef(e.target.value)}
+                            placeholder={groupMethod === PaymentMethod.CARD_TERMINAL ? 'Aprobación POS (ej. 123456)' : 'Folio SPEI 000123…'}
+                            hasError={attemptedConfirm && !groupRef.trim()}
+                            shakeNonce={attemptNonce}
+                            aria-invalid={attemptedConfirm && !groupRef.trim()}
+                          />
+                        )}
+                        {/* Total a cobrar (fijo = suma de seleccionadas) */}
+                        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 flex items-center justify-between text-xs text-emerald-800">
+                          <span className="font-semibold">Total a cobrar · {groupSelected.length} hab.</span>
+                          <span className="font-bold tabular-nums">{formatMoney(groupTotal, propertyCurrency)}</span>
+                        </div>
+                      </div>
+                    ) : (
+                    <>
                     {payments.map((p, idx) => (
                       <PaymentMethodCard
                         key={idx}
@@ -989,6 +1184,8 @@ export function ConfirmCheckinDialog({
                         </span>
                         <span className="font-bold tabular-nums">$0.00</span>
                       </div>
+                    )}
+                    </>
                     )}
                   </div>
 
@@ -1072,9 +1269,9 @@ export function ConfirmCheckinDialog({
               cancelLabel="← Atrás"
               onCancel={() => setStep(1)}
               onConfirm={handleConfirm}
-              confirmLabel="Confirmar check-in"
+              confirmLabel={groupMode ? 'Cobrar grupo y check-in' : 'Confirmar check-in'}
               confirmIcon={LogIn}
-              isPending={isPending}
+              isPending={isPending || groupPaying}
               confirmDisabled={!canConfirm}
               widthMode="auto"
             />

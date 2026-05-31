@@ -1664,7 +1664,10 @@ model GuestStay {
   stayJourney        StayJourney?
   staySegments       StaySegment[]
   contactLogs        GuestContactLog[]
-  paymentLogs        PaymentLog[]
+  paymentLogs        PaymentLog[]      @relation("StayPayments")
+  // GROUP-PAYMENTS Fase A — pagos que ESTA stay entregó por OTRAS habitaciones
+  // del grupo (Juan paga la habitación de María). Inverso de PaymentLog.paidByStay.
+  paymentsPaidFor    PaymentLog[]      @relation("StayPaidByPayments")
   guestStayLogs      GuestStayLog[]
   noteThread         GuestStayNote[]
   channexWebhookLogs ChannexWebhookLog[]
@@ -2534,9 +2537,18 @@ model PaymentLog {
   voidsLogId     String?       @unique @map("voids_log_id")
   shiftDate      DateTime      @map("shift_date") @db.Date
   collectedById  String        @map("collected_by_id")
+  // GROUP-PAYMENTS Fase A (D-GRP-A1) — cuando un huésped paga por OTRA habitación
+  // del mismo grupo, el PaymentLog se registra contra la stay PAGADA (reduce su
+  // balance) pero paidByStayId apunta a QUIÉN entregó el dinero. Arqueo correcto
+  // + balance correcto sin folio agregado. Null = pago de la propia stay.
+  paidByStayId       String?   @map("paid_by_stay_id")
+  // Agrupa los N PaymentLogs de un mismo cobro (titular paga varias habitaciones
+  // en una transacción). Comparten transactionGroupId para reconciliación.
+  transactionGroupId String?   @map("transaction_group_id")
   createdAt      DateTime      @default(now()) @map("created_at")
 
-  stay        GuestStay   @relation(fields: [stayId], references: [id])
+  stay        GuestStay   @relation("StayPayments", fields: [stayId], references: [id])
+  paidByStay  GuestStay?  @relation("StayPaidByPayments", fields: [paidByStayId], references: [id])
   collectedBy Staff       @relation("PaymentCollectedBy", fields: [collectedById], references: [id])
   approvedBy  Staff?      @relation("PaymentApprovedBy", fields: [approvedById], references: [id])
   voidedBy    Staff?      @relation("PaymentVoidedBy", fields: [voidedById], references: [id])
@@ -2544,6 +2556,8 @@ model PaymentLog {
   voidedByLog PaymentLog? @relation("VoidOf")
 
   @@index([stayId])
+  @@index([paidByStayId])
+  @@index([transactionGroupId])
   @@index([organizationId, propertyId, shiftDate])
   @@index([collectedById, shiftDate])
   @@map("payment_logs")
