@@ -85,6 +85,19 @@ export interface GuestStayBlock {
   channexConflict?: boolean
   channexLastSyncAt?: Date | null
   paymentModel?: 'HOTEL_COLLECT' | 'OTA_COLLECT' | 'HYBRID_DEPOSIT'
+  /**
+   * Sprint CHECK-IN C2 — ReservationGroup §153-§158.
+   * Cuando esta stay es parte de un grupo OTA multi-room (familia, corp,
+   * hostal multi-cama), groupRoomIndex (1-based) indica posición dentro
+   * del grupo + reservationGroupId el FK al group.
+   * C3.1 (2026-05-30) — UI badge "Hab X/Y" + hover-highlight de siblings.
+   */
+  reservationGroupId?: string | null
+  groupRoomIndex?: number | null
+  groupRoomCount?: number | null
+  /** CHECK-IN C3.1 v2 — group identity para tooltip + UI awareness. */
+  groupPrimaryName?: string | null
+  groupOtaName?: string | null
   guestEmail?: string
   guestPhone?: string
   documentType?: string

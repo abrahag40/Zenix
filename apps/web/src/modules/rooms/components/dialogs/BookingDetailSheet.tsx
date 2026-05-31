@@ -14,6 +14,7 @@ import {
   MapPin,
   Moon,
   Users,
+  ChevronRight,
   Phone,
   Mail,
   FileText,
@@ -51,7 +52,10 @@ import {
 
 import { getStayStatus } from '../../utils/timeline.utils'
 import { PaymentStatusBadge } from '../shared/PaymentStatusBadge'
-import { useLogContact, useEarlyCheckout, useUpdateGuestStay, useStayPayments, useVoidPayment, useRegisterPayment, useStayContext, useRegisterNoShowCharge } from '../../hooks/useGuestStays'
+import { useLogContact, useEarlyCheckout, useUpdateGuestStay, useStayPayments, useVoidPayment, useRegisterPayment, useStayContext, useRegisterNoShowCharge, useSwapStayRooms } from '../../hooks/useGuestStays'
+import { SwapRoomsConfirmDialog } from './SwapRoomsConfirmDialog'
+import { GroupSwapPickerDialog } from './GroupSwapPickerDialog'
+import { ArrowLeftRight, ArrowRight } from 'lucide-react'
 import { useStayUpdatedSSE } from '../../hooks/useStayUpdatedSSE'
 import { EarlyCheckoutDialog } from './EarlyCheckoutDialog'
 import { RegisterNoShowChargeDialog } from './RegisterNoShowChargeDialog'
@@ -90,6 +94,16 @@ interface BookingDetailSheetProps {
   onOpenMaintenanceTicket?: (ticketId: string) => void
   /** propertyId needed for soft-lock advisory (Sprint 7C). */
   propertyId?: string
+  /** CHECK-IN C3.1 v2 (2026-05-30) — siblings del mismo ReservationGroup
+   *  (excluye al stay actual). Permite renderizar sección "Grupo" con
+   *  navegación click-to-switch entre hermanos. Resuelve el caso off-screen:
+   *  un grupo puede tener habs en pisos distintos, el hover-highlight no
+   *  alcanza, pero el sheet expone los siblings con click-to-jump.
+   *  Pattern Cloudbeds/Mews/Opera "Group Members" tab. */
+  groupSiblings?: GuestStayBlock[]
+  /** Click handler para saltar a un sibling — TimelineScheduler debe
+   *  llamar openSheet(siblingId) + opcionalmente scrollToDate(siblingCheckIn). */
+  onOpenSibling?: (stayId: string) => void
 }
 
 /**
@@ -678,6 +692,8 @@ export function BookingDetailSheet({
   confirmMovePending = false,
   onOpenMaintenanceTicket,
   propertyId,
+  groupSiblings,
+  onOpenSibling,
 }: BookingDetailSheetProps) {
   /**
    * Advisory soft-lock while the panel is open.
@@ -714,6 +730,11 @@ export function BookingDetailSheet({
   // Sprint EDIT-RESERVATION — hook único para todas las ediciones inline.
   // Backend aplica matriz phase×campo + audit log. El frontend solo dispatcha.
   const updateMut    = useUpdateGuestStay(propertyId ?? '')
+  // CHECK-IN C3.1 v5 — swap habitaciones entre 2 stays activas (group).
+  // Flow 2-step: picker (lista siblings) → confirm (preview vertical).
+  const swapRoomsMut = useSwapStayRooms(propertyId ?? '')
+  const [swapPickerOpen, setSwapPickerOpen] = useState(false)
+  const [swapTarget, setSwapTarget] = useState<{ id: string; guestName: string; roomNumber?: string | null } | null>(null)
   const currentUser  = useAuthStore((s) => s.user)
   const currentUserId = currentUser?.id ?? currentUser?.email ?? ''
   const realStayId   = stay?.guestStayId ?? stay?.id ?? null
@@ -1223,6 +1244,11 @@ export function BookingDetailSheet({
           </div>
         )}
 
+        {/* CHECK-IN C3.1 v3 (2026-05-30) — Sección Grupo movida al tab
+            "Estadía" (user feedback). Pertenece al contexto de estadía,
+            no es chrome global del sheet. Inicializa local state para
+            swap dialog. */}
+
         {/* Tabs: list OUTSIDE the scroll area so it stays fixed while content scrolls.
             Controlled — necesitamos el active tab para condicionalmente ocultar
             el footer de acciones cuando estás en "Notas" (la barra de acciones
@@ -1262,6 +1288,8 @@ export function BookingDetailSheet({
                 Pattern: EditableSectionHeader sticky con Editar/Cancelar/Guardar. */}
             <TabsContent value="stay" className="mt-0 ">
               <div className="p-4 space-y-3">
+
+
                 <EditableSectionHeader
                   title="Estadía"
                   editMode={stayEditMode}
@@ -1424,6 +1452,173 @@ export function BookingDetailSheet({
                     )}
                   </div>
                 </div>
+
+                {/* CHECK-IN C3.1 v7 (2026-05-30) — Sección Grupo al FINAL de
+                    Estadía (después de Habitación + Huéspedes, user feedback).
+
+                    Lista UNIFICADA ordenada por groupRoomIndex: el huésped
+                    actual del sheet se marca con chip ACTUAL en su POSICIÓN
+                    natural (no se reordena al top). Click en otra fila navega
+                    al detalle de ese huésped → el chip ACTUAL se mueve a su
+                    fila sin saltar de posición (estabilidad espacial, NN/g
+                    Spatial Consistency — evita que el operador pierda el
+                    contexto visual al navegar).
+
+                    Pattern WhatsApp group members / iOS Contact list: orden
+                    estable, highlight del seleccionado en su lugar. */}
+                {stay.reservationGroupId && groupSiblings && groupSiblings.length > 0 && (() => {
+                  // Lista unificada: current + siblings, ordenada por índice.
+                  const allMembers = [stay, ...groupSiblings].sort(
+                    (a, b) => (a.groupRoomIndex ?? 99) - (b.groupRoomIndex ?? 99),
+                  )
+                  const totalRooms = allMembers.length
+                  const swappableSiblingsCount = groupSiblings.filter(
+                    (s) => !s.cancelledAt && !s.noShowAt && !s.actualCheckout,
+                  ).length
+                  const canSwap =
+                    !stay.cancelledAt && !stay.noShowAt && !stay.actualCheckout && swappableSiblingsCount > 0
+                  const currentId = realStayId ?? stay.id
+                  return (
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 space-y-3">
+                      {/* Header — C3.1 v8 R3: titular PRIMERO (lo que identifica),
+                          conteo como sub-info (no redundante con la lista). */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Users className="h-4 w-4 text-slate-600 shrink-0" />
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-slate-800 leading-tight truncate">
+                              {stay.groupPrimaryName ?? 'Grupo'}
+                            </p>
+                            <p className="text-[10px] font-medium text-slate-500 uppercase tracking-[0.06em] mt-0.5">
+                              Grupo · {totalRooms} habitaciones
+                            </p>
+                          </div>
+                        </div>
+                        {stay.groupOtaName && (
+                          <span className="text-[10px] font-medium text-slate-500 capitalize shrink-0 pt-0.5">
+                            {stay.groupOtaName}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Lista unificada — orden estable por índice, scroll si >8 */}
+                      <div className={cn(
+                        'rounded-lg border border-slate-200 bg-white overflow-hidden',
+                        totalRooms > 8 && 'max-h-[280px] overflow-y-auto',
+                      )}>
+                        {allMembers.map((member) => {
+                          const isCurrent = (member.guestStayId ?? member.id) === currentId || member.id === currentId
+                          const blocked = !!(member.cancelledAt || member.noShowAt || member.actualCheckout)
+                          const inner = (
+                            <>
+                              {isCurrent ? (
+                                <Check className="h-3.5 w-3.5 text-emerald-600 shrink-0" strokeWidth={3} />
+                              ) : (
+                                <span className="w-3.5 shrink-0" aria-hidden />
+                              )}
+                              <span className={cn(
+                                'text-[12px] font-bold shrink-0 tabular-nums',
+                                blocked && !isCurrent ? 'text-slate-500' : 'text-slate-900',
+                              )}>
+                                Hab. {member.roomNumber ?? '—'}
+                              </span>
+                              <span className={cn(
+                                'text-[12px] truncate flex-1',
+                                blocked && !isCurrent ? 'text-slate-500' : 'text-slate-700',
+                              )}>
+                                {member.guestName}
+                              </span>
+                              {isCurrent && (
+                                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 rounded px-1.5 py-0.5 shrink-0">
+                                  ACTUAL
+                                </span>
+                              )}
+                              {!isCurrent && member.cancelledAt && (
+                                <span className="text-[10px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded px-1.5 py-0.5 shrink-0">
+                                  Cancelada
+                                </span>
+                              )}
+                              {!isCurrent && member.noShowAt && !member.cancelledAt && (
+                                <span className="text-[10px] font-semibold text-orange-700 bg-orange-50 border border-orange-200 rounded px-1.5 py-0.5 shrink-0">
+                                  No-show
+                                </span>
+                              )}
+                              {!isCurrent && member.actualCheckout && !member.cancelledAt && !member.noShowAt && (
+                                <span className="text-[10px] font-semibold text-slate-600 bg-slate-200 rounded px-1.5 py-0.5 shrink-0">
+                                  Salió
+                                </span>
+                              )}
+                              {/* C3.1 v8 R2 — estado check-in por miembro
+                                  (solo activos no-bloqueados). Dot + label corto.
+                                  Verde=llegó / ámbar=por llegar. Consistente con
+                                  §31 color psychology Zenix. Surface status donde
+                                  el operador decide swaps (Apple HIG). */}
+                              {!isCurrent && !blocked && (
+                                <span className={cn(
+                                  'inline-flex items-center gap-1 text-[10px] font-semibold shrink-0',
+                                  member.actualCheckin ? 'text-emerald-700' : 'text-amber-700',
+                                )}>
+                                  <span className={cn(
+                                    'w-1.5 h-1.5 rounded-full',
+                                    member.actualCheckin ? 'bg-emerald-500' : 'bg-amber-500',
+                                  )} />
+                                  {member.actualCheckin ? 'Llegó' : 'Por llegar'}
+                                </span>
+                              )}
+                              {!isCurrent && !blocked && (
+                                <ChevronRight className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                              )}
+                            </>
+                          )
+                          // Current row + blocked rows → no clickeables.
+                          if (isCurrent || blocked) {
+                            return (
+                              <div
+                                key={member.id}
+                                className={cn(
+                                  'flex items-center gap-2.5 px-3 py-2 border-b last:border-b-0 border-slate-100 text-xs',
+                                  isCurrent ? 'bg-emerald-50/70' : 'bg-slate-50/60',
+                                )}
+                              >
+                                {inner}
+                              </div>
+                            )
+                          }
+                          // Sibling activa → clickeable, navega a su detalle.
+                          return (
+                            <button
+                              key={member.id}
+                              type="button"
+                              onClick={() => onOpenSibling?.(member.id)}
+                              title={`Ver detalle de ${member.guestName}`}
+                              className="w-full flex items-center gap-2.5 px-3 py-2 border-b last:border-b-0 border-slate-100 text-xs text-left cursor-pointer hover:bg-emerald-50/60 transition-colors focus-visible:outline-none focus-visible:bg-emerald-50"
+                            >
+                              {inner}
+                            </button>
+                          )
+                        })}
+                      </div>
+
+                      {/* CTA — single button "Cambiar habitación" */}
+                      {canSwap && (
+                        <button
+                          type="button"
+                          onClick={() => setSwapPickerOpen(true)}
+                          className={cn(
+                            'w-full inline-flex items-center justify-center gap-1.5',
+                            'h-9 rounded-md bg-emerald-600 hover:bg-emerald-700',
+                            'text-[13px] font-semibold text-white',
+                            'transition-colors active:scale-[0.98]',
+                            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300',
+                          )}
+                        >
+                          <ArrowLeftRight className="h-3.5 w-3.5" strokeWidth={2.5} />
+                          Intercambiar habitación
+                        </button>
+                      )}
+                    </div>
+                  )
+                })()}
 
                 {/* IDs adicionales — bookingRef + ID interno ya viven en el header.
                     Aquí mostramos solo IDs externos (OTA, PMS legacy distinto) cuando aplican.
@@ -2210,8 +2405,12 @@ export function BookingDetailSheet({
                 className="flex-1 text-xs"
                 onClick={() => onMoveRoom(stay.id)}
               >
-                <ArrowRightLeft className="h-3.5 w-3.5 mr-1.5" />
-                Mover hab.
+                {/* CHECK-IN C3.1 v8 — ícono ArrowRight (unidireccional) +
+                    "Mover a otra hab." para diferenciar del "Intercambiar"
+                    del grupo (bidireccional ⇄). Mover = 1 persona a hab libre;
+                    Intercambiar = 2 personas cambian de lugar. */}
+                <ArrowRight className="h-3.5 w-3.5 mr-1.5" />
+                Mover a otra hab.
               </Button>
             )}
 
@@ -2445,6 +2644,48 @@ export function BookingDetailSheet({
         } catch {
           // toast.error ya emitido por el hook
         }
+      }}
+    />
+
+    {/* CHECK-IN C3.1 v5 — GroupSwapPickerDialog: picker reusable que escala
+        a grupos de cualquier tamaño. WhatsApp Forward / iOS Contact Picker
+        pattern. Single primary action en sheet → picker → confirm. */}
+    <GroupSwapPickerDialog
+      open={swapPickerOpen}
+      onClose={() => setSwapPickerOpen(false)}
+      currentStay={stay && realStayId ? {
+        id: realStayId,
+        guestName: stay.guestName,
+        roomNumber: stay.roomNumber,
+      } : null}
+      siblings={groupSiblings ?? []}
+      onPick={(sibling) => {
+        setSwapPickerOpen(false)
+        setSwapTarget(sibling)
+      }}
+    />
+
+    {/* CHECK-IN C3.1 v5 — SwapRoomsConfirmDialog (atomic swap confirm).
+        Coherente con design system: Radix Dialog wrapper canónico +
+        DialogActions footer + stripe + icon header. */}
+    <SwapRoomsConfirmDialog
+      open={!!swapTarget}
+      onClose={() => setSwapTarget(null)}
+      currentStay={stay && realStayId ? {
+        id: realStayId,
+        guestName: stay.guestName,
+        roomNumber: stay.roomNumber,
+      } : null}
+      targetStay={swapTarget}
+      isPending={swapRoomsMut.isPending}
+      onConfirm={(reason) => {
+        if (!realStayId || !swapTarget) return
+        swapRoomsMut.mutate(
+          { stayIdA: realStayId, stayIdB: swapTarget.id, reason },
+          {
+            onSuccess: () => setSwapTarget(null),
+          },
+        )
       }}
     />
     </>
