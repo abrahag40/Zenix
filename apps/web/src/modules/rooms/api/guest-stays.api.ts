@@ -94,6 +94,27 @@ export interface CheckinContext {
   }>
 }
 
+/** GROUP-PAYMENTS Fase A — desglose de balance por habitación del grupo. */
+export interface GroupBalanceEntry {
+  stayId: string
+  roomNumber: string | null
+  roomIndex: number | null
+  guestName: string
+  totalAmount: number
+  amountPaid: number
+  balance: number
+  paymentStatus: string
+  checkedIn: boolean
+  cancelled: boolean
+  noShow: boolean
+  isContext: boolean
+}
+export interface GroupBalances {
+  groupId: string | null
+  currency: string | null
+  stays: GroupBalanceEntry[]
+}
+
 const BASE = '/v1/guest-stays'
 
 export const guestStaysApi = {
@@ -215,6 +236,10 @@ export const guestStaysApi = {
   getCheckinContext: (stayId: string) =>
     api.get<CheckinContext>(`${BASE}/${stayId}/checkin-context`),
 
+  /** GROUP-PAYMENTS Fase A (D-GRP-A3/A4) — balances por habitación del grupo. */
+  getGroupBalances: (stayId: string) =>
+    api.get<GroupBalances>(`${BASE}/${stayId}/group-balances`),
+
   // ─── Sprint EDIT-RESERVATION ─────────────────────────────────────────────
 
   /**
@@ -275,6 +300,10 @@ export const guestStaysApi = {
     reference?: string
     approvedById?: string
     approvalReason?: string
+    /** GROUP-PAYMENTS Fase A — pagador (otra stay del grupo). */
+    paidByStayId?: string
+    /** GROUP-PAYMENTS Fase A — stays del grupo que este pago liquida. */
+    appliesToStayIds?: string[]
   }) => api.post<PaymentLogDto>(`${BASE}/${stayId}/payments`, payload),
 
   // ── Cancel-Archive (Sprint 2026-05-16) ───────────────────────────────────

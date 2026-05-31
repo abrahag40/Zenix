@@ -248,6 +248,17 @@ export class GuestStaysController {
   }
 
   /**
+   * GET /v1/guest-stays/:id/group-balances
+   * GROUP-PAYMENTS Fase A (D-GRP-A3) — desglose de balances por habitación del
+   * grupo. Alimenta la sección Grupo del BookingDetailSheet + selector
+   * "¿quién paga?" del check-in. Retorna `stays: []` si no es parte de un grupo.
+   */
+  @Get(':id/group-balances')
+  getGroupBalances(@Param('id') id: string) {
+    return this.service.getGroupBalances(id)
+  }
+
+  /**
    * Timeline unificado de auditoría para una estadía:
    *   GuestStayLog (eventos stay-level) + StayJourneyEvent (journey-level).
    * Ordenado cronológicamente. Sprint 2026-05-19 — feedback usuario: el

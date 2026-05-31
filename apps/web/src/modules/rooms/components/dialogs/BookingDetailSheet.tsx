@@ -1478,6 +1478,15 @@ export function BookingDetailSheet({
                   const canSwap =
                     !stay.cancelledAt && !stay.noShowAt && !stay.actualCheckout && swappableSiblingsCount > 0
                   const currentId = realStayId ?? stay.id
+                  // GROUP-PAYMENTS Fase A (D-GRP-A3) — balance per-stay glanceable.
+                  // Computado de los datos del calendario (sin fetch extra).
+                  const fmtMoney = (n: number, ccy: string) =>
+                    `${ccy} ${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                  const memberBalance = (m: GuestStayBlock) =>
+                    Math.max(0, Number(m.totalAmount) - Number(m.amountPaid))
+                  const groupBalanceTotal = allMembers
+                    .filter((m) => !m.cancelledAt && !m.noShowAt)
+                    .reduce((s, m) => s + memberBalance(m), 0)
                   return (
                     <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 space-y-3">
                       {/* Header — C3.1 v8 R3: titular PRIMERO (lo que identifica),
@@ -1528,6 +1537,20 @@ export function BookingDetailSheet({
                               )}>
                                 {member.guestName}
                               </span>
+                              {/* D-GRP-A3 — estado de pago per-stay (glanceable
+                                  quién debe). Oculto en filas bloqueadas
+                                  (cancelada/no-show/salió ya tienen su badge). */}
+                              {!member.cancelledAt && !member.noShowAt && !member.actualCheckout && (
+                                memberBalance(member) > 0.01 ? (
+                                  <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 shrink-0 tabular-nums">
+                                    Debe {fmtMoney(memberBalance(member), member.currency)}
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-emerald-700 shrink-0">
+                                    <Check className="h-3 w-3" strokeWidth={3} /> Pagado
+                                  </span>
+                                )
+                              )}
                               {isCurrent && (
                                 <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 rounded px-1.5 py-0.5 shrink-0">
                                   ACTUAL
@@ -1598,6 +1621,21 @@ export function BookingDetailSheet({
                           )
                         })}
                       </div>
+
+                      {/* D-GRP-A3 — saldo agregado del grupo. Scan rápido del
+                          estado de cobro total (verde = todo pagado). */}
+                      {groupBalanceTotal > 0.01 ? (
+                        <div className="flex items-center justify-between rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
+                          <span className="text-[11px] font-semibold text-amber-800">Saldo pendiente del grupo</span>
+                          <span className="text-[13px] font-bold text-amber-800 tabular-nums">
+                            {fmtMoney(groupBalanceTotal, stay.currency)}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center gap-1.5 rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2 text-[11px] font-semibold text-emerald-700">
+                          <Check className="h-3.5 w-3.5" strokeWidth={3} /> Grupo totalmente pagado
+                        </div>
+                      )}
 
                       {/* CTA — single button "Cambiar habitación" */}
                       {canSwap && (
