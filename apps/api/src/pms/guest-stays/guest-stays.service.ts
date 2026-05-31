@@ -318,6 +318,32 @@ export class GuestStaysService {
         },
       })
 
+      // PAYMENT-MODAL-UNIFY (Fase D) — persistir el anticipo como PaymentLog
+      // real (auditable, USALI §28 append-only). Antes `amountPaid` se escribía
+      // directo a GuestStay sin registro de pago: el anticipo no aparecía en los
+      // movimientos ni dejaba evidencia de método/referencia (chargeback Visa
+      // CRR §5.9.2). El campo `paymentMethod` del DTO se ignoraba por completo.
+      if (dto.amountPaid > 0) {
+        const tz = room.property.settings?.timezone ?? 'UTC'
+        const validMethods = Object.values(PaymentMethod) as string[]
+        const method = validMethods.includes(dto.paymentMethod ?? '')
+          ? (dto.paymentMethod as PaymentMethod)
+          : PaymentMethod.CASH
+        await tx.paymentLog.create({
+          data: {
+            organizationId: orgId,
+            propertyId:     dto.propertyId,
+            stayId:         newStay.id,
+            method:         method as any,
+            amount:         dto.amountPaid,
+            currency:       dto.currency,
+            reference:      dto.paymentReference?.trim() || null,
+            shiftDate:      shiftDateForTimezone(new Date(), tz),
+            collectedById:  actorId,
+          },
+        })
+      }
+
       // Only flip room status immediately for same-day check-ins.
       // Future reservations keep the room AVAILABLE until the guest physically arrives.
       if (isSameDayCheckin) {

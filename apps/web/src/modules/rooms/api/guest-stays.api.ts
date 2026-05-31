@@ -131,6 +131,7 @@ export const guestStaysApi = {
     source: string
     amountPaid: number
     paymentMethod?: string
+    paymentReference?: string
     notes?: string
   }) => api.post<Record<string, unknown>>(BASE, data),
 

@@ -28,11 +28,10 @@ import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import {
-  AlertTriangle, Banknote, Camera, Check, ChevronDown, CreditCard, FileText,
-  Gift, Globe, IdCard, Info, Landmark, Loader2, LogIn, Mail, MapPin, Pencil, Phone,
+  AlertTriangle, Camera, Check, ChevronDown, CreditCard, FileText,
+  Globe, IdCard, Loader2, LogIn, Mail, MapPin, Pencil, Phone,
   ShieldCheck, StickyNote, Upload, User as UserIcon, X,
 } from 'lucide-react'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { DialogActions } from '../shared/DialogActions'
@@ -41,6 +40,7 @@ import { DocumentPhotoCapture } from '../shared/DocumentPhotoCapture'
 import { StyledSelect } from '../shared/StyledSelect'
 import { StyledInput } from '../shared/StyledInput'
 import { PhoneFieldWithCountry } from '../shared/PhoneFieldWithCountry'
+import { PaymentEntryFields } from '../shared/PaymentFields'
 import { PaymentMethod } from '@zenix/shared'
 import {
   guestStaysApi,
@@ -1384,61 +1384,6 @@ const ConversionLine = memo(function ConversionLine({
  *  · Mews check-in UX study 2023 — 92% recepción LATAM usa efectivo en
  *    walk-ins; default visible primero (Efectivo izq, F-pattern).
  */
-/**
- * QuickFillChip — Atajo "Cobrar saldo completo" para métodos sin referencia.
- *
- * CHECK-IN C1.14 (2026-05-29). Cuando el método de pago es Efectivo o
- * Cortesía, la columna derecha del row de pago queda vacía (no hay campo
- * Referencia que ocupar). Antes lucía como whitespace desperdiciado.
- *
- * Solución (Stripe Quick Pay + Apple Pay pattern): mostrar un chip 1-click
- * "Cobrar saldo $X.XX" que setea `payment.amount = balance` automáticamente.
- * Cuando ya está lleno con el saldo exacto, muestra "✓ Saldo completo"
- * como confirmación informativa (no clickable).
- *
- * Justificación Pareto: ~80% de check-ins LATAM hostal/boutique cobran
- * el saldo completo de una sola vez. 1-click vs typing 4-6 chars en el
- * input numérico.
- */
-function QuickFillChip({
-  currentAmount, balance, currency, onFill,
-}: {
-  currentAmount: number
-  balance:       number
-  currency:      string
-  onFill:        (amt: number) => void
-}) {
-  const matchesBalance = Math.abs(currentAmount - balance) < 0.01 && balance > 0
-  if (balance <= 0) return null
-
-  if (matchesBalance) {
-    return (
-      <div className="h-9 inline-flex items-center gap-1.5 px-3 rounded-md border border-emerald-200 bg-emerald-50 text-emerald-700 text-xs font-medium w-full">
-        <Check className="h-3.5 w-3.5 shrink-0" />
-        <span className="truncate">Saldo completo</span>
-      </div>
-    )
-  }
-  return (
-    <button
-      type="button"
-      onClick={() => onFill(balance)}
-      className="h-9 inline-flex items-center justify-between gap-1.5 px-3 rounded-md border border-dashed border-slate-300 bg-slate-50 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-700 text-slate-600 text-xs font-medium transition-colors w-full"
-    >
-      <span className="truncate">Cobrar saldo</span>
-      <span className="tabular-nums font-semibold shrink-0">
-        {formatMoney(balance, currency)}
-      </span>
-    </button>
-  )
-}
-
-const PAYMENT_METHOD_ICONS = [
-  { value: PaymentMethod.CASH,           icon: Banknote,    label: 'Efectivo',       activeClass: 'border-emerald-300 bg-emerald-50 text-emerald-700' },
-  { value: PaymentMethod.CARD_TERMINAL,  icon: CreditCard,  label: 'Tarjeta',        activeClass: 'border-sky-300 bg-sky-50 text-sky-700' },
-  { value: PaymentMethod.BANK_TRANSFER,  icon: Landmark,    label: 'Transferencia',  activeClass: 'border-violet-300 bg-violet-50 text-violet-700' },
-  { value: PaymentMethod.COMP,           icon: Gift,        label: 'Cortesía',       activeClass: 'border-amber-300 bg-amber-50 text-amber-700' },
-] as const
 
 const PaymentMethodCard = memo(function PaymentMethodCard({
   payment, idx, canRemove, currency, secondaryRates, error, attempted, attemptNonce = 0, parentBalance, onChange, onRemove,
@@ -1459,10 +1404,6 @@ const PaymentMethodCard = memo(function PaymentMethodCard({
   onChange:  (patch: Partial<PaymentEntryInput>) => void
   onRemove:  () => void
 }) {
-  const isTerminal = payment.method === PaymentMethod.CARD_TERMINAL
-  const isTransfer = payment.method === PaymentMethod.BANK_TRANSFER
-  const showRef    = isTerminal || isTransfer
-
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-3">
       {/* Header — solo visible si hay más de 1 pago */}
@@ -1484,136 +1425,25 @@ const PaymentMethodCard = memo(function PaymentMethodCard({
         </div>
       )}
 
-      {/* Method icons grid — B propuesta (Mews/Cloudbeds pattern) */}
-      <div className="grid grid-cols-4 gap-1.5">
-        {PAYMENT_METHOD_ICONS.map((m) => {
-          const isActive = payment.method === m.value
-          const Icon = m.icon
-          return (
-            <button
-              key={m.value}
-              type="button"
-              onClick={() => onChange({
-                method: m.value as PaymentMethod,
-                reference: '',
-                approvedById: '',
-                approvalReason: '',
-              })}
-              className={cn(
-                'flex flex-col items-center justify-center gap-1 rounded-lg border p-2 transition-all',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300',
-                isActive
-                  ? m.activeClass + ' shadow-sm'
-                  : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50',
-              )}
-              aria-pressed={isActive}
-              aria-label={m.label}
-            >
-              <Icon className="h-4 w-4" />
-              <span className="text-[10px] font-semibold leading-none whitespace-nowrap">{m.label}</span>
-            </button>
-          )
-        })}
-      </div>
-
-      {/* CHECK-IN C1.14 — Grid pixel-perfect Monto | (Referencia OR Quick-fill).
-          Ambas columnas usan EXACTAMENTE las mismas classes h-9 rounded-md
-          border-slate-200 bg-white px-3 hover:border-slate-300 focus-ring-emerald.
-          La diferencia es solo el prefix `$` en Monto via padding-left extra.
-
-          Right column adaptive:
-           · Tarjeta/Transferencia → input Referencia + tooltip explicativo
-           · Efectivo/Cortesía → quick-fill chip "Cobrar saldo $X" (clickable)
-                                  o "✓ Saldo completo" (informativo)
-                                  Patrón Stripe Quick Pay / Apple Pay. */}
-      <div className="grid grid-cols-[140px_1fr] gap-2 items-end">
-        {/* COL IZQ — Monto (siempre presente) */}
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-            Monto ({currency})
-          </label>
-          <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-500 pointer-events-none">$</span>
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              value={payment.amount || ''}
-              onChange={(e) => onChange({ amount: parseFloat(e.target.value) || 0 })}
-              placeholder="0.00"
-              className="w-full h-9 rounded-md border border-slate-200 bg-white pl-7 pr-3 text-sm
-                         text-slate-900 placeholder:text-slate-400 tabular-nums transition-colors
-                         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300
-                         hover:border-slate-300"
-            />
-          </div>
-        </div>
-
-        {/* COL DER — adaptive (Referencia | Quick-fill) */}
-        {showRef ? (
-          <div className="space-y-1 min-w-0">
-            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
-              {isTerminal ? 'Aprobación POS' : 'Referencia'}
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      tabIndex={-1}
-                      aria-label="Más info"
-                      className="inline-flex items-center justify-center text-slate-400 hover:text-slate-600 transition-colors"
-                    >
-                      <Info className="h-3 w-3" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="max-w-[220px] text-[11px]">
-                    {isTerminal
-                      ? 'Número impreso en el ticket de la terminal POS.'
-                      : 'Folio SPEI o número de operación bancaria.'}
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </label>
-            <StyledInput
-              type="text"
-              value={payment.reference ?? ''}
-              onChange={(e) => onChange({ reference: e.target.value })}
-              placeholder={isTerminal ? 'Ej. 123456' : 'SPEI 000123…'}
-              hasError={attempted && !payment.reference?.trim()}
-              shakeNonce={attemptNonce}
-              aria-invalid={attempted && !payment.reference?.trim()}
-            />
-          </div>
-        ) : (
-          /* Efectivo/Cortesía — sin referencia. Llena el espacio derecho
-             con quick-fill útil. Cobra-saldo-completo es 1-click en lugar
-             de tipear el monto manualmente (Pareto del happy path). */
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider opacity-0 select-none" aria-hidden>
-              .
-            </label>
-            <QuickFillChip
-              currentAmount={payment.amount}
-              balance={parentBalance}
-              currency={currency}
-              onFill={(amt) => onChange({ amount: amt })}
-            />
-          </div>
+      {/* Campos de pago canónicos — PaymentEntryFields shared
+          (Fase D PAYMENT-MODAL-UNIFY). EXACTAMENTE el mismo bloque que
+          usan RegisterPaymentDialog y la creación de reserva: método
+          (grid de iconos) + monto ($ prefix) + referencia adaptive ó
+          quick-fill "Cobrar saldo". `error` prop preservado en signature
+          por backward-compat (la validación es visual vía hasError). */}
+      <PaymentEntryFields
+        value={{ method: payment.method, amount: payment.amount, reference: payment.reference }}
+        onChange={(patch) => onChange(
+          patch.method !== undefined
+            ? { ...patch, approvedById: '', approvalReason: '' }
+            : patch,
         )}
-      </div>
-      {payment.amount > 0 && (
-        <ConversionLine amount={payment.amount} rates={secondaryRates} />
-      )}
-
-      {/* CHECK-IN C1.13 — bloque "Autorización del manager" eliminado
-          (user feedback). Recepción conoce códigos de cortesía; manager
-          no siempre presente. Motivo, si aplica, va en Notas de llegada.
-          CHECK-IN C1.14 — error text "Referencia requerida" eliminado.
-          La validación es ahora visual (red border en el input vía
-          `hasError` cuando attempted && !ref). Pattern Stripe Elements:
-          el border rojo ya comunica "falta este campo" sin texto extra.
-          `error` prop preservado en signature por backward-compat
-          (paymentErrors lo populan; no renderizamos por decisión UX). */}
+        balance={parentBalance}
+        currency={currency}
+        secondaryRates={secondaryRates}
+        attempted={attempted}
+        shakeNonce={attemptNonce}
+      />
       {error && null}
     </div>
   )
