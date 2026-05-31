@@ -92,6 +92,12 @@ export class CreateGuestStayDto {
   @IsOptional()
   paymentMethod?: string
 
+  /** PAYMENT-MODAL-UNIFY (Fase D) — referencia del anticipo (POS auth / folio
+   *  SPEI). Se persiste en el PaymentLog del anticipo (chargeback evidence). */
+  @IsString()
+  @IsOptional()
+  paymentReference?: string
+
   @IsString()
   @IsOptional()
   notes?: string

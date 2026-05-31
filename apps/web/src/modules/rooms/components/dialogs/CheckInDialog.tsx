@@ -15,6 +15,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { CountryCombobox } from '../shared/CountryCombobox'
+import { PaymentEntryFields } from '../shared/PaymentFields'
+import { PaymentMethod } from '@zenix/shared'
 import { Select, SelectContent, SelectItem,
          SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
@@ -94,12 +96,25 @@ const step2Schema = z.object({
   source:        z.string().min(1, 'Selecciona el canal'),
   otaName:       z.string().optional(),
   amountPaid:    z.coerce.number().min(0),
-  paymentMethod: z.enum(['cash', 'card', 'transfer']),
+  // PAYMENT-MODAL-UNIFY (Fase D) — método canónico (enum PaymentMethod) +
+  // referencia opcional (POS/SPEI). El anticipo se persiste como PaymentLog
+  // real en el backend (auditable, USALI §28).
+  paymentMethod:    z.nativeEnum(PaymentMethod),
+  paymentReference: z.string().optional(),
   notes:         z.string().max(500).optional(),
 }).refine(d => d.checkOut > d.checkIn, {
   message: 'El checkout debe ser posterior al check-in',
   path: ['checkOut'],
 })
+
+// PAYMENT-MODAL-UNIFY (Fase D) — el anticipo de creación usa el MISMO bloque
+// canónico de pago que el check-in y el registrar-pago (PaymentEntryFields).
+// Creación NO incluye Cortesía (COMP) — no aplica a un depósito al reservar.
+const CREATE_PAYMENT_METHODS = [
+  PaymentMethod.CASH,
+  PaymentMethod.CARD_TERMINAL,
+  PaymentMethod.BANK_TRANSFER,
+] as const
 
 // Zod 4 coerce.number() has input=unknown and output=number. For react-hook-form
 // + @hookform/resolvers v5 we need the *input* type for the field values generic
@@ -210,7 +225,8 @@ export function CheckInDialog({
       source:        'walk-in',
       otaName:       'Walk-in',
       amountPaid:    0,
-      paymentMethod: 'cash',
+      paymentMethod: PaymentMethod.CASH,
+      paymentReference: '',
       notes:         '',
     },
   })
@@ -230,7 +246,7 @@ export function CheckInDialog({
       checkIn:       initialCheckIn ?? today,
       checkOut:      addDays(initialCheckIn ?? today, 1),
       currency:      'USD', source: 'walk-in', otaName: 'Walk-in',
-      amountPaid: 0, paymentMethod: 'cash', notes: '',
+      amountPaid: 0, paymentMethod: PaymentMethod.CASH, paymentReference: '', notes: '',
     })
     setStep(1)
     setAvailStatus('idle')
@@ -758,47 +774,47 @@ export function CheckInDialog({
                   <FieldError message={f2.formState.errors.ratePerNight?.message} />
                 </div>
 
-                {/* Pago inicial */}
+                {/* Pago inicial / anticipo — PAYMENT-MODAL-UNIFY (Fase D).
+                    Usa EXACTAMENTE el mismo bloque de pago que el check-in y
+                    el registrar-pago (PaymentEntryFields shared): método en
+                    grid de iconos + monto ($ prefix) + referencia adaptive ó
+                    quick-fill. Anticipo opcional (depósito al reservar); se
+                    persiste como PaymentLog real (auditable). Creación: 3
+                    métodos (sin Cortesía). */}
                 {(rate ?? 0) > 0 && (
-                  <div className="bg-emerald-50/60 border border-emerald-100
-                                  rounded-xl p-3 space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-xs font-bold text-slate-700">Total</span>
-                      <span className="text-sm font-mono font-bold text-slate-800">
-                        {currency} {total.toLocaleString()}
+                  <div className="bg-slate-50/60 border border-slate-200 rounded-xl p-3 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                        Anticipo <span className="text-slate-400 normal-case font-normal">· opcional</span>
+                      </span>
+                      <span className="text-[11px] text-slate-500">
+                        Total <span className="font-bold text-slate-800 tabular-nums">{currency} {total.toLocaleString()}</span>
                       </span>
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-1">
-                        <Label className="text-xs font-semibold text-slate-600">
-                          Anticipo
-                        </Label>
-                        <Input
-                          {...f2.register('amountPaid', { valueAsNumber: true })}
-                          type="number" min={0} max={total} placeholder="0"
-                          className="h-9 text-sm bg-white"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs font-semibold text-slate-600">
-                          Método
-                        </Label>
-                        <Controller name="paymentMethod" control={f2.control}
-                          render={({ field }) => (
-                            <Select modal={false} value={field.value} onValueChange={field.onChange}>
-                              <SelectTrigger className="h-9 text-sm bg-white">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent position="popper" avoidCollisions={false} className="z-[99999]">
-                                <SelectItem value="cash">Efectivo</SelectItem>
-                                <SelectItem value="card">Tarjeta</SelectItem>
-                                <SelectItem value="transfer">Transferencia</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          )}
-                        />
-                      </div>
-                    </div>
+
+                    <PaymentEntryFields
+                      value={{
+                        method:    f2.watch('paymentMethod') ?? PaymentMethod.CASH,
+                        amount:    amountPaid,
+                        reference: f2.watch('paymentReference') ?? '',
+                      }}
+                      onChange={(patch) => {
+                        if (patch.method !== undefined) {
+                          f2.setValue('paymentMethod', patch.method)
+                          f2.setValue('paymentReference', '')
+                        }
+                        if (patch.amount !== undefined) {
+                          f2.setValue('amountPaid', patch.amount, { shouldValidate: true })
+                        }
+                        if (patch.reference !== undefined) {
+                          f2.setValue('paymentReference', patch.reference)
+                        }
+                      }}
+                      balance={total}
+                      currency={currency}
+                      methods={CREATE_PAYMENT_METHODS}
+                      quickFillLabel={{ fill: 'Cobrar total', done: 'Total completo' }}
+                    />
                   </div>
                 )}
 
