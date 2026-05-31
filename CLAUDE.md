@@ -121,6 +121,64 @@ El desarrollador puede desconocer procesos hoteleros estandarizados que parecen 
 
 ---
 
+## Principio Rector de Calidad y Visión a Largo Plazo (No Negociable)
+
+> **Aprobado y formalizado 2026-05-30 tras feedback owner: "estás pensando muy a corto plazo... solo me estas entregando soluciones que parchan el problema inicial, dejando bugs en el proceso y flujo que no revisas".**
+
+Cada entrega del asistente debe cumplir 4 reglas no-negociables. **Violarlas equivale a entregar trabajo incompleto, sin importar que el síntoma visible esté resuelto.**
+
+### 1. Verificación funcional end-to-end ANTES de declarar "listo"
+- Antes de decir "implementado" o pedir validación, el asistente DEBE ejecutar el flow completo del feature (frontend dispara → backend procesa → respuesta vuelve → UI actualiza) o explicitar cuál ramo NO pudo verificar y por qué.
+- Tests automatizados NO sustituyen al smoke test del happy path. Tests cubren regresión, smoke cubre "esto funciona ahora".
+- Si un endpoint nuevo se agrega, verificar que el route order del controller NO lo shadowee (Express/NestJS: literales antes que `:param` cuando hay ambigüedad).
+- Si un componente nuevo se agrega al árbol React, verificar que el render flow lo monta + que los props llegan completos del padre.
+
+### 2. Visión predictiva — anticipar escala, edge cases y futuras necesidades
+- Toda decisión de diseño debe responder: *"¿qué pasa cuando este pattern escala 10×?"* Si la respuesta es "rompe", el diseño es deuda técnica disfrazada de feature.
+- Ejemplos concretos del proyecto:
+  - Lista de N elementos: ¿qué se ve con 2? ¿con 12? ¿con 50? Pattern paginación / virtualización / picker modal definido upfront.
+  - Estado del modelo: ¿qué pasa cuando este campo es null por primera vez? ¿qué pasa cuando hay 100 rows con valor X?
+  - Permisos: ¿el endpoint nuevo respeta multi-tenancy + property scope + role guards de la entidad padre?
+  - Estados terminales: ¿qué pasa si la entidad referenciada se elimina, cancela, o transiciona a un estado bloqueante?
+- Documentar los limits asumidos (e.g. "grupos OTA tienen típicamente 2-10 rooms; >20 requiere paginación") en comments del código + decisiones §-numeradas al cerrar sprint.
+
+### 3. Coherencia sistémica obligatoria — design system, patterns, naming
+- **Prohibido renderizar UI ad-hoc cuando existe un primitive canónico.** Antes de escribir `<Button>` raw + `<Modal>` raw, buscar `DialogActions` / `ConfirmDialog` / `StyledInput` / `StyledSelect` / `CountryCombobox` / `PhoneFieldWithCountry` / `DocumentPhotoCapture` etc.
+- Lista no exhaustiva de primitives canónicos consolidados (CLAUDE.md §99-§123, §116-§123 explícitos):
+  - `DialogActions` (footer botones) — pattern Cancelar izq + Confirm der, tones `primary/destructive/warning/info`
+  - `ConfirmDialog` + `useDiscardConfirm` + `useConfirmDialog` — para confirmaciones (NUNCA `window.confirm`)
+  - `StyledInput`, `StyledSelect`, `CountryCombobox`, `PhoneFieldWithCountry` — single source de inputs in-house
+  - `useModalDismiss` — backdrop/Esc dismiss con dirty-confirm
+  - Radix Dialog primitives (`Root/Portal/Overlay/Content`) — base para nuevos modales, NUNCA contenedores `fixed inset-0` manuales
+  - Animaciones `--ease-spring` / `--ease-sharp-out` / `shake-x` — definidas en `index.css`, no inline ad-hoc
+- Tipografía: respetar la escala modular del proyecto (10/11/12/13/15/17/18 px) — NO inventar tamaños intermedios.
+- Color: respetar el sistema semántico (emerald=positive, amber=warning, rose/red=destructive, violet=group, slate=neutral). NO usar colores arbitrarios.
+- Si un cambio NUEVO requiere un primitive que no existe, **crearlo en `components/shared/` con doc inline** ANTES de usarlo en el caller.
+
+### 4. Honestidad técnica — admitir incertidumbre y bugs detectados
+- Si el asistente no puede verificar algo (servidor remoto no accesible, requiere browser real, requiere data específica que no existe en BD), DEBE explicitarlo en la entrega — NO presumir "todo OK".
+- Si durante la implementación detecta un bug en código pre-existente, lo señala (no lo silencia para no salir del scope).
+- Si el cambio introduce deuda técnica intencional, documentar en comment + agregar TODO numerado al CLAUDE.md `§Pending`.
+
+### Por qué este principio existe
+
+> Quote owner 2026-05-30 literal: *"no se trata de solucionar solo el problema del momento, se trata de tener visión para predecir eventos futuros tanto técnicos tanto como en el flujo y modelo de negocio"*.
+
+El piloto Hotel Monica Tulum (v1.0.0) y los partners certificados futuros (v1.0.5+) requieren un PMS que NO produzca "bugs descubiertos por el cliente" — cada bug visible al cliente erosiona la confianza comercial. Cada inconsistencia visual entre modales hace que el sistema "se sienta armado por varios devs" — exactamente lo opuesto a serio y profesional.
+
+### Cómo aplicar antes de cada commit
+
+Checklist mental:
+1. ¿Verifiqué el happy path end-to-end? ¿O solo escribí código sin probarlo?
+2. ¿Este diseño escala a 10× la cardinalidad esperada?
+3. ¿Estoy reutilizando un primitive canónico, o reinventando uno?
+4. ¿Mi tipografía/color/spacing coincide con el sistema, o introduce uno nuevo sin justificar?
+5. ¿Hay algo que no pude verificar y debo señalar?
+
+Si CUALQUIER respuesta es "no" → no se entrega, se reabre el ticket.
+
+---
+
 ## Principio Rector de Diseño
 
 > **Este principio aplica a CADA decisión de UI, flujo, arquitectura de información, y experiencia de usuario.**

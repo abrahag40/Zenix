@@ -474,6 +474,18 @@ export class GuestStaysService {
       },
       include: {
         stayJourney: { select: { id: true } },
+        // CHECK-IN C3.1 v2 (2026-05-30) — exponer datos del grupo para
+        // que BookingBlock muestre badge "X/Y" + ring persistente + tooltip
+        // rico con nombre del titular y OTA. NN/g H6 Recognition rather than
+        // recall: el operador debe saber qué grupo es sin click ni recall.
+        reservationGroup: {
+          select: {
+            id: true,
+            roomCount: true,
+            primaryGuestName: true,
+            channexOtaName: true,
+          },
+        },
       },
       orderBy: { checkinAt: 'desc' },
     })
@@ -1441,6 +1453,159 @@ export class GuestStaysService {
     })
 
     return { success: true }
+  }
+
+  /**
+   * swapStayRooms — Sprint CHECK-IN C3.1 v3 (2026-05-30).
+   *
+   * Intercambia las habitaciones de dos GuestStays activas. Use case crítico:
+   * dentro de un ReservationGroup OTA (Familia García: Hab 101 Juan, 102 María,
+   * 103 Carlos) recepción quiere swap "Juan → 102, María → 101" sin pasar por
+   * 2 moveRoom secuenciales (rompe disponibilidad intermedia: tras mover Juan
+   * fuera de 101, María no puede entrar a 102 sin que 101 esté libre primero).
+   *
+   * Diseño:
+   *  - Single $transaction: actualiza ambos `roomId` simultáneamente
+   *  - Skip availability check — el swap es atómico, no genera ventana de
+   *    conflicto intermedio. Las únicas validaciones son guards de estado
+   *    (no cancelled / no-show / checked-out).
+   *  - Audit per stay con event `ROOM_SWAPPED` + metadata cross-referenciado
+   *  - SSE emit para refresh calendar
+   *
+   * Justificación vs 2× moveRoom secuenciales:
+   *  - Atomicidad: no hay window donde una room queda ocupada por 2 stays
+   *  - Simplicidad: no requiere "habitación temporal de paso"
+   *  - Pattern industry: OpenTable swap, FIFA lineup swap, chess piece swap
+   *
+   * Aplica también CROSS-GROUP swap (no se valida que sean del mismo group)
+   * — el use case primario es dentro de grupo, pero la operación es genérica.
+   * Si en el futuro se requiere "swap solo dentro del mismo grupo", agregar
+   * guard al controller.
+   */
+  async swapStayRooms(stayIdA: string, stayIdB: string, actorId: string, reason?: string) {
+    const orgId = this.tenant.getOrganizationId()
+
+    if (stayIdA === stayIdB) {
+      throw new BadRequestException('No se puede intercambiar una reserva consigo misma')
+    }
+
+    const [stayA, stayB] = await Promise.all([
+      this.prisma.guestStay.findUnique({
+        where: { id: stayIdA, organizationId: orgId },
+      }),
+      this.prisma.guestStay.findUnique({
+        where: { id: stayIdB, organizationId: orgId },
+      }),
+    ])
+
+    if (!stayA) throw new NotFoundException(`Reserva ${stayIdA} no encontrada`)
+    if (!stayB) throw new NotFoundException(`Reserva ${stayIdB} no encontrada`)
+
+    // Guards de estado — terminales
+    if (stayA.actualCheckout || stayB.actualCheckout) {
+      throw new BadRequestException(
+        'No se puede intercambiar reservas con checkout completado',
+      )
+    }
+    if (stayA.cancelledAt || stayB.cancelledAt) {
+      throw new BadRequestException(
+        'No se puede intercambiar reservas canceladas',
+      )
+    }
+    if (stayA.noShowAt || stayB.noShowAt) {
+      throw new BadRequestException(
+        'No se puede intercambiar reservas en flujo no-show',
+      )
+    }
+    if (stayA.roomId === stayB.roomId) {
+      throw new BadRequestException(
+        'Ambas reservas ya están en la misma habitación',
+      )
+    }
+    if (stayA.propertyId !== stayB.propertyId) {
+      throw new BadRequestException(
+        'No se puede intercambiar reservas de propiedades distintas',
+      )
+    }
+
+    const oldRoomIdA = stayA.roomId
+    const oldRoomIdB = stayB.roomId
+
+    await this.prisma.$transaction(async (tx) => {
+      // Step 1 — swap roomId en las stays
+      await tx.guestStay.update({
+        where: { id: stayA.id },
+        data: { roomId: oldRoomIdB },
+      })
+      await tx.guestStay.update({
+        where: { id: stayB.id },
+        data: { roomId: oldRoomIdA },
+      })
+
+      // Step 2 — swap roomId en los ACTIVE StaySegments que matcheen el
+      // room viejo (preserva history de moves anteriores). Solo segments
+      // del journey actual son afectados.
+      await tx.staySegment.updateMany({
+        where: { guestStayId: stayA.id, status: 'ACTIVE', roomId: oldRoomIdA },
+        data: { roomId: oldRoomIdB },
+      })
+      await tx.staySegment.updateMany({
+        where: { guestStayId: stayB.id, status: 'ACTIVE', roomId: oldRoomIdB },
+        data: { roomId: oldRoomIdA },
+      })
+
+      // Step 3 — audit logs cross-referenciados (CLAUDE.md §11 append-only)
+      await tx.guestStayLog.createMany({
+        data: [
+          {
+            stayId: stayA.id,
+            event: 'ROOM_SWAPPED',
+            actorId,
+            metadata: {
+              swappedWithStayId: stayB.id,
+              swappedWithGuestName: stayB.guestName,
+              fromRoomId: oldRoomIdA,
+              toRoomId: oldRoomIdB,
+              reason: reason ?? null,
+            },
+          },
+          {
+            stayId: stayB.id,
+            event: 'ROOM_SWAPPED',
+            actorId,
+            metadata: {
+              swappedWithStayId: stayA.id,
+              swappedWithGuestName: stayA.guestName,
+              fromRoomId: oldRoomIdB,
+              toRoomId: oldRoomIdA,
+              reason: reason ?? null,
+            },
+          },
+        ],
+      })
+    })
+
+    // SSE — refresh calendar (mismo evento usado por moveRoom)
+    this.notifications.emit(stayA.propertyId, 'room:moved', {
+      stayId: stayA.id,
+      field: 'roomId',
+      fromRoomId: oldRoomIdA,
+      toRoomId: oldRoomIdB,
+      orgId,
+    })
+    this.notifications.emit(stayB.propertyId, 'room:moved', {
+      stayId: stayB.id,
+      field: 'roomId',
+      fromRoomId: oldRoomIdB,
+      toRoomId: oldRoomIdA,
+      orgId,
+    })
+
+    return {
+      success: true,
+      stayA: { id: stayA.id, newRoomId: oldRoomIdB },
+      stayB: { id: stayB.id, newRoomId: oldRoomIdA },
+    }
   }
 
   /**

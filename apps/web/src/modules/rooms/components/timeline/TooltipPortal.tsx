@@ -112,6 +112,22 @@ export function TooltipPortal({
                 </p>
               )}
 
+              {/* CHECK-IN C3.1 v2 (2026-05-30) — Group info line.
+                  Cuando stay pertenece a ReservationGroup, mostramos línea
+                  violet con icon + nombre titular + roomCount + OTA. NN/g H6
+                  Recognition: el operador identifica "Familia García · 3 habs"
+                  sin tener que recordar qué significa el badge "1/3". */}
+              {stay.reservationGroupId && stay.groupPrimaryName && (
+                <p className="flex items-center gap-1 mt-1 text-[10px] font-semibold text-violet-700">
+                  <Users className="h-3 w-3 shrink-0" />
+                  <span className="truncate">
+                    {stay.groupPrimaryName}
+                    {stay.groupRoomCount && ` · ${stay.groupRoomCount} habs`}
+                    {stay.groupOtaName && ` · ${stay.groupOtaName}`}
+                  </span>
+                </p>
+              )}
+
               {/* Sub-status chip */}
               {stayStatus === 'DEPARTING' && (
                 <p className="flex items-center gap-1 mt-1 text-[10px] font-semibold text-amber-700">

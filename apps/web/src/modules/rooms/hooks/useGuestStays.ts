@@ -67,6 +67,13 @@ function adaptStay(raw: Record<string, unknown>): GuestStayBlock {
     channexConflict:      (raw.channexConflict as boolean | undefined) ?? false,
     channexLastSyncAt:    raw.channexLastSyncAt ? new Date(raw.channexLastSyncAt as string) : null,
     paymentModel:         raw.paymentModel as GuestStayBlock['paymentModel'],
+    // CHECK-IN C3.1 v2 (2026-05-30) — reservation group fields surfaced
+    // para badge + ring persistente + tooltip rico con nombre + OTA.
+    reservationGroupId:   (raw.reservationGroupId as string | null | undefined) ?? null,
+    groupRoomIndex:       (raw.groupRoomIndex as number | null | undefined) ?? null,
+    groupRoomCount:       ((raw.reservationGroup as { roomCount?: number } | null | undefined)?.roomCount) ?? null,
+    groupPrimaryName:     ((raw.reservationGroup as { primaryGuestName?: string } | null | undefined)?.primaryGuestName) ?? null,
+    groupOtaName:         ((raw.reservationGroup as { channexOtaName?: string | null } | null | undefined)?.channexOtaName) ?? null,
   }
 }
 
@@ -327,6 +334,39 @@ export function useMoveRoom(propertyId: string) {
     },
     onError: (err: Error) => {
       toast.error(err.message ?? 'No se pudo mover la reserva')
+    },
+  })
+}
+
+// CHECK-IN C3.1 v3 (2026-05-30) — Swap atómico de habitaciones entre 2 stays.
+// Use case: ReservationGroup OTA donde recepción quiere "Juan ↔ María" sin
+// pasar por habitación temporal. Refresca calendar + journey timeline +
+// audit history de AMBAS stays.
+export function useSwapStayRooms(propertyId: string) {
+  const qc = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ stayIdA, stayIdB, reason }: { stayIdA: string; stayIdB: string; reason?: string }) =>
+      guestStaysApi.swapRooms(stayIdA, stayIdB, reason),
+    onSuccess: async (_result, vars) => {
+      // Mismas invalidaciones que useMoveRoom (mismo efecto en calendar).
+      await qc.refetchQueries({
+        queryKey: ['guest-stays', propertyId],
+        exact: false,
+      })
+      await qc.refetchQueries({
+        queryKey: ['stay-journeys-timeline', propertyId],
+        exact: false,
+      })
+      qc.invalidateQueries({ queryKey: ['rooms', propertyId], exact: false })
+      qc.invalidateQueries({ queryKey: ['guest-stay-timeline'], exact: false })
+      // Refresh checkin-context de ambas stays (BookingDetailSheet abierta)
+      qc.invalidateQueries({ queryKey: ['checkin-context', vars.stayIdA] })
+      qc.invalidateQueries({ queryKey: ['checkin-context', vars.stayIdB] })
+      toast.success('Habitaciones intercambiadas')
+    },
+    onError: (err: Error) => {
+      toast.error(err.message ?? 'No se pudo intercambiar las habitaciones')
     },
   })
 }

@@ -46,6 +46,18 @@ interface BookingsLayerProps {
   activeJourneyId: string | null
   onSetActiveJourneyId: (id: string | null) => void
   selectedStayId?: string | null
+  /** CHECK-IN C3.1 (2026-05-30) — hover-highlight de siblings del mismo
+   *  ReservationGroup. TimelineScheduler trackea el groupId al que entra/sale
+   *  el cursor, lo propaga aquí y BookingsLayer le pasa `isInHoveredGroup`
+   *  prop a cada block del grupo. */
+  hoveredGroupId?: string | null
+  onGroupHover?: (groupId: string | null) => void
+  /** CHECK-IN C3.1 v8 (2026-05-30) — reservationGroupId del stay seleccionado
+   *  (sheet abierta). Sus siblings NO se atenúan (permanecen visibles) +
+   *  reciben ring de grupo. Resuelve: al seleccionar un miembro del grupo,
+   *  los demás miembros del mismo grupo seguían dimmed 0.15 → "desaparecían"
+   *  visualmente, rompiendo el contexto del grupo en el calendar. */
+  selectedGroupId?: string | null
 }
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
@@ -147,6 +159,9 @@ export function BookingsLayer({
   activeJourneyId,
   onSetActiveJourneyId,
   selectedStayId = null,
+  hoveredGroupId = null,
+  onGroupHover,
+  selectedGroupId = null,
 }: BookingsLayerProps) {
   const calendarEnd = days[days.length - 1]
   const containerRef = useRef<HTMLDivElement>(null)
@@ -397,12 +412,21 @@ export function BookingsLayer({
             onToggleLock={onToggleLock}
             scrollLeft={scrollLeft}
             dimmed={
+              // C3.1 v8 — un sibling del grupo seleccionado NO se atenúa:
+              // mantiene visibilidad del grupo completo en el calendar.
               (activeJourneyId !== null && !activeStayIds.has(stay.id)) ||
-              (activeJourneyId === null && selectedStayId !== null && stay.id !== selectedStayId)
+              (activeJourneyId === null && selectedStayId !== null && stay.id !== selectedStayId &&
+                !(!!selectedGroupId && stay.reservationGroupId === selectedGroupId))
             }
             isInActiveJourney={activeJourneyId !== null && activeStayIds.has(stay.id)}
             isNsStripe={nsStripeIds.has(stay.id)}
             hasNsAbove={hasNsAboveCheck(stay, nsCollisionRanges)}
+            isInHoveredGroup={
+              // Ring de grupo: por hover O por selección de un miembro del grupo.
+              (!!hoveredGroupId && stay.reservationGroupId === hoveredGroupId) ||
+              (!!selectedGroupId && stay.reservationGroupId === selectedGroupId)
+            }
+            onGroupHover={onGroupHover}
           />
         )
       })}
@@ -435,12 +459,21 @@ export function BookingsLayer({
             onToggleLock={onToggleLock}
             scrollLeft={scrollLeft}
             dimmed={
+              // C3.1 v8 — un sibling del grupo seleccionado NO se atenúa:
+              // mantiene visibilidad del grupo completo en el calendar.
               (activeJourneyId !== null && !activeStayIds.has(stay.id)) ||
-              (activeJourneyId === null && selectedStayId !== null && stay.id !== selectedStayId)
+              (activeJourneyId === null && selectedStayId !== null && stay.id !== selectedStayId &&
+                !(!!selectedGroupId && stay.reservationGroupId === selectedGroupId))
             }
             isInActiveJourney={activeJourneyId !== null && activeStayIds.has(stay.id)}
             isNsStripe={nsStripeIds.has(stay.id)}
             hasNsAbove={hasNsAboveCheck(stay, nsCollisionRanges)}
+            isInHoveredGroup={
+              // Ring de grupo: por hover O por selección de un miembro del grupo.
+              (!!hoveredGroupId && stay.reservationGroupId === hoveredGroupId) ||
+              (!!selectedGroupId && stay.reservationGroupId === selectedGroupId)
+            }
+            onGroupHover={onGroupHover}
           />
         )
       })}

@@ -412,6 +412,11 @@ export function TimelineScheduler() {
 
   // ─── Journey highlight (lifted from BookingsLayer for cross-component sync) ──
   const [activeJourneyId, setActiveJourneyId] = useState<string | null>(null)
+  // CHECK-IN C3.1 (2026-05-30) — group hover-highlight. Cuando recepción
+  // hover sobre un block que es parte de un ReservationGroup, propagamos
+  // el groupId a BookingsLayer para que TODOS los siblings del grupo
+  // muestren ring violet. Patrón Linear/Asana "related items highlight".
+  const [hoveredGroupId, setHoveredGroupId] = useState<string | null>(null)
 
   // Clearing the journey also closes the sheet — single click to reset everything
   const handleSetActiveJourneyId = useCallback((id: string | null) => {
@@ -1079,6 +1084,12 @@ export function TimelineScheduler() {
               onSetActiveJourneyId={handleSetActiveJourneyId}
               onActivateJourney={handleSetActiveJourneyId}
               selectedStayId={sheetOpen ? sheetStayId : null}
+              hoveredGroupId={hoveredGroupId}
+              onGroupHover={setHoveredGroupId}
+              // C3.1 v8 — group del stay seleccionado: sus siblings no se
+              // atenúan + reciben ring violet. Mantiene visibilidad del grupo
+              // al abrir el sheet de un miembro.
+              selectedGroupId={sheetOpen ? (sheetStay?.reservationGroupId ?? null) : null}
             />
           </div>
         </div>
@@ -1205,6 +1216,32 @@ export function TimelineScheduler() {
         confirmMovePending={confirmMoveMut.isPending}
         onOpenMaintenanceTicket={(id) => openMaintenanceDrawer(id)}
         propertyId={PROPERTY_ID}
+        // CHECK-IN C3.1 v2 — group siblings (excluye al stay actual) +
+        // callback para saltar a un hermano. Resuelve el caso off-screen.
+        // Cada sibling se enriquece con roomNumber resuelto via flatRows
+        // (mismo patrón que sheetStay memoizado arriba).
+        groupSiblings={
+          sheetStay?.reservationGroupId
+            ? stays
+                .filter(
+                  (s) =>
+                    s.reservationGroupId === sheetStay.reservationGroupId &&
+                    s.id !== sheetStay.id,
+                )
+                .map((s) => {
+                  if (s.roomNumber) return s
+                  const roomRow = flatRows.find((r) => r.id === s.roomId && r.type === 'room')
+                  return { ...s, roomNumber: roomRow?.room?.number }
+                })
+            : undefined
+        }
+        onOpenSibling={(stayId) => {
+          // Cierra journey highlight + abre el otro stay. La key del sheet
+          // no cambia (mismo componente), pero el `stay` prop sí — sheet
+          // re-renderiza con la data del sibling.
+          setActiveJourneyId(null)
+          openSheet(stayId)
+        }}
       />
 
       <CheckInDialog

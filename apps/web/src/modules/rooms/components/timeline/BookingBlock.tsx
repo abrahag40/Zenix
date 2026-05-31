@@ -1,7 +1,7 @@
 import { memo, useMemo, useRef } from 'react'
 import { startOfDay, addDays, format } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { Lock, Unlock, LogOut, UserX, ArrowUpRight, Info } from 'lucide-react'
+import { Lock, Unlock, LogOut, UserX, ArrowUpRight, Info, Users } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { STAY_STATUS_COLORS, OTA_ACCENT_COLORS, TIMELINE } from '../../utils/timeline.constants'
@@ -45,6 +45,14 @@ interface BookingBlockProps {
   isNsStripe?: boolean
   /** Active block that has a NS stripe above it — shift down to avoid overlap */
   hasNsAbove?: boolean
+  /** CHECK-IN C3.1 (2026-05-30) — hover-highlight de siblings del mismo
+   *  ReservationGroup. TimelineScheduler trackea hoveredGroupId y lo
+   *  propaga a cada block; cuando matchea, renderizamos ring emerald
+   *  visible para indicar "estos pertenecen al mismo grupo". */
+  isInHoveredGroup?: boolean
+  /** Disparado al hover entrar/salir del block. Solo si reservationGroupId
+   *  está seteado — TimelineScheduler hace el guard. */
+  onGroupHover?: (groupId: string | null) => void
 }
 
 const BLOCK_SHADOW = [
@@ -125,6 +133,8 @@ function BookingBlockInner({
   noShowCutoffHour,
   isNsStripe = false,
   hasNsAbove = false,
+  isInHoveredGroup = false,
+  onGroupHover,
 }: BookingBlockProps) {
   const forceAbove = stay.hasMultipleSegments === true && stay.isLastSegment !== true
   // Tooltip se desactiva cuando hay un drag global en curso para evitar
@@ -409,6 +419,16 @@ function BookingBlockInner({
         role="button"
         tabIndex={0}
         onMouseDown={handleMouseDown}
+        onMouseEnter={() => {
+          if (stay.reservationGroupId && onGroupHover) {
+            onGroupHover(stay.reservationGroupId)
+          }
+        }}
+        onMouseLeave={() => {
+          if (stay.reservationGroupId && onGroupHover) {
+            onGroupHover(null)
+          }
+        }}
         // Fallback: si el navegador / input no dispara mousedown→mouseup naturalmente
         // (ciertos trackpads, eventos sintéticos, accesibilidad por teclado), el
         // onClick aquí abre el panel igual. handleMouseDown ya stopPropaga, por lo
@@ -475,6 +495,18 @@ function BookingBlockInner({
             ? `inset 0 0 0 1.5px rgba(245,158,11,0.70), ${BLOCK_SHADOW}`
             : isInActiveJourney
             ? `0 0 0 2px #378ADD, 0 4px 12px rgba(55,138,221,0.35), ${BLOCK_SHADOW}`
+            : isInHoveredGroup
+            // CHECK-IN C3.1 — hover-highlight de siblings del mismo
+            // ReservationGroup. Ring violet outside (no conflict con
+            // emerald journey ni amber NS). Comunica "estos son del
+            // mismo grupo" cuando recepción hover sobre cualquier block.
+            ? `0 0 0 2px rgba(139,92,246,0.85), 0 4px 10px rgba(139,92,246,0.25), ${BLOCK_SHADOW}`
+            : stay.reservationGroupId
+            // CHECK-IN C3.1 v2 — ring persistente sutil para stays de
+            // grupo (sin hover). 0.30 opacity = detectable pero no
+            // intrusivo (Apple HIG Vibrancy: status indicators muted
+            // by default, prominent on interaction). Patrón Mews.
+            ? `0 0 0 1.5px rgba(139,92,246,0.30), ${BLOCK_SHADOW}`
             : BLOCK_SHADOW,
           // Sprint AVAIL-OVERSTAY: stroke amber animado vive en overlay div
           // .overstay-stroke (ver más abajo). Lo separamos del boxShadow inline
@@ -531,6 +563,31 @@ function BookingBlockInner({
             backgroundColor: isConfirmedNoShow ? '#DC2626' : otaAccent,
           }}
         />
+
+        {/* CHECK-IN C3.1 v2 (2026-05-30) — Group badge con icon Users +
+            fraccional. Icon comunica "grupo" pre-attentive (Treisman 1980
+            <200ms) sin necesidad de hover. NN/g H6 Recognition rather
+            than recall: el operador ve "grupo" como concepto inmediato,
+            no infiere "1/3" como abstracción.
+
+            Estudio comparativo Cloudbeds/Mews/Opera/RoomRaccoon — todos
+            usan icon o tag explícito para comunicar group state. Sirvoy
+            es el outlier que solo usa "G" — mal evaluado en G2/Capterra
+            reviews por confusing UX. Pattern Mews 2024 adoptado aquí. */}
+        {stay.reservationGroupId && stay.groupRoomIndex && stay.groupRoomCount && rect.width >= 60 && !isNsStripe && (
+          <div
+            className="absolute top-0.5 right-0.5 inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[9px] font-bold tabular-nums leading-none pointer-events-none"
+            style={{
+              backgroundColor: 'rgba(139,92,246,0.92)',
+              color: 'white',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.18)',
+            }}
+            aria-label={`Habitación ${stay.groupRoomIndex} de ${stay.groupRoomCount} del grupo${stay.groupPrimaryName ? ` ${stay.groupPrimaryName}` : ''}`}
+          >
+            <Users className="h-2.5 w-2.5" strokeWidth={2.5} />
+            {stay.groupRoomIndex}/{stay.groupRoomCount}
+          </div>
+        )}
 
         {/* Sprint AVAIL-OVERSTAY — Vencido indicator (rediseño 2026-05-19 iter 2).
             Iter 1 (icono disco amber) chocaba con el journey-extension arrow
@@ -926,6 +983,8 @@ export const BookingBlock = memo(BookingBlockInner, (prev, next) =>
   prev.noShowCutoffHour === next.noShowCutoffHour &&
   prev.isNsStripe === next.isNsStripe &&
   prev.hasNsAbove === next.hasNsAbove &&
+  // CHECK-IN C3.1 — re-render cuando el block entra/sale del hovered group.
+  prev.isInHoveredGroup === next.isInHoveredGroup &&
   // anyDragInProgress: flag global del drag — sin esto, memo skipea
   // el re-render al iniciar drag y useTooltip(enabled) queda obsoleto,
   // dejando que los tooltips de otros bloques se disparen al hover.

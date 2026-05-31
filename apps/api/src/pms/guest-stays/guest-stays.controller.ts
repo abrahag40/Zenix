@@ -298,6 +298,30 @@ export class GuestStaysController {
     )
   }
 
+  /**
+   * POST /v1/guest-stays/swap-rooms
+   *
+   * Sprint CHECK-IN C3.1 v3 (2026-05-30). Intercambia habitaciones entre 2
+   * stays activas. Use case: ReservationGroup OTA donde recepción quiere
+   * mover Juan a la hab de María (y María a la de Juan) en un solo paso
+   * atómico. Sin esto, recepción debe hacer 2 moveRoom secuenciales con
+   * habitación temporal de paso — torpe + ventana de conflict intermedio.
+   *
+   * IMPORTANTE: literal route ANTES de `:id` routes para evitar matching
+   * ambiguo en Express/NestJS router. Mismo pattern que `/payments/:id/void`
+   * (literal payments) y `/notes/:noteId` (literal notes) en este controller.
+   */
+  @Post('swap-rooms')
+  swapRooms(
+    @Body() dto: { stayIdA: string; stayIdB: string; reason?: string },
+    @CurrentUser() actor: JwtPayload,
+  ) {
+    if (!dto.stayIdA || !dto.stayIdB) {
+      throw new BadRequestException('stayIdA y stayIdB son requeridos')
+    }
+    return this.service.swapStayRooms(dto.stayIdA, dto.stayIdB, actor.sub, dto.reason)
+  }
+
   @Post(':id/checkout')
   checkout(@Param('id') id: string, @CurrentUser() actor: JwtPayload) {
     return this.service.checkout(id, actor.sub)
