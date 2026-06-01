@@ -2,7 +2,7 @@ import { useMemo, useRef, useEffect, useCallback } from 'react'
 import { differenceInCalendarDays } from 'date-fns'
 import { TIMELINE } from '../../utils/timeline.constants'
 import { BookingBlock } from './BookingBlock'
-import type { GuestStayBlock, FlatRow, DragState } from '../../types/timeline.types'
+import type { GuestStayBlock, FlatRow, DragState, GroupSummary } from '../../types/timeline.types'
 
 /** Room+date range of a no-show block that collides with an active booking. */
 export type NsCollisionRange = { roomId: string; checkIn: Date; checkOut: Date }
@@ -197,6 +197,26 @@ export function BookingsLayer({
       }),
     [stays, roomIndexMap, calendarStart, calendarEnd],
   )
+
+  // GROUP-BADGE (2026-06-01) — agregado por grupo para el tooltip (progreso de
+  // llegadas). Sin fetch: usamos los bloques ya cargados. Dedup por miembro
+  // (guestStayId — los segmentos de un journey comparten el mismo) para no
+  // contar dos veces. total = roomCount autoritativo del grupo.
+  const groupSummaries = useMemo<Map<string, GroupSummary>>(() => {
+    const acc = new Map<string, GroupSummary>()
+    const seenMembers = new Set<string>()
+    for (const s of [...stays, ...(journeyStays ?? [])]) {
+      if (!s.reservationGroupId) continue
+      const memberKey = `${s.reservationGroupId}:${s.guestStayId ?? s.id}`
+      if (seenMembers.has(memberKey)) continue
+      seenMembers.add(memberKey)
+      const cur = acc.get(s.reservationGroupId) ?? { total: s.groupRoomCount ?? 0, inHouse: 0 }
+      if (s.groupRoomCount) cur.total = s.groupRoomCount
+      if (s.actualCheckin) cur.inHouse += 1
+      acc.set(s.reservationGroupId, cur)
+    }
+    return acc
+  }, [stays, journeyStays])
 
   // Total height
   const totalHeight = flatRows.reduce(
@@ -427,6 +447,7 @@ export function BookingsLayer({
               (!!selectedGroupId && stay.reservationGroupId === selectedGroupId)
             }
             onGroupHover={onGroupHover}
+            groupSummary={stay.reservationGroupId ? groupSummaries.get(stay.reservationGroupId) : undefined}
           />
         )
       })}
@@ -474,6 +495,7 @@ export function BookingsLayer({
               (!!selectedGroupId && stay.reservationGroupId === selectedGroupId)
             }
             onGroupHover={onGroupHover}
+            groupSummary={stay.reservationGroupId ? groupSummaries.get(stay.reservationGroupId) : undefined}
           />
         )
       })}

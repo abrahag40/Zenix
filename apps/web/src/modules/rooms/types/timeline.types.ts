@@ -140,6 +140,18 @@ export interface DayMetrics {
   currency: string
 }
 
+/**
+ * GROUP-BADGE (2026-06-01) — agregado del grupo para el tooltip (info práctica
+ * de coordinación). Computado client-side en BookingsLayer desde los bloques ya
+ * cargados (sin fetch). `total` = roomCount autoritativo; `inHouse` = miembros
+ * distintos con actualCheckin. El saldo NO se incluye: los journey blocks no
+ * cargan pago real (amountPaid=0) → el saldo exacto vive en el BookingDetailSheet.
+ */
+export interface GroupSummary {
+  total: number
+  inHouse: number
+}
+
 export type RoomStatus =
   | 'AVAILABLE' | 'OCCUPIED' | 'CHECKING_OUT'
   | 'CLEANING' | 'INSPECTION' | 'MAINTENANCE' | 'OUT_OF_SERVICE'

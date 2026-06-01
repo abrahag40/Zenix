@@ -10,7 +10,7 @@ import { PaymentStatusBadge } from '../shared'
 import { STAY_STATUS_COLORS, OTA_ACCENT_COLORS, SOURCE_COLORS } from '../../utils/timeline.constants'
 import type { StayStatusKey, SourceKey } from '../../utils/timeline.constants'
 import { getStayStatus } from '../../utils/timeline.utils'
-import type { GuestStayBlock } from '../../types/timeline.types'
+import type { GuestStayBlock, GroupSummary } from '../../types/timeline.types'
 
 interface TooltipPortalProps {
   stay: GuestStayBlock
@@ -23,6 +23,9 @@ interface TooltipPortalProps {
   isPotentialNoShow?: boolean
   /** Room was rebooked after the NS — revert would cause overbooking */
   roomIsRebooked?: boolean
+  /** GROUP-BADGE (2026-06-01) — agregado del grupo (llegadas) para la sección
+   *  Grupo del tooltip. Computado client-side en BookingsLayer. */
+  groupSummary?: GroupSummary
 }
 
 export function TooltipPortal({
@@ -35,6 +38,7 @@ export function TooltipPortal({
   onRevertNoShow,
   isPotentialNoShow,
   roomIsRebooked = false,
+  groupSummary,
 }: TooltipPortalProps) {
   if (!visible) return null
 
@@ -117,13 +121,20 @@ export function TooltipPortal({
                   violet con icon + nombre titular + roomCount + OTA. NN/g H6
                   Recognition: el operador identifica "Familia García · 3 habs"
                   sin tener que recordar qué significa el badge "1/3". */}
-              {stay.reservationGroupId && stay.groupPrimaryName && (
-                <p className="flex items-center gap-1 mt-1 text-[10px] font-semibold text-violet-700">
+              {stay.reservationGroupId && (
+                /* GROUP-BADGE (2026-06-01) — una sola línea. Solo indica que es
+                    grupo + tokens operativos (posición · llegadas). El nombre del
+                    titular vive en el sheet de detalle (sección Grupo); aquí evita
+                    el truncado feo y prioriza la info accionable. */
+                <p className="flex items-center gap-1 mt-1.5 text-[10px] font-semibold text-violet-700 tabular-nums">
                   <Users className="h-3 w-3 shrink-0" />
-                  <span className="truncate">
-                    {stay.groupPrimaryName}
-                    {stay.groupRoomCount && ` · ${stay.groupRoomCount} habs`}
-                    {stay.groupOtaName && ` · ${stay.groupOtaName}`}
+                  <span>
+                    Grupo
+                    {stay.groupRoomIndex && stay.groupRoomCount
+                      ? ` · Hab. ${stay.groupRoomIndex}/${stay.groupRoomCount}`
+                      : ''}
+                    {groupSummary && groupSummary.total > 0 &&
+                      ` · ${groupSummary.inHouse}/${groupSummary.total} en casa`}
                   </span>
                 </p>
               )}

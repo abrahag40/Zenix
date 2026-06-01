@@ -36,6 +36,14 @@ interface ApiJourney {
     channexConflict?: boolean | null
     channexLastSyncAt?: string | null
     paymentModel?: 'HOTEL_COLLECT' | 'OTA_COLLECT' | 'HYBRID_DEPOSIT' | null
+    // GROUP-BADGE (2026-06-01) — identidad de grupo propagada al journey block.
+    reservationGroupId?: string | null
+    groupRoomIndex?: number | null
+    reservationGroup?: {
+      roomCount?: number | null
+      primaryGuestName?: string | null
+      channexOtaName?: string | null
+    } | null
   }
   segments: ApiSegment[]
 }
@@ -159,6 +167,15 @@ function adaptJourneys(journeys: ApiJourney[]): GuestStayBlock[] {
           ? new Date(journey.guestStay.channexLastSyncAt)
           : null,
         paymentModel: journey.guestStay?.paymentModel ?? undefined,
+        // GROUP-BADGE (2026-06-01) — propagar identidad de grupo al journey
+        // block para que un miembro extendido conserve su badge "X/Y" + ring
+        // de color + tooltip. El badge se auto-desplaza si coincide con la
+        // flecha ↗ de extensión (BookingBlock: hasJourneyArrow → right:24).
+        reservationGroupId: journey.guestStay?.reservationGroupId ?? null,
+        groupRoomIndex:     journey.guestStay?.groupRoomIndex ?? null,
+        groupRoomCount:     journey.guestStay?.reservationGroup?.roomCount ?? null,
+        groupPrimaryName:   journey.guestStay?.reservationGroup?.primaryGuestName ?? null,
+        groupOtaName:       journey.guestStay?.reservationGroup?.channexOtaName ?? null,
       })
     }
   }
