@@ -175,6 +175,22 @@ describe('GuestStaysService — check-in alpha', () => {
       })
     })
 
+    it('COMP cubre el saldo SIN requerir aprobación de manager (fix Fase B — §C1.13)', async () => {
+      // Antes de Fase B, Guard 7 lanzaba ForbiddenException para COMP/$0 sin
+      // approvedById/approvalReason → el dialog Fase D (que ya no captura
+      // aprobación) habría dado 403 en cualquier check-in con Cortesía.
+      prismaMock.guestStay.findUnique.mockResolvedValue(makeStay()) // balance 360
+
+      const result = await service.confirmCheckin(
+        STAY_ID,
+        { ...baseDto, payments: [{ method: PaymentMethod.COMP, amount: 360 }] },
+        ACTOR_ID,
+      )
+
+      expect(result.success).toBe(true)
+      expect(prismaMock.guestStay.update).toHaveBeenCalled()
+    })
+
     it('idempotencia — stay ya checked-in devuelve ConflictException code=CHECKIN_ALREADY_CONFIRMED', async () => {
       prismaMock.guestStay.findUnique.mockResolvedValue(
         makeStay({ actualCheckin: new Date('2026-05-01T15:00:00.000Z') }),

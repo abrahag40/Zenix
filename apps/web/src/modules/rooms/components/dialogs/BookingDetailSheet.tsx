@@ -55,6 +55,7 @@ import { PaymentStatusBadge } from '../shared/PaymentStatusBadge'
 import { useLogContact, useEarlyCheckout, useUpdateGuestStay, useStayPayments, useVoidPayment, useRegisterPayment, useStayContext, useRegisterNoShowCharge, useSwapStayRooms } from '../../hooks/useGuestStays'
 import { SwapRoomsConfirmDialog } from './SwapRoomsConfirmDialog'
 import { GroupSwapPickerDialog } from './GroupSwapPickerDialog'
+import { GroupCheckinDialog } from './GroupCheckinDialog'
 import { ArrowLeftRight, ArrowRight } from 'lucide-react'
 import { useStayUpdatedSSE } from '../../hooks/useStayUpdatedSSE'
 import { EarlyCheckoutDialog } from './EarlyCheckoutDialog'
@@ -734,6 +735,7 @@ export function BookingDetailSheet({
   // Flow 2-step: picker (lista siblings) → confirm (preview vertical).
   const swapRoomsMut = useSwapStayRooms(propertyId ?? '')
   const [swapPickerOpen, setSwapPickerOpen] = useState(false)
+  const [groupCheckinOpen, setGroupCheckinOpen] = useState(false)
   const [swapTarget, setSwapTarget] = useState<{ id: string; guestName: string; roomNumber?: string | null } | null>(null)
   const currentUser  = useAuthStore((s) => s.user)
   const currentUserId = currentUser?.id ?? currentUser?.email ?? ''
@@ -1487,6 +1489,12 @@ export function BookingDetailSheet({
                   const groupBalanceTotal = allMembers
                     .filter((m) => !m.cancelledAt && !m.noShowAt)
                     .reduce((s, m) => s + memberBalance(m), 0)
+                  // GROUP-CHECKIN Fase B — ¿hay habitaciones del grupo pendientes
+                  // de check-in? (activas, no canceladas/no-show/salidas, sin
+                  // actualCheckin). Si sí, ofrecer "Check-in del grupo".
+                  const groupHasPendingCheckin = allMembers.some(
+                    (m) => !m.cancelledAt && !m.noShowAt && !m.actualCheckout && !m.actualCheckin,
+                  )
                   return (
                     <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 space-y-3">
                       {/* Header — C3.1 v8 R3: titular PRIMERO (lo que identifica),
@@ -1637,17 +1645,36 @@ export function BookingDetailSheet({
                         </div>
                       )}
 
-                      {/* CTA — single button "Cambiar habitación" */}
-                      {canSwap && (
+                      {/* CTAs del grupo — GROUP-CHECKIN Fase B: "Check-in del grupo"
+                          primario cuando hay habitaciones pendientes de llegar;
+                          "Intercambiar habitación" pasa a secundario (outline). */}
+                      {groupHasPendingCheckin && (
                         <button
                           type="button"
-                          onClick={() => setSwapPickerOpen(true)}
+                          onClick={() => setGroupCheckinOpen(true)}
                           className={cn(
                             'w-full inline-flex items-center justify-center gap-1.5',
                             'h-9 rounded-md bg-emerald-600 hover:bg-emerald-700',
                             'text-[13px] font-semibold text-white',
                             'transition-colors active:scale-[0.98]',
                             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300',
+                          )}
+                        >
+                          <LogIn className="h-3.5 w-3.5" strokeWidth={2.5} />
+                          Check-in del grupo
+                        </button>
+                      )}
+                      {canSwap && (
+                        <button
+                          type="button"
+                          onClick={() => setSwapPickerOpen(true)}
+                          className={cn(
+                            'w-full inline-flex items-center justify-center gap-1.5 h-9 rounded-md',
+                            'text-[13px] font-semibold transition-colors active:scale-[0.98]',
+                            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300',
+                            groupHasPendingCheckin
+                              ? 'border border-emerald-300 bg-white text-emerald-700 hover:bg-emerald-50'
+                              : 'bg-emerald-600 hover:bg-emerald-700 text-white',
                           )}
                         >
                           <ArrowLeftRight className="h-3.5 w-3.5" strokeWidth={2.5} />
@@ -2688,6 +2715,15 @@ export function BookingDetailSheet({
     {/* CHECK-IN C3.1 v5 — GroupSwapPickerDialog: picker reusable que escala
         a grupos de cualquier tamaño. WhatsApp Forward / iOS Contact Picker
         pattern. Single primary action en sheet → picker → confirm. */}
+    {/* GROUP-CHECKIN Fase B — check-in bulk de los miembros del grupo que llegaron. */}
+    <GroupCheckinDialog
+      open={groupCheckinOpen}
+      onClose={() => setGroupCheckinOpen(false)}
+      stayId={realStayId}
+      propertyId={propertyId ?? ''}
+      primaryName={stay?.groupPrimaryName ?? stay?.guestName ?? null}
+    />
+
     <GroupSwapPickerDialog
       open={swapPickerOpen}
       onClose={() => setSwapPickerOpen(false)}

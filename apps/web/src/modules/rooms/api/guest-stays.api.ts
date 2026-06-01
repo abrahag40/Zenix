@@ -104,6 +104,7 @@ export interface GroupBalanceEntry {
   amountPaid: number
   balance: number
   paymentStatus: string
+  paymentModel: 'HOTEL_COLLECT' | 'OTA_COLLECT' | 'HYBRID_DEPOSIT'
   checkedIn: boolean
   cancelled: boolean
   noShow: boolean
@@ -239,6 +240,16 @@ export const guestStaysApi = {
   /** GROUP-PAYMENTS Fase A (D-GRP-A3/A4) — balances por habitación del grupo. */
   getGroupBalances: (stayId: string) =>
     api.get<GroupBalances>(`${BASE}/${stayId}/group-balances`),
+
+  /** GROUP-CHECKIN Fase B (D-GRP-B1..B3) — check-in bulk de miembros del grupo. */
+  bulkCheckin: (payload: {
+    members: { stayId: string; guestName?: string }[]
+    documentVerified: boolean
+  }) => api.post<{
+    checkedIn: number
+    total: number
+    results: { stayId: string; status: string; guestName?: string; balance?: number }[]
+  }>(`${BASE}/group-checkin`, payload),
 
   // ─── Sprint EDIT-RESERVATION ─────────────────────────────────────────────
 
