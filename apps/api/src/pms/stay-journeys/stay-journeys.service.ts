@@ -94,6 +94,15 @@ export class StayJourneyService {
             channexConflict: true,
             channexLastSyncAt: true,
             paymentModel: true,
+            // GROUP-BADGE (2026-06-01) — identidad de grupo para que un miembro
+            // que se extiende (journey) NO pierda su badge + ring de color en el
+            // calendario. Sin esto, los journey blocks no llevaban group fields →
+            // el grupo "desaparecía" visualmente al extender una habitación.
+            reservationGroupId: true,
+            groupRoomIndex: true,
+            reservationGroup: {
+              select: { roomCount: true, primaryGuestName: true, channexOtaName: true },
+            },
           },
         },
         segments: {

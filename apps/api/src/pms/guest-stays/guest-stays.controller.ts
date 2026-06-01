@@ -12,6 +12,7 @@ import { IsBoolean, IsIn, IsObject, IsOptional, IsString } from 'class-validator
 import { CreateContactLogDto } from './dto/create-contact-log.dto'
 import { ConfirmCheckinDto } from './dto/confirm-checkin.dto'
 import { RegisterPaymentDto } from './dto/register-payment.dto'
+import { BulkCheckinDto } from './dto/bulk-checkin.dto'
 import { VoidPaymentDto } from './dto/void-payment.dto'
 import { UpdateGuestStayDto } from './dto/update-guest-stay.dto'
 import { CreateGuestStayNoteDto, UpdateGuestStayNoteDto } from './dto/guest-stay-note.dto'
@@ -331,6 +332,17 @@ export class GuestStaysController {
       throw new BadRequestException('stayIdA y stayIdB son requeridos')
     }
     return this.service.swapStayRooms(dto.stayIdA, dto.stayIdB, actor.sub, dto.reason)
+  }
+
+  /**
+   * POST /v1/guest-stays/group-checkin
+   * GROUP-CHECKIN Fase B (D-GRP-B1..B3) — check-in bulk de los miembros de un
+   * grupo que llegaron (rename opcional; ausentes no se incluyen → pendientes).
+   * Literal route ANTES de `:id` (mismo pattern que swap-rooms).
+   */
+  @Post('group-checkin')
+  bulkCheckin(@Body() dto: BulkCheckinDto, @CurrentUser() actor: JwtPayload) {
+    return this.service.bulkCheckin(dto, actor.sub)
   }
 
   @Post(':id/checkout')

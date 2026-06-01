@@ -32,6 +32,7 @@ import {
 import { Prisma } from '@prisma/client'
 import { ConfirmCheckinDto } from './dto/confirm-checkin.dto'
 import { RegisterPaymentDto } from './dto/register-payment.dto'
+import { BulkCheckinDto } from './dto/bulk-checkin.dto'
 import { VoidPaymentDto } from './dto/void-payment.dto'
 import { UpdateGuestStayDto } from './dto/update-guest-stay.dto'
 import { CreateGuestStayNoteDto, UpdateGuestStayNoteDto } from './dto/guest-stay-note.dto'
@@ -2440,14 +2441,13 @@ export class GuestStaysService {
           `El método ${p.method} requiere un número de referencia de la terminal`,
         )
       }
-      if (
-        (p.method === PaymentMethod.COMP || p.amount === 0) &&
-        (!p.approvedById?.trim() || !p.approvalReason?.trim())
-      ) {
-        throw new ForbiddenException(
-          'Pagos en $0 o tipo COMP requieren código y razón de aprobación del manager',
-        )
-      }
+      // GROUP-CHECKIN Fase B — aprobación de manager para COMP/$0 REMOVIDA del
+      // check-in (coherente con §C1.13 + §120-bis + el fix de Fase A en
+      // registerPayment). El dialog Fase D dejó de capturar approvedById/Reason
+      // para cortesía → este guard daba 403 a cualquier check-in con Cortesía.
+      // El control anti-fraude vive en el arqueo del turno (CashierShift §85);
+      // el motivo, si aplica, va en las notas de llegada. approvedById/Reason
+      // se siguen persistiendo si la UI los envía (backward-compat).
     }
 
     // Guard 5: balance pendiente sin pago
@@ -2821,7 +2821,7 @@ export class GuestStaysService {
       where: { reservationGroupId: stay.reservationGroupId, organizationId: orgId },
       select: {
         id: true, guestName: true, currency: true, amountPaid: true, totalAmount: true,
-        paymentStatus: true, actualCheckin: true, noShowAt: true, cancelledAt: true,
+        paymentStatus: true, paymentModel: true, actualCheckin: true, noShowAt: true, cancelledAt: true,
         groupRoomIndex: true,
         room: { select: { number: true } },
       },
@@ -2840,12 +2840,113 @@ export class GuestStaysService {
         amountPaid:    Number(s.amountPaid),
         balance:       Math.max(0, Number(s.totalAmount) - Number(s.amountPaid)),
         paymentStatus: s.paymentStatus,
+        paymentModel:  s.paymentModel,
         checkedIn:     !!s.actualCheckin,
         cancelled:     !!s.cancelledAt,
         noShow:        !!s.noShowAt,
         isContext:     s.id === stayId,
       })),
     }
+  }
+
+  /**
+   * POST /v1/guest-stays/group-checkin
+   * GROUP-CHECKIN Fase B (D-GRP-B1/B2/B3) — check-in bulk de los miembros de un
+   * grupo que LLEGARON. Las habitaciones ausentes simplemente no se incluyen en
+   * `members` → quedan pendientes para el night audit (§4.3, "no llegó" = skip).
+   *
+   * Por miembro: valida (no checked-in / no no-show / no cancelada / fecha
+   * llegada / saldo cubierto u OTA-collect) y, si pasa, confirma check-in +
+   * room OCCUPIED + rename opcional (no bloqueante). El pago NO se procesa aquí
+   * (se cubre en A4 group payment, OTA, o pago previo). Cada miembro es
+   * independiente — un fallo de validación no aborta a los demás (partial
+   * success deseado). Devuelve resultado per-miembro para feedback en la UI.
+   */
+  async bulkCheckin(dto: BulkCheckinDto, actorId: string) {
+    const orgId = this.tenant.getOrganizationId()
+    if (!dto.documentVerified) {
+      throw new BadRequestException('Se requiere verificar la identidad de los huéspedes')
+    }
+
+    const ids = dto.members.map((m) => m.stayId)
+    const stays = await this.prisma.guestStay.findMany({
+      where: { id: { in: ids }, organizationId: orgId },
+      select: {
+        id: true, roomId: true, guestName: true, guestFirstName: true, guestLastName: true,
+        actualCheckin: true, noShowAt: true, cancelledAt: true, checkinAt: true,
+        amountPaid: true, totalAmount: true, paymentModel: true,
+        stayJourney: { select: { id: true } },
+        room: { select: { property: { select: { settings: { select: { timezone: true } } } } } },
+      },
+    })
+    const byId = new Map(stays.map((s) => [s.id, s]))
+
+    const results: Array<{ stayId: string; status: string; guestName?: string; balance?: number }> = []
+    const now = new Date()
+
+    for (const m of dto.members) {
+      const stay = byId.get(m.stayId)
+      if (!stay)                              { results.push({ stayId: m.stayId, status: 'not_found' }); continue }
+      if (stay.actualCheckin)                 { results.push({ stayId: m.stayId, status: 'already_checked_in' }); continue }
+      if (stay.noShowAt || stay.cancelledAt)  { results.push({ stayId: m.stayId, status: 'blocked' }); continue }
+
+      const tz = stay.room?.property?.settings?.timezone ?? 'UTC'
+      if (toLocalDate(stay.checkinAt, tz) > toLocalDate(now, tz)) {
+        results.push({ stayId: m.stayId, status: 'future' }); continue
+      }
+
+      const balance   = Number(stay.totalAmount) - Number(stay.amountPaid)
+      const isOtaColl  = stay.paymentModel === 'OTA_COLLECT'
+      if (balance > 0.01 && !isOtaColl) {
+        results.push({ stayId: m.stayId, status: 'balance_unpaid', balance }); continue
+      }
+
+      // Rename opcional (no bloqueante) — split + title-case, sync guestName.
+      const rename = m.guestName?.trim()
+      let firstName = stay.guestFirstName
+      let lastName  = stay.guestLastName
+      let fullName  = stay.guestName
+      if (rename) {
+        const parts = rename.split(/\s+/)
+        firstName = titleCase(parts[0] ?? '')
+        lastName  = titleCase(parts.slice(1).join(' '))
+        fullName  = `${firstName} ${lastName}`.trim() || rename
+      }
+
+      await this.prisma.$transaction(async (tx) => {
+        await tx.guestStay.update({
+          where: { id: stay.id },
+          data: {
+            actualCheckin:        now,
+            checkinConfirmedById: actorId,
+            paymentStatus:        'PAID',
+            ...(rename ? { guestName: fullName, guestFirstName: firstName, guestLastName: lastName } : {}),
+          },
+        })
+        await tx.room.update({ where: { id: stay.roomId }, data: { status: 'OCCUPIED' } })
+        if (stay.stayJourney?.id) {
+          await tx.stayJourneyEvent.create({
+            data: {
+              journeyId: stay.stayJourney.id,
+              eventType: 'CHECKED_IN',
+              actorId,
+              payload: {
+                confirmedAt:      now.toISOString(),
+                documentVerified: dto.documentVerified,
+                via:              'group_bulk',
+                renamed:          !!rename,
+              },
+            },
+          })
+        }
+      })
+
+      results.push({ stayId: m.stayId, status: 'checked_in', guestName: fullName })
+    }
+
+    const checkedIn = results.filter((r) => r.status === 'checked_in').length
+    this.logger.log(`[BulkCheckin] checkedIn=${checkedIn}/${dto.members.length}`)
+    return { checkedIn, total: dto.members.length, results }
   }
 
   /**

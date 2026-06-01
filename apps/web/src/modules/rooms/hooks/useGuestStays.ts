@@ -805,6 +805,24 @@ export function useConfirmCheckin(propertyId: string) {
   })
 }
 
+/**
+ * GROUP-CHECKIN Fase B (D-GRP-B1..B3) — check-in bulk de miembros de un grupo.
+ * Invalida el calendario + balances de grupo. El toast con el resumen
+ * per-miembro lo maneja el componente (GroupCheckinDialog).
+ */
+export function useBulkCheckin(propertyId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: Parameters<typeof guestStaysApi.bulkCheckin>[0]) =>
+      guestStaysApi.bulkCheckin(payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['guest-stays', propertyId], exact: false, refetchType: 'active' })
+      qc.invalidateQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false, refetchType: 'active' })
+      qc.invalidateQueries({ queryKey: ['group-balances'], exact: false })
+    },
+  })
+}
+
 export function useLogContact(stayId: string) {
   return useMutation({
     mutationFn: ({

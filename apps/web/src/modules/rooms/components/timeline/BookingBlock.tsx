@@ -1,13 +1,14 @@
 import { memo, useMemo, useRef } from 'react'
 import { startOfDay, addDays, format } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { Lock, Unlock, LogOut, UserX, ArrowUpRight, Info, Users } from 'lucide-react'
+import { Lock, Unlock, LogOut, UserX, ArrowUpRight, Info } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { STAY_STATUS_COLORS, OTA_ACCENT_COLORS, TIMELINE } from '../../utils/timeline.constants'
 import type { StayStatusKey } from '../../utils/timeline.constants'
 import { stayToRect, getStayStatus } from '../../utils/timeline.utils'
-import type { GuestStayBlock } from '../../types/timeline.types'
+import { groupColor } from '../../utils/groupColor'
+import type { GuestStayBlock, GroupSummary } from '../../types/timeline.types'
 import { useTooltip } from '../../hooks/useTooltip'
 import { TooltipPortal } from './TooltipPortal'
 
@@ -53,6 +54,8 @@ interface BookingBlockProps {
   /** Disparado al hover entrar/salir del block. Solo si reservationGroupId
    *  está seteado — TimelineScheduler hace el guard. */
   onGroupHover?: (groupId: string | null) => void
+  /** GROUP-BADGE (2026-06-01) — agregado del grupo (llegadas) para el tooltip. */
+  groupSummary?: GroupSummary
 }
 
 const BLOCK_SHADOW = [
@@ -135,6 +138,7 @@ function BookingBlockInner({
   hasNsAbove = false,
   isInHoveredGroup = false,
   onGroupHover,
+  groupSummary,
 }: BookingBlockProps) {
   const forceAbove = stay.hasMultipleSegments === true && stay.isLastSegment !== true
   // Tooltip se desactiva cuando hay un drag global en curso para evitar
@@ -412,6 +416,16 @@ function BookingBlockInner({
     window.addEventListener('mouseup', handleMouseUp)
   }
 
+  // GROUP-BADGE (2026-06-01) — color de identidad por grupo (opción C).
+  // El mismo groupId → mismo hue estable; recolorea badge + ring (canal
+  // separado del relleno de estado §31). null si la stay no es de grupo.
+  // GROUP-BADGE (2026-06-01) — identidad de grupo SOLO por color de ring (no
+  // pastilla). La esquina superior derecha está saturada (candado, flecha ↗,
+  // indicador vencido, botón OUT); una pastilla "X/Y" ahí tapaba esos controles.
+  // El ring de color vive en el borde → distingue grupos sin chocar con nada.
+  // El contador/titular del grupo viven en el tooltip + el sheet de detalle.
+  const gc = stay.reservationGroupId ? groupColor(stay.reservationGroupId) : null
+
   return (
     <>
       <div
@@ -495,18 +509,18 @@ function BookingBlockInner({
             ? `inset 0 0 0 1.5px rgba(245,158,11,0.70), ${BLOCK_SHADOW}`
             : isInActiveJourney
             ? `0 0 0 2px #378ADD, 0 4px 12px rgba(55,138,221,0.35), ${BLOCK_SHADOW}`
-            : isInHoveredGroup
-            // CHECK-IN C3.1 — hover-highlight de siblings del mismo
-            // ReservationGroup. Ring violet outside (no conflict con
-            // emerald journey ni amber NS). Comunica "estos son del
-            // mismo grupo" cuando recepción hover sobre cualquier block.
-            ? `0 0 0 2px rgba(139,92,246,0.85), 0 4px 10px rgba(139,92,246,0.25), ${BLOCK_SHADOW}`
-            : stay.reservationGroupId
-            // CHECK-IN C3.1 v2 — ring persistente sutil para stays de
-            // grupo (sin hover). 0.30 opacity = detectable pero no
-            // intrusivo (Apple HIG Vibrancy: status indicators muted
-            // by default, prominent on interaction). Patrón Mews.
-            ? `0 0 0 1.5px rgba(139,92,246,0.30), ${BLOCK_SHADOW}`
+            : isInHoveredGroup && gc
+            // CHECK-IN C3.1 + GROUP-BADGE (2026-06-01) — hover-highlight de
+            // siblings del mismo ReservationGroup, ahora con el HUE del grupo
+            // (no violeta uniforme) para distinguir grupos entre sí.
+            ? `0 0 0 2px ${gc.ring(0.90)}, 0 4px 10px ${gc.ring(0.28)}, ${BLOCK_SHADOW}`
+            : stay.reservationGroupId && gc
+            // Ring persistente con el hue del grupo (sin hover). El color
+            // identifica el grupo de un vistazo (Treisman 1980 pre-attentive).
+            // En bloques avatar-only (1 noche, ~45px en vista Mes) el badge se
+            // oculta → reforzamos el ring (2px/0.65) para que el color siga
+            // siendo el ancla de identidad del grupo. Bloques con badge: 1.5px/0.45.
+            ? `0 0 0 ${useAvatarOnly ? 2 : 1.5}px ${gc.ring(useAvatarOnly ? 0.65 : 0.45)}, ${BLOCK_SHADOW}`
             : BLOCK_SHADOW,
           // Sprint AVAIL-OVERSTAY: stroke amber animado vive en overlay div
           // .overstay-stroke (ver más abajo). Lo separamos del boxShadow inline
@@ -564,30 +578,13 @@ function BookingBlockInner({
           }}
         />
 
-        {/* CHECK-IN C3.1 v2 (2026-05-30) — Group badge con icon Users +
-            fraccional. Icon comunica "grupo" pre-attentive (Treisman 1980
-            <200ms) sin necesidad de hover. NN/g H6 Recognition rather
-            than recall: el operador ve "grupo" como concepto inmediato,
-            no infiere "1/3" como abstracción.
-
-            Estudio comparativo Cloudbeds/Mews/Opera/RoomRaccoon — todos
-            usan icon o tag explícito para comunicar group state. Sirvoy
-            es el outlier que solo usa "G" — mal evaluado en G2/Capterra
-            reviews por confusing UX. Pattern Mews 2024 adoptado aquí. */}
-        {stay.reservationGroupId && stay.groupRoomIndex && stay.groupRoomCount && rect.width >= 60 && !isNsStripe && (
-          <div
-            className="absolute top-0.5 right-0.5 inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[9px] font-bold tabular-nums leading-none pointer-events-none"
-            style={{
-              backgroundColor: 'rgba(139,92,246,0.92)',
-              color: 'white',
-              boxShadow: '0 1px 2px rgba(0,0,0,0.18)',
-            }}
-            aria-label={`Habitación ${stay.groupRoomIndex} de ${stay.groupRoomCount} del grupo${stay.groupPrimaryName ? ` ${stay.groupPrimaryName}` : ''}`}
-          >
-            <Users className="h-2.5 w-2.5" strokeWidth={2.5} />
-            {stay.groupRoomIndex}/{stay.groupRoomCount}
-          </div>
-        )}
+        {/* GROUP-BADGE (2026-06-01) — pastilla "👥 X/Y" REMOVIDA por feedback
+            owner: tapaba el candado / flecha ↗ en la esquina superior derecha
+            (esquina saturada con candado + flecha + vencido + OUT). La identidad
+            de grupo se comunica ahora SOLO por el ring de color del bloque (ver
+            boxShadow arriba, gc.ring) — distingue grupos de un vistazo sin
+            chocar con ningún control. El contador X/Y + titular viven en el
+            tooltip (hover) y en la sección Grupo del BookingDetailSheet. */}
 
         {/* Sprint AVAIL-OVERSTAY — Vencido indicator (rediseño 2026-05-19 iter 2).
             Iter 1 (icono disco amber) chocaba con el journey-extension arrow
@@ -949,6 +946,7 @@ function BookingBlockInner({
         stay={stay}
         position={position}
         visible={visible}
+        groupSummary={groupSummary}
         registerTooltipRef={registerTooltipRef}
         onNoShow={onNoShow ? (stayId) => { hide(); onNoShow(stayId) } : undefined}
         onStartCheckin={onStartCheckin ? (stayId) => { hide(); onStartCheckin(stayId) } : undefined}
