@@ -4408,6 +4408,11 @@ export class GuestStaysService {
       cancelledAt: Date
       cancelInitiator: string | null
       cancelReason: string | null
+      // GROUP-BILLING Fase C C3b — outcome de reembolso (STAY-level).
+      currency?: string | null
+      cancelRetentionAmount?: number | null
+      cancelRefundAmount?: number | null
+      cancelRefundStatus?: string | null
       // Solo presente para EXTENSION_SEGMENT
       segmentId?: string
       previousCheckOut?: string
@@ -4426,6 +4431,10 @@ export class GuestStaysService {
         cancelledAt: s.cancelledAt!,
         cancelInitiator: s.cancelInitiator ?? null,
         cancelReason: s.cancelReason ?? null,
+        currency: s.currency,
+        cancelRetentionAmount: s.cancelRetentionAmount != null ? Number(s.cancelRetentionAmount) : null,
+        cancelRefundAmount: s.cancelRefundAmount != null ? Number(s.cancelRefundAmount) : null,
+        cancelRefundStatus: s.cancelRefundStatus ?? null,
       })
     }
     for (const e of extensionEvents) {

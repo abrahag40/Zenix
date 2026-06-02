@@ -70,6 +70,13 @@ export interface GuestStayBlock {
   cancelInitiator?: 'GUEST' | 'HOTEL' | 'OTA' | 'ADMIN_ERROR' | 'SYSTEM'
   cancelReason?: string
   cancelReasonCode?: string
+  // GROUP-BILLING Fase C C3b — outcome de cancelación (retención/reembolso).
+  cancelRetentionAmount?: number | null
+  cancelRefundAmount?: number | null
+  cancelRefundStatus?: 'NONE' | 'PENDING' | 'REFUNDED' | 'WAIVED' | null
+  cancelRefundMethod?: string | null
+  cancelRefundReference?: string | null
+  cancelRefundAt?: Date | null
   // stripePaymentMethodId eliminado 2026-05-29 — no-show charging vía Stripe
   // estaba fuera del scope. Cargo se registra manual en flujo PMS.
   otaName?: string

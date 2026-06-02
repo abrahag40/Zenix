@@ -52,7 +52,7 @@ import {
 
 import { getStayStatus } from '../../utils/timeline.utils'
 import { PaymentStatusBadge } from '../shared/PaymentStatusBadge'
-import { useLogContact, useEarlyCheckout, useUpdateGuestStay, useStayPayments, useVoidPayment, useRegisterPayment, useStayContext, useRegisterNoShowCharge, useSwapStayRooms } from '../../hooks/useGuestStays'
+import { useLogContact, useEarlyCheckout, useUpdateGuestStay, useStayPayments, useVoidPayment, useRegisterPayment, useStayContext, useRegisterNoShowCharge, useRegisterCancelRefund, useSwapStayRooms } from '../../hooks/useGuestStays'
 import { SwapRoomsConfirmDialog } from './SwapRoomsConfirmDialog'
 import { GroupSwapPickerDialog } from './GroupSwapPickerDialog'
 import { GroupCheckinDialog } from './GroupCheckinDialog'
@@ -60,6 +60,7 @@ import { ArrowLeftRight, ArrowRight } from 'lucide-react'
 import { useStayUpdatedSSE } from '../../hooks/useStayUpdatedSSE'
 import { EarlyCheckoutDialog } from './EarlyCheckoutDialog'
 import { RegisterNoShowChargeDialog } from './RegisterNoShowChargeDialog'
+import { RegisterCancelRefundDialog } from './RegisterCancelRefundDialog'
 import { InlineEditField } from '../shared/InlineEditField'
 import { ReservationNotesThread } from '../shared/ReservationNotesThread'
 import { ChangeConfirmDialog } from '../shared/ChangeConfirmDialog'
@@ -727,6 +728,8 @@ export function BookingDetailSheet({
   // No-show admin charge — Sprint POST-NETFLIX-TRIAL (2026-05-29)
   const [showNoShowChargeDialog, setShowNoShowChargeDialog] = useState(false)
   const registerNoShowChargeMut = useRegisterNoShowCharge(propertyId ?? '')
+  const [showCancelRefundDialog, setShowCancelRefundDialog] = useState(false)
+  const registerCancelRefundMut = useRegisterCancelRefund(propertyId ?? '')
 
   // Sprint EDIT-RESERVATION — hook único para todas las ediciones inline.
   // Backend aplica matriz phase×campo + audit log. El frontend solo dispatcha.
@@ -2146,6 +2149,63 @@ export function BookingDetailSheet({
                   )}
                 </div>
               )}
+
+              {/* GROUP-BILLING Fase C C3b — reembolso de cancelación. Card visible
+                  cuando la reserva está cancelada y hay un outcome de reembolso. */}
+              {stay.cancelledAt && stay.cancelRefundStatus && stay.cancelRefundStatus !== 'NONE' && (
+                <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-2">
+                  <h4 className="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
+                    <CreditCard className="h-3 w-3 text-slate-400" />
+                    Reembolso de cancelación
+                  </h4>
+                  <div className="flex items-center justify-between text-[11px] text-slate-600 tabular-nums">
+                    <span>Retención del hotel</span>
+                    <span className="font-semibold text-slate-800">{stay.currency} {(stay.cancelRetentionAmount ?? 0).toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-slate-600 tabular-nums">
+                    <span>A reembolsar al huésped</span>
+                    <span className="font-semibold text-slate-800">{stay.currency} {(stay.cancelRefundAmount ?? 0).toLocaleString()}</span>
+                  </div>
+
+                  {stay.cancelRefundStatus === 'PENDING' && (
+                    <div className="space-y-2 pt-1">
+                      <p className="text-[11px] text-amber-700">
+                        Reembolso pendiente — procésalo fuera de Zenix (OTA VCC / transferencia / efectivo) y registra el resultado.
+                      </p>
+                      <Button
+                        size="sm"
+                        onClick={() => setShowCancelRefundDialog(true)}
+                        className="w-full h-8 bg-emerald-600 hover:bg-emerald-700 text-white text-xs"
+                      >
+                        Registrar reembolso
+                      </Button>
+                    </div>
+                  )}
+
+                  {stay.cancelRefundStatus === 'REFUNDED' && (
+                    <div className="space-y-1 pt-1">
+                      <p className="text-[11px] font-semibold text-emerald-700 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+                        Reembolsado ✓
+                      </p>
+                      {stay.cancelRefundMethod && (
+                        <p className="text-[10px] text-slate-600">
+                          Método: <span className="font-medium">{stay.cancelRefundMethod}</span>
+                          {stay.cancelRefundReference && <> · Ref: <span className="font-mono">{stay.cancelRefundReference}</span></>}
+                          {stay.cancelRefundAt && <> · {format(stay.cancelRefundAt, 'd MMM HH:mm', { locale: es })}</>}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {stay.cancelRefundStatus === 'WAIVED' && (
+                    <p className="text-[11px] font-semibold text-slate-600 flex items-center gap-1.5 pt-1">
+                      <span className="w-2 h-2 rounded-full bg-slate-400 inline-block" />
+                      No reembolsado (renunciado / política)
+                    </p>
+                  )}
+                </div>
+              )}
               </div>{/* /wrapper "p-4 space-y-3" del tab Pago bulk-edit */}
             </TabsContent>
 
@@ -2625,6 +2685,24 @@ export function BookingDetailSheet({
       feeAmount={stay.noShowFeeAmount}
       feeCurrency={stay.noShowFeeCurrency}
       hasOtaGuarantee={!!stay.channexGuaranteeMeta}
+    />
+
+    {/* GROUP-BILLING Fase C C3b — registro del reembolso de cancelación. */}
+    <RegisterCancelRefundDialog
+      open={showCancelRefundDialog}
+      onClose={() => setShowCancelRefundDialog(false)}
+      onConfirm={(dto) => {
+        const stayId = stay.guestStayId ?? stay.id
+        registerCancelRefundMut.mutate(
+          { stayId, payload: dto },
+          { onSuccess: () => setShowCancelRefundDialog(false) },
+        )
+      }}
+      isPending={registerCancelRefundMut.isPending}
+      guestName={stay.guestName}
+      refundAmount={stay.cancelRefundAmount}
+      retentionAmount={stay.cancelRetentionAmount}
+      currency={stay.currency}
     />
 
     {/* ── ChangeConfirmDialog: approval flow para paxCount/rate post-checkin.

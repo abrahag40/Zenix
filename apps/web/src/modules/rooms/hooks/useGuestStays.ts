@@ -60,6 +60,13 @@ function adaptStay(raw: Record<string, unknown>): GuestStayBlock {
     cancelInitiator:      raw.cancelInitiator as GuestStayBlock['cancelInitiator'],
     cancelReason:         raw.cancelReason as string | undefined,
     cancelReasonCode:     raw.cancelReasonCode as string | undefined,
+    // GROUP-BILLING Fase C C3b — outcome de cancelación (retención/reembolso).
+    cancelRetentionAmount:(raw.cancelRetentionAmount != null ? Number(raw.cancelRetentionAmount) : null),
+    cancelRefundAmount:   (raw.cancelRefundAmount != null ? Number(raw.cancelRefundAmount) : null),
+    cancelRefundStatus:   (raw.cancelRefundStatus as GuestStayBlock['cancelRefundStatus']) ?? null,
+    cancelRefundMethod:   (raw.cancelRefundMethod as string | null | undefined) ?? null,
+    cancelRefundReference:(raw.cancelRefundReference as string | null | undefined) ?? null,
+    cancelRefundAt:       raw.cancelRefundAt ? new Date(raw.cancelRefundAt as string) : null,
     // Sprint CHANNEX-INBOUND + CHANNEX-UX-E2-E3 §149-§152 — Channel Manager fields
     // surfaced en BookingDetailSheet (chip sync) + CancelReservationDialog (push CRS).
     channexBookingId:     (raw.channexBookingId as string | null | undefined) ?? null,

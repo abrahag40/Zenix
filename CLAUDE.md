@@ -1232,7 +1232,7 @@ housekeeping3/
 
 ### Cancellation policy engine — Sprint GROUP-BILLING Fase C (EN CURSO, branch `feat/cancellation-policy-engine`)
 
-> **PUNTO DE PARADA 2026-06-02** — etapas C1 (foundation) + C2 (wire backend) + C3a (cancel preview UI) commiteadas en rama. C3b (RegisterCancelRefundDialog + sheet) / C4 (group cancel) / C5 (Settings) pendientes. No mergear hasta completar al menos C3b.
+> **PUNTO DE PARADA 2026-06-02** — etapas C1 (foundation) + C2 (wire backend) + C3a (cancel preview UI) + **C3b (RegisterCancelRefundDialog + integración drawer, validado end-to-end)** commiteadas en rama. C4 (group cancel) / C5 (Settings) pendientes. **NO mergear** hasta autorización del owner. El flujo de cancelación individual + registro de reembolso ya está completo y funcional.
 
 #### ✅ Etapa C1 — Foundation (commit `f2b23de`, rama `feat/cancellation-policy-engine`)
 
@@ -1257,11 +1257,12 @@ housekeeping3/
 - **API + hooks:** `cancellationPreview` + `registerCancelRefund` en `guest-stays.api.ts`; `useCancellationPreview` (useQuery, enabled al abrir) + `useRegisterCancelRefund` (useMutation) en `useGuestStays.ts`.
 - **Verificado end-to-end vía HTTP+JWT:** preview de un stay (pagó $720, check-in ~30h) → tramo NIGHTS 1, retención $180, reembolso $540. Typecheck web+API verde. (UI del dialog no capturada por glitch del preview tooling; card es binding directo a los datos verificados.)
 
-#### ⏳ Etapa C3b — RegisterCancelRefundDialog + integración sheet (PENDIENTE)
+#### ✅ Etapa C3b — RegisterCancelRefundDialog + integración drawer (commit en rama, validado end-to-end)
 
-- `RegisterCancelRefundDialog` (nuevo, molde `RegisterNoShowChargeDialog`): status `REFUNDED|WAIVED` × método (efectivo/transferencia/OTA VCC/POS/otro) + referencia + razón (req si WAIVED) + monto opcional (parcial).
-- Integración en `BookingDetailSheet` para stays cancelados con `cancelRefundStatus='PENDING'`: card "Reembolso pendiente $Y" + botón "Registrar reembolso" (molde bloque no-show §2079-2150). Estados CHARGED/WAIVED visibles.
-- **Plumbing requerido:** exponer `cancelRefundStatus`/`cancelRefundAmount`/`cancelRetentionAmount` en `GuestStayBlock` (select en query de calendario + mapping `useGuestStays`). Hoy el bloque no los trae.
+- `RegisterCancelRefundDialog` (nuevo, molde `RegisterNoShowChargeDialog`): status `REFUNDED|WAIVED` × método (efectivo/transferencia/OTA VCC/POS/otro) + referencia (req para transferencia/OTA) + razón (req si WAIVED) + monto editable (default = calculado, ajustable para parcial).
+- **Acceso reachable = `CancelledTodayDrawer`** (no el sheet). Decisión clave tras detectar bug §1: las reservas canceladas se filtran del calendario y el `CancelledTodayDrawer` NO abre el `BookingDetailSheet` (solo "Restaurar") — el sheet quedaba **inalcanzable** para stays cancelados. El botón "Reembolso $Y" + dialog se montaron directamente en el drawer (botón cuando `row.type !== 'EXTENSION_SEGMENT' && cancelRefundStatus === 'PENDING'`; chips REFUNDED/WAIVED). La card en el sheet se mantiene como defensa pero el camino real es el drawer.
+- **Plumbing:** (a) `GuestStayBlock` expone `cancelRetention/Refund*` (type + mapping `useGuestStays`); (b) **el backend `listCancelled` (`UnifiedRow`) reshapeaba sin los campos financieros** → se agregaron `currency` + `cancelRetentionAmount` + `cancelRefundAmount` + `cancelRefundStatus` al push de filas STAY. Sin esto el drawer recibía las filas sin el outcome y el botón nunca aparecía.
+- **Verificado end-to-end en navegador:** cancelar "Ext Miembro 2" (pagó $720, check-in ~30h) → tramo NIGHTS 1, retención $180, reembolso $540 PENDING → drawer muestra botón "Reembolso USD 540" → dialog abre con A reembolsar 540 / Retención 180 / USD → registrar con referencia SPEI → status **PENDING → REFUNDED**. Typecheck web+API verde. 41/41 (cancel + cancellation-policy specs).
 
 #### ⏳ Etapa C4 — Group cancel (PENDIENTE)
 
