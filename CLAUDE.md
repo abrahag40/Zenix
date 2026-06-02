@@ -1230,6 +1230,50 @@ housekeeping3/
 
 > **Sprint GROUP-BILLING Fase B + GROUP-BADGE — cerrados 2026-06-01 con typecheck web + API verdes + 163/163 tests guest-stays (7 nuevos bulk-checkin + 1 COMP) + validación end-to-end en navegador (Modos A/B + casos extensión/1-noche + tooltip). Siguiente: Fase C CANCELLATION-POLICY-ENGINE (D-GRP-C1..C8) — revenue + compliance blocker.**
 
+### Cancellation policy engine — Sprint GROUP-BILLING Fase C (EN CURSO, branch `feat/cancellation-policy-engine`)
+
+> **PUNTO DE PARADA 2026-06-01** — etapa C1 (foundation) commiteada en rama. C2..C5 pendientes. No mergear hasta completar al menos C1+C2+UI (preview en CancelReservationDialog).
+
+#### ✅ Etapa C1 — Foundation (commit `f2b23de`, rama `feat/cancellation-policy-engine`)
+
+- **Schema + migración** `20260611000000_cancellation_policy`: modelo `CancellationPolicy` (propertyId, name, isDefault, freeWindowHours, `tiers: Json`, refundMode, `groupOverride: Json?`) + FK real `GuestStay.cancellationPolicy` (el hook `cancellationPolicyId` existía como string suelto desde CANCEL-ARCHIVE §95 — ahora es FK verdadera). Migración aplicada aislada.
+- **Motor de cálculo puro** `computeCancellationOutcome(policy, stay, now)` en `src/pms/cancellation/cancellation-policy.service.ts`: función sin BD, retorna `{ free, retention, refund, appliedTier, hoursUntilCheckin, currency }`. Soporta NIGHTS/PERCENT/FIXED, cap al total, pago parcial, ventana gratuita, no-show (check-in pasado → último tramo). Default conservador: gratis ≥48h · 48-24h=1ª noche · <24h=100%.
+- **CRUD** `CancellationPolicyService` (list/create/update + setDefault transaccional + validación de tramos) + controller `GET|POST|PATCH /v1/cancellation-policies` (SUPERVISOR) + `CancellationPolicyModule` registrado en `app.module.ts`.
+- **Tests:** 9/9 motor puro + suite guest-stays+cancellation 172/172 verde. Typecheck API verde.
+
+#### ⏳ Etapa C2 — Wire al flujo real (PENDIENTE)
+
+- Campos append-only `cancelRetention`, `cancelRetentionCurrency`, `cancelRefundAmount`, `cancelRefundStatus`, `cancelRefundMethod`, `cancelRefundReference`, `cancelRefundAt` en `GuestStay` + migration. Patrón idéntico a `noShowCharge*` (§195 D-NOSHOW-2).
+- `cancelStay()` resuelve policy de la stay → calcula con `computeOutcome()` → guarda retención/reembolso junto con `cancelledAt` en la misma `$transaction`.
+- Endpoint `GET /v1/guest-stays/:id/cancellation-preview` → frontend llama antes de abrir el dialog para mostrar "retención $X · reembolso $Y".
+- Endpoint `POST /v1/guest-stays/:id/register-cancel-refund` → operador procesa el reembolso fuera de Zenix (OTA VCC / transferencia / efectivo) y registra el outcome. Mismo patrón que `registerNoShowCharge`.
+- Populate `cancellationPolicyId` en `GuestStaysService.create()` → asigna la policy default de la property al crear reserva.
+
+#### ⏳ Etapa C3 — Cancel preview + UI (PENDIENTE)
+
+- `CancelReservationDialog` (ya existe) → agregar sección de preview: "Cancelas a Xh del check-in → retención $Y (1ª noche) → reembolso $Z". Datos vienen del endpoint `cancellation-preview`. Sin fetch si el preview es simple (puede computarse client-side con los datos del bloque).
+- `RegisterCancelRefundDialog` (nuevo) → registro del reembolso: status `REFUNDED|NOT_REFUNDED|PARTIAL` × método (OTA VCC / transferencia / efectivo / otro) + referencia + razón. Mismo patrón que `RegisterNoShowChargeDialog` (3-status × 6-method, §196).
+
+#### ⏳ Etapa C4 — Group cancel (PENDIENTE)
+
+- `GroupCancelDialog` (nuevo) — cancel parcial (multi-select miembros) o total. Preview agregado: "Cancelar 3 habitaciones → retención total $X → reembolso $Y". Cada stay aplica su policy individualmente.
+- Cancel total → marca `ReservationGroup.cancelledAt` + cascade a stays.
+- Cancel parcial → `cancelStay` de los seleccionados + emit `CHANNEX_BOOKING_MODIFY_REQUESTED` con rooms restantes (backend C2.2 ya implementado).
+
+#### ⏳ Etapa C5 — Settings UI (PENDIENTE)
+
+- Nueva sección `Settings → Políticas de cancelación` (D-GRP-C1).
+- Form: name + freeWindowHours + tramos visuales (timeline de penalización) + preview "qué pasaría si cancela hoy" (llama `cancellation-preview` con `now=now()`).
+- CRUD con toggle isDefault.
+
+#### Orden de implementación recomendado
+
+`C2 (schema + wire + endpoints)` → `C3 (preview en CancelReservationDialog + RegisterRefundDialog)` → `C4 (GroupCancelDialog)` → `C5 (Settings UI)`. C2+C3 son los de mayor impacto (cubren el flujo principal de cancelación individual); C4+C5 pueden ir después.
+
+#### Datos de prueba en BD dev
+
+- `tc-grpA` (Grupo Extensión, 2 habs, Jun 5-9) y `tc-grpB` (Familia UnaNoche, 2 habs, Jun 2-3) sembrados para testing visual — **no son datos de producción**, se pueden limpiar.
+
 ---
 
 > **Sprint CHANNEX-AUTO-PROVISION — implementación cerrada 2026-05-28 con 886/920 backend tests verdes (10 nuevos Netflix + 30+ nuevos AUTO-PROVISION + 9 fails pre-existentes en main no relacionados) + 7 commits sobre `feature/netflix-trial-flow` (sprint compuesto: Netflix Days 1-2 + AUTO-PROVISION Days 1-5/6-7)**. Stack final del AUTO-PROVISION: 9 gateway methods nuevos (createProperty/updateProperty/getProperty/createGroup/assignPropertyToGroup/createChannel/updateChannel/deleteChannel/upsertChannelRoomType/upsertChannelRatePlan) alineados con Channex API oficial; `ChannelCredentialsCryptoService` AES-256-GCM con KEK en .env; `ChannexProvisionService` con pipeline Group → Property → RoomTypes → RatePlans → Channels best-effort outside-tx; `ChannexProvisionController` con 3 endpoints RESTful nested `GET /v1/nova/organizations/provisioning` + `POST /v1/nova/properties/:propertyId/channex/provision` (con flag opcional `force=true` para delete-recreate de channels existentes) + `POST /v1/nova/channex/channels/:channelId/credentials` (completar credentials de channels pending) — todos NovaActingOrgGuard + defense-in-depth IDOR check; frontend `/nova/billing/channex` recovery UI con state machine + per-property cards + StatusChips + error <details> + retry mutation idempotente + `CompleteCredentialsDialog` per-OTA-fields (mismo contrato que StepChannels) + botón externo "Abrir Airbnb extranet" para channels `requires_oauth`; wizard Step 5.5 channels selection UI (Days 3-4 commits previos) + Step 8 preview con counts; schema migration `20260604000000_channex_auto_provision` (Organization.channexGroupId + LegalEntity.channexApiKey + PropertySettings provisioning fields + new Channel model con UNIQUE constraint). Docs: `docs/architecture/channex-provisioning-flow.md` con diagramas + cert alignment + recovery flow + `docs/ops/channex-credentials-rotation.md` runbook standalone (API key + KEK paths, normal + emergency, cold migration script, GDPR breach notification). Integration spec sandbox `channex-provision.integration.spec.ts` (6 escenarios opt-in con `CHANNEX_API_KEY`: createGroup + createProperty con group_id + 2 RoomTypes + 4 RatePlans + 1 Channel + updateChannel toggle, con cleanup orden inverso). Pendientes post-sprint: (a) AIRBNB-OAUTH sprint para completar el OAuth handshake; (b) RATES-METRICS sprint para sustituir el placeholder $100 BAR con rates reales (Tests cert 2-8); (c) merge `feature/netflix-trial-flow` → `main` post-validación owner del flow end-to-end con cliente piloto real.
