@@ -862,6 +862,41 @@ Mews tiene reversión pero sin razón obligatoria ni cumplimiento fiscal LATAM. 
 
 ---
 
+## Módulo 2.5 — Cancelaciones, políticas y reembolsos
+
+> *Sprint GROUP-BILLING Fase C (2026-06). Motor de políticas de cancelación + cancelación de grupos + registro de reembolsos con trazabilidad fiscal.*
+
+### El problema real
+
+Cuando un huésped cancela, el hotel debe responder dos preguntas en segundos: **¿cuánto retengo y cuánto devuelvo?** La mayoría de los PMS dejan ese cálculo a la recepcionista con una calculadora — y se equivoca. Peor: cuando el huésped disputa el cargo con su banco (chargeback), el hotel necesita *probar* qué política aplicó y qué devolvió. La mayoría de los sistemas no dejan ese rastro.
+
+### Lo que hace Zenix
+
+**1. Motor de políticas configurable por el hotel (no universal).** El hotel define su propia "letra chica": hasta cuándo se cancela gratis y los tramos de penalización según la anticipación (1 noche, % del total, o monto fijo). Parte de un preset de la industria — **Flexible / Moderada / Estricta / No-reembolsable** (alineados con Airbnb y Booking.com) — y lo personaliza. Ningún hotel queda encajonado en una política impuesta.
+
+**2. Simulador en dinero dentro de la configuración.** Mientras el gerente edita la política, ve en vivo *"si un huésped que pagó $2,000 cancela 6 h antes, se le retiene $2,000 y se le reembolsa $0"*. **Ningún competidor muestra un simulador de dinero real en su pantalla de configuración** — Cloudbeds y Little Hotelier solo muestran el texto de la política en el motor de reservas, no el monto.
+
+**3. Preview antes de confirmar.** Al cancelar, la recepcionista ve la retención y el reembolso calculados ANTES de confirmar. Sin sorpresas.
+
+**4. Cancelación de grupos parcial o total.** Cuando una familia reservó 3 habitaciones y quiere cancelar 1 o 2, Zenix lo distingue correctamente: cancelar **algunas** habitaciones de una reserva OTA = *modificar* la reserva (las demás siguen vivas); cancelar **todas** = cancelar la reserva OTA completa. Cada habitación aplica su propia política. Cloudbeds a veces deja el contador en "3 de 3" tras cancelar una; Opera requiere bloques manuales pesados.
+
+**5. Registro de reembolsos con trazabilidad.** El reembolso se procesa fuera de Zenix (tarjeta virtual de la OTA, transferencia, efectivo — Zenix nunca toca la tarjeta del huésped, se mantiene PCI-safe) y se **registra** con su método, referencia (folio SPEI, ID de caso OTA) y estado (pendiente / reembolsado / renunciado). Queda en la bitácora del huésped y en el audit permanente — exactamente la evidencia que Visa pide (CRR §5.9.2) cuando hay disputa.
+
+### El diferenciador: las 4 cosas juntas
+
+Ningún PMS del mercado (Cloudbeds, Mews, Opera, Little Hotelier, RoomRaccoon) cubre **simultáneamente**:
+
+| Capacidad | Cloudbeds | Mews | Opera | Little Hotelier | **Zenix** |
+|---|---|---|---|---|---|
+| Push CRS automático al cancelar (sin sync manual) | ⚠️ parcial | ⚠️ silencioso | ⚠️ batch nocturno | ❌ manual (footgun) | ✅ tiempo real |
+| Cancelación parcial de grupo = *modificar* (no cancelar todo) | ⚠️ contador inconsistente | ❓ | ⚠️ bloques manuales | ❌ | ✅ con copy explícito |
+| Retención vs reembolso separados + estado + audit | ⚠️ | ⚠️ silencioso | ✅ | ⚠️ | ✅ append-only fiscal |
+| Simulador de dinero en la pantalla de configuración | ❌ solo texto | ❌ | ❌ | ❌ solo texto | ✅ en vivo |
+
+El diferenciador real es **claridad + trazabilidad**: el gerente ve el dinero antes de confirmar, el sistema sincroniza la OTA solo, y cada reembolso deja un rastro auditable. La competencia hace una o dos de estas cosas; Zenix las hace las cuatro.
+
+---
+
 ## Módulo 3 — Protección contra Overbooking
 
 ### Tres capas de defensa

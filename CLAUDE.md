@@ -1232,7 +1232,7 @@ housekeeping3/
 
 ### Cancellation policy engine — Sprint GROUP-BILLING Fase C (EN CURSO, branch `feat/cancellation-policy-engine`)
 
-> **PUNTO DE PARADA 2026-06-02** — etapas C1 (foundation) + C2 (wire backend) + C3a (cancel preview UI) + C3b (RegisterCancelRefundDialog + drawer) + **C4 (group cancel parcial/total, validado end-to-end)** commiteadas en rama. Solo **C5 (Settings UI)** pendiente. **NO mergear** hasta autorización del owner. El flujo de cancelación individual + grupo + registro de reembolso ya está completo y funcional.
+> **PUNTO DE PARADA 2026-06-02** — Fase C **COMPLETA** (C1 foundation + C2 wire + C3a/C3b cancel+refund UI + C4 group cancel + **C5 Settings UI** + bitácora fix + readiness reportes). **NO mergear** hasta autorización del owner. Todo el flujo de cancelación (individual + grupo + política configurable + registro de reembolso) está completo y validado end-to-end en navegador.
 
 #### ✅ Etapa C1 — Foundation (commit `f2b23de`, rama `feat/cancellation-policy-engine`)
 
@@ -1278,10 +1278,22 @@ housekeeping3/
 - Form: name + freeWindowHours + tramos visuales (timeline de penalización) + preview "qué pasaría si cancela hoy" (llama `cancellation-preview` con `now=now()`).
 - CRUD con toggle isDefault.
 
-#### ⏳ Etapa C5 — Settings UI (PENDIENTE, único restante de Fase C)
+#### ✅ Etapa C5 — Settings UI (commit en rama, validado end-to-end)
 
-- Nueva sección `Settings → Políticas de cancelación` (D-GRP-C1). CRUD de `CancellationPolicy` (endpoints `GET|POST|PATCH /v1/cancellation-policies` ya existen desde C1).
-- Form: name + freeWindowHours + tramos visuales (timeline de penalización NIGHTS/PERCENT/FIXED) + toggle isDefault + preview "qué pasaría si cancela hoy" (puede reusar el motor `computeCancellationOutcome`).
+- **Tab "Cancelaciones" en `/settings/cancellation`** (`CancellationPoliciesSection` en `apps/web/src/pages/settings/`). Modelo alineado con la competencia (research Cloudbeds Smart Policies / Mews / OPERA / Little Hotelier): la política es un **objeto reutilizable con nombre** (no per-reserva), con ventana gratuita + tramos NIGHTS/PERCENT/FIXED + isDefault. CRUD contra `GET|POST|PATCH /v1/cancellation-policies` (ya existían desde C1).
+- **Presets canónicos** Flexible / Moderada / Estricta / No-reembolsable (alineados Airbnb + Booking.com) — el hotel parte de uno y lo personaliza ("cada hotel expresa su propia política", resuelve el temor del owner de imponer una universal). No-reembolsable usa `freeWindowHours = 1_000_000` (nunca gratis).
+- **Diferenciador — simulador en dinero** (`computeOutcomePreview`, espejo client-side EXACTO del motor backend `computeCancellationOutcome`): muestra en vivo "si un huésped que pagó $X cancela 10d/3d/1d/6h antes / no-show → retiene $Y, reembolsa $Z". Ningún competidor muestra un simulador de dinero en su pantalla de config (research confirmado).
+- **Editor:** unit toggle días/horas para la ventana gratuita, tramos editables con hint de días, validación `fromHours > toHours`. SUPERVISOR-only para crear/editar (guards backend ya existían).
+- **Validado end-to-end:** tab renderiza → preset Moderada → simulador computa (10d/3d gratis, 6h/no-show retiene 2000) → crear política → BD persiste (Moderada, isDefault=true, 72h, 2 tramos). Typecheck web+API verde.
+
+#### ✅ Bitácora / timeline — reflejar reembolso (commit en rama)
+
+- **Gap detectado:** `registerCancelRefund` actualizaba la stay en silencio — el reembolso NO aparecía en el timeline del huésped (las cancelaciones SÍ vía `GuestStayLog 'CANCELLED'` + `StayJourneyEvent`). Fix: `registerCancelRefund` ahora escribe `GuestStayLog event='CANCEL_REFUND_REGISTERED'` (en `$transaction` con el update) + `ReservationDetailPage.renderEvent` lo renderiza ("Reembolso registrado · $X vía transferencia" emerald, o "Reembolso no aplicado" slate si WAIVED). `cancelGroup` ya logueaba por miembro.
+
+#### ✅ Readiness BD para reportes (análisis + decisión)
+
+- **Análisis profundo** (3 agentes: reportes hoteleros + columnas más solicitadas + config competencia + esquema). Conclusión clave: **el reporte de cancelaciones/no-shows ya es query-ready** — los campos que la competencia más olvida (retención vs reembolso SEPARADOS + estado + iniciador + canal + lead time) YA existen en `GuestStay`, y los índices `@@index([cancelledAt])` + `@@index([noShowAt])` ya están. No se agregaron columnas muertas.
+- **Checklist REPORTS-CORE diferido** (campos que requieren wiring de sprints futuros, NO se agregan hasta su sprint): `GuestStay.ratePlanId` (Sprint 8 RATES), `commissionRate/Amount` (Sprint 8), `marketSegment`, `PaymentLog.baseAmount/fxRate` + `departmentCode/revenueCenter` (v1.0.1 PAY-CORE), y **`MetricsDailySnapshot`** con **on-the-books-por-fecha-futura + bookings-made-that-day** (v1.0.3 REPORTS-CORE) — el análisis recalca que pace/pickup/STLY son IMPOSIBLES de reconstruir retroactivamente sin el snapshot diario. Columnas más universales (Tier 1-2) y fórmulas USALI documentadas en el análisis (handoff a REPORTS-CORE).
 
 #### Pendiente diferido (sprint aparte) — Channex MODIFY parcial
 

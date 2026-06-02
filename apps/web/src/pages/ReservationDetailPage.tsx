@@ -158,6 +158,25 @@ function renderEvent(entry: Entry): RenderedEvent {
         subtitle: sub(),
       }
     }
+    case 'CANCEL_REFUND_REGISTERED': {
+      const status = s(m?.status)
+      const method = s(m?.method)
+      const amount = typeof m?.amount === 'number' ? m.amount : undefined
+      const methodLabel = method === 'transfer' ? 'transferencia'
+        : method === 'ota_card' ? 'OTA Virtual Card'
+        : method === 'cash' ? 'efectivo'
+        : method === 'manual_card' ? 'terminal POS'
+        : method === 'ota_collect' ? 'gestionado en la OTA'
+        : method ?? null
+      if (status === 'WAIVED') {
+        return { color: 'bg-slate-400', label: 'Reembolso no aplicado (renuncia/política)', subtitle: sub(s(m?.reason)) }
+      }
+      return {
+        color: 'bg-emerald-400',
+        label: amount != null ? `Reembolso registrado · ${amount.toLocaleString()}` : 'Reembolso registrado',
+        subtitle: sub(methodLabel ? `vía ${methodLabel}` : undefined),
+      }
+    }
 
     // ── Check-in / Check-out ──────────────────────────────────────────────
     case 'CHECKED_IN': {

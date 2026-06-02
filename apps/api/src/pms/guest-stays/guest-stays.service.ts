@@ -4191,19 +4191,35 @@ export class GuestStaysService {
       throw new BadRequestException('Un reembolso renunciado (WAIVED) requiere una razón (≥5 caracteres)')
     }
 
-    const updated = await this.prisma.guestStay.update({
-      where: { id: stayId },
-      data: {
-        cancelRefundStatus:    dto.status,
-        cancelRefundMethod:    dto.method ?? null,
-        cancelRefundReference: dto.reference?.trim() || null,
-        cancelRefundReason:    dto.reason?.trim() || null,
-        cancelRefundAt:        new Date(),
-        cancelRefundById:      actorId,
-        // Si el operador reembolsó un monto distinto al calculado (parcial),
-        // lo persistimos como el monto realmente reembolsado.
-        ...(typeof dto.amount === 'number' ? { cancelRefundAmount: dto.amount } : {}),
-      },
+    const finalAmount = typeof dto.amount === 'number' ? dto.amount : Number(stay.cancelRefundAmount ?? 0)
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const u = await tx.guestStay.update({
+        where: { id: stayId },
+        data: {
+          cancelRefundStatus:    dto.status,
+          cancelRefundMethod:    dto.method ?? null,
+          cancelRefundReference: dto.reference?.trim() || null,
+          cancelRefundReason:    dto.reason?.trim() || null,
+          cancelRefundAt:        new Date(),
+          cancelRefundById:      actorId,
+          // Si el operador reembolsó un monto distinto al calculado (parcial),
+          // lo persistimos como el monto realmente reembolsado.
+          ...(typeof dto.amount === 'number' ? { cancelRefundAmount: dto.amount } : {}),
+        },
+      })
+      // Audit append-only — visible en el timeline del huésped (§28). Sin esto el
+      // registro del reembolso era un cambio silencioso (gap detectado 2026-06-02).
+      await tx.guestStayLog.create({
+        data: {
+          stayId, event: 'CANCEL_REFUND_REGISTERED', actorId, actorType: 'USER',
+          metadata: {
+            status: dto.status, method: dto.method ?? null,
+            reference: dto.reference?.trim() || null, amount: finalAmount,
+            reason: dto.reason?.trim() || null,
+          },
+        },
+      })
+      return u
     })
 
     this.logger.log(`[CancelRefund] stay=${stayId} status=${dto.status} method=${dto.method ?? '—'}`)
