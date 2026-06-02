@@ -330,6 +330,31 @@ export const guestStaysApi = {
   restore: (stayId: string) =>
     api.post<{ ok: true; restoredAt: string }>(`${BASE}/${stayId}/restore`, {}),
 
+  // ── GROUP-BILLING Fase C C2/C3 — política de cancelación ──────────────────
+  /** Preview de retención/reembolso si se cancela AHORA (según la policy aplicable). */
+  cancellationPreview: (stayId: string) =>
+    api.get<{
+      stayId: string
+      alreadyCancelled: boolean
+      totalAmount: number
+      amountPaid: number
+      free: boolean
+      hoursUntilCheckin: number
+      appliedTier: { fromHours: number; toHours: number; chargeType: 'NIGHTS' | 'PERCENT' | 'FIXED'; value: number } | null
+      retention: number
+      refund: number
+      currency: string
+    }>(`${BASE}/${stayId}/cancellation-preview`),
+
+  /** Registra el outcome administrativo del reembolso de una reserva cancelada. */
+  registerCancelRefund: (stayId: string, payload: {
+    status: 'REFUNDED' | 'WAIVED'
+    method?: string
+    reference?: string
+    amount?: number
+    reason?: string
+  }) => api.post<{ ok: true; cancelRefundStatus: string }>(`${BASE}/${stayId}/register-cancel-refund`, payload),
+
   listCancelled: (params: { propertyId: string; limit?: number; offset?: number; initiator?: string; since?: string }) => {
     const qs = new URLSearchParams({ propertyId: params.propertyId })
     if (params.limit !== undefined)    qs.set('limit', String(params.limit))

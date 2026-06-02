@@ -4012,7 +4012,12 @@ export class GuestStaysService {
     // (snapshot inmutable al cancelar). Policy explícita de la stay → default de
     // la property → default conservador del motor. El reembolso se REGISTRA
     // después (no Stripe, §C5): status PENDING si hay reembolso, NONE si no.
-    const outcome = await this.computeCancellationFor(stay, orgId, now)
+    let outcome = await this.computeCancellationFor(stay, orgId, now)
+    // ADMIN_ERROR (hab equivocada, duplicado) NO penaliza al huésped — la
+    // reserva se creó por error. Reembolso total de lo pagado, sin retención.
+    if (dto.initiator === 'ADMIN_ERROR') {
+      outcome = { ...outcome, free: true, retention: 0, refund: Number(stay.amountPaid) }
+    }
     const refundStatus = outcome.refund > 0.001 ? 'PENDING' : 'NONE'
 
     await this.prisma.$transaction(async (tx) => {

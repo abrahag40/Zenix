@@ -1232,7 +1232,7 @@ housekeeping3/
 
 ### Cancellation policy engine — Sprint GROUP-BILLING Fase C (EN CURSO, branch `feat/cancellation-policy-engine`)
 
-> **PUNTO DE PARADA 2026-06-01** — etapas C1 (foundation) + C2 (wire backend) commiteadas en rama. C3 (UI) / C4 (group cancel) / C5 (Settings) pendientes. No mergear hasta completar al menos C3 (preview en CancelReservationDialog + RegisterCancelRefundDialog).
+> **PUNTO DE PARADA 2026-06-02** — etapas C1 (foundation) + C2 (wire backend) + C3a (cancel preview UI) commiteadas en rama. C3b (RegisterCancelRefundDialog + sheet) / C4 (group cancel) / C5 (Settings) pendientes. No mergear hasta completar al menos C3b.
 
 #### ✅ Etapa C1 — Foundation (commit `f2b23de`, rama `feat/cancellation-policy-engine`)
 
@@ -1250,10 +1250,18 @@ housekeeping3/
 - **`create()`** populate `cancellationPolicyId` = policy default de la property (null si no hay).
 - **Tests:** 7 nuevos en `guest-stays.cancel.spec` (outcome gratis/no-show + preview + register happy/guards/WAIVED) + 9 motor. Suite guest-stays+cancellation **179/179** verde. Typecheck API verde.
 
-#### ⏳ Etapa C3 — Cancel preview + UI (PENDIENTE)
+#### ✅ Etapa C3a — Cancel preview (commit en rama)
 
-- `CancelReservationDialog` (ya existe) → agregar sección de preview: "Cancelas a Xh del check-in → retención $Y (1ª noche) → reembolso $Z". Datos vienen del endpoint `cancellation-preview`. Sin fetch si el preview es simple (puede computarse client-side con los datos del bloque).
-- `RegisterCancelRefundDialog` (nuevo) → registro del reembolso: status `REFUNDED|NOT_REFUNDED|PARTIAL` × método (OTA VCC / transferencia / efectivo / otro) + referencia + razón. Mismo patrón que `RegisterNoShowChargeDialog` (3-status × 6-method, §196).
+- **`CancelReservationDialog`** muestra el preview de retención/reembolso al elegir el iniciador: card emerald (ventana gratuita / sin penalización) ó amber (penalización · tramo). Líneas "Retención del hotel $X · Reembolso al huésped $Y". ADMIN_ERROR → "sin penalización, reembolso total". Sin pago → "nada que reembolsar".
+- **Backend tweak:** `cancelStay` con `initiator='ADMIN_ERROR'` → override outcome a reembolso total (retención 0) — el dialog ya decía "Sin penalty" pero el motor no lo respetaba.
+- **API + hooks:** `cancellationPreview` + `registerCancelRefund` en `guest-stays.api.ts`; `useCancellationPreview` (useQuery, enabled al abrir) + `useRegisterCancelRefund` (useMutation) en `useGuestStays.ts`.
+- **Verificado end-to-end vía HTTP+JWT:** preview de un stay (pagó $720, check-in ~30h) → tramo NIGHTS 1, retención $180, reembolso $540. Typecheck web+API verde. (UI del dialog no capturada por glitch del preview tooling; card es binding directo a los datos verificados.)
+
+#### ⏳ Etapa C3b — RegisterCancelRefundDialog + integración sheet (PENDIENTE)
+
+- `RegisterCancelRefundDialog` (nuevo, molde `RegisterNoShowChargeDialog`): status `REFUNDED|WAIVED` × método (efectivo/transferencia/OTA VCC/POS/otro) + referencia + razón (req si WAIVED) + monto opcional (parcial).
+- Integración en `BookingDetailSheet` para stays cancelados con `cancelRefundStatus='PENDING'`: card "Reembolso pendiente $Y" + botón "Registrar reembolso" (molde bloque no-show §2079-2150). Estados CHARGED/WAIVED visibles.
+- **Plumbing requerido:** exponer `cancelRefundStatus`/`cancelRefundAmount`/`cancelRetentionAmount` en `GuestStayBlock` (select en query de calendario + mapping `useGuestStays`). Hoy el bloque no los trae.
 
 #### ⏳ Etapa C4 — Group cancel (PENDIENTE)
 

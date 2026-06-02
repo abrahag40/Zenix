@@ -421,6 +421,38 @@ export function useCancelStay(propertyId: string) {
   })
 }
 
+/**
+ * GROUP-BILLING Fase C C3 — preview de retención/reembolso para el
+ * CancelReservationDialog. enabled solo cuando el dialog está abierto.
+ */
+export function useCancellationPreview(stayId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ['cancellation-preview', stayId],
+    queryFn: () => guestStaysApi.cancellationPreview(stayId!),
+    enabled: enabled && !!stayId,
+    staleTime: 15_000,
+    refetchOnWindowFocus: false,
+  })
+}
+
+/**
+ * GROUP-BILLING Fase C C3 — registra el outcome del reembolso de una reserva
+ * cancelada (procesado fuera de Zenix). Invalida el calendario.
+ */
+export function useRegisterCancelRefund(propertyId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ stayId, payload }: { stayId: string; payload: Parameters<typeof guestStaysApi.registerCancelRefund>[1] }) =>
+      guestStaysApi.registerCancelRefund(stayId, payload),
+    onSuccess: async () => {
+      await qc.refetchQueries({ queryKey: ['guest-stays', propertyId], exact: false })
+      await qc.refetchQueries({ queryKey: ['cancelled-stays', propertyId], exact: false })
+      toast.success('Reembolso registrado')
+    },
+    onError: (err: Error) => toast.error(err.message ?? 'No se pudo registrar el reembolso'),
+  })
+}
+
 export function useRestoreStay(propertyId: string) {
   const qc = useQueryClient()
   return useMutation({
