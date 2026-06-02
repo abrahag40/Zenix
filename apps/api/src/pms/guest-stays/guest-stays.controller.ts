@@ -13,6 +13,7 @@ import { CreateContactLogDto } from './dto/create-contact-log.dto'
 import { ConfirmCheckinDto } from './dto/confirm-checkin.dto'
 import { RegisterPaymentDto } from './dto/register-payment.dto'
 import { BulkCheckinDto } from './dto/bulk-checkin.dto'
+import { RegisterCancelRefundDto } from './dto/register-cancel-refund.dto'
 import { VoidPaymentDto } from './dto/void-payment.dto'
 import { UpdateGuestStayDto } from './dto/update-guest-stay.dto'
 import { CreateGuestStayNoteDto, UpdateGuestStayNoteDto } from './dto/guest-stay-note.dto'
@@ -594,5 +595,30 @@ export class GuestStaysController {
     @CurrentUser() actor: JwtPayload,
   ) {
     return this.service.restoreStay(id, actor.sub)
+  }
+
+  /**
+   * GET /v1/guest-stays/:id/cancellation-preview
+   * GROUP-BILLING Fase C C2 — retención/reembolso si se cancela AHORA, según la
+   * política aplicable. Read-only; alimenta el preview del CancelReservationDialog.
+   */
+  @Get(':id/cancellation-preview')
+  cancellationPreview(@Param('id') id: string) {
+    return this.service.getCancellationPreview(id)
+  }
+
+  /**
+   * POST /v1/guest-stays/:id/register-cancel-refund
+   * GROUP-BILLING Fase C C2 (D-GRP-C5) — registra el outcome del reembolso de una
+   * reserva cancelada (procesado fuera de Zenix). REFUNDED | WAIVED. Append-only
+   * (solo desde PENDING). Mismo patrón que register-noshow-charge.
+   */
+  @Post(':id/register-cancel-refund')
+  registerCancelRefund(
+    @Param('id') id: string,
+    @Body() dto: RegisterCancelRefundDto,
+    @CurrentUser() actor: JwtPayload,
+  ) {
+    return this.service.registerCancelRefund(id, dto, actor.sub)
   }
 }

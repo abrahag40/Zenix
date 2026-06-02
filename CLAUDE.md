@@ -1232,7 +1232,7 @@ housekeeping3/
 
 ### Cancellation policy engine — Sprint GROUP-BILLING Fase C (EN CURSO, branch `feat/cancellation-policy-engine`)
 
-> **PUNTO DE PARADA 2026-06-01** — etapa C1 (foundation) commiteada en rama. C2..C5 pendientes. No mergear hasta completar al menos C1+C2+UI (preview en CancelReservationDialog).
+> **PUNTO DE PARADA 2026-06-01** — etapas C1 (foundation) + C2 (wire backend) commiteadas en rama. C3 (UI) / C4 (group cancel) / C5 (Settings) pendientes. No mergear hasta completar al menos C3 (preview en CancelReservationDialog + RegisterCancelRefundDialog).
 
 #### ✅ Etapa C1 — Foundation (commit `f2b23de`, rama `feat/cancellation-policy-engine`)
 
@@ -1241,13 +1241,14 @@ housekeeping3/
 - **CRUD** `CancellationPolicyService` (list/create/update + setDefault transaccional + validación de tramos) + controller `GET|POST|PATCH /v1/cancellation-policies` (SUPERVISOR) + `CancellationPolicyModule` registrado en `app.module.ts`.
 - **Tests:** 9/9 motor puro + suite guest-stays+cancellation 172/172 verde. Typecheck API verde.
 
-#### ⏳ Etapa C2 — Wire al flujo real (PENDIENTE)
+#### ✅ Etapa C2 — Wire al flujo real (commit en rama)
 
-- Campos append-only `cancelRetention`, `cancelRetentionCurrency`, `cancelRefundAmount`, `cancelRefundStatus`, `cancelRefundMethod`, `cancelRefundReference`, `cancelRefundAt` en `GuestStay` + migration. Patrón idéntico a `noShowCharge*` (§195 D-NOSHOW-2).
-- `cancelStay()` resuelve policy de la stay → calcula con `computeOutcome()` → guarda retención/reembolso junto con `cancelledAt` en la misma `$transaction`.
-- Endpoint `GET /v1/guest-stays/:id/cancellation-preview` → frontend llama antes de abrir el dialog para mostrar "retención $X · reembolso $Y".
-- Endpoint `POST /v1/guest-stays/:id/register-cancel-refund` → operador procesa el reembolso fuera de Zenix (OTA VCC / transferencia / efectivo) y registra el outcome. Mismo patrón que `registerNoShowCharge`.
-- Populate `cancellationPolicyId` en `GuestStaysService.create()` → asigna la policy default de la property al crear reserva.
+- **Migración** `20260612000000_cancel_refund_fields`: campos append-only en `GuestStay` (`cancelRetentionAmount`, `cancelRefundAmount`, `cancelRefundStatus` [NONE|PENDING|REFUNDED|WAIVED], `cancelRefundMethod`, `cancelRefundReference`, `cancelRefundAt`, `cancelRefundById`, `cancelRefundReason`). Patrón `noShowCharge*` (§195 D-NOSHOW). *Nota: los campos ya estaban en el schema.prisma desde C1 pero sin migrar — esta migración los aplica a la BD.*
+- **`cancelStay()`** resuelve policy (helper privado `computeCancellationFor`: policy explícita → default property → default motor) → `computeCancellationOutcome()` → guarda `cancelRetentionAmount`/`cancelRefundAmount`/`cancelRefundStatus` (PENDING si reembolso>0, NONE si no) junto con `cancelledAt` en la misma `$transaction`.
+- **`GET /v1/guest-stays/:id/cancellation-preview`** (`getCancellationPreview`) → outcome si se cancela AHORA. Read-only. Alimenta el preview del dialog.
+- **`POST /v1/guest-stays/:id/register-cancel-refund`** (`registerCancelRefund` + `RegisterCancelRefundDto`) → registra el outcome del reembolso (REFUNDED|WAIVED × method/reference/reason). Guards: cancelada + status PENDING (append-only) + reason ≥5 si WAIVED. Mismo patrón que `registerNoShowCharge` (§198).
+- **`create()`** populate `cancellationPolicyId` = policy default de la property (null si no hay).
+- **Tests:** 7 nuevos en `guest-stays.cancel.spec` (outcome gratis/no-show + preview + register happy/guards/WAIVED) + 9 motor. Suite guest-stays+cancellation **179/179** verde. Typecheck API verde.
 
 #### ⏳ Etapa C3 — Cancel preview + UI (PENDIENTE)
 

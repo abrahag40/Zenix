@@ -33,6 +33,13 @@ import { Prisma } from '@prisma/client'
 import { ConfirmCheckinDto } from './dto/confirm-checkin.dto'
 import { RegisterPaymentDto } from './dto/register-payment.dto'
 import { BulkCheckinDto } from './dto/bulk-checkin.dto'
+import { RegisterCancelRefundDto } from './dto/register-cancel-refund.dto'
+import {
+  computeCancellationOutcome,
+  DEFAULT_FREE_WINDOW_HOURS,
+  DEFAULT_POLICY_TIERS,
+  type PolicyTier,
+} from '../cancellation/cancellation-policy.service'
 import { VoidPaymentDto } from './dto/void-payment.dto'
 import { UpdateGuestStayDto } from './dto/update-guest-stay.dto'
 import { CreateGuestStayNoteDto, UpdateGuestStayNoteDto } from './dto/guest-stay-note.dto'
@@ -245,6 +252,14 @@ export class GuestStaysService {
     const lastName  = titleCase(dto.lastName)
     const guestName = `${firstName} ${lastName}`.trim()
 
+    // GROUP-BILLING Fase C C2 — asignar la política de cancelación default de la
+    // property a la reserva nueva (per-rate-plan en v1.0.1). Null si la property
+    // aún no tiene policy configurada → cancelStay cae al default del motor.
+    const defaultPolicy = await this.prisma.cancellationPolicy.findFirst({
+      where: { propertyId: dto.propertyId, organizationId: orgId, isDefault: true },
+      select: { id: true },
+    })
+
     const stay = await this.prisma.$transaction(async (tx) => {
       const propCode = room.property.propCode ?? '000'
       const bookingRef = await this.generateBookingRef(
@@ -290,6 +305,7 @@ export class GuestStaysService {
           source: dto.source,
           notes: dto.notes,
           checkedInById: actorId,
+          cancellationPolicyId: defaultPolicy?.id ?? null,
         },
       })
 
@@ -3885,6 +3901,75 @@ export class GuestStaysService {
    * Registra un intento de contacto al huésped (WhatsApp, email, teléfono).
    * Append-only — el registro queda como evidencia ante disputas o chargebacks.
    */
+  /**
+   * GROUP-BILLING Fase C C2 — resuelve la política aplicable a una stay y calcula
+   * el outcome (retención/reembolso) con el motor puro. Reutilizado por
+   * cancelStay (snapshot al cancelar) y el endpoint cancellation-preview.
+   * Orden de resolución: policy explícita de la stay → default de la property →
+   * default conservador del motor.
+   */
+  private async computeCancellationFor(
+    stay: {
+      cancellationPolicyId: string | null
+      propertyId: string
+      checkinAt: Date
+      totalAmount: Prisma.Decimal | number
+      amountPaid: Prisma.Decimal | number
+      ratePerNight: Prisma.Decimal | number
+      currency: string
+    },
+    orgId: string,
+    now: Date,
+  ) {
+    const policyRow = stay.cancellationPolicyId
+      ? await this.prisma.cancellationPolicy.findFirst({
+          where: { id: stay.cancellationPolicyId, organizationId: orgId },
+        })
+      : await this.prisma.cancellationPolicy.findFirst({
+          where: { propertyId: stay.propertyId, organizationId: orgId, isDefault: true },
+        })
+    const policy = policyRow
+      ? { freeWindowHours: policyRow.freeWindowHours, tiers: policyRow.tiers as unknown as PolicyTier[] }
+      : { freeWindowHours: DEFAULT_FREE_WINDOW_HOURS, tiers: DEFAULT_POLICY_TIERS }
+    return computeCancellationOutcome(
+      policy,
+      {
+        checkinAt:    new Date(stay.checkinAt),
+        totalAmount:  Number(stay.totalAmount),
+        amountPaid:   Number(stay.amountPaid),
+        ratePerNight: Number(stay.ratePerNight),
+        currency:     stay.currency,
+      },
+      now,
+    )
+  }
+
+  /**
+   * GET /v1/guest-stays/:id/cancellation-preview
+   * GROUP-BILLING Fase C C2 — preview de retención/reembolso si se cancela AHORA.
+   * Read-only; alimenta el CancelReservationDialog antes de confirmar.
+   */
+  async getCancellationPreview(stayId: string) {
+    const orgId = this.tenant.getOrganizationId()
+    const stay = await this.prisma.guestStay.findUnique({
+      where: { id: stayId, organizationId: orgId },
+      select: {
+        id: true, cancellationPolicyId: true, propertyId: true, checkinAt: true,
+        totalAmount: true, amountPaid: true, ratePerNight: true, currency: true,
+        cancelledAt: true,
+      },
+    })
+    if (!stay) throw new NotFoundException('Estadía no encontrada')
+    const outcome = await this.computeCancellationFor(stay, orgId, new Date())
+    return {
+      stayId:       stay.id,
+      alreadyCancelled: !!stay.cancelledAt,
+      totalAmount:  Number(stay.totalAmount),
+      amountPaid:   Number(stay.amountPaid),
+      ...outcome,
+    }
+  }
+
   // ── Cancel-Archive (Sprint CANCEL-ARCHIVE 2026-05-16) ─────────────────────
   // Soft-delete una reserva. Patrón análogo a §11 (no-show inmutable):
   // jamás hard-delete. La fila permanece en DB con `cancelledAt != null`.
@@ -3923,6 +4008,13 @@ export class GuestStaysService {
     const requiresFiscalReview =
       dto.initiator !== 'ADMIN_ERROR' && stay.amountPaid.greaterThan(0)
 
+    // GROUP-BILLING Fase C C2 — resolver política + calcular retención/reembolso
+    // (snapshot inmutable al cancelar). Policy explícita de la stay → default de
+    // la property → default conservador del motor. El reembolso se REGISTRA
+    // después (no Stripe, §C5): status PENDING si hay reembolso, NONE si no.
+    const outcome = await this.computeCancellationFor(stay, orgId, now)
+    const refundStatus = outcome.refund > 0.001 ? 'PENDING' : 'NONE'
+
     await this.prisma.$transaction(async (tx) => {
       await tx.guestStay.update({
         where: { id: stayId },
@@ -3935,6 +4027,9 @@ export class GuestStaysService {
           cancelMetadata:       (dto.metadata as Prisma.InputJsonValue) ?? Prisma.DbNull,
           cancelledFromChannel: dto.cancelledFromChannel ?? 'PMS_DIRECT',
           requiresFiscalReview,
+          cancelRetentionAmount: outcome.retention,
+          cancelRefundAmount:    outcome.refund,
+          cancelRefundStatus:    refundStatus,
         },
       })
 
@@ -4060,6 +4155,54 @@ export class GuestStaysService {
     )
 
     return { ok: true as const, cancelledAt: now }
+  }
+
+  /**
+   * POST /v1/guest-stays/:id/register-cancel-refund
+   * GROUP-BILLING Fase C C2 (D-GRP-C5) — registra el outcome del reembolso de una
+   * reserva cancelada (procesado fuera de Zenix, §195). Append-only: solo se
+   * sobrescribe desde PENDING. Mismo patrón que registerNoShowCharge (§198).
+   */
+  async registerCancelRefund(
+    stayId: string,
+    dto: RegisterCancelRefundDto,
+    actorId: string,
+  ) {
+    const orgId = this.tenant.getOrganizationId()
+    const stay = await this.prisma.guestStay.findUnique({
+      where: { id: stayId, organizationId: orgId },
+      select: { id: true, cancelledAt: true, cancelRefundStatus: true, cancelRefundAmount: true },
+    })
+    if (!stay) throw new NotFoundException('Estadía no encontrada')
+    if (!stay.cancelledAt) {
+      throw new BadRequestException('La reserva no está cancelada — no hay reembolso que registrar')
+    }
+    if (stay.cancelRefundStatus !== 'PENDING') {
+      throw new BadRequestException(
+        `El reembolso ya tiene estado "${stay.cancelRefundStatus ?? 'NONE'}" — no se puede sobrescribir`,
+      )
+    }
+    if (dto.status === 'WAIVED' && (!dto.reason || dto.reason.trim().length < 5)) {
+      throw new BadRequestException('Un reembolso renunciado (WAIVED) requiere una razón (≥5 caracteres)')
+    }
+
+    const updated = await this.prisma.guestStay.update({
+      where: { id: stayId },
+      data: {
+        cancelRefundStatus:    dto.status,
+        cancelRefundMethod:    dto.method ?? null,
+        cancelRefundReference: dto.reference?.trim() || null,
+        cancelRefundReason:    dto.reason?.trim() || null,
+        cancelRefundAt:        new Date(),
+        cancelRefundById:      actorId,
+        // Si el operador reembolsó un monto distinto al calculado (parcial),
+        // lo persistimos como el monto realmente reembolsado.
+        ...(typeof dto.amount === 'number' ? { cancelRefundAmount: dto.amount } : {}),
+      },
+    })
+
+    this.logger.log(`[CancelRefund] stay=${stayId} status=${dto.status} method=${dto.method ?? '—'}`)
+    return { ok: true as const, cancelRefundStatus: updated.cancelRefundStatus }
   }
 
   // Restaurar una reserva cancelada. Disponible solo si:
