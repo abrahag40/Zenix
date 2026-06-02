@@ -460,6 +460,37 @@ export function useRegisterCancelRefund(propertyId: string) {
   })
 }
 
+/**
+ * GROUP-BILLING Fase C C4 — preview de cancelación por miembro del grupo.
+ */
+export function useGroupCancellationPreview(stayId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ['group-cancellation-preview', stayId],
+    queryFn: () => guestStaysApi.groupCancellationPreview(stayId!),
+    enabled: enabled && !!stayId,
+    staleTime: 15_000,
+    refetchOnWindowFocus: false,
+  })
+}
+
+/**
+ * GROUP-BILLING Fase C C4 — cancela N miembros de un grupo (parcial o total).
+ */
+export function useGroupCancel(propertyId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: Parameters<typeof guestStaysApi.groupCancel>[0]) =>
+      guestStaysApi.groupCancel(payload),
+    onSuccess: async () => {
+      await qc.refetchQueries({ queryKey: ['guest-stays', propertyId], exact: false })
+      await qc.refetchQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false })
+      await qc.refetchQueries({ queryKey: ['cancelled-stays', propertyId], exact: false })
+      await qc.refetchQueries({ queryKey: ['cancelled-today-count', propertyId], exact: false })
+    },
+    onError: (err: Error) => toast.error(err.message ?? 'No se pudo cancelar el grupo'),
+  })
+}
+
 export function useRestoreStay(propertyId: string) {
   const qc = useQueryClient()
   return useMutation({

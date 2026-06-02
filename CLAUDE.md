@@ -1232,7 +1232,7 @@ housekeeping3/
 
 ### Cancellation policy engine — Sprint GROUP-BILLING Fase C (EN CURSO, branch `feat/cancellation-policy-engine`)
 
-> **PUNTO DE PARADA 2026-06-02** — etapas C1 (foundation) + C2 (wire backend) + C3a (cancel preview UI) + **C3b (RegisterCancelRefundDialog + integración drawer, validado end-to-end)** commiteadas en rama. C4 (group cancel) / C5 (Settings) pendientes. **NO mergear** hasta autorización del owner. El flujo de cancelación individual + registro de reembolso ya está completo y funcional.
+> **PUNTO DE PARADA 2026-06-02** — etapas C1 (foundation) + C2 (wire backend) + C3a (cancel preview UI) + C3b (RegisterCancelRefundDialog + drawer) + **C4 (group cancel parcial/total, validado end-to-end)** commiteadas en rama. Solo **C5 (Settings UI)** pendiente. **NO mergear** hasta autorización del owner. El flujo de cancelación individual + grupo + registro de reembolso ya está completo y funcional.
 
 #### ✅ Etapa C1 — Foundation (commit `f2b23de`, rama `feat/cancellation-policy-engine`)
 
@@ -1264,11 +1264,13 @@ housekeeping3/
 - **Plumbing:** (a) `GuestStayBlock` expone `cancelRetention/Refund*` (type + mapping `useGuestStays`); (b) **el backend `listCancelled` (`UnifiedRow`) reshapeaba sin los campos financieros** → se agregaron `currency` + `cancelRetentionAmount` + `cancelRefundAmount` + `cancelRefundStatus` al push de filas STAY. Sin esto el drawer recibía las filas sin el outcome y el botón nunca aparecía.
 - **Verificado end-to-end en navegador:** cancelar "Ext Miembro 2" (pagó $720, check-in ~30h) → tramo NIGHTS 1, retención $180, reembolso $540 PENDING → drawer muestra botón "Reembolso USD 540" → dialog abre con A reembolsar 540 / Retención 180 / USD → registrar con referencia SPEI → status **PENDING → REFUNDED**. Typecheck web+API verde. 41/41 (cancel + cancellation-policy specs).
 
-#### ⏳ Etapa C4 — Group cancel (PENDIENTE)
+#### ✅ Etapa C4 — Group cancel (commit en rama, validado end-to-end)
 
-- `GroupCancelDialog` (nuevo) — cancel parcial (multi-select miembros) o total. Preview agregado: "Cancelar 3 habitaciones → retención total $X → reembolso $Y". Cada stay aplica su policy individualmente.
-- Cancel total → marca `ReservationGroup.cancelledAt` + cascade a stays.
-- Cancel parcial → `cancelStay` de los seleccionados + emit `CHANNEX_BOOKING_MODIFY_REQUESTED` con rooms restantes (backend C2.2 ya implementado).
+- **Backend `cancelGroup(dto, actorId)` + `POST /v1/guest-stays/group-cancel`** (ruta literal antes de `:id`): recibe `{ stayIds[], initiator, reason? }`. Valida que todas pertenezcan al mismo grupo + sean cancelables (mismos guards que `cancelStay`). En una `$transaction` cancela cada miembro (política propia → snapshot retención/reembolso, journey cascade, room cleanup, audit). Tras la tx recomputa miembros activos: **0 restantes → marca `ReservationGroup.cancelledAt`** (total); **>0 → parcial** (grupo sigue vivo). Una sola notif resumen al SUPERVISOR.
+- **`GET /v1/guest-stays/:id/group-cancellation-preview`** (`getGroupCancellationPreview`) → retención/reembolso por miembro + flags `cancellable`/`checkedIn`/`cancelled` + `otaName`. Alimenta el dialog. Read-only.
+- **`GroupCancelDialog` (nuevo)** — molde `GroupCheckinDialog` (Radix primitives §116 + DialogActions destructive §123), acento rojo. Checkbox por miembro cancelable + "Seleccionar todas" + selector de iniciador (GUEST/HOTEL/OTA/ADMIN_ERROR) + razón opcional + **resumen agregado** "Cancelar N de M · Retiene $X · Reembolsa $Y". Botón "Cancelar grupo" agregado a la sección Grupo del `BookingDetailSheet` (rojo outline, debajo de intercambiar).
+- **Channex (decisión honesta D-GRP-C6):** `CHANNEX_BOOKING_MODIFY_REQUESTED` **NO existe** (§157 lo daba por hecho — el worker de modify nunca se construyó). Por eso: **total OTA → emite `CANCEL`** (cancela la reserva OTA completa, correcto); **parcial OTA originado por el hotel (HOTEL/ADMIN_ERROR) → NO auto-cancela** (un CANCEL borraría toda la reserva OTA) → levanta notif `ACTION_REQUIRED` al SUPERVISOR para ajuste manual en el extranet + el dialog muestra aviso ámbar. Grupos directos (sin OTA): parcial 100% correcto sin Channex. El push "modify" parcial real queda diferido a un sprint Channex MODIFY aparte.
+- **Verificado end-to-end en navegador:** grupo Smith Family (expedia, 2 hab Pagadas) → "Cancelar grupo" → dialog con ambos miembros (reembolso 360 c/u) + aviso OTA parcial → cancelar 1 (John Smith, GUEST) → DB: John Smith cancelled + refund 360 PENDING, Sarah activa, **grupo cancelledAt=null** (parcial). Tests: 5 nuevos en `guest-stays.cancel.spec` (parcial / total marca grupo / grupos distintos / sin grupo / preview por miembro). Suite guest-stays **175/175** + cancellation **46/46** verde. Typecheck web+API verde.
 
 #### ⏳ Etapa C5 — Settings UI (PENDIENTE)
 
@@ -1276,9 +1278,14 @@ housekeeping3/
 - Form: name + freeWindowHours + tramos visuales (timeline de penalización) + preview "qué pasaría si cancela hoy" (llama `cancellation-preview` con `now=now()`).
 - CRUD con toggle isDefault.
 
-#### Orden de implementación recomendado
+#### ⏳ Etapa C5 — Settings UI (PENDIENTE, único restante de Fase C)
 
-`C2 (schema + wire + endpoints)` → `C3 (preview en CancelReservationDialog + RegisterRefundDialog)` → `C4 (GroupCancelDialog)` → `C5 (Settings UI)`. C2+C3 son los de mayor impacto (cubren el flujo principal de cancelación individual); C4+C5 pueden ir después.
+- Nueva sección `Settings → Políticas de cancelación` (D-GRP-C1). CRUD de `CancellationPolicy` (endpoints `GET|POST|PATCH /v1/cancellation-policies` ya existen desde C1).
+- Form: name + freeWindowHours + tramos visuales (timeline de penalización NIGHTS/PERCENT/FIXED) + toggle isDefault + preview "qué pasaría si cancela hoy" (puede reusar el motor `computeCancellationOutcome`).
+
+#### Pendiente diferido (sprint aparte) — Channex MODIFY parcial
+
+- Construir `CHANNEX_BOOKING_MODIFY_REQUESTED` + outbound kind + worker dispatch (`PUT /bookings/:id` con array de rooms restantes) para que el cancel PARCIAL de un grupo OTA empuje la modificación automáticamente, en vez de la notif de ajuste manual actual. Cierra la promesa §157.
 
 #### Datos de prueba en BD dev
 

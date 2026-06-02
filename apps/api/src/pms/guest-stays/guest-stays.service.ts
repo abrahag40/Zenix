@@ -4210,6 +4210,305 @@ export class GuestStaysService {
     return { ok: true as const, cancelRefundStatus: updated.cancelRefundStatus }
   }
 
+  /**
+   * GET /v1/guest-stays/:id/group-cancellation-preview
+   * GROUP-BILLING Fase C C4 — preview por miembro del grupo si se cancela AHORA.
+   * Read-only; alimenta GroupCancelDialog. Cada miembro aplica su propia política.
+   */
+  async getGroupCancellationPreview(stayId: string) {
+    const orgId = this.tenant.getOrganizationId()
+    const ctx = await this.prisma.guestStay.findUnique({
+      where: { id: stayId, organizationId: orgId },
+      select: { reservationGroupId: true },
+    })
+    if (!ctx) throw new NotFoundException('Estadía no encontrada')
+    if (!ctx.reservationGroupId) {
+      return { groupId: null, primaryGuestName: null, currency: null, channexBookingId: null, otaName: null, members: [] as Array<{
+        stayId: string; roomNumber: string | null; roomIndex: number | null
+        guestName: string; currency: string; totalAmount: number; amountPaid: number
+        checkedIn: boolean; checkedOut: boolean; noShow: boolean; cancelled: boolean
+        cancellable: boolean; isContext: boolean; retention: number; refund: number
+        free: boolean; appliedTier: PolicyTier | null
+      }> }
+    }
+
+    const group = await this.prisma.reservationGroup.findUnique({
+      where: { id: ctx.reservationGroupId },
+      select: { id: true, channexBookingId: true, channexOtaName: true, primaryGuestName: true },
+    })
+    const members = await this.prisma.guestStay.findMany({
+      where: { reservationGroupId: ctx.reservationGroupId, organizationId: orgId },
+      select: {
+        id: true, guestName: true, groupRoomIndex: true, currency: true,
+        cancellationPolicyId: true, propertyId: true, checkinAt: true,
+        totalAmount: true, amountPaid: true, ratePerNight: true,
+        actualCheckin: true, actualCheckout: true, noShowAt: true, cancelledAt: true,
+        room: { select: { number: true } },
+      },
+      orderBy: { groupRoomIndex: 'asc' },
+    })
+
+    const now = new Date()
+    const out: Array<{
+      stayId: string; roomNumber: string | null; roomIndex: number | null
+      guestName: string; currency: string; totalAmount: number; amountPaid: number
+      checkedIn: boolean; checkedOut: boolean; noShow: boolean; cancelled: boolean
+      cancellable: boolean; isContext: boolean; retention: number; refund: number
+      free: boolean; appliedTier: PolicyTier | null
+    }> = []
+    for (const m of members) {
+      const cancellable = !m.cancelledAt && !m.noShowAt && !m.actualCheckout && !m.actualCheckin
+      const outcome = cancellable ? await this.computeCancellationFor(m, orgId, now) : null
+      out.push({
+        stayId:      m.id,
+        roomNumber:  m.room?.number ?? null,
+        roomIndex:   m.groupRoomIndex ?? null,
+        guestName:   m.guestName,
+        currency:    m.currency,
+        totalAmount: Number(m.totalAmount),
+        amountPaid:  Number(m.amountPaid),
+        checkedIn:   !!m.actualCheckin,
+        checkedOut:  !!m.actualCheckout,
+        noShow:      !!m.noShowAt,
+        cancelled:   !!m.cancelledAt,
+        cancellable,
+        isContext:   m.id === stayId,
+        retention:   outcome?.retention ?? 0,
+        refund:      outcome?.refund ?? 0,
+        free:        outcome?.free ?? false,
+        appliedTier: outcome?.appliedTier ?? null,
+      })
+    }
+
+    return {
+      groupId:          group?.id ?? ctx.reservationGroupId,
+      primaryGuestName: group?.primaryGuestName ?? null,
+      currency:         members[0]?.currency ?? null,
+      channexBookingId: group?.channexBookingId ?? null,
+      otaName:          group?.channexOtaName ?? null,
+      members:          out,
+    }
+  }
+
+  /**
+   * POST /v1/guest-stays/group-cancel
+   * GROUP-BILLING Fase C C4 (D-GRP-C6) — cancela N miembros de un grupo (parcial o
+   * total). Cada stay aplica su propia política (snapshot retención/reembolso, igual
+   * que cancelStay). Si tras cancelar NO queda ningún miembro activo → se marca
+   * ReservationGroup.cancelledAt y, si es OTA, se emite CANCEL al canal (cancela la
+   * reserva OTA completa). En cancel PARCIAL de un grupo OTA NO se auto-cancela el
+   * canal — emitir CANCEL borraría TODA la reserva OTA. El push "modify" (quitar solo
+   * algunas rooms) aún no está construido (sprint Channex MODIFY aparte), así que para
+   * parciales OTA se levanta una notif ACTION_REQUIRED al SUPERVISOR para ajuste manual.
+   * No atómico cross-Channex pero el DB sí es transaccional (todo-o-nada del cancel).
+   */
+  async cancelGroup(
+    dto: {
+      stayIds: string[]
+      initiator: 'GUEST' | 'HOTEL' | 'OTA' | 'ADMIN_ERROR' | 'SYSTEM'
+      reason?: string
+      reasonCode?: string
+    },
+    actorId: string,
+  ) {
+    const orgId = this.tenant.getOrganizationId()
+    if (!dto.stayIds?.length) {
+      throw new BadRequestException('Selecciona al menos una habitación para cancelar')
+    }
+
+    const selected = await this.prisma.guestStay.findMany({
+      where: { id: { in: dto.stayIds }, organizationId: orgId },
+      include: {
+        room: { include: { property: { include: { settings: true } } } },
+        stayJourney: { select: { id: true } },
+      },
+    })
+    if (selected.length !== dto.stayIds.length) {
+      throw new NotFoundException('Una o más estadías no se encontraron')
+    }
+
+    const groupId = selected[0].reservationGroupId
+    if (!groupId) {
+      throw new BadRequestException('Esta reserva no pertenece a un grupo')
+    }
+    if (selected.some((s) => s.reservationGroupId !== groupId)) {
+      throw new BadRequestException('Todas las habitaciones deben pertenecer al mismo grupo')
+    }
+
+    // Guards por miembro (mismos que cancelStay).
+    for (const s of selected) {
+      if (s.cancelledAt)    throw new ConflictException(`La habitación ${s.room.number} ya está cancelada`)
+      if (s.noShowAt)       throw new ConflictException(`La habitación ${s.room.number} está marcada como no-show`)
+      if (s.actualCheckout) throw new ConflictException(`La habitación ${s.room.number} ya hizo checkout`)
+      if (s.actualCheckin)  throw new ConflictException(`La habitación ${s.room.number} ya hizo check-in — usar checkout anticipado`)
+    }
+
+    const now = new Date()
+    // Outcome por miembro (fuera de tx). ADMIN_ERROR = reembolso total sin retención.
+    const outcomes = new Map<string, { retention: number; refund: number }>()
+    for (const s of selected) {
+      let outcome = await this.computeCancellationFor(s, orgId, now)
+      if (dto.initiator === 'ADMIN_ERROR') {
+        outcome = { ...outcome, free: true, retention: 0, refund: Number(s.amountPaid) }
+      }
+      outcomes.set(s.id, { retention: outcome.retention, refund: outcome.refund })
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const s of selected) {
+        const outcome = outcomes.get(s.id)!
+        const refundStatus = outcome.refund > 0.001 ? 'PENDING' : 'NONE'
+        const requiresFiscalReview = dto.initiator !== 'ADMIN_ERROR' && Number(s.amountPaid) > 0
+
+        await tx.guestStay.update({
+          where: { id: s.id },
+          data: {
+            cancelledAt:           now,
+            cancelledById:         actorId,
+            cancelInitiator:       dto.initiator,
+            cancelReason:          dto.reason ?? null,
+            cancelReasonCode:      dto.reasonCode ?? null,
+            cancelledFromChannel:  'PMS_DIRECT',
+            requiresFiscalReview,
+            cancelRetentionAmount: outcome.retention,
+            cancelRefundAmount:    outcome.refund,
+            cancelRefundStatus:    refundStatus,
+          },
+        })
+
+        if (s.stayJourney?.id) {
+          await tx.staySegment.updateMany({
+            where: { journeyId: s.stayJourney.id, status: { in: ['ACTIVE', 'PENDING'] } },
+            data:  { status: 'CANCELLED' },
+          })
+          await tx.stayJourney.update({ where: { id: s.stayJourney.id }, data: { status: 'CANCELLED' } })
+          await tx.stayJourneyEvent.create({
+            data: {
+              journeyId: s.stayJourney.id,
+              eventType: 'CANCELLED',
+              actorId,
+              payload: { cancelInitiator: dto.initiator, reason: dto.reason ?? null, groupCancel: true },
+            },
+          })
+        }
+
+        if (s.room.status === 'OCCUPIED') {
+          const othersActive = await tx.guestStay.count({
+            where: {
+              roomId: s.roomId, organizationId: orgId, deletedAt: null,
+              actualCheckout: null, noShowAt: null, cancelledAt: null, id: { not: s.id },
+            },
+          })
+          if (othersActive === 0) {
+            await tx.room.update({ where: { id: s.roomId }, data: { status: 'AVAILABLE' } })
+          }
+        }
+
+        await tx.guestStayLog.create({
+          data: {
+            stayId: s.id, event: 'CANCELLED', actorId, actorType: 'USER',
+            metadata: {
+              initiator: dto.initiator, reason: dto.reason ?? null,
+              reasonCode: dto.reasonCode ?? null, cancelledFromChannel: 'PMS_DIRECT',
+              requiresFiscalReview, groupCancel: true, groupId,
+            },
+          },
+        })
+      }
+    })
+
+    // ¿Quedó algún miembro activo? Determina total vs parcial.
+    const remainingActive = await this.prisma.guestStay.count({
+      where: {
+        reservationGroupId: groupId, organizationId: orgId,
+        cancelledAt: null, noShowAt: null, actualCheckout: null,
+      },
+    })
+    const groupCancelled = remainingActive === 0
+    if (groupCancelled) {
+      await this.prisma.reservationGroup.update({ where: { id: groupId }, data: { cancelledAt: now } })
+    }
+
+    // Liberar inventario + evento por miembro (best-effort).
+    for (const s of selected) {
+      void this.availability.notifyRelease({
+        roomId: s.roomId, from: s.checkinAt, to: s.scheduledCheckout,
+        reason: 'CANCELLATION', traceId: `cancel-group-${s.id}-${Date.now()}`,
+      })
+      this.events.emit('stay.cancelled', {
+        stayId: s.id, orgId, propertyId: s.propertyId, roomId: s.roomId,
+        guestName: s.guestName, initiator: dto.initiator,
+      })
+    }
+
+    // Channex CRS — solo si la cancel ORIGINA en el PMS (HOTEL/ADMIN_ERROR).
+    const group = await this.prisma.reservationGroup.findUnique({
+      where: { id: groupId },
+      select: { channexBookingId: true, channexOtaName: true, primaryGuestName: true },
+    })
+    const channexBookingId =
+      group?.channexBookingId ?? selected.find((s) => s.channexBookingId)?.channexBookingId ?? null
+    const isPmsOriginated = dto.initiator === 'HOTEL' || dto.initiator === 'ADMIN_ERROR'
+
+    if (channexBookingId && isPmsOriginated) {
+      if (groupCancelled) {
+        // Total → cancela la reserva OTA completa.
+        const cancelEvent: ChannexBookingCancelRequestedEvent = {
+          propertyId:       selected[0].propertyId,
+          stayId:           selected[0].id,
+          channexBookingId,
+          channexOtaName:   group?.channexOtaName ?? null,
+          reason:           dto.reason ?? null,
+        }
+        this.events.emit(CHANNEX_BOOKING_CANCEL_REQUESTED, cancelEvent)
+      } else {
+        // Parcial de grupo OTA: NO auto-cancelar (borraría toda la reserva). El push
+        // "modify" (quitar solo algunas rooms) aún no existe → ajuste manual en la OTA.
+        void this.notifCenter.send({
+          propertyId:    selected[0].propertyId,
+          type:          'ACTION_REQUIRED',
+          category:      'STAY_CANCELLED',
+          priority:      'HIGH',
+          title:         `Ajusta la reserva en ${group?.channexOtaName ?? 'la OTA'} — cancelación parcial de grupo`,
+          body:          `Cancelaste ${selected.length} habitación(es) de un grupo de ${group?.channexOtaName ?? 'OTA'}. Zenix no puede modificar la reserva automáticamente; ajústala en el extranet de la OTA para liberar solo esas habitaciones.`,
+          metadata:      { groupId, channexBookingId, cancelledStayIds: selected.map((s) => s.id) },
+          recipientType: 'ROLE',
+          recipientRole: 'SUPERVISOR',
+          triggeredById: actorId,
+          // Compliance/acción permanente — no se purga (§101).
+        }).catch((err: Error) => this.logger.warn(`[CancelGroup] OTA notif failed: ${err?.message}`))
+      }
+    }
+
+    // Una sola notif resumen al SUPERVISOR.
+    void this.notifCenter.send({
+      propertyId:    selected[0].propertyId,
+      type:          'INFORMATIONAL',
+      category:      'STAY_CANCELLED',
+      priority:      dto.initiator === 'ADMIN_ERROR' || dto.initiator === 'HOTEL' ? 'HIGH' : 'MEDIUM',
+      title:         `${groupCancelled ? 'Grupo cancelado' : 'Cancelación parcial de grupo'} — ${group?.primaryGuestName ?? selected[0].guestName}`,
+      body:          `${selected.length} habitación(es) cancelada(s)${groupCancelled ? ' · grupo completo' : ` · quedan ${remainingActive} activa(s)`}${dto.reason ? ` · "${dto.reason.slice(0, 80)}"` : ''}`,
+      metadata:      { groupId, cancelledCount: selected.length, groupCancelled },
+      recipientType: 'ROLE',
+      recipientRole: 'SUPERVISOR',
+      triggeredById: actorId,
+    }).catch((err: Error) => this.logger.warn(`[CancelGroup] notif failed: ${err?.message}`))
+
+    return {
+      ok: true as const,
+      groupCancelled,
+      cancelledCount: selected.length,
+      remainingActive,
+      results: selected.map((s) => ({
+        stayId:       s.id,
+        roomNumber:   s.room.number,
+        retention:    outcomes.get(s.id)!.retention,
+        refund:       outcomes.get(s.id)!.refund,
+        refundStatus: outcomes.get(s.id)!.refund > 0.001 ? ('PENDING' as const) : ('NONE' as const),
+      })),
+    }
+  }
+
   // Restaurar una reserva cancelada. Disponible solo si:
   // - cancelInitiator es 'HOTEL' o 'ADMIN_ERROR' (D-CAN7).
   // - Pasaron < 7 días desde `cancelledAt`.

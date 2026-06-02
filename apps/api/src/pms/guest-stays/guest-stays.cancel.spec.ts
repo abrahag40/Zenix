@@ -77,6 +77,8 @@ describe('GuestStaysService — cancel-archive', () => {
     guestStayLog: { create: jest.fn() },
     // GROUP-BILLING Fase C C2 — cancelStay resuelve policy. Default null → motor default.
     cancellationPolicy: { findFirst: jest.fn().mockResolvedValue(null) },
+    // GROUP-BILLING Fase C C4 — cancelGroup.
+    reservationGroup: { findUnique: jest.fn().mockResolvedValue(null), update: jest.fn() },
     $transaction: jest.fn((fnOrArr: unknown) => {
       if (typeof fnOrArr === 'function') {
         return (fnOrArr as (tx: typeof prismaMock) => unknown)(prismaMock)
@@ -520,6 +522,90 @@ describe('GuestStaysService — cancel-archive', () => {
       await expect(
         service.registerCancelRefund(STAY_ID, { status: 'WAIVED', reason: 'no' }, ACTOR_ID),
       ).rejects.toBeInstanceOf(BadRequestException)
+    })
+  })
+
+  // ── cancelGroup (Fase C C4) ───────────────────────────────────────────────
+  describe('cancelGroup', () => {
+    const GROUP_ID = 'grp-1'
+    const FAR_FUTURE = new Date('2099-01-01T15:00:00.000Z') // siempre >48h → gratis
+    function makeMember(id: string, roomNumber: string, overrides: Record<string, unknown> = {}) {
+      return makeStay({
+        id,
+        reservationGroupId: GROUP_ID,
+        roomId: `room-${id}`,
+        amountPaid: new Prisma.Decimal(360),
+        checkinAt: FAR_FUTURE, // gratis por ventana → reembolso total
+        room: { id: `room-${id}`, status: 'AVAILABLE', number: roomNumber, property: { settings: { timezone: 'America/Mexico_City' } } },
+        ...overrides,
+      })
+    }
+
+    it('cancel parcial — cancela 1 de 2, NO marca el grupo cancelado', async () => {
+      prismaMock.guestStay.findMany.mockResolvedValue([makeMember('s1', '101')])
+      prismaMock.guestStay.count.mockResolvedValue(1) // queda 1 activo
+
+      const res = await service.cancelGroup(
+        { stayIds: ['s1'], initiator: 'GUEST', reason: 'Cambió el plan' },
+        ACTOR_ID,
+      )
+
+      expect(res.groupCancelled).toBe(false)
+      expect(res.cancelledCount).toBe(1)
+      expect(prismaMock.guestStay.update).toHaveBeenCalledTimes(1)
+      expect(prismaMock.reservationGroup.update).not.toHaveBeenCalled()
+    })
+
+    it('cancel total — cancela ambas, marca ReservationGroup.cancelledAt', async () => {
+      prismaMock.guestStay.findMany.mockResolvedValue([makeMember('s1', '101'), makeMember('s2', '102')])
+      prismaMock.guestStay.count.mockResolvedValue(0) // no quedan activos
+      prismaMock.reservationGroup.findUnique.mockResolvedValue({ channexBookingId: null, channexOtaName: null, primaryGuestName: 'Familia' })
+
+      const res = await service.cancelGroup(
+        { stayIds: ['s1', 's2'], initiator: 'HOTEL', reason: 'Overbooking' },
+        ACTOR_ID,
+      )
+
+      expect(res.groupCancelled).toBe(true)
+      expect(res.cancelledCount).toBe(2)
+      expect(prismaMock.guestStay.update).toHaveBeenCalledTimes(2)
+      expect(prismaMock.reservationGroup.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ cancelledAt: expect.any(Date) }) }),
+      )
+    })
+
+    it('rechaza si las stays son de grupos distintos', async () => {
+      prismaMock.guestStay.findMany.mockResolvedValue([
+        makeMember('s1', '101'),
+        makeMember('s2', '102', { reservationGroupId: 'grp-OTHER' }),
+      ])
+      await expect(
+        service.cancelGroup({ stayIds: ['s1', 's2'], initiator: 'HOTEL' }, ACTOR_ID),
+      ).rejects.toBeInstanceOf(BadRequestException)
+    })
+
+    it('rechaza si una stay no pertenece a un grupo', async () => {
+      prismaMock.guestStay.findMany.mockResolvedValue([makeMember('s1', '101', { reservationGroupId: null })])
+      await expect(
+        service.cancelGroup({ stayIds: ['s1'], initiator: 'HOTEL' }, ACTOR_ID),
+      ).rejects.toBeInstanceOf(BadRequestException)
+    })
+
+    it('getGroupCancellationPreview devuelve outcome por miembro cancelable', async () => {
+      prismaMock.guestStay.findUnique.mockResolvedValue({ reservationGroupId: GROUP_ID })
+      prismaMock.reservationGroup.findUnique.mockResolvedValue({ id: GROUP_ID, channexBookingId: null, channexOtaName: null, primaryGuestName: 'Familia' })
+      prismaMock.guestStay.findMany.mockResolvedValue([
+        makeMember('s1', '101', { groupRoomIndex: 1 }),
+        makeMember('s2', '102', { groupRoomIndex: 2, cancelledAt: new Date() }),
+      ])
+
+      const preview = await service.getGroupCancellationPreview('s1')
+      expect(preview.members).toHaveLength(2)
+      const m1 = preview.members.find((m) => m.stayId === 's1')!
+      const m2 = preview.members.find((m) => m.stayId === 's2')!
+      expect(m1.cancellable).toBe(true)
+      expect(m1.refund).toBeGreaterThan(0) // ventana gratis → reembolso total
+      expect(m2.cancellable).toBe(false)   // ya cancelado
     })
   })
 })

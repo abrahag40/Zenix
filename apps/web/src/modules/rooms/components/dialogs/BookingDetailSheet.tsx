@@ -56,6 +56,7 @@ import { useLogContact, useEarlyCheckout, useUpdateGuestStay, useStayPayments, u
 import { SwapRoomsConfirmDialog } from './SwapRoomsConfirmDialog'
 import { GroupSwapPickerDialog } from './GroupSwapPickerDialog'
 import { GroupCheckinDialog } from './GroupCheckinDialog'
+import { GroupCancelDialog } from './GroupCancelDialog'
 import { ArrowLeftRight, ArrowRight } from 'lucide-react'
 import { useStayUpdatedSSE } from '../../hooks/useStayUpdatedSSE'
 import { EarlyCheckoutDialog } from './EarlyCheckoutDialog'
@@ -739,6 +740,7 @@ export function BookingDetailSheet({
   const swapRoomsMut = useSwapStayRooms(propertyId ?? '')
   const [swapPickerOpen, setSwapPickerOpen] = useState(false)
   const [groupCheckinOpen, setGroupCheckinOpen] = useState(false)
+  const [groupCancelOpen, setGroupCancelOpen] = useState(false)
   const [swapTarget, setSwapTarget] = useState<{ id: string; guestName: string; roomNumber?: string | null } | null>(null)
   const currentUser  = useAuthStore((s) => s.user)
   const currentUserId = currentUser?.id ?? currentUser?.email ?? ''
@@ -1498,6 +1500,11 @@ export function BookingDetailSheet({
                   const groupHasPendingCheckin = allMembers.some(
                     (m) => !m.cancelledAt && !m.noShowAt && !m.actualCheckout && !m.actualCheckin,
                   )
+                  // GROUP-BILLING Fase C C4 — ¿hay miembros cancelables? (mismos
+                  // guards que cancelStay). Habilita "Cancelar grupo".
+                  const groupHasCancellable = allMembers.some(
+                    (m) => !m.cancelledAt && !m.noShowAt && !m.actualCheckout && !m.actualCheckin,
+                  )
                   return (
                     <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 space-y-3">
                       {/* Header — C3.1 v8 R3: titular PRIMERO (lo que identifica),
@@ -1682,6 +1689,21 @@ export function BookingDetailSheet({
                         >
                           <ArrowLeftRight className="h-3.5 w-3.5" strokeWidth={2.5} />
                           Intercambiar habitación
+                        </button>
+                      )}
+                      {groupHasCancellable && (
+                        <button
+                          type="button"
+                          onClick={() => setGroupCancelOpen(true)}
+                          className={cn(
+                            'w-full inline-flex items-center justify-center gap-1.5 h-9 rounded-md',
+                            'border border-red-200 bg-white text-[13px] font-semibold text-red-600',
+                            'hover:bg-red-50 transition-colors active:scale-[0.98]',
+                            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-200',
+                          )}
+                        >
+                          <Ban className="h-3.5 w-3.5" strokeWidth={2.5} />
+                          Cancelar grupo
                         </button>
                       )}
                     </div>
@@ -2798,6 +2820,16 @@ export function BookingDetailSheet({
       open={groupCheckinOpen}
       onClose={() => setGroupCheckinOpen(false)}
       stayId={realStayId}
+      propertyId={propertyId ?? ''}
+      primaryName={stay?.groupPrimaryName ?? stay?.guestName ?? null}
+    />
+
+    {/* GROUP-BILLING Fase C C4 — cancelar grupo (parcial o total). */}
+    <GroupCancelDialog
+      open={groupCancelOpen}
+      onClose={() => setGroupCancelOpen(false)}
+      stayId={realStayId}
+      contextStayId={realStayId}
       propertyId={propertyId ?? ''}
       primaryName={stay?.groupPrimaryName ?? stay?.guestName ?? null}
     />

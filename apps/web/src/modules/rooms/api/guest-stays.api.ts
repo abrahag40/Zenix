@@ -116,6 +116,36 @@ export interface GroupBalances {
   stays: GroupBalanceEntry[]
 }
 
+/** GROUP-BILLING Fase C C4 — preview de cancelación por miembro del grupo. */
+export interface GroupCancelMember {
+  stayId: string
+  roomNumber: string | null
+  roomIndex: number | null
+  guestName: string
+  currency: string
+  totalAmount: number
+  amountPaid: number
+  checkedIn: boolean
+  checkedOut: boolean
+  noShow: boolean
+  cancelled: boolean
+  /** true si el miembro puede cancelarse ahora (no checked-in/out, no no-show, no cancelado). */
+  cancellable: boolean
+  isContext: boolean
+  retention: number
+  refund: number
+  free: boolean
+  appliedTier: { fromHours: number; toHours: number; chargeType: 'NIGHTS' | 'PERCENT' | 'FIXED'; value: number } | null
+}
+export interface GroupCancellationPreview {
+  groupId: string | null
+  primaryGuestName: string | null
+  currency: string | null
+  channexBookingId: string | null
+  otaName: string | null
+  members: GroupCancelMember[]
+}
+
 const BASE = '/v1/guest-stays'
 
 export const guestStaysApi = {
@@ -354,6 +384,25 @@ export const guestStaysApi = {
     amount?: number
     reason?: string
   }) => api.post<{ ok: true; cancelRefundStatus: string }>(`${BASE}/${stayId}/register-cancel-refund`, payload),
+
+  // ── GROUP-BILLING Fase C C4 — cancelación de grupo ────────────────────────
+  /** Preview retención/reembolso por miembro del grupo si se cancela AHORA. */
+  groupCancellationPreview: (stayId: string) =>
+    api.get<GroupCancellationPreview>(`${BASE}/${stayId}/group-cancellation-preview`),
+
+  /** Cancela N miembros de un grupo (parcial o total). */
+  groupCancel: (payload: {
+    stayIds: string[]
+    initiator: 'GUEST' | 'HOTEL' | 'OTA' | 'ADMIN_ERROR' | 'SYSTEM'
+    reason?: string
+    reasonCode?: string
+  }) => api.post<{
+    ok: true
+    groupCancelled: boolean
+    cancelledCount: number
+    remainingActive: number
+    results: Array<{ stayId: string; roomNumber: string; retention: number; refund: number; refundStatus: 'PENDING' | 'NONE' }>
+  }>(`${BASE}/group-cancel`, payload),
 
   listCancelled: (params: { propertyId: string; limit?: number; offset?: number; initiator?: string; since?: string }) => {
     const qs = new URLSearchParams({ propertyId: params.propertyId })
