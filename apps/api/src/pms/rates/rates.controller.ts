@@ -1,8 +1,12 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common'
-import { StaffRole } from '@zenix/shared'
+import { StaffRole, type JwtPayload } from '@zenix/shared'
 import { Roles } from '../../common/decorators/roles.decorator'
+import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { RatesService } from './rates.service'
-import { CreateRatePlanDto, UpdateRatePlanDto } from './dto/rate-plan.dto'
+import {
+  CreateRatePlanDto, UpdateRatePlanDto, CreateSeasonDto, UpdateSeasonDto,
+  CreateRestrictionDto, UpsertOverrideDto, BulkOverrideDto,
+} from './dto/rate-plan.dto'
 
 @Controller('v1/rates')
 export class RatesController {
@@ -81,5 +85,58 @@ export class RatesController {
     @Query('propertyId') propertyId: string,
   ) {
     return this.service.deactivateRatePlan(propertyId, planId)
+  }
+
+  // ── Seasons ──────────────────────────────────────────────────────────────
+  @Post('seasons')
+  @Roles(StaffRole.SUPERVISOR)
+  createSeason(@Body() dto: CreateSeasonDto) {
+    const { propertyId, startDate, endDate, ...rest } = dto
+    return this.service.createSeason(propertyId, { ...rest, startDate: new Date(startDate), endDate: new Date(endDate) })
+  }
+
+  @Patch('seasons/:seasonId')
+  @Roles(StaffRole.SUPERVISOR)
+  updateSeason(@Param('seasonId') seasonId: string, @Query('propertyId') propertyId: string, @Body() dto: UpdateSeasonDto) {
+    return this.service.updateSeason(propertyId, seasonId, {
+      name: dto.name, roomTypeId: dto.roomTypeId, overrideRate: dto.overrideRate, multiplier: dto.multiplier,
+      startDate: dto.startDate ? new Date(dto.startDate) : undefined,
+      endDate: dto.endDate ? new Date(dto.endDate) : undefined,
+    })
+  }
+
+  @Delete('seasons/:seasonId')
+  @Roles(StaffRole.SUPERVISOR)
+  deleteSeason(@Param('seasonId') seasonId: string, @Query('propertyId') propertyId: string) {
+    return this.service.deleteSeason(propertyId, seasonId)
+  }
+
+  // ── Restrictions ─────────────────────────────────────────────────────────
+  @Post('restrictions')
+  @Roles(StaffRole.SUPERVISOR)
+  createRestriction(@Body() dto: CreateRestrictionDto) {
+    const { propertyId, validFrom, validTo, ...rest } = dto
+    return this.service.createRestriction(propertyId, { ...rest, validFrom: new Date(validFrom), validTo: new Date(validTo) })
+  }
+
+  @Delete('restrictions/:restId')
+  @Roles(StaffRole.SUPERVISOR)
+  deleteRestriction(@Param('restId') restId: string, @Query('propertyId') propertyId: string) {
+    return this.service.deleteRestriction(propertyId, restId)
+  }
+
+  // ── Overrides (single + bulk con preview) ──────────────────────────────────
+  @Post('overrides')
+  @Roles(StaffRole.SUPERVISOR)
+  upsertOverride(@Body() dto: UpsertOverrideDto, @CurrentUser() actor: JwtPayload) {
+    const { propertyId, date, ...rest } = dto
+    return this.service.upsertOverride(propertyId, { ...rest, date: new Date(date), createdById: actor.sub })
+  }
+
+  @Post('overrides/bulk')
+  @Roles(StaffRole.SUPERVISOR)
+  bulkOverride(@Body() dto: BulkOverrideDto, @CurrentUser() actor: JwtPayload) {
+    const { propertyId, from, to, ...rest } = dto
+    return this.service.bulkUpdateOverrides(propertyId, { ...rest, from: new Date(from), to: new Date(to), createdById: actor.sub })
   }
 }

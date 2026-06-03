@@ -14,7 +14,10 @@ describe('RatesService — RATES-CORE Fase 1', () => {
     property: { findFirst: jest.fn().mockResolvedValue({ id: PROP }) },
     roomType: { findMany: jest.fn(), findFirst: jest.fn() },
     ratePlan: { findMany: jest.fn(), findFirst: jest.fn(), create: jest.fn(), update: jest.fn() },
-    rateOverride: { findMany: jest.fn().mockResolvedValue([]) },
+    rateSeason: { create: jest.fn(), findUnique: jest.fn(), update: jest.fn(), delete: jest.fn() },
+    rateRestriction: { create: jest.fn(), findUnique: jest.fn(), delete: jest.fn() },
+    rateOverride: { findMany: jest.fn().mockResolvedValue([]), upsert: jest.fn() },
+    $transaction: jest.fn((arr: unknown[]) => Promise.resolve(arr)),
   }
   const tenant = { getOrganizationId: jest.fn().mockReturnValue(ORG) }
 
@@ -121,6 +124,66 @@ describe('RatesService — RATES-CORE Fase 1', () => {
       expect(r.rate).toBe(160) // 200 × 0.8
       expect(r.source).toBe('BASE')
       expect(r.bar).toBe(200)
+    })
+  })
+
+  describe('createSeason', () => {
+    it('crea temporada con multiplier', async () => {
+      prisma.ratePlan.findFirst.mockResolvedValue({ id: 'rp-1' })
+      prisma.rateSeason.create.mockResolvedValue({ id: 'se-1' })
+      const r = await service.createSeason(PROP, {
+        ratePlanId: 'rp-1', name: 'Alta', startDate: new Date('2026-12-01'), endDate: new Date('2026-12-31'), multiplier: 1.5,
+      })
+      expect(r.id).toBe('se-1')
+    })
+
+    it('sin overrideRate ni multiplier → BadRequest', async () => {
+      prisma.ratePlan.findFirst.mockResolvedValue({ id: 'rp-1' })
+      await expect(service.createSeason(PROP, {
+        ratePlanId: 'rp-1', name: 'x', startDate: new Date('2026-12-01'), endDate: new Date('2026-12-31'),
+      })).rejects.toBeInstanceOf(BadRequestException)
+    })
+
+    it('startDate > endDate → BadRequest', async () => {
+      prisma.ratePlan.findFirst.mockResolvedValue({ id: 'rp-1' })
+      await expect(service.createSeason(PROP, {
+        ratePlanId: 'rp-1', name: 'x', startDate: new Date('2026-12-31'), endDate: new Date('2026-12-01'), multiplier: 1.2,
+      })).rejects.toBeInstanceOf(BadRequestException)
+    })
+  })
+
+  describe('bulkUpdateOverrides', () => {
+    beforeEach(() => {
+      prisma.roomType.findMany.mockResolvedValue([{ id: 'rt-cabana', name: 'Cabaña', baseRate: 100 }])
+    })
+
+    it('dryRun (default) retorna preview SIN escribir', async () => {
+      const r = await service.bulkUpdateOverrides(PROP, {
+        roomTypeIds: ['rt-cabana'], from: new Date('2026-07-10'), to: new Date('2026-07-11'),
+        newRate: 200, createdById: 'staff-1',
+      })
+      expect(r.dryRun).toBe(true)
+      expect(r.affectedCount).toBe(2) // 2 días × 1 roomType
+      expect(r.preview[0]).toMatchObject({ current: 100, next: 200 })
+      expect(prisma.rateOverride.upsert).not.toHaveBeenCalled()
+      expect(prisma.$transaction).not.toHaveBeenCalled()
+    })
+
+    it('dryRun:false aplica vía $transaction', async () => {
+      const r = await service.bulkUpdateOverrides(PROP, {
+        roomTypeIds: ['rt-cabana'], from: new Date('2026-07-10'), to: new Date('2026-07-10'),
+        newRate: 200, createdById: 'staff-1', dryRun: false,
+      })
+      expect(r.dryRun).toBe(false)
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1)
+    })
+
+    it('roomType fuera de la property → BadRequest', async () => {
+      prisma.roomType.findMany.mockResolvedValue([]) // no matchea
+      await expect(service.bulkUpdateOverrides(PROP, {
+        roomTypeIds: ['rt-x'], from: new Date('2026-07-10'), to: new Date('2026-07-10'),
+        newRate: 200, createdById: 'staff-1',
+      })).rejects.toBeInstanceOf(BadRequestException)
     })
   })
 })

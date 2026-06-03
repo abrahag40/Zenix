@@ -306,6 +306,231 @@ export class RatesService {
     return this.prisma.ratePlan.update({ where: { id: planId }, data: { isActive: false } })
   }
 
+  // ── Seasons CRUD ──────────────────────────────────────────────────────────
+
+  async createSeason(propertyId: string, dto: {
+    ratePlanId: string
+    roomTypeId?: string | null
+    name: string
+    startDate: Date
+    endDate: Date
+    overrideRate?: number | null
+    multiplier?: number | null
+  }) {
+    await this.assertPlanInProperty(dto.ratePlanId, propertyId)
+    this.validateDateRange(dto.startDate, dto.endDate)
+    this.validateRateOrMultiplier(dto.overrideRate, dto.multiplier)
+    return this.prisma.rateSeason.create({
+      data: {
+        ratePlanId: dto.ratePlanId,
+        roomTypeId: dto.roomTypeId ?? null,
+        name: dto.name.trim(),
+        startDate: dto.startDate,
+        endDate: dto.endDate,
+        overrideRate: dto.overrideRate ?? null,
+        multiplier: dto.multiplier ?? null,
+      },
+    })
+  }
+
+  async updateSeason(propertyId: string, seasonId: string, dto: Partial<{
+    name: string; startDate: Date; endDate: Date; roomTypeId: string | null
+    overrideRate: number | null; multiplier: number | null
+  }>) {
+    const season = await this.prisma.rateSeason.findUnique({ where: { id: seasonId }, select: { ratePlanId: true, startDate: true, endDate: true } })
+    if (!season) throw new NotFoundException('Temporada no encontrada')
+    await this.assertPlanInProperty(season.ratePlanId, propertyId)
+    const start = dto.startDate ?? season.startDate
+    const end = dto.endDate ?? season.endDate
+    this.validateDateRange(start, end)
+    if (dto.overrideRate !== undefined || dto.multiplier !== undefined) {
+      this.validateRateOrMultiplier(dto.overrideRate ?? null, dto.multiplier ?? null)
+    }
+    return this.prisma.rateSeason.update({
+      where: { id: seasonId },
+      data: {
+        name: dto.name, startDate: dto.startDate, endDate: dto.endDate,
+        roomTypeId: dto.roomTypeId, overrideRate: dto.overrideRate, multiplier: dto.multiplier,
+      },
+    })
+  }
+
+  async deleteSeason(propertyId: string, seasonId: string) {
+    const season = await this.prisma.rateSeason.findUnique({ where: { id: seasonId }, select: { ratePlanId: true } })
+    if (!season) throw new NotFoundException('Temporada no encontrada')
+    await this.assertPlanInProperty(season.ratePlanId, propertyId)
+    await this.prisma.rateSeason.delete({ where: { id: seasonId } })
+    return { ok: true as const }
+  }
+
+  // ── Restrictions CRUD ─────────────────────────────────────────────────────
+
+  async createRestriction(propertyId: string, dto: {
+    ratePlanId?: string | null
+    roomTypeId?: string | null
+    validFrom: Date
+    validTo: Date
+    mlos?: number | null
+    maxLos?: number | null
+    cta?: boolean
+    ctd?: boolean
+  }) {
+    if (!dto.ratePlanId && !dto.roomTypeId) {
+      throw new BadRequestException('La restricción debe aplicar a un ratePlan o a un roomType')
+    }
+    if (dto.ratePlanId) await this.assertPlanInProperty(dto.ratePlanId, propertyId)
+    else await this.assertPropertyInOrg(propertyId, this.tenant.getOrganizationId())
+    this.validateDateRange(dto.validFrom, dto.validTo)
+    if (dto.mlos != null && dto.maxLos != null && dto.mlos > dto.maxLos) {
+      throw new BadRequestException('mlos no puede ser mayor que maxLos')
+    }
+    return this.prisma.rateRestriction.create({
+      data: {
+        ratePlanId: dto.ratePlanId ?? null,
+        roomTypeId: dto.roomTypeId ?? null,
+        validFrom: dto.validFrom,
+        validTo: dto.validTo,
+        mlos: dto.mlos ?? null,
+        maxLos: dto.maxLos ?? null,
+        cta: dto.cta ?? false,
+        ctd: dto.ctd ?? false,
+      },
+    })
+  }
+
+  async deleteRestriction(propertyId: string, restId: string) {
+    const r = await this.prisma.rateRestriction.findUnique({ where: { id: restId }, select: { ratePlanId: true, roomTypeId: true } })
+    if (!r) throw new NotFoundException('Restricción no encontrada')
+    if (r.ratePlanId) await this.assertPlanInProperty(r.ratePlanId, propertyId)
+    else await this.assertPropertyInOrg(propertyId, this.tenant.getOrganizationId())
+    await this.prisma.rateRestriction.delete({ where: { id: restId } })
+    return { ok: true as const }
+  }
+
+  // ── Overrides (single + bulk con preview obligatorio, NN/g H5) ─────────────
+
+  async upsertOverride(propertyId: string, dto: {
+    roomTypeId: string
+    ratePlanId?: string | null
+    date: Date
+    overrideRate: number
+    reason?: string
+    createdById: string
+  }) {
+    const orgId = this.tenant.getOrganizationId()
+    await this.assertPropertyInOrg(propertyId, orgId)
+    if (dto.overrideRate < 0) throw new BadRequestException('overrideRate debe ser ≥ 0')
+    const date = startOfUtcDay(dto.date)
+    return this.prisma.rateOverride.upsert({
+      where: {
+        propertyId_roomTypeId_ratePlanId_date: {
+          propertyId, roomTypeId: dto.roomTypeId, ratePlanId: dto.ratePlanId ?? '', date,
+        },
+      },
+      create: {
+        propertyId, roomTypeId: dto.roomTypeId, ratePlanId: dto.ratePlanId ?? null,
+        date, overrideRate: dto.overrideRate, reason: dto.reason ?? null, createdById: dto.createdById,
+      },
+      update: { overrideRate: dto.overrideRate, reason: dto.reason ?? null, createdById: dto.createdById },
+    })
+  }
+
+  /**
+   * Bulk override sobre un rango. `dryRun=true` (default) retorna el preview
+   * (fecha × roomType, precio actual → nuevo) SIN escribir — NN/g H5 (error
+   * prevention): la UI muestra el diff y exige confirmación antes de aplicar.
+   */
+  async bulkUpdateOverrides(propertyId: string, dto: {
+    roomTypeIds: string[]
+    ratePlanId?: string | null
+    from: Date
+    to: Date
+    newRate: number
+    reason?: string
+    createdById: string
+    dryRun?: boolean
+  }) {
+    const orgId = this.tenant.getOrganizationId()
+    await this.assertPropertyInOrg(propertyId, orgId)
+    if (dto.newRate < 0) throw new BadRequestException('newRate debe ser ≥ 0')
+    this.validateDateRange(dto.from, dto.to)
+
+    const roomTypes = await this.prisma.roomType.findMany({
+      where: { id: { in: dto.roomTypeIds }, propertyId, organizationId: orgId },
+      select: { id: true, name: true, baseRate: true },
+    })
+    if (roomTypes.length !== dto.roomTypeIds.length) {
+      throw new BadRequestException('Uno o más tipos de habitación no pertenecen a la propiedad')
+    }
+
+    // Preview: precio actual resuelto vs nuevo, por (roomType, fecha).
+    const ctx = dto.ratePlanId ? await this.loadPlanContext(propertyId, orgId, dto.ratePlanId, dto.from, dto.to) : null
+    const dayMs = 86400000
+    const fromUtc = startOfUtcDay(dto.from).getTime()
+    const toUtc = startOfUtcDay(dto.to).getTime()
+    const preview: Array<{ roomTypeId: string; roomTypeName: string; date: string; current: number; next: number }> = []
+    for (const rt of roomTypes) {
+      for (let t = fromUtc; t <= toUtc; t += dayMs) {
+        const date = new Date(t).toISOString().slice(0, 10)
+        const current = ctx
+          ? resolveNightlyRate({
+              date: new Date(`${date}T12:00:00.000Z`), bar: Number(rt.baseRate), roomTypeId: rt.id,
+              plan: ctx.plan, seasons: ctx.seasons, dayOfWeekRules: ctx.dayOfWeekRules,
+              overrideRate: ctx.overrides.get(`${rt.id}|${date}`) ?? null,
+            }).rate
+          : Number(rt.baseRate)
+        preview.push({ roomTypeId: rt.id, roomTypeName: rt.name, date, current, next: dto.newRate })
+      }
+    }
+
+    if (dto.dryRun !== false) {
+      return { dryRun: true as const, affectedCount: preview.length, preview }
+    }
+
+    // Aplicar — upsert por cada (roomType, fecha).
+    await this.prisma.$transaction(
+      preview.map((p) =>
+        this.prisma.rateOverride.upsert({
+          where: {
+            propertyId_roomTypeId_ratePlanId_date: {
+              propertyId, roomTypeId: p.roomTypeId, ratePlanId: dto.ratePlanId ?? '',
+              date: startOfUtcDay(new Date(`${p.date}T12:00:00.000Z`)),
+            },
+          },
+          create: {
+            propertyId, roomTypeId: p.roomTypeId, ratePlanId: dto.ratePlanId ?? null,
+            date: startOfUtcDay(new Date(`${p.date}T12:00:00.000Z`)),
+            overrideRate: dto.newRate, reason: dto.reason ?? null, createdById: dto.createdById,
+          },
+          update: { overrideRate: dto.newRate, reason: dto.reason ?? null, createdById: dto.createdById },
+        }),
+      ),
+    )
+    return { dryRun: false as const, affectedCount: preview.length, preview }
+  }
+
+  private async assertPlanInProperty(planId: string, propertyId: string) {
+    const orgId = this.tenant.getOrganizationId()
+    await this.assertPropertyInOrg(propertyId, orgId)
+    const plan = await this.prisma.ratePlan.findFirst({ where: { id: planId, propertyId }, select: { id: true } })
+    if (!plan) throw new NotFoundException('Plan de tarifa no encontrado')
+  }
+
+  private validateDateRange(start: Date, end: Date) {
+    if (!(start instanceof Date) || isNaN(start.getTime()) || !(end instanceof Date) || isNaN(end.getTime())) {
+      throw new BadRequestException('Fechas inválidas')
+    }
+    if (start.getTime() > end.getTime()) throw new BadRequestException('La fecha inicial no puede ser mayor que la final')
+  }
+
+  private validateRateOrMultiplier(overrideRate?: number | null, multiplier?: number | null) {
+    if (overrideRate == null && multiplier == null) {
+      throw new BadRequestException('Define overrideRate (precio fijo) o multiplier (sobre la base)')
+    }
+    if (overrideRate != null && overrideRate < 0) throw new BadRequestException('overrideRate debe ser ≥ 0')
+    if (multiplier != null && multiplier <= 0) throw new BadRequestException('multiplier debe ser > 0')
+  }
+
   private validatePlanStrategy(strategy: BaseStrategy, baseRate?: number | null, baseMultiplier?: number | null) {
     if (strategy === 'FIXED' && (baseRate == null || baseRate < 0)) {
       throw new BadRequestException('baseStrategy=FIXED requiere baseRate ≥ 0')
