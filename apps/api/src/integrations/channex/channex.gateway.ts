@@ -617,7 +617,7 @@ export class ChannexGateway {
   async cancelBookingAtChannex(
     bookingId: string,
     reason?: string,
-  ): Promise<{ ok: boolean; status: number; skipped?: 'airbnb' | 'unmapped' }> {
+  ): Promise<{ ok: boolean; status: number; skipped?: 'airbnb' | 'unmapped' | 'forbidden' }> {
     this.requireEnabled('cancelBookingAtChannex')
 
     const booking = await this.getBooking(bookingId)
@@ -679,6 +679,18 @@ export class ChannexGateway {
     if (res.status === 200 || res.status === 204) {
       this.logger.log(`[Channex] cancelBookingAtChannex OK booking=${bookingId} ota=${booking.ota_name}`)
       return { ok: true, status: res.status }
+    }
+    // 403 = la cuenta Channex no tiene Booking CRS write habilitado (Beta) → el
+    // PMS NO puede cancelar bookings programáticamente. NO es un fallo recuperable
+    // (reintentar siempre dará 403) → skip gracioso + notif de ajuste manual, en
+    // vez de DEAD_LETTER. Validado e2e 2026-06-03: api-key con ARI write + booking
+    // read pero booking write 403.
+    if (res.status === 403) {
+      this.logger.warn(
+        `[Channex] cancelBookingAtChannex 403 booking=${bookingId} — Booking CRS write no habilitado ` +
+          `en la cuenta Channex; ajuste manual en el extranet`,
+      )
+      return { ok: false, status: 403, skipped: 'forbidden' }
     }
     await this.throwIfNotOk(res, `cancelBookingAtChannex ${bookingId}`)
     return { ok: false, status: res.status }

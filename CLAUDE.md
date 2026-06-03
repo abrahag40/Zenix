@@ -1323,7 +1323,19 @@ housekeeping3/
 
 - **D-CHX-FIX-3 — Gateway cancel payload incompleto (CRÍTICO).** `cancelBookingAtChannex` enviaba `{booking:{status:'cancelled'}}`; Channex valida el objeto booking COMPLETO en el `PUT /bookings/:id` → 422 → DEAD_LETTER → la OTA nunca se cancelaba. **Fix:** nuevo `getBooking(id)` trae la booking completa; `cancelBookingAtChannex` la re-arma íntegra (currency/ota_name/property_id/fechas/customer/rooms con `room_type_id`+`rate_plan_id`) + `status:cancelled`. Manejo gracioso de 2 casos que Channex NO puede cancelar programáticamente → `raiseManualOtaCancel` al SUPERVISOR (no DEAD_LETTER): (a) **Airbnb** (regla regulatoria §152); (b) **booking OTA sin mapear** (rooms con `room_type_id` null → canal sin mapear en Channex). **Validado e2e:** el 422 progresó de "todos los campos blank" → "rooms ids blank" → con el guard, la booking de prueba del sandbox (sin mapear) hace SKIP+notif "Cancela en BookingCom manualmente". **El flip final a `cancelled` no se validó con ESA booking porque está sin mapear (room_type_id null); una booking con rooms mapeados (canal OTA conectado real) sí lo haría — el payload es correcto.**
 
-**Confirmación doc Channex:** el Booking CRS API permite "create, modify and cancel bookings (even if it came over OTA)" — **en Beta**, requiere el objeto completo. Validación final del flip a cancelled requiere una booking con rooms mapeados (el api-key del PMS no puede crear bookings — 403; se crea desde el dashboard de Channex sandbox). 
+**Confirmación doc Channex:** el Booking CRS API permite "create, modify and cancel bookings (even if it came over OTA)" — **en Beta**, requiere el objeto completo.
+
+**🔴 BLOQUEANTE EXTERNO descubierto 2026-06-03 (no es bug de código): el api-key de Channex NO tiene Booking CRS write habilitado.** Probado en vivo contra `staging.channex.io`:
+- `GET /booking_revisions/:id` → **200** (booking READ ✅)
+- `POST /availability` → **200** (ARI write ✅)
+- `POST /bookings` → **403 Forbidden** (booking CREATE ❌)
+- `PUT /bookings/:id` (cancel con room_type_id válido) → **403 Forbidden** (booking WRITE ❌)
+
+Es decir: el api-key puede leer bookings + escribir ARI, pero **NO puede crear/modificar/cancelar bookings** (Booking CRS es Beta y requiere habilitación a nivel de cuenta Channex). **Mapear las habitaciones NO desbloquea esto** — el blocker es el permiso, no el mapeo. Por tanto el flip a "cancelled" en la OTA **no se puede validar ni ejecutar hoy** con esta cuenta. **Acción del owner:** solicitar a Channex habilitar Booking CRS write en la cuenta/api-key. Hasta entonces, las cancelaciones de bookings OTA originadas en el PMS deben hacerse manualmente en el extranet de la OTA.
+
+**D-CHX-FIX-3b — manejo gracioso del 403 (+ unmapped + airbnb):** dado que el 403 es permanente (reintentar siempre da 403), `cancelBookingAtChannex` retorna `skipped:'forbidden'` en 403 (igual que `'unmapped'` y `'airbnb'`) → el worker NO hace DEAD_LETTER, levanta `raiseManualOtaCancel` al SUPERVISOR ("Cancela en {OTA} manualmente"). Validado en vivo el path gracioso (caso 'unmapped' → notif → SUCCEEDED; 'forbidden' usa el mismo handler downstream). Esto es el comportamiento CORRECTO por defecto mientras CRS write no esté habilitado.
+
+**Lo que SÍ se validó end-to-end en Zenix:** inbound crea la stay (bug 1), worker despacha solo (bug 2), cancel → notif al supervisor para ajuste manual (bug 3 gracioso). **Lo que NO se pudo validar:** el flip automático a "cancelled" en el dashboard de Channex (bloqueado por el 403 de permisos de cuenta).
 
 **Tests:** unit gateway/worker/notif/puller 58/58 + AP-2.6 cert verde (whitelist `getBooking` + filtro JSDoc). Suite channex = baseline (44 fails DB-integration pre-existentes en main, 0 nuevos). Typecheck API verde. Decisiones D-CHX-FIX-1..3 se §-numeran al cerrar el sprint.
 
