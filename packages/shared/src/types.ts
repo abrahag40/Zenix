@@ -327,6 +327,8 @@ export interface GuestStayDto {
   noShowFeeCurrency: string | null
   noShowChargeStatus: NoShowChargeStatus | null
   noShowRevertedAt: string | null
+  // Cancel-Archive — null hasta que se cancela la reserva (§95)
+  cancelledAt: string | null
   noShowRevertedById: string | null
   // Sprint 8 — check-in confirmation
   actualCheckin: string | null

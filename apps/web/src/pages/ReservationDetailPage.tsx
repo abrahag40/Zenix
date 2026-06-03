@@ -1687,9 +1687,10 @@ export function ReservationDetailPage() {
   const otaName      = otaOption?.label ?? source
 
   const isNoShow  = !!data.noShowAt
+  const isCancelled = !!data.cancelledAt
   const canRevert = isNoShow && differenceInHours(new Date(), new Date(data.noShowAt!)) < 48
 
-  const statusLabel = isNoShow ? 'No-show' : statusColors.label
+  const statusLabel = isCancelled ? 'Cancelada' : isNoShow ? 'No-show' : statusColors.label
   const roomNumber  = data.room?.number
 
   return (
@@ -1753,9 +1754,9 @@ export function ReservationDetailPage() {
                   <span
                     className="text-[11px] font-bold px-2.5 py-0.5 rounded-full"
                     style={{
-                      backgroundColor: isNoShow ? '#FEE2E2' : `${otaColor}20`,
-                      color: isNoShow ? '#B91C1C' : otaColor,
-                      border: `1px solid ${isNoShow ? '#FCA5A5' : `${otaColor}40`}`,
+                      backgroundColor: isCancelled || isNoShow ? '#FEE2E2' : `${otaColor}20`,
+                      color: isCancelled || isNoShow ? '#B91C1C' : otaColor,
+                      border: `1px solid ${isCancelled || isNoShow ? '#FCA5A5' : `${otaColor}40`}`,
                     }}
                   >
                     {statusLabel}
@@ -1835,7 +1836,7 @@ export function ReservationDetailPage() {
                         </button>
                       )
                     }
-                    if (!isNoShow && status === 'ARRIVING' && !data.actualCheckin) {
+                    if (!isCancelled && !isNoShow && status === 'ARRIVING' && !data.actualCheckin) {
                       return (
                         <button
                           type="button"
@@ -1847,7 +1848,7 @@ export function ReservationDetailPage() {
                         </button>
                       )
                     }
-                    if (!isNoShow && status === 'DEPARTING') {
+                    if (!isCancelled && !isNoShow && status === 'DEPARTING') {
                       if (showCheckoutConfirm) {
                         return (
                           <div className="flex">
@@ -1888,7 +1889,7 @@ export function ReservationDetailPage() {
                         </button>
                       )
                     }
-                    if (!isNoShow && status === 'IN_HOUSE') {
+                    if (!isCancelled && !isNoShow && status === 'IN_HOUSE') {
                       return (
                         <button
                           type="button"
@@ -2170,6 +2171,7 @@ export function ReservationDetailPage() {
             <CategoryCard
               icon={Clock}
               iconBg={(() => {
+                if (isCancelled) return 'bg-red-50 text-red-700'
                 if (isNoShow) return 'bg-red-50 text-red-700'
                 if (status === 'IN_HOUSE') return 'bg-emerald-50 text-emerald-700'
                 if (status === 'DEPARTING') return 'bg-amber-50 text-amber-700'
@@ -2178,6 +2180,7 @@ export function ReservationDetailPage() {
               })()}
               label="Estado"
               value={(() => {
+                if (isCancelled) return 'Cancelada'
                 if (isNoShow) return 'No-show'
                 if (status === 'IN_HOUSE') return 'Alojado'
                 if (status === 'DEPARTING') return 'Sale hoy'
