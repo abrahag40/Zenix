@@ -517,28 +517,28 @@ enum RecurrenceScope {
 // ======================= MULTI-TENANT FOUNDATION =======================
 
 model Organization {
-  id          String   @id @default(uuid())
+  id             String   @id @default(uuid())
   // v1.0.5 ORG-HIERARCHY-SEED — brand opcional. Null = hotel independiente.
   // Puede agregarse después sin migration: el cliente "se vuelve marca"
   // simplemente con UPDATE organizations SET brand_id = X.
-  brandId     String?  @map("brand_id")
-  name        String
-  slug        String   @unique
-  plan        OrgPlan  @default(STARTER)
+  brandId        String?  @map("brand_id")
+  name           String
+  slug           String   @unique
+  plan           OrgPlan  @default(STARTER)
   // ── Campos legacy (preservados pre-v1.0.5, deprecated post-v1.1) ─────
   // countryCode/timezone/currency: la autoridad fiscal/operativa ahora
   // vive en LegalEntity (currency, regime) y Property (timezone). Estos
   // campos persisten por backwards-compat hasta v1.1 backfill complete.
-  countryCode String   @default("MX") @map("country_code")
-  timezone    String   @default("America/Cancun")
-  currency    String   @default("MXN")
-  isActive    Boolean  @default(true) @map("is_active")
+  countryCode    String   @default("MX") @map("country_code")
+  timezone       String   @default("America/Cancun")
+  currency       String   @default("MXN")
+  isActive       Boolean  @default(true) @map("is_active")
   // CHANNEX-AUTO-PROVISION (Day 2) — Multi-tenant Fase 1 (Modelo D adaptado).
   // Cada Org tiene su Group propio en Channex master account → aislamiento
   // lógico sin Partner Program. Null hasta primera provision.
   channexGroupId String?  @map("channex_group_id")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
   brand         Brand?        @relation(fields: [brandId], references: [id])
   legalEntities LegalEntity[]
@@ -548,40 +548,40 @@ model Organization {
   auditLogs                AuditLog[]
 
   // Reverse relations (denormalized organizationId in all business tables)
-  properties          Property[]
-  users               User[]
-  rooms               Room[]
-  units               Unit[]
-  housekeepingStaff   Staff[]
-  checkouts           Checkout[]
-  cleaningTasks       CleaningTask[]
-  taskLogs            TaskLog[]
-  cleaningNotes       CleaningNote[]
-  maintenanceIssues   MaintenanceIssue[]
-  unitDiscrepancies   UnitDiscrepancy[]
-  pushTokens          PushToken[]
-  pmsConfigs          PmsConfig[]
-  propertySettings    PropertySettings[]
-  roomTypes           RoomType[]
-  guestStays          GuestStay[]
-  reservationGroups   ReservationGroup[]
+  properties           Property[]
+  users                User[]
+  rooms                Room[]
+  units                Unit[]
+  housekeepingStaff    Staff[]
+  checkouts            Checkout[]
+  cleaningTasks        CleaningTask[]
+  taskLogs             TaskLog[]
+  cleaningNotes        CleaningNote[]
+  maintenanceIssues    MaintenanceIssue[]
+  unitDiscrepancies    UnitDiscrepancy[]
+  pushTokens           PushToken[]
+  pmsConfigs           PmsConfig[]
+  propertySettings     PropertySettings[]
+  roomTypes            RoomType[]
+  guestStays           GuestStay[]
+  reservationGroups    ReservationGroup[]
   cancellationPolicies CancellationPolicy[]
-  roomTypeChecklists  RoomTypeChecklist[]
-  roomReadinessTasks  RoomReadinessTask[]
-  stayJourneys        StayJourney[]
-  roomBlocks          RoomBlock[]
-  appNotifications    AppNotification[]
-  exchangeRates       ExchangeRate[]
+  roomTypeChecklists   RoomTypeChecklist[]
+  roomReadinessTasks   RoomReadinessTask[]
+  stayJourneys         StayJourney[]
+  roomBlocks           RoomBlock[]
+  appNotifications     AppNotification[]
+  exchangeRates        ExchangeRate[]
   // ── Sprint 8H ─────────────────────────────────────────────────────────────
-  staffShifts         StaffShift[]
+  staffShifts          StaffShift[]
   // ── Sprint 9 ──────────────────────────────────────────────────────────────
-  channelCommissions  ChannelCommission[]
+  channelCommissions   ChannelCommission[]
   // ── Sprint Mx-1 — Mantenimiento ──────────────────────────────────────────
-  maintenanceTickets  MaintenanceTicket[]
-  recurrenceTemplates MaintenanceRecurrenceTemplate[]
+  maintenanceTickets   MaintenanceTicket[]
+  recurrenceTemplates  MaintenanceRecurrenceTemplate[]
   // ── Sprint BILLING-CORE (v1.1.0) ─────────────────────────────────────────
-  subscription        Subscription?
-  termsAcceptances    TermsAcceptance[]
+  subscription         Subscription?
+  termsAcceptances     TermsAcceptance[]
 
   @@map("organizations")
 }
@@ -865,6 +865,10 @@ model Property {
   reservationGroups       ReservationGroup[]
   // ── Sprint GROUP-BILLING Fase C (2026-06-01) — políticas de cancelación ──
   cancellationPolicies    CancellationPolicy[]
+  // ── Sprint RATES-METRICS-COMPSET-CORE (2026-06-03) — pricing ─────────────
+  ratePlans               RatePlan[]
+  promotions              Promotion[]
+  rateOverrides           RateOverride[]
 
   @@index([organizationId])
   @@index([legalEntityId])
@@ -886,7 +890,7 @@ model Channel {
   id                String    @id @default(uuid())
   propertyId        String    @map("property_id")
   channexChannelId  String    @unique @map("channex_channel_id")
-  type              String    // 'BookingCom' | 'ExpediaCom' | 'AirbnbCom' | ...
+  type              String // 'BookingCom' | 'ExpediaCom' | 'AirbnbCom' | ...
   title             String
   status            String    @default("inactive")
   settingsEncrypted String?   @map("settings_encrypted") @db.Text
@@ -1463,6 +1467,8 @@ model RoomType {
   organization Organization @relation(fields: [organizationId], references: [id])
   property     Property     @relation(fields: [propertyId], references: [id])
   rooms        Room[]
+  // ── Sprint RATES-METRICS-COMPSET-CORE (2026-06-03) ──────────────────────
+  rateSeasons  RateSeason[]
 
   @@unique([propertyId, code])
   @@index([organizationId])
@@ -1533,11 +1539,11 @@ model GuestStay {
   // Recepción cobra fuera de Zenix (efectivo, OTA card via Booking VCC /
   // Expedia Collect, transferencia, etc.) y registra el outcome aquí vía
   // POST /v1/guest-stays/:id/register-noshow-charge. NO usa Stripe.
-  noShowChargeMethod    String?             @map("no_show_charge_method")    // cash | transfer | ota_card | manual_card | ota_collect | other
+  noShowChargeMethod    String?             @map("no_show_charge_method") // cash | transfer | ota_card | manual_card | ota_collect | other
   noShowChargeReference String?             @map("no_show_charge_reference") // POS approval ID, transfer ID, etc.
   noShowChargeAt        DateTime?           @map("no_show_charge_at")
   noShowChargeById      String?             @map("no_show_charge_by_id")
-  noShowChargeReason    String?             @map("no_show_charge_reason")    // obligatorio si status=WAIVED
+  noShowChargeReason    String?             @map("no_show_charge_reason") // obligatorio si status=WAIVED
   noShowRevertedAt      DateTime?           @map("no_show_reverted_at")
   noShowRevertedById    String?             @map("no_show_reverted_by_id")
   // ── Late checkout escalation (Sprint 9) ─────────────────────────────────
@@ -1613,39 +1619,39 @@ model GuestStay {
   // change. Soporta hotel boutique / hostal / STR (Airbnb-style) con el
   // mismo modelo: STR persiste `cancelMetadata.airbnbCancelCode` sin
   // afectar el flujo principal.
-  cancelledAt          DateTime? @map("cancelled_at")
-  cancelledById        String?   @map("cancelled_by_id")
+  cancelledAt           DateTime? @map("cancelled_at")
+  cancelledById         String?   @map("cancelled_by_id")
   // 'GUEST' | 'HOTEL' | 'OTA' | 'ADMIN_ERROR' | 'SYSTEM' (string, no enum)
-  cancelInitiator      String?   @map("cancel_initiator")
+  cancelInitiator       String?   @map("cancel_initiator")
   // Texto libre + opcional motivo de dropdown via cancelReasonCode
-  cancelReason         String?   @map("cancel_reason")
-  cancelReasonCode     String?   @map("cancel_reason_code")
+  cancelReason          String?   @map("cancel_reason")
+  cancelReasonCode      String?   @map("cancel_reason_code")
   // OTA cancel codes, refund refs, host fees (STR), email refs, etc.
-  cancelMetadata       Json?     @map("cancel_metadata")
+  cancelMetadata        Json?     @map("cancel_metadata")
   // 'PMS_DIRECT' | 'CHANNEX_WEBHOOK' | 'AUTO_SYSTEM'
-  cancelledFromChannel String?   @map("cancelled_from_channel")
+  cancelledFromChannel  String?   @map("cancelled_from_channel")
   // FK hook para CancellationPolicy (relación real desde Fase C — ver abajo)
-  cancellationPolicyId String?   @map("cancellation_policy_id")
+  cancellationPolicyId  String?   @map("cancellation_policy_id")
   // GROUP-BILLING Fase C (D-GRP-C4/C5) — outcome de la política calculado AL
   // cancelar (snapshot inmutable): cuánto retiene el hotel y cuánto se reembolsa.
   // El reembolso se REGISTRA administrativamente (no Stripe, §195/§C5): el
   // operador lo procesa fuera (OTA VCC / transferencia / efectivo) y registra
   // method + reference + status. Append-only (solo se sobrescribe desde PENDING).
-  cancelRetentionAmount Decimal? @map("cancel_retention_amount") @db.Decimal(10, 2)
-  cancelRefundAmount    Decimal? @map("cancel_refund_amount")    @db.Decimal(10, 2)
+  cancelRetentionAmount Decimal?  @map("cancel_retention_amount") @db.Decimal(10, 2)
+  cancelRefundAmount    Decimal?  @map("cancel_refund_amount") @db.Decimal(10, 2)
   // NONE (nada que reembolsar) | PENDING | REFUNDED | WAIVED
-  cancelRefundStatus    String?  @map("cancel_refund_status")
+  cancelRefundStatus    String?   @map("cancel_refund_status")
   // cash | transfer | ota_card | manual_card | ota_collect | other
-  cancelRefundMethod    String?  @map("cancel_refund_method")
-  cancelRefundReference String?  @map("cancel_refund_reference")
+  cancelRefundMethod    String?   @map("cancel_refund_method")
+  cancelRefundReference String?   @map("cancel_refund_reference")
   cancelRefundAt        DateTime? @map("cancel_refund_at")
-  cancelRefundById      String?  @map("cancel_refund_by_id")
-  cancelRefundReason    String?  @map("cancel_refund_reason")
+  cancelRefundById      String?   @map("cancel_refund_by_id")
+  cancelRefundReason    String?   @map("cancel_refund_reason")
   // Sembrado para v1.0.2 CFDI-CORE — emite CFDI E + FormaPago=15 si folio
   // origen tuvo CFDI I previo y cancelInitiator != 'ADMIN_ERROR'
-  requiresFiscalReview Boolean   @default(false) @map("requires_fiscal_review")
+  requiresFiscalReview  Boolean   @default(false) @map("requires_fiscal_review")
   // Sembrado para anonymization scheduler v1.0.4 NS-UI
-  anonymizedAt         DateTime? @map("anonymized_at")
+  anonymizedAt          DateTime? @map("anonymized_at")
   // ──────────────────────────────────────────────────────────────────────
 
   // ── Channex inbound (Sprint CHANNEX-INBOUND, D-CHX2) ─────────────────────
@@ -1682,10 +1688,10 @@ model GuestStay {
   stayJourney        StayJourney?
   staySegments       StaySegment[]
   contactLogs        GuestContactLog[]
-  paymentLogs        PaymentLog[]      @relation("StayPayments")
+  paymentLogs        PaymentLog[]        @relation("StayPayments")
   // GROUP-PAYMENTS Fase A — pagos que ESTA stay entregó por OTRAS habitaciones
   // del grupo (Juan paga la habitación de María). Inverso de PaymentLog.paidByStay.
-  paymentsPaidFor    PaymentLog[]      @relation("StayPaidByPayments")
+  paymentsPaidFor    PaymentLog[]        @relation("StayPaidByPayments")
   guestStayLogs      GuestStayLog[]
   noteThread         GuestStayNote[]
   channexWebhookLogs ChannexWebhookLog[]
@@ -1738,9 +1744,9 @@ model CancellationPolicy {
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
-  organization    Organization @relation(fields: [organizationId], references: [id])
-  property        Property     @relation(fields: [propertyId], references: [id])
-  stays           GuestStay[]
+  organization Organization @relation(fields: [organizationId], references: [id])
+  property     Property     @relation(fields: [propertyId], references: [id])
+  stays        GuestStay[]
 
   @@index([organizationId])
   @@index([propertyId])
@@ -1768,44 +1774,44 @@ model CancellationPolicy {
 // Backward compat: reservationGroupId es NULLABLE en GuestStay. Stays single
 // existentes NO se tocan. Solo nuevas reservas OTA con rooms > 1 crean group.
 model ReservationGroup {
-  id                String       @id @default(uuid())
-  organizationId    String       @map("organization_id")
-  propertyId        String       @map("property_id")
+  id             String @id @default(uuid())
+  organizationId String @map("organization_id")
+  propertyId     String @map("property_id")
 
   // Channex OTA reference. UNIQUE garantiza idempotency (webhook replay no
   // crea group duplicado). Null si el grupo nace de un flow manual futuro.
-  channexBookingId  String?      @unique @map("channex_booking_id")
-  channexOtaName    String?      @map("channex_ota_name")
+  channexBookingId String? @unique @map("channex_booking_id")
+  channexOtaName   String? @map("channex_ota_name")
 
   // Datos del titular (común para todas las rooms del grupo). Vienen de
   // revision.customer en Channex inbound.
-  primaryGuestName  String       @map("primary_guest_name")
-  primaryGuestEmail String?      @map("primary_guest_email")
-  primaryGuestPhone String?      @map("primary_guest_phone")
+  primaryGuestName  String  @map("primary_guest_name")
+  primaryGuestEmail String? @map("primary_guest_email")
+  primaryGuestPhone String? @map("primary_guest_phone")
 
   // Tamaño del grupo
-  groupSize         Int          @map("group_size")  // total personas (sum occupancy)
-  roomCount         Int          @map("room_count")  // total habitaciones
+  groupSize Int @map("group_size") // total personas (sum occupancy)
+  roomCount Int @map("room_count") // total habitaciones
 
   // Fechas del journey grupal (rango agregado)
-  groupCheckIn      DateTime     @map("group_check_in")
-  groupCheckOut     DateTime     @map("group_check_out")
+  groupCheckIn  DateTime @map("group_check_in")
+  groupCheckOut DateTime @map("group_check_out")
 
   // Cancel state — cascade desde stays. cancelledAt != null cuando TODAS
   // las stays del grupo están canceladas.
-  cancelledAt       DateTime?    @map("cancelled_at")
+  cancelledAt DateTime? @map("cancelled_at")
 
   // Hook v1.0.1 PAY-CORE — master folio agregado del grupo. Permite que el
   // titular pague una sola cuenta consolidada en lugar de N folios separados.
   // masterFolioId  String?      @map("master_folio_id")
 
-  createdAt         DateTime     @default(now()) @map("created_at")
-  updatedAt         DateTime     @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  organization      Organization @relation(fields: [organizationId], references: [id])
-  property          Property     @relation(fields: [propertyId], references: [id])
-  stays             GuestStay[]
+  organization Organization @relation(fields: [organizationId], references: [id])
+  property     Property     @relation(fields: [propertyId], references: [id])
+  stays        GuestStay[]
 
   @@index([organizationId])
   @@index([organizationId, propertyId])
@@ -2585,32 +2591,32 @@ model AppNotificationApproval {
 //     nunca PAN / CVV / track data. Zenix está fuera del flujo de datos de tarjeta.
 
 model PaymentLog {
-  id             String        @id @default(uuid())
-  organizationId String        @map("organization_id")
-  propertyId     String        @map("property_id")
-  stayId         String        @map("stay_id")
-  method         PaymentMethod
-  amount         Decimal       @db.Decimal(10, 2)
-  currency       String        @default("MXN")
-  reference      String? // autorización terminal / referencia bancaria
-  approvedById   String?       @map("approved_by_id")
-  approvalReason String?       @map("approval_reason")
-  isVoid         Boolean       @default(false) @map("is_void")
-  voidedAt       DateTime?     @map("voided_at")
-  voidedById     String?       @map("voided_by_id")
-  voidReason     String?       @map("void_reason")
-  voidsLogId     String?       @unique @map("voids_log_id")
-  shiftDate      DateTime      @map("shift_date") @db.Date
-  collectedById  String        @map("collected_by_id")
+  id                 String        @id @default(uuid())
+  organizationId     String        @map("organization_id")
+  propertyId         String        @map("property_id")
+  stayId             String        @map("stay_id")
+  method             PaymentMethod
+  amount             Decimal       @db.Decimal(10, 2)
+  currency           String        @default("MXN")
+  reference          String? // autorización terminal / referencia bancaria
+  approvedById       String?       @map("approved_by_id")
+  approvalReason     String?       @map("approval_reason")
+  isVoid             Boolean       @default(false) @map("is_void")
+  voidedAt           DateTime?     @map("voided_at")
+  voidedById         String?       @map("voided_by_id")
+  voidReason         String?       @map("void_reason")
+  voidsLogId         String?       @unique @map("voids_log_id")
+  shiftDate          DateTime      @map("shift_date") @db.Date
+  collectedById      String        @map("collected_by_id")
   // GROUP-PAYMENTS Fase A (D-GRP-A1) — cuando un huésped paga por OTRA habitación
   // del mismo grupo, el PaymentLog se registra contra la stay PAGADA (reduce su
   // balance) pero paidByStayId apunta a QUIÉN entregó el dinero. Arqueo correcto
   // + balance correcto sin folio agregado. Null = pago de la propia stay.
-  paidByStayId       String?   @map("paid_by_stay_id")
+  paidByStayId       String?       @map("paid_by_stay_id")
   // Agrupa los N PaymentLogs de un mismo cobro (titular paga varias habitaciones
   // en una transacción). Comparten transactionGroupId para reconciliación.
-  transactionGroupId String?   @map("transaction_group_id")
-  createdAt      DateTime      @default(now()) @map("created_at")
+  transactionGroupId String?       @map("transaction_group_id")
+  createdAt          DateTime      @default(now()) @map("created_at")
 
   stay        GuestStay   @relation("StayPayments", fields: [stayId], references: [id])
   paidByStay  GuestStay?  @relation("StayPaidByPayments", fields: [paidByStayId], references: [id])
@@ -4102,4 +4108,128 @@ model DiscountApprovalRequest {
   @@index([requestedById])
   @@index([status, expiresAt])
   @@map("discount_approval_requests")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RATES-METRICS-COMPSET-CORE (2026-06-03) — Bloque RATES (Fase 1)
+// Pricing flexible: RatePlan + Seasons + DayOfWeek + Restrictions + Promotions
+// + Overrides. Resolución de precio con precedencia D-RATES2 (ver RatesService).
+// ═══════════════════════════════════════════════════════════════════════════
+
+model RatePlan {
+  id                 String   @id @default(uuid())
+  propertyId         String   @map("property_id")
+  code               String
+  name               String
+  baseStrategy       String   @default("BAR") // BAR | FIXED | MULTIPLIER
+  baseRate           Decimal? @db.Decimal(10, 2)
+  baseMultiplier     Decimal? @db.Decimal(4, 3)
+  cancellationPolicy String   @default("FLEXIBLE") @map("cancellation_policy")
+  inclusions         Json?
+  isActive           Boolean  @default(true) @map("is_active")
+  visibleToChannels  String[] @default(["ALL"]) @map("visible_to_channels")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  property       Property          @relation(fields: [propertyId], references: [id])
+  seasons        RateSeason[]
+  dayOfWeekRules DayOfWeekRule[]
+  restrictions   RateRestriction[]
+  promotions     Promotion[]
+
+  @@unique([propertyId, code])
+  @@index([propertyId, isActive])
+  @@map("rate_plans")
+}
+
+model RateSeason {
+  id           String   @id @default(uuid())
+  ratePlanId   String   @map("rate_plan_id")
+  roomTypeId   String?  @map("room_type_id")
+  name         String
+  startDate    DateTime @map("start_date")
+  endDate      DateTime @map("end_date")
+  overrideRate Decimal? @map("override_rate") @db.Decimal(10, 2)
+  multiplier   Decimal? @db.Decimal(4, 3)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  ratePlan RatePlan  @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  roomType RoomType? @relation(fields: [roomTypeId], references: [id])
+
+  @@index([ratePlanId, startDate, endDate])
+  @@map("rate_seasons")
+}
+
+model DayOfWeekRule {
+  id         String  @id @default(uuid())
+  ratePlanId String  @map("rate_plan_id")
+  dayOfWeek  Int     @map("day_of_week") // 0=Sun..6=Sat
+  multiplier Decimal @db.Decimal(4, 3)
+
+  ratePlan RatePlan @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+
+  @@unique([ratePlanId, dayOfWeek])
+  @@map("day_of_week_rules")
+}
+
+model RateRestriction {
+  id         String   @id @default(uuid())
+  ratePlanId String?  @map("rate_plan_id")
+  roomTypeId String?  @map("room_type_id")
+  validFrom  DateTime @map("valid_from")
+  validTo    DateTime @map("valid_to")
+  mlos       Int?
+  maxLos     Int?     @map("max_los")
+  cta        Boolean  @default(false)
+  ctd        Boolean  @default(false)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  ratePlan RatePlan? @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+
+  @@index([ratePlanId, validFrom, validTo])
+  @@index([roomTypeId, validFrom, validTo])
+  @@map("rate_restrictions")
+}
+
+model Promotion {
+  id                  String   @id @default(uuid())
+  propertyId          String   @map("property_id")
+  ratePlanId          String?  @map("rate_plan_id")
+  code                String
+  name                String
+  discountType        String   @map("discount_type") // PERCENT | FIXED
+  discountValue       Decimal  @map("discount_value") @db.Decimal(10, 2)
+  minLOS              Int?     @map("min_los")
+  advancePurchaseDays Int?     @map("advance_purchase_days")
+  validFrom           DateTime @map("valid_from")
+  validTo             DateTime @map("valid_to")
+  maxRedemptions      Int?     @map("max_redemptions")
+  currentRedemptions  Int      @default(0) @map("current_redemptions")
+  isActive            Boolean  @default(true) @map("is_active")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  property Property  @relation(fields: [propertyId], references: [id])
+  ratePlan RatePlan? @relation(fields: [ratePlanId], references: [id], onDelete: SetNull)
+
+  @@unique([propertyId, code])
+  @@index([propertyId, isActive])
+  @@map("promotions")
+}
+
+model RateOverride {
+  id           String   @id @default(uuid())
+  propertyId   String   @map("property_id")
+  roomTypeId   String   @map("room_type_id")
+  ratePlanId   String?  @map("rate_plan_id")
+  date         DateTime
+  overrideRate Decimal  @map("override_rate") @db.Decimal(10, 2)
+  reason       String?
+  createdById  String   @map("created_by_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  property Property @relation(fields: [propertyId], references: [id])
+
+  @@unique([propertyId, roomTypeId, ratePlanId, date])
+  @@index([propertyId, date])
+  @@map("rate_overrides")
 }

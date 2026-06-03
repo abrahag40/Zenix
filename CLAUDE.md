@@ -1337,6 +1337,26 @@ Es decir: el api-key puede leer bookings + escribir ARI, pero **NO puede crear/m
 
 **Lo que SÍ se validó end-to-end en Zenix:** inbound crea la stay (bug 1), worker despacha solo (bug 2), cancel → notif al supervisor para ajuste manual (bug 3 gracioso). **Lo que NO se pudo validar:** el flip automático a "cancelled" en el dashboard de Channex (bloqueado por el 403 de permisos de cuenta).
 
+**¿El 403 bloquea la CERTIFICACIÓN? NO** (verificado contra `channex.cert-tests.integration.spec.ts`). La cert PMS valida (a) recibir reservas — Test 11 `booking_revisions` feed + `getBookingRevision` + `ack` (booking READ, ✅ 200) y (b) empujar ARI — Tests 1-10 availability/rates/restrictions (ARI WRITE, ✅ 200 `POST /availability`). **No existe ningún cert test que cree/cancele una reserva.** El Booking CRS write (lo único en 403) es una feature Beta opcional FUERA del alcance de la cert. Acción del owner: solicitar a Channex habilitar Booking CRS write (solo para el diferenciador opcional §150/§157, no para certificar). PR #75 mergeado a main (commit `a183599`).
+
+### CHECK-IN modal redesign — C2/C3 cerrados vía GROUP-BILLING (2026-06-03)
+
+Verificado: lo planeado para CHECK-IN C2/C3 ya se entregó en el sprint GROUP-BILLING:
+- **C2 auto-detección multi-room (§154):** ✅ `booking-new.handler.ts` crea `ReservationGroup` + N hijas cuando `revision.rooms.length > 1` (spec `booking-new.handler.multi-room.spec.ts`).
+- **C2 walk-in + identidad de grupo visual:** ✅ botón Walk-in en `TimelineTopBar` + **GROUP-BADGE** (color ring §243) reemplazó el bracket SVG planeado.
+- **C3 GroupCheckinDialog modos A/B (§156):** ✅ Fase B (`GroupCheckinDialog`). **Modo C (hostal per-bed): DIFERIDO por decisión del owner** (el modelo es per-room; per-bed names requiere decisión de esquema propia — sprint aparte). C1 (bug fixes + walk-in ancho + nacionalidad/género) cerrado 2026-05-29 §229-§234.
+- **Pendiente real del roadmap v1.0.0:** RATES-METRICS-COMPSET-CORE (abajo).
+
+### Rates core — Sprint RATES-METRICS-COMPSET-CORE Fase 1 (EN CURSO, branch `feat/rates-metrics-core`)
+
+> Arrancado 2026-06-03. Plan completo en [docs/sprints/RATES-METRICS-COMPSET-CORE-plan.md](docs/sprints/RATES-METRICS-COMPSET-CORE-plan.md) (~20-23 días-dev, 3 capas: Rates + Métricas + Compset). Revenue blocker + desbloquea Channex cert Tests 2-8. **NO mergear** hasta avanzar más. Decisiones D-RATES1..6 se §-numeran al cerrar.
+
+**Fase 1 — Schema Rates + resolver puro (commit en rama):**
+- **Schema + migración** `20260613000000_rates_core`: 6 modelos `RatePlan` + `RateSeason` + `DayOfWeekRule` + `RateRestriction` + `Promotion` + `RateOverride` (§4.1 del plan) + relaciones inversas en `Property` (ratePlans/promotions/rateOverrides) + `RoomType` (rateSeasons). Migración aplicada aislada (db execute + migrate resolve).
+- **Resolver puro** `resolveNightlyRate(input)` en `src/pms/rates/rate-resolver.ts` — precedencia **D-RATES2**: (1) RateOverride manual gana siempre → (2) RateSeason (overrideRate ó base×multiplier) × DayOfWeekRule del día → (3) base del plan (FIXED=baseRate / MULTIPLIER=BAR×mult / BAR=BAR). Season con overrideRate NO se modula por día de semana; season roomType-specific gana sobre la general. Función sin BD, testeable (patrón `computeCancellationOutcome`).
+- **Tests:** 9/9 `rate-resolver.spec.ts`. Typecheck API verde.
+- **Pendiente Fase 1+:** `RatesService` (quote grid + CRUD), endpoints `GET /v1/rates/quote` + CRUD rate plans/seasons/restrictions, UI Settings → Rates Manager, luego Fase 2 Métricas (`MetricsDailySnapshot` + NightAudit) y Fase 3 Compset.
+
 **Tests:** unit gateway/worker/notif/puller 58/58 + AP-2.6 cert verde (whitelist `getBooking` + filtro JSDoc). Suite channex = baseline (44 fails DB-integration pre-existentes en main, 0 nuevos). Typecheck API verde. Decisiones D-CHX-FIX-1..3 se §-numeran al cerrar el sprint.
 
 ---
