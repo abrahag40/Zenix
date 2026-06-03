@@ -1232,7 +1232,9 @@ housekeeping3/
 
 ### Cancellation policy engine — Sprint GROUP-BILLING Fase C (EN CURSO, branch `feat/cancellation-policy-engine`)
 
-> **PUNTO DE PARADA 2026-06-02** — Fase C **COMPLETA** (C1 foundation + C2 wire + C3a/C3b cancel+refund UI + C4 group cancel + **C5 Settings UI** + bitácora fix + readiness reportes). **NO mergear** hasta autorización del owner. Todo el flujo de cancelación (individual + grupo + política configurable + registro de reembolso) está completo y validado end-to-end en navegador.
+> **Fase C COMPLETA + AFINADA 2026-06-03** — C1 foundation + C2 wire + C3a/C3b cancel+refund UI + C4 group cancel + C5 Settings UI + bitácora fix + readiness reportes + **polish ReservationDetailPage estado cancelado**. Todo validado end-to-end en navegador (C5 simulador, group cancel, refund register, timeline "Reembolso registrado", pill "Cancelada"). **NO mergear** hasta autorización del owner.
+>
+> **Hallazgo paralelo — 3 bugs Channex (sprint aparte, NO en esta rama):** un test e2e en vivo contra `staging.channex.io` reveló que la cancelación PMS→Channex→OTA NO funciona hoy: (1) inbound resuelve propiedad por `Property.id == channex property_id` en vez de `PropertySettings.channexPropertyId` (`booking-new.handler.ts:122`) → `PROPERTY_NOT_FOUND`; (2) worker outbound compara `next_attempt_at <= NOW()` timezone-unsafe (BD dev no-UTC) (`channex-outbound-worker.service.ts`); (3) `cancelBookingAtChannex` envía payload incompleto → Channex **HTTP 422** → DEAD_LETTER (`channex.gateway.ts:597`). Los 93 tests unitarios no los detectan (mockean el HTTP del gateway). Documentado con repro en task spawneada. Bloquea la promesa "Channex avisa y cancela en la OTA" del piloto.
 
 #### ✅ Etapa C1 — Foundation (commit `f2b23de`, rama `feat/cancellation-policy-engine`)
 
@@ -1289,6 +1291,10 @@ housekeeping3/
 #### ✅ Bitácora / timeline — reflejar reembolso (commit en rama)
 
 - **Gap detectado:** `registerCancelRefund` actualizaba la stay en silencio — el reembolso NO aparecía en el timeline del huésped (las cancelaciones SÍ vía `GuestStayLog 'CANCELLED'` + `StayJourneyEvent`). Fix: `registerCancelRefund` ahora escribe `GuestStayLog event='CANCEL_REFUND_REGISTERED'` (en `$transaction` con el update) + `ReservationDetailPage.renderEvent` lo renderiza ("Reembolso registrado · $X vía transferencia" emerald, o "Reembolso no aplicado" slate si WAIVED). `cancelGroup` ya logueaba por miembro.
+
+#### ✅ Polish — ReservationDetailPage refleja estado cancelado (commit en rama, validado)
+
+- Gap detectado en validación de navegador (2026-06-03): la página de detalle nivel 2 mostraba una reserva CANCELADA como "Llegada" con botón "Confirmar check-in" (el check-in se bloquea en backend §231, pero la UX engañaba). Fix: `isCancelled = !!data.cancelledAt` → header pill "Cancelada" (rojo) + StatTile Estado "Cancelada" + se ocultan CTAs check-in/checkout/in-house. `GuestStayDto.cancelledAt` agregado a `packages/shared` (findOne ya lo retornaba en runtime). Validado en navegador.
 
 #### ✅ Readiness BD para reportes (análisis + decisión)
 
