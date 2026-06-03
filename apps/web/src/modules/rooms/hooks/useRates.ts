@@ -137,6 +137,20 @@ export function useBulkOverride(propertyId: string) {
   })
 }
 
+export function useSetDayOfWeek(propertyId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ planId, rules }: { planId: string; rules: { dayOfWeek: number; multiplier: number }[] }) =>
+      api.put(`/v1/rates/plans/${planId}/day-of-week`, { propertyId, rules }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['rate-plans', propertyId] })
+      qc.invalidateQueries({ queryKey: ['rate-quote', propertyId] })
+      toast.success('Reglas por día guardadas')
+    },
+    onError: (e: Error) => toast.error(e.message ?? 'No se pudo guardar'),
+  })
+}
+
 export function useSeasonMutations(propertyId: string) {
   const qc = useQueryClient()
   const invalidate = () => qc.invalidateQueries({ queryKey: ['rate-plans', propertyId] })

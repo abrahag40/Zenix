@@ -15,6 +15,7 @@ describe('RatesService — RATES-CORE Fase 1', () => {
     roomType: { findMany: jest.fn(), findFirst: jest.fn() },
     ratePlan: { findMany: jest.fn(), findFirst: jest.fn(), create: jest.fn(), update: jest.fn() },
     rateSeason: { create: jest.fn(), findUnique: jest.fn(), update: jest.fn(), delete: jest.fn() },
+    dayOfWeekRule: { deleteMany: jest.fn(), create: jest.fn() },
     rateRestriction: { create: jest.fn(), findUnique: jest.fn(), delete: jest.fn() },
     rateOverride: { findMany: jest.fn().mockResolvedValue([]), upsert: jest.fn() },
     $transaction: jest.fn((arr: unknown[]) => Promise.resolve(arr)),
@@ -184,6 +185,30 @@ describe('RatesService — RATES-CORE Fase 1', () => {
         roomTypeIds: ['rt-x'], from: new Date('2026-07-10'), to: new Date('2026-07-10'),
         newRate: 200, createdById: 'staff-1',
       })).rejects.toBeInstanceOf(BadRequestException)
+    })
+  })
+
+  describe('setDayOfWeekRules', () => {
+    it('reemplaza todas las reglas (deleteMany + create por día)', async () => {
+      prisma.ratePlan.findFirst.mockResolvedValue({ id: 'rp-1' })
+      const r = await service.setDayOfWeekRules(PROP, 'rp-1', [
+        { dayOfWeek: 6, multiplier: 1.2 }, { dayOfWeek: 0, multiplier: 1.1 },
+      ])
+      expect(r.count).toBe(2)
+      expect(prisma.dayOfWeekRule.deleteMany).toHaveBeenCalledWith({ where: { ratePlanId: 'rp-1' } })
+      expect(prisma.dayOfWeekRule.create).toHaveBeenCalledTimes(2)
+    })
+
+    it('dayOfWeek fuera de 0-6 → BadRequest', async () => {
+      prisma.ratePlan.findFirst.mockResolvedValue({ id: 'rp-1' })
+      await expect(service.setDayOfWeekRules(PROP, 'rp-1', [{ dayOfWeek: 7, multiplier: 1.2 }]))
+        .rejects.toBeInstanceOf(BadRequestException)
+    })
+
+    it('multiplier ≤ 0 → BadRequest', async () => {
+      prisma.ratePlan.findFirst.mockResolvedValue({ id: 'rp-1' })
+      await expect(service.setDayOfWeekRules(PROP, 'rp-1', [{ dayOfWeek: 6, multiplier: 0 }]))
+        .rejects.toBeInstanceOf(BadRequestException)
     })
   })
 })

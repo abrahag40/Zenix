@@ -105,3 +105,12 @@ export class BulkOverrideDto {
   @IsString() @IsOptional() reason?: string
   @IsBoolean() @IsOptional() dryRun?: boolean
 }
+
+export class DayOfWeekRuleItem {
+  @IsNumber() @Min(0) dayOfWeek: number
+  @IsNumber() @Min(0) multiplier: number
+}
+export class SetDayOfWeekDto {
+  @IsString() @MinLength(1) propertyId: string
+  @IsArray() rules: DayOfWeekRuleItem[]
+}

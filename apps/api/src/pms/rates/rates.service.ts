@@ -306,6 +306,29 @@ export class RatesService {
     return this.prisma.ratePlan.update({ where: { id: planId }, data: { isActive: false } })
   }
 
+  /**
+   * Reemplaza TODAS las reglas de día de semana del plan (set completo, no merge).
+   * El resolver ya las consume (D-RATES2) — esto cierra el CRUD que faltaba.
+   * `rules`: [{ dayOfWeek 0-6, multiplier > 0 }]. Lista vacía = sin ajuste por día.
+   */
+  async setDayOfWeekRules(propertyId: string, planId: string, rules: Array<{ dayOfWeek: number; multiplier: number }>) {
+    await this.assertPlanInProperty(planId, propertyId)
+    for (const r of rules) {
+      if (r.dayOfWeek < 0 || r.dayOfWeek > 6) throw new BadRequestException('dayOfWeek debe estar entre 0 (Dom) y 6 (Sáb)')
+      if (r.multiplier <= 0) throw new BadRequestException('multiplier debe ser > 0')
+    }
+    // Dedup por día (gana el último).
+    const byDay = new Map<number, number>()
+    for (const r of rules) byDay.set(r.dayOfWeek, r.multiplier)
+    await this.prisma.$transaction([
+      this.prisma.dayOfWeekRule.deleteMany({ where: { ratePlanId: planId } }),
+      ...[...byDay.entries()].map(([dayOfWeek, multiplier]) =>
+        this.prisma.dayOfWeekRule.create({ data: { ratePlanId: planId, dayOfWeek, multiplier } }),
+      ),
+    ])
+    return { ok: true as const, count: byDay.size }
+  }
+
   // ── Seasons CRUD ──────────────────────────────────────────────────────────
 
   async createSeason(propertyId: string, dto: {

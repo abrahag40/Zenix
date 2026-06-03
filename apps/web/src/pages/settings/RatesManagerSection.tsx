@@ -12,9 +12,11 @@ import { useMemo, useState } from 'react'
 import { Plus, Trash2, Pencil, Calendar, Tag, Check, AlertTriangle } from 'lucide-react'
 import { usePropertyStore } from '../../store/property'
 import {
-  useRatePlans, useSaveRatePlan, useDeactivateRatePlan, useSeasonMutations,
+  useRatePlans, useSaveRatePlan, useDeactivateRatePlan, useSeasonMutations, useSetDayOfWeek,
   useRateQuoteGrid, useBulkOverride, type RatePlan, type BulkOverridePreviewRow,
 } from '../../modules/rooms/hooks/useRates'
+
+const DOW_LABELS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
 
 type Tab = 'plans' | 'calendar'
 
@@ -126,6 +128,13 @@ function PlanCard({ plan, isSupervisor, onEdit }: { plan: RatePlan; isSupervisor
 function PlanEditor({ propertyId, plan, onDone }: { propertyId: string; plan: RatePlan | null; onDone: () => void }) {
   const save = useSaveRatePlan(propertyId)
   const seasons = useSeasonMutations(propertyId)
+  const dowMut = useSetDayOfWeek(propertyId)
+  // Reglas por día de semana — 7 multiplicadores (1 = sin ajuste).
+  const [dow, setDow] = useState<number[]>(() => {
+    const arr = Array(7).fill(1)
+    plan?.dayOfWeekRules.forEach((r) => { arr[r.dayOfWeek] = Number(r.multiplier) })
+    return arr
+  })
   const [code, setCode] = useState(plan?.code ?? '')
   const [name, setName] = useState(plan?.name ?? '')
   const [strategy, setStrategy] = useState<RatePlan['baseStrategy']>(plan?.baseStrategy ?? 'BAR')
@@ -240,6 +249,26 @@ function PlanEditor({ propertyId, plan, onDone }: { propertyId: string; plan: Ra
             </select>
             <input type="number" step="0.01" min={0} value={seasonValue} onChange={(e) => setSeasonValue(e.target.value)} placeholder={seasonMode === 'multiplier' ? '1.5' : '300'} className="h-8 w-20 rounded border border-slate-200 px-2 text-xs tabular-nums" />
             <button onClick={addSeason} className="h-8 px-2.5 rounded-md bg-slate-700 text-white text-xs inline-flex items-center gap-1"><Plus className="h-3 w-3" /> Agregar</button>
+          </div>
+
+          {/* Reglas por día de semana */}
+          <h3 className="text-xs font-semibold text-slate-700 mb-2 mt-4">Ajuste por día de semana</h3>
+          <p className="text-[11px] text-slate-400 mb-2">Multiplicador por día (1 = sin ajuste; 1.2 = +20% fines de semana).</p>
+          <div className="flex flex-wrap items-end gap-2">
+            {DOW_LABELS.map((label, i) => (
+              <label key={i} className="text-[11px] text-slate-500 text-center">
+                {label}
+                <input type="number" step="0.05" min={0} value={dow[i]}
+                  onChange={(e) => setDow((prev) => prev.map((v, idx) => idx === i ? (parseFloat(e.target.value) || 0) : v))}
+                  className="block w-16 h-8 rounded border border-slate-200 px-1.5 text-xs tabular-nums text-center mt-0.5" />
+              </label>
+            ))}
+            <button
+              onClick={() => dowMut.mutate({ planId: plan.id, rules: dow.map((m, d) => ({ dayOfWeek: d, multiplier: m })).filter((r) => r.multiplier !== 1) })}
+              disabled={dowMut.isPending}
+              className="h-8 px-2.5 rounded-md bg-slate-700 text-white text-xs inline-flex items-center gap-1 disabled:opacity-50">
+              <Check className="h-3 w-3" /> {dowMut.isPending ? 'Guardando…' : 'Guardar días'}
+            </button>
           </div>
         </div>
       )}

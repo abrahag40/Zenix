@@ -103,6 +103,7 @@ const TIMEOUT_DEFAULTS: Record<string, number> = {
   GET:    30_000,
   POST:   20_000,
   PATCH:  20_000,
+  PUT:    20_000,
   DELETE: 15_000,
 }
 
@@ -242,6 +243,9 @@ export const api = {
 
   patch: <T>(path: string, body?: unknown, opts?: RequestOptions) =>
     request<T>(path, { method: 'PATCH', body: JSON.stringify(body), ...opts }),
+
+  put: <T>(path: string, body?: unknown, opts?: RequestOptions) =>
+    request<T>(path, { method: 'PUT', body: JSON.stringify(body), ...opts }),
 
   delete: <T>(path: string, opts?: RequestOptions) =>
     request<T>(path, { method: 'DELETE', ...opts }),

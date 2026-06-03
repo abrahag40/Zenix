@@ -1,11 +1,11 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query } from '@nestjs/common'
 import { StaffRole, type JwtPayload } from '@zenix/shared'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { RatesService } from './rates.service'
 import {
   CreateRatePlanDto, UpdateRatePlanDto, CreateSeasonDto, UpdateSeasonDto,
-  CreateRestrictionDto, UpsertOverrideDto, BulkOverrideDto,
+  CreateRestrictionDto, UpsertOverrideDto, BulkOverrideDto, SetDayOfWeekDto,
 } from './dto/rate-plan.dto'
 
 @Controller('v1/rates')
@@ -85,6 +85,12 @@ export class RatesController {
     @Query('propertyId') propertyId: string,
   ) {
     return this.service.deactivateRatePlan(propertyId, planId)
+  }
+
+  @Put('plans/:planId/day-of-week')
+  @Roles(StaffRole.SUPERVISOR)
+  setDayOfWeek(@Param('planId') planId: string, @Body() dto: SetDayOfWeekDto) {
+    return this.service.setDayOfWeekRules(dto.propertyId, planId, dto.rules)
   }
 
   // ── Seasons ──────────────────────────────────────────────────────────────

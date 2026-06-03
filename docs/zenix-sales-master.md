@@ -897,6 +897,45 @@ El diferenciador real es **claridad + trazabilidad**: el gerente ve el dinero an
 
 ---
 
+## Módulo 2.6 — Tarifas / Revenue Management
+
+> *Sprint RATES-METRICS-COMPSET-CORE (2026-06). Motor de precios flexible — capa comercial del PMS.*
+
+### El problema real
+
+Sin un motor de tarifas, el hotel cobra "a ojo": el mismo precio todo el año. Eso deja sobre la mesa el **20-30% de uplift** que documenta el benchmark de Mews. Un hotel real necesita cobrar distinto en temporada alta, fin de semana, o con tarifa anticipada — y empujar esos precios a las OTAs en tiempo real.
+
+### Qué es y cómo funciona (igual que la competencia, en lenguaje simple)
+
+El precio de cada noche se construye con piezas, de lo general a lo específico:
+
+- **Plan de tarifa (RatePlan):** una estrategia con nombre — "BAR" (tarifa base), "No reembolsable −10%", "Anticipada 15d −20%".
+- **Temporada (Season):** sube/baja el precio en un rango de fechas ("Diciembre ×1.5").
+- **Día de semana:** ajuste por día ("sábados ×1.2").
+- **Override:** precio manual de un día puntual ("24-dic = $400 fijo").
+
+**Cómo se calcula** (precedencia, gana la capa más específica): override manual → temporada × día de semana → tarifa base del plan. **Se resuelve bajo demanda** (no se guarda noche por noche): un cambio de temporada se refleja al instante, sin recalcular miles de filas. El push a las OTAs es **por evento** (tiempo real, no lote nocturno).
+
+> Nota: ADR y RevPAR son **métricas de resultado** (se calculan sobre lo que se vendió), no son lo mismo que el "rate" (el precio que ofreces). Las métricas viven en el módulo de BI (Fase 2).
+
+### Diferenciadores Zenix (honestos)
+
+Zenix **no compite en profundidad de yield/IA** con Mews/Opera (eso llega en v1.1.x Demand Intelligence). Donde gana hoy:
+
+| Capacidad | Cloudbeds | Mews | Opera | **Zenix** |
+|---|---|---|---|---|
+| Motor de planes + temporadas + día de semana + overrides | ✅ | ✅ | ✅ (consultor $$$) | ✅ nativo |
+| **Preview obligatorio en cambios masivos** (ver el diff antes de aplicar) | ⚠️ | ⚠️ | ❌ | ✅ NN/g H5 |
+| **Resolución transparente** (te dice qué capa fijó el precio) | ❌ | ❌ | ❌ | ✅ debug/audit |
+| Calendario de tarifas grid RoomType × día | ✅ | ✅ | ✅ | ✅ |
+| LATAM-first (multi-moneda + FX Banxico + impuestos inclusivos) | ⚠️ | ⚠️ | ⚠️ | ✅ |
+| Precio accesible para boutique/hostal (sin add-on caro) | ⚠️ módulos sueltos | ❌ enterprise | ❌ consultor | ✅ incluido |
+| Yield dinámico / IA tarifaria | ⚠️ | ✅ | ✅ | 📋 v1.1.x |
+
+El argumento de venta: **el mismo motor que cobran caro los globales, integrado de fábrica para el hotel boutique/hostal LATAM, con UX anti-error (preview) y transparencia que ningún competidor da.**
+
+---
+
 ## Módulo 3 — Protección contra Overbooking
 
 ### Tres capas de defensa
