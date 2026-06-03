@@ -119,6 +119,49 @@ export class ChannexOutboundNotifService {
     return { notificationId: notif.id }
   }
 
+  /**
+   * Airbnb prohíbe cancel programático desde el PMS (§152). Cuando una cancelación
+   * de reserva Airbnb se intenta, el gateway la skipea y el worker llama esto →
+   * notif ACTION_REQUIRED al SUPERVISOR para que cancele en el extranet de Airbnb.
+   */
+  async raiseManualOtaCancel(args: {
+    organizationId: string
+    propertyId: string
+    stayId: string
+    otaName: string
+  }): Promise<{ notificationId: string }> {
+    const title = `Cancela en ${args.otaName} manualmente`
+    const body =
+      `Zenix no puede cancelar reservas de ${args.otaName} automáticamente (regla del canal). ` +
+      `Cancela esta reserva en el extranet de ${args.otaName} para liberar la habitación.`
+    const notif = await this.prisma.appNotification.create({
+      data: {
+        organizationId: args.organizationId,
+        propertyId: args.propertyId,
+        type: 'ACTION_REQUIRED',
+        category: 'SYSTEM',
+        priority: 'HIGH',
+        title,
+        body,
+        metadata: { stayId: args.stayId, otaName: args.otaName, reason: 'airbnb_no_programmatic_cancel' } as Prisma.InputJsonValue,
+        actionUrl: `/reservations/${args.stayId}`,
+        recipientType: 'ROLE',
+        recipientRole: 'SUPERVISOR',
+        triggeredById: null,
+        expiresAt: null,
+      },
+      select: { id: true },
+    })
+    this.sse.emit(args.propertyId, 'notification:new', {
+      id: notif.id, type: 'ACTION_REQUIRED', category: 'SYSTEM', priority: 'HIGH',
+      title, body, metadata: { stayId: args.stayId }, actionUrl: `/reservations/${args.stayId}`, createdAt: new Date(),
+    })
+    void this.firePushToSupervisors(args.organizationId, args.propertyId, title, body, { stayId: args.stayId, notificationId: notif.id })
+      .catch(() => {})
+    this.logger.warn(`[Channex outbound notif] manual OTA cancel notif=${notif.id} stay=${args.stayId} ota=${args.otaName}`)
+    return { notificationId: notif.id }
+  }
+
   private async firePushToSupervisors(
     organizationId: string,
     propertyId: string,

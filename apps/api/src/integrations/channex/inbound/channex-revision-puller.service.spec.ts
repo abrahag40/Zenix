@@ -42,6 +42,9 @@ describe('ChannexRevisionPullerService', () => {
       findUnique: jest.Mock
       update: jest.Mock
     }
+    propertySettings: {
+      findFirst: jest.Mock
+    }
   }
   let gateway: {
     getBookingRevision: jest.Mock
@@ -56,6 +59,11 @@ describe('ChannexRevisionPullerService', () => {
       channexOutbox: {
         findUnique: jest.fn(),
         update: jest.fn().mockResolvedValue({}),
+      },
+      // Bug 1 fix — el puller traduce channexPropertyId → Property.id interno.
+      // Default identidad (property_id ya es 'prop-1' en las fixtures).
+      propertySettings: {
+        findFirst: jest.fn().mockResolvedValue({ propertyId: 'prop-1' }),
       },
     }
     gateway = {

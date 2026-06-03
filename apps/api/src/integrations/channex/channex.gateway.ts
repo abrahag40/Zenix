@@ -583,44 +583,91 @@ export class ChannexGateway {
   }
 
   /**
-   * PUT /api/v1/bookings/:id
-   * Cancel a booking via Channex CRS — Channex relays the cancellation
-   * upstream to the OTA. Per Channex docs (CRS API): "to cancel booking,
-   * please use status cancelled".
+   * GET booking por id (CRS) — booking completa (attributes) tal cual Channex.
+   * Usado SOLO por el flujo de cancelación (reconstruir el PUT con el objeto
+   * completo), NO para recibir reservas (eso es el feed booking_revisions —
+   * anti-patrón AP-2.6 evitado).
+   */
+  async getBooking(bookingId: string): Promise<ChannexBookingAttributes> {
+    this.requireEnabled('getBooking')
+    const res = await fetch(`${this.baseUrl}/bookings/${bookingId}`, {
+      headers: { 'user-api-key': this.apiKey!, 'Content-Type': 'application/json' },
+    })
+    await this.throwIfNotOk(res, `getBooking ${bookingId}`)
+    const json = (await res.json()) as { data?: { attributes?: ChannexBookingAttributes } }
+    const attrs = json.data?.attributes
+    if (!attrs) throw new ChannexHttpError(`getBooking ${bookingId} missing data.attributes`, 502)
+    return attrs
+  }
+
+  /**
+   * PUT /api/v1/bookings/:id — cancela una booking vía Channex CRS.
    *
-   * NOTE: this only propagates the cancellation signal. The OTA's own
-   * cancellation policy (refund / penalty / fee) is enforced by the OTA
-   * itself — Booking.com / Expedia / Airbnb decide. Front-desk should
-   * communicate with the guest via the OTA extranet for any monetary
-   * resolution.
+   * Channex NO acepta un payload "status-only": el `PUT /bookings/:id` valida el
+   * objeto booking COMPLETO (currency, ota_name, property_id, arrival/departure,
+   * customer, rooms) → un body parcial responde HTTP 422 (bug detectado en e2e
+   * 2026-06-03). Por eso traemos la booking actual con `getBooking`, la re-armamos
+   * íntegra y le seteamos `status:'cancelled'`. Channex relaya la cancelación a la
+   * OTA. La política de reembolso/penalización la decide la OTA.
+   *
+   * Airbnb: regla regulatoria 2022 prohíbe cancel programático desde el PMS (§152).
+   * Retornamos `{ ok:false, skipped:'airbnb' }` SIN llamar a Channex — el worker
+   * levanta notif de ajuste manual en el extranet.
    */
   async cancelBookingAtChannex(
     bookingId: string,
     reason?: string,
-  ): Promise<{ ok: boolean; status: number }> {
+  ): Promise<{ ok: boolean; status: number; skipped?: 'airbnb' }> {
     this.requireEnabled('cancelBookingAtChannex')
-    const url = `${this.baseUrl}/bookings/${bookingId}`
+
+    const booking = await this.getBooking(bookingId)
+
+    // Airbnb no permite cancel programático — el operador ajusta en el extranet.
+    if (/airbnb/i.test(booking.ota_name ?? '')) {
+      this.logger.warn(
+        `[Channex] cancelBookingAtChannex SKIP airbnb booking=${bookingId} — ajuste manual en extranet`,
+      )
+      return { ok: false, status: 0, skipped: 'airbnb' }
+    }
+
+    // Re-armar el objeto booking completo + status cancelled (Channex CRS update).
+    const rooms = (booking.rooms ?? []).map((r) => ({
+      room_type_code: r.meta?.room_type_code ?? r.room_type_id,
+      rate_plan_code: r.meta?.rate_plan_code ?? r.rate_plan_id,
+      days: r.days ?? {},
+      occupancy: r.occupancy ?? { adults: 1, children: 0, infants: 0 },
+    }))
     const body = {
       booking: {
         status: 'cancelled',
-        ...(reason ? { notes: `Cancelled by Zenix PMS: ${reason}` } : {}),
+        property_id: booking.property_id,
+        ota_name: booking.ota_name,
+        ota_reservation_code: booking.ota_reservation_code,
+        currency: booking.currency,
+        arrival_date: booking.arrival_date,
+        departure_date: booking.departure_date,
+        ...(booking.arrival_hour ? { arrival_hour: booking.arrival_hour } : {}),
+        customer: booking.customer,
+        ...(booking.payment_collect ? { payment_collect: booking.payment_collect } : {}),
+        ...(booking.payment_type ? { payment_type: booking.payment_type } : {}),
+        rooms,
+        services: booking.services ?? [],
+        meta: booking.meta ?? {},
+        notes: `${booking.notes ? booking.notes + '\n' : ''}Cancelled by Zenix PMS${reason ? `: ${reason}` : ''}`,
       },
     }
-    const res = await fetch(url, {
+
+    const res = await fetch(`${this.baseUrl}/bookings/${bookingId}`, {
       method: 'PUT',
-      headers: {
-        'user-api-key': this.apiKey!,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'user-api-key': this.apiKey!, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
 
     if (res.status === 200 || res.status === 204) {
-      this.logger.log(`[Channex] cancelBookingAtChannex OK booking=${bookingId}`)
+      this.logger.log(`[Channex] cancelBookingAtChannex OK booking=${bookingId} ota=${booking.ota_name}`)
       return { ok: true, status: res.status }
     }
     await this.throwIfNotOk(res, `cancelBookingAtChannex ${bookingId}`)
-    // unreachable but TS requires return
     return { ok: false, status: res.status }
   }
 
@@ -1208,6 +1255,40 @@ export interface ChannexBookingRevisionRoom {
   services?: unknown[]
   taxes?: unknown[]
   guests?: Array<{ name?: string; surname?: string }>
+}
+
+/**
+ * GET /bookings/:id room shape — incluye `meta.room_type_code/rate_plan_code`
+ * (los códigos que el PUT de cancelación CRS exige, distintos de los UUID
+ * internos room_type_id/rate_plan_id).
+ */
+export interface ChannexBookingAttributesRoom {
+  meta?: { room_type_code?: string | number; rate_plan_code?: string | number }
+  room_type_id?: string
+  rate_plan_id?: string
+  occupancy?: { adults: number; children: number; infants: number }
+  days?: Record<string, string>
+}
+
+/** GET /bookings/:id attributes — superset usado para reconstruir el PUT de cancel. */
+export interface ChannexBookingAttributes {
+  id: string
+  property_id: string
+  booking_id?: string
+  status: ChannexBookingStatus
+  ota_name?: string
+  ota_reservation_code?: string
+  currency?: string
+  arrival_date: string
+  departure_date: string
+  arrival_hour?: string | null
+  customer?: ChannexBookingRevisionCustomer
+  payment_collect?: string | null
+  payment_type?: string | null
+  notes?: string | null
+  rooms?: ChannexBookingAttributesRoom[]
+  services?: unknown[]
+  meta?: Record<string, unknown>
 }
 
 export interface ChannexBookingRevisionCustomer {

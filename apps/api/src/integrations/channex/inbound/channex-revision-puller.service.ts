@@ -120,6 +120,25 @@ export class ChannexRevisionPullerService {
           `status=${revision.status} ota=${revision.ota_name ?? '∅'}`,
       )
 
+      // 2.5. Traducir property_id Channex → Property.id interno (chokepoint único).
+      //   La revisión trae el UUID de Channex (`property_id`); el mapeo vive en
+      //   `PropertySettings.channexPropertyId` (§190), NO en `Property.id`. Sin
+      //   esto los handlers fallan con PROPERTY_NOT_FOUND para toda propiedad real
+      //   (seed o provisionada). Si no hay mapeo, dejamos el id crudo → el handler
+      //   levanta el conflicto PROPERTY_NOT_FOUND correctamente.
+      const mapped = await this.prisma.propertySettings.findFirst({
+        where: { channexPropertyId: revision.property_id },
+        select: { propertyId: true },
+      })
+      if (mapped) {
+        revision.property_id = mapped.propertyId
+      } else {
+        this.logger.warn(
+          `[Channex puller] no PropertySettings.channexPropertyId=${revision.property_id} — ` +
+            `handler raises PROPERTY_NOT_FOUND`,
+        )
+      }
+
       // 3. Dispatch to status-specific handler.
       //    Per Channex official: ack ONLY after we successfully saved the
       //    booking. If the handler throws, do NOT ack — the retry comes in

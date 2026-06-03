@@ -445,15 +445,18 @@ describe('Channex Cert — anti-pattern static checks (no api-key required)', ()
       { encoding: 'utf8' },
     ) as string
 
-    // CRS API (Day 5 cancel-by-OTA) usa PUT /bookings/:id — legítimo
-    // según docs Channex. El anti-patrón es usar GET /bookings para
-    // recibir bookings (deprecated).
+    // CRS API (Day 5 cancel-by-OTA) usa PUT /bookings/:id + getBooking (fetch
+    // para reconstruir el PUT de cancelación) — legítimo según docs Channex.
+    // El anti-patrón es usar GET /bookings para RECIBIR bookings (deprecated);
+    // eso se hace vía booking_revisions feed.
     const violations = result
       .split('\n')
       .filter((l) => l.trim().length > 0)
       .filter((l) => !l.includes('PUT'))
       .filter((l) => !l.includes('cancelBookingAtChannex'))
+      .filter((l) => !l.includes('getBooking'))
       .filter((l) => !l.includes('// '))
+      .filter((l) => !l.includes('* ')) // JSDoc block comments no son uso real
 
     expect(violations).toHaveLength(0)
   })
