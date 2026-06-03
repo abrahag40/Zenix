@@ -865,10 +865,11 @@ model Property {
   reservationGroups       ReservationGroup[]
   // ── Sprint GROUP-BILLING Fase C (2026-06-01) — políticas de cancelación ──
   cancellationPolicies    CancellationPolicy[]
-  // ── Sprint RATES-METRICS-COMPSET-CORE (2026-06-03) — pricing ─────────────
+  // ── Sprint RATES-METRICS-COMPSET-CORE (2026-06-03) — pricing + métricas ──
   ratePlans               RatePlan[]
   promotions              Promotion[]
   rateOverrides           RateOverride[]
+  metricsDailySnapshots   MetricsDailySnapshot[]
 
   @@index([organizationId])
   @@index([legalEntityId])
@@ -4232,4 +4233,43 @@ model RateOverride {
   @@unique([propertyId, roomTypeId, ratePlanId, date])
   @@index([propertyId, date])
   @@map("rate_overrides")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RATES-METRICS-COMPSET-CORE (2026-06-03) — Bloque METRICS (Fase 2)
+// Snapshot diario inmutable poblado por NightAuditScheduler. Fuente de los KPIs
+// del dashboard (ADR/RevPAR/ocupación) + pace/pickup (irreconstruibles sin él).
+// ═══════════════════════════════════════════════════════════════════════════
+
+model MetricsDailySnapshot {
+  id         String   @id @default(uuid())
+  propertyId String   @map("property_id")
+  date       DateTime
+  computedAt DateTime @default(now()) @map("computed_at")
+
+  totalRoomsAvailable Int     @map("total_rooms_available")
+  roomsSold           Int     @map("rooms_sold")
+  occupancyPercent    Decimal @map("occupancy_percent") @db.Decimal(5, 2)
+
+  roomRevenue  Decimal @map("room_revenue") @db.Decimal(12, 2)
+  baseCurrency String  @map("base_currency")
+  adr          Decimal @db.Decimal(10, 2)
+  revpar       Decimal @db.Decimal(10, 2)
+
+  cancellationsCount Int @default(0) @map("cancellations_count")
+  noShowsCount       Int @default(0) @map("no_shows_count")
+  arrivalsCount      Int @default(0) @map("arrivals_count")
+  departuresCount    Int @default(0) @map("departures_count")
+
+  avgLengthOfStay Decimal? @map("avg_length_of_stay") @db.Decimal(4, 2)
+  avgLeadTime     Decimal? @map("avg_lead_time") @db.Decimal(5, 2)
+
+  channelMix        Json  @map("channel_mix")
+  revenueByRoomType Json? @map("revenue_by_room_type")
+
+  property Property @relation(fields: [propertyId], references: [id])
+
+  @@unique([propertyId, date])
+  @@index([propertyId, date(sort: Desc)])
+  @@map("metrics_daily_snapshots")
 }

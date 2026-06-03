@@ -1364,7 +1364,13 @@ Verificado: lo planeado para CHECK-IN C2/C3 ya se entregó en el sprint GROUP-BI
 - **Sales:** Módulo 2.6 "Tarifas / Revenue Management" agregado a [zenix-sales-master.md](docs/zenix-sales-master.md) con tabla de diferenciadores honestos (preview H5 + resolución transparente + LATAM-first; yield/IA diferido a v1.1.x).
 - **Diferido (config sin enforcement = no se construye hasta su sprint):** `RateRestriction` enforcement at-booking (MLOS/CTA en AvailabilityService) + `Promotion` apply-at-booking + UI de restricciones/promociones. El schema + backend de restrictions existe; la UI llega cuando se wire el enforcement.
 
-**Siguiente: Fase 2 — Métricas** (`MetricsDailySnapshot` poblado por NightAuditScheduler + dashboard ADR/RevPAR/ocupación/pace; ver plan §4.2 + §6.2). Luego Fase 3 Compset.
+**Fase 2 — Métricas: BACKEND cerrado (2026-06-03, commit en rama), validado e2e en vivo:**
+- **Schema + migración** `20260614000000_metrics_daily_snapshot`: modelo `MetricsDailySnapshot` (§4.2 — capacidad/ocupación, room revenue/ADR/RevPAR, cancel/no-show/llegadas/salidas counts, avg LOS/lead time, channelMix Json, revenueByRoomType Json) + relación inversa Property. Migración aislada.
+- **MetricsService** (`src/pms/metrics/`, NO usa TenantContext — cron-friendly, el caller pasa orgId): `computeDailySnapshot(propertyId, orgId, date)` calcula KPIs USALI (ocupación = sold/available; ADR = rev/sold; RevPAR = rev/available; noche D = [00:00 D, 00:00 D+1), checkout no cuenta) + upsert idempotente por [property,date]; `backfillSnapshots` reconstruye histórico; `getRange` para charts.
+- **MetricsSnapshotScheduler** dedicado `@Cron('0 4 * * *')` — puebla "ayer" para todas las properties. **NO se entrelazó con NightAuditScheduler** (frágil, multi-tz) — scheduler propio + upsert idempotente.
+- **Endpoints** `/v1/metrics` (SUPERVISOR — revenue): `range`, `backfill`. Controller inyecta TenantContext + pasa orgId al servicio.
+- **Validado e2e en vivo:** backfill 14 snapshots del seed → range 06-01 ocupación 54.55% (12/22), ADR 141.08, RevPAR 76.95, mix por canal. ADR×occ=RevPAR ✓. Tests 30/30 (9 resolver + 18 rates service + 3 metrics). Typecheck API verde.
+- **Pendiente Fase 2:** dashboard UI (glanceable + heatmap forecast 14d + ADR/RevPAR/channel mix charts consumiendo `/v1/metrics/range`); pace/pickup/STLY (requieren capturar on-the-books-a-futuro día a día — el snapshot actual es de actuals; agregar la captura forward en un incremento siguiente). Luego Fase 3 Compset.
 
 **Tests:** unit gateway/worker/notif/puller 58/58 + AP-2.6 cert verde (whitelist `getBooking` + filtro JSDoc). Suite channex = baseline (44 fails DB-integration pre-existentes en main, 0 nuevos). Typecheck API verde. Decisiones D-CHX-FIX-1..3 se §-numeran al cerrar el sprint.
 
