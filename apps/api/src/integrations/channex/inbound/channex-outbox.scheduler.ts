@@ -65,10 +65,13 @@ export class ChannexOutboxScheduler {
    */
   private async pickReadyRows(limit: number): Promise<string[]> {
     type Row = { id: string }
+    // timezone-safe: `next_attempt_at` (Prisma DateTime, timestamp sin tz) guarda
+    // wall-clock UTC → comparar contra `NOW() AT TIME ZONE 'UTC'`, no `NOW()`
+    // (timestamptz casteado a la sesión). Ver nota en channex-outbound-worker.
     const rows = await this.prisma.$queryRaw<Row[]>`
       SELECT id FROM channex_outbox
       WHERE status IN ('PENDING', 'FAILED')
-        AND next_attempt_at <= NOW()
+        AND next_attempt_at <= (NOW() AT TIME ZONE 'UTC')
       ORDER BY next_attempt_at ASC
       LIMIT ${limit}
       FOR UPDATE SKIP LOCKED

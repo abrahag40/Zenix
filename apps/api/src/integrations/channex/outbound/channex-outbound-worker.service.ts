@@ -92,10 +92,15 @@ export class ChannexOutboundWorker {
    */
   private async pickReadyRows(limit: number): Promise<string[]> {
     type Row = { id: string }
+    // `next_attempt_at` es Prisma DateTime → columna `timestamp` SIN timezone que
+    // guarda el wall-clock UTC. `NOW()` es `timestamptz`; compararlo directo castea
+    // la columna a la timezone de la sesión → si la sesión NO es UTC (BD dev en
+    // America/Mexico_City), el row espera ~6h. `NOW() AT TIME ZONE 'UTC'` da el
+    // wall-clock UTC (mismo frame que la columna) → comparación correcta siempre.
     const rows = await this.prisma.$queryRaw<Row[]>`
       SELECT id FROM channex_outbound_queue
       WHERE status IN ('PENDING', 'FAILED')
-        AND next_attempt_at <= NOW()
+        AND next_attempt_at <= (NOW() AT TIME ZONE 'UTC')
       ORDER BY priority DESC, next_attempt_at ASC
       LIMIT ${limit}
       FOR UPDATE SKIP LOCKED
@@ -184,17 +189,35 @@ export class ChannexOutboundWorker {
           stayId: string
           reason?: string | null
         }
-        await this.gateway.cancelBookingAtChannex(
+        const cancelRes = await this.gateway.cancelBookingAtChannex(
           payload.channexBookingId,
           payload.reason ?? undefined,
         )
-        // Best-effort: marca el stay como sincronizado para que el chip
-        // "✓ Cancelado en {ota} hace Xs" aparezca en BookingDetailSheet.
-        // Si el stay fue purged entre encolar y procesar, el update es no-op.
-        await this.prisma.guestStay.updateMany({
-          where: { id: payload.stayId },
-          data: { channexLastSyncAt: new Date() },
-        })
+        if (cancelRes.skipped) {
+          // Airbnb (regla §152) o booking OTA sin mapear (rooms sin room_type_id)
+          // → Channex no puede cancelar programáticamente. Avisar al supervisor
+          // para que cancele en el extranet. NO es un fallo → row queda SUCCEEDED.
+          const stay = await this.prisma.guestStay.findUnique({
+            where: { id: payload.stayId },
+            select: { organizationId: true, propertyId: true, channexOtaName: true },
+          })
+          if (stay) {
+            await this.notif.raiseManualOtaCancel({
+              organizationId: stay.organizationId,
+              propertyId: stay.propertyId,
+              stayId: payload.stayId,
+              otaName: stay.channexOtaName ?? 'Airbnb',
+            }).catch(() => {})
+          }
+        } else {
+          // Best-effort: marca el stay como sincronizado para que el chip
+          // "✓ Cancelado en {ota} hace Xs" aparezca en BookingDetailSheet.
+          // Si el stay fue purged entre encolar y procesar, el update es no-op.
+          await this.prisma.guestStay.updateMany({
+            where: { id: payload.stayId },
+            data: { channexLastSyncAt: new Date() },
+          })
+        }
       }
 
       // 4. Success
