@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { X, RotateCcw, User, Building2, Globe, AlertCircle, Search, CalendarMinus } from 'lucide-react'
+import { X, RotateCcw, User, Building2, Globe, AlertCircle, Search, CalendarMinus, CreditCard } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { useCancelledStays, useRestoreStay } from '../../hooks/useGuestStays'
+import { useCancelledStays, useRestoreStay, useRegisterCancelRefund } from '../../hooks/useGuestStays'
 import { useModalDismiss } from '../../hooks/useModalDismiss'
+import { RegisterCancelRefundDialog } from './RegisterCancelRefundDialog'
 
 interface CancelledTodayDrawerProps {
   open: boolean
@@ -34,6 +35,10 @@ export function CancelledTodayDrawer({ open, propertyId, onClose }: CancelledTod
   todayISO.setHours(0, 0, 0, 0)
   const { data, isLoading } = useCancelledStays(propertyId, { since: todayISO.toISOString(), limit: 100 })
   const restoreMut = useRestoreStay(propertyId)
+  // GROUP-BILLING Fase C C3b — registro del reembolso desde el drawer (las
+  // canceladas no se ven en el calendario → este es el punto de acceso).
+  const registerCancelRefundMut = useRegisterCancelRefund(propertyId)
+  const [refundRow, setRefundRow] = useState<Row | null>(null)
 
   // Unified shape — backend devuelve STAY-level y EXTENSION_SEGMENT mezclados.
   // STAY tiene los campos del folio completo; EXTENSION_SEGMENT tiene previous/new
@@ -59,6 +64,10 @@ export function CancelledTodayDrawer({ open, propertyId, onClose }: CancelledTod
     segmentId?: string
     previousCheckOut?: string
     newJourneyCheckOut?: string
+    // GROUP-BILLING Fase C C3b — outcome de reembolso (STAY-level).
+    cancelRetentionAmount?: string | number | null
+    cancelRefundAmount?: string | number | null
+    cancelRefundStatus?: 'NONE' | 'PENDING' | 'REFUNDED' | 'WAIVED' | null
   }
 
   const rawRows = (data?.rows ?? []) as Row[]
@@ -282,24 +291,66 @@ export function CancelledTodayDrawer({ open, propertyId, onClose }: CancelledTod
                     </div>
                   </div>
 
-                  {canRestore && row.guestStayId && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="text-xs h-8 px-3 border-emerald-200 text-emerald-700 hover:bg-emerald-50 flex-shrink-0"
-                      onClick={() => restoreMut.mutate(row.guestStayId!)}
-                      disabled={restoreMut.isPending}
-                    >
-                      <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
-                      Restaurar
-                    </Button>
-                  )}
+                  <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                    {canRestore && row.guestStayId && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-xs h-8 px-3 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                        onClick={() => restoreMut.mutate(row.guestStayId!)}
+                        disabled={restoreMut.isPending}
+                      >
+                        <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+                        Restaurar
+                      </Button>
+                    )}
+
+                    {/* GROUP-BILLING Fase C C3b — reembolso (solo stay-level). */}
+                    {row.type !== 'EXTENSION_SEGMENT' && row.cancelRefundStatus === 'PENDING' && row.guestStayId && (
+                      <Button
+                        size="sm"
+                        className="text-xs h-8 px-3 bg-emerald-600 hover:bg-emerald-700 text-white"
+                        onClick={() => setRefundRow(row)}
+                      >
+                        <CreditCard className="h-3.5 w-3.5 mr-1.5" />
+                        Reembolso {row.cancelRefundAmount != null ? `${row.currency ?? ''} ${Number(row.cancelRefundAmount).toLocaleString()}` : ''}
+                      </Button>
+                    )}
+                    {row.cancelRefundStatus === 'REFUNDED' && (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Reembolsado
+                      </span>
+                    )}
+                    {row.cancelRefundStatus === 'WAIVED' && (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500">
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-400" /> No reembolsado
+                      </span>
+                    )}
+                  </div>
                 </li>
               )
             })}
           </ul>
         </div>
       </div>
+
+      {/* GROUP-BILLING Fase C C3b — registro del reembolso de la cancelación. */}
+      <RegisterCancelRefundDialog
+        open={!!refundRow}
+        onClose={() => setRefundRow(null)}
+        onConfirm={(dto) => {
+          if (!refundRow?.guestStayId) return
+          registerCancelRefundMut.mutate(
+            { stayId: refundRow.guestStayId, payload: dto },
+            { onSuccess: () => setRefundRow(null) },
+          )
+        }}
+        isPending={registerCancelRefundMut.isPending}
+        guestName={refundRow?.guestName ?? ''}
+        refundAmount={refundRow?.cancelRefundAmount != null ? Number(refundRow.cancelRefundAmount) : null}
+        retentionAmount={refundRow?.cancelRetentionAmount != null ? Number(refundRow.cancelRetentionAmount) : null}
+        currency={refundRow?.currency ?? 'MXN'}
+      />
     </div>
   )
 }

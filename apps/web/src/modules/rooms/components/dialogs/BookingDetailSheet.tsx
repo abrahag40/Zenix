@@ -52,14 +52,16 @@ import {
 
 import { getStayStatus } from '../../utils/timeline.utils'
 import { PaymentStatusBadge } from '../shared/PaymentStatusBadge'
-import { useLogContact, useEarlyCheckout, useUpdateGuestStay, useStayPayments, useVoidPayment, useRegisterPayment, useStayContext, useRegisterNoShowCharge, useSwapStayRooms } from '../../hooks/useGuestStays'
+import { useLogContact, useEarlyCheckout, useUpdateGuestStay, useStayPayments, useVoidPayment, useRegisterPayment, useStayContext, useRegisterNoShowCharge, useRegisterCancelRefund, useSwapStayRooms } from '../../hooks/useGuestStays'
 import { SwapRoomsConfirmDialog } from './SwapRoomsConfirmDialog'
 import { GroupSwapPickerDialog } from './GroupSwapPickerDialog'
 import { GroupCheckinDialog } from './GroupCheckinDialog'
+import { GroupCancelDialog } from './GroupCancelDialog'
 import { ArrowLeftRight, ArrowRight } from 'lucide-react'
 import { useStayUpdatedSSE } from '../../hooks/useStayUpdatedSSE'
 import { EarlyCheckoutDialog } from './EarlyCheckoutDialog'
 import { RegisterNoShowChargeDialog } from './RegisterNoShowChargeDialog'
+import { RegisterCancelRefundDialog } from './RegisterCancelRefundDialog'
 import { InlineEditField } from '../shared/InlineEditField'
 import { ReservationNotesThread } from '../shared/ReservationNotesThread'
 import { ChangeConfirmDialog } from '../shared/ChangeConfirmDialog'
@@ -727,6 +729,8 @@ export function BookingDetailSheet({
   // No-show admin charge — Sprint POST-NETFLIX-TRIAL (2026-05-29)
   const [showNoShowChargeDialog, setShowNoShowChargeDialog] = useState(false)
   const registerNoShowChargeMut = useRegisterNoShowCharge(propertyId ?? '')
+  const [showCancelRefundDialog, setShowCancelRefundDialog] = useState(false)
+  const registerCancelRefundMut = useRegisterCancelRefund(propertyId ?? '')
 
   // Sprint EDIT-RESERVATION — hook único para todas las ediciones inline.
   // Backend aplica matriz phase×campo + audit log. El frontend solo dispatcha.
@@ -736,6 +740,7 @@ export function BookingDetailSheet({
   const swapRoomsMut = useSwapStayRooms(propertyId ?? '')
   const [swapPickerOpen, setSwapPickerOpen] = useState(false)
   const [groupCheckinOpen, setGroupCheckinOpen] = useState(false)
+  const [groupCancelOpen, setGroupCancelOpen] = useState(false)
   const [swapTarget, setSwapTarget] = useState<{ id: string; guestName: string; roomNumber?: string | null } | null>(null)
   const currentUser  = useAuthStore((s) => s.user)
   const currentUserId = currentUser?.id ?? currentUser?.email ?? ''
@@ -1495,6 +1500,11 @@ export function BookingDetailSheet({
                   const groupHasPendingCheckin = allMembers.some(
                     (m) => !m.cancelledAt && !m.noShowAt && !m.actualCheckout && !m.actualCheckin,
                   )
+                  // GROUP-BILLING Fase C C4 — ¿hay miembros cancelables? (mismos
+                  // guards que cancelStay). Habilita "Cancelar grupo".
+                  const groupHasCancellable = allMembers.some(
+                    (m) => !m.cancelledAt && !m.noShowAt && !m.actualCheckout && !m.actualCheckin,
+                  )
                   return (
                     <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 space-y-3">
                       {/* Header — C3.1 v8 R3: titular PRIMERO (lo que identifica),
@@ -1679,6 +1689,21 @@ export function BookingDetailSheet({
                         >
                           <ArrowLeftRight className="h-3.5 w-3.5" strokeWidth={2.5} />
                           Intercambiar habitación
+                        </button>
+                      )}
+                      {groupHasCancellable && (
+                        <button
+                          type="button"
+                          onClick={() => setGroupCancelOpen(true)}
+                          className={cn(
+                            'w-full inline-flex items-center justify-center gap-1.5 h-9 rounded-md',
+                            'border border-red-200 bg-white text-[13px] font-semibold text-red-600',
+                            'hover:bg-red-50 transition-colors active:scale-[0.98]',
+                            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-200',
+                          )}
+                        >
+                          <Ban className="h-3.5 w-3.5" strokeWidth={2.5} />
+                          Cancelar grupo
                         </button>
                       )}
                     </div>
@@ -2143,6 +2168,63 @@ export function BookingDetailSheet({
 
                   {stay.noShowChargeStatus === 'NOT_APPLICABLE' && (
                     <p className="text-[11px] text-slate-500">Sin cargo aplicable</p>
+                  )}
+                </div>
+              )}
+
+              {/* GROUP-BILLING Fase C C3b — reembolso de cancelación. Card visible
+                  cuando la reserva está cancelada y hay un outcome de reembolso. */}
+              {stay.cancelledAt && stay.cancelRefundStatus && stay.cancelRefundStatus !== 'NONE' && (
+                <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-2">
+                  <h4 className="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
+                    <CreditCard className="h-3 w-3 text-slate-400" />
+                    Reembolso de cancelación
+                  </h4>
+                  <div className="flex items-center justify-between text-[11px] text-slate-600 tabular-nums">
+                    <span>Retención del hotel</span>
+                    <span className="font-semibold text-slate-800">{stay.currency} {(stay.cancelRetentionAmount ?? 0).toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-slate-600 tabular-nums">
+                    <span>A reembolsar al huésped</span>
+                    <span className="font-semibold text-slate-800">{stay.currency} {(stay.cancelRefundAmount ?? 0).toLocaleString()}</span>
+                  </div>
+
+                  {stay.cancelRefundStatus === 'PENDING' && (
+                    <div className="space-y-2 pt-1">
+                      <p className="text-[11px] text-amber-700">
+                        Reembolso pendiente — procésalo fuera de Zenix (OTA VCC / transferencia / efectivo) y registra el resultado.
+                      </p>
+                      <Button
+                        size="sm"
+                        onClick={() => setShowCancelRefundDialog(true)}
+                        className="w-full h-8 bg-emerald-600 hover:bg-emerald-700 text-white text-xs"
+                      >
+                        Registrar reembolso
+                      </Button>
+                    </div>
+                  )}
+
+                  {stay.cancelRefundStatus === 'REFUNDED' && (
+                    <div className="space-y-1 pt-1">
+                      <p className="text-[11px] font-semibold text-emerald-700 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+                        Reembolsado ✓
+                      </p>
+                      {stay.cancelRefundMethod && (
+                        <p className="text-[10px] text-slate-600">
+                          Método: <span className="font-medium">{stay.cancelRefundMethod}</span>
+                          {stay.cancelRefundReference && <> · Ref: <span className="font-mono">{stay.cancelRefundReference}</span></>}
+                          {stay.cancelRefundAt && <> · {format(stay.cancelRefundAt, 'd MMM HH:mm', { locale: es })}</>}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {stay.cancelRefundStatus === 'WAIVED' && (
+                    <p className="text-[11px] font-semibold text-slate-600 flex items-center gap-1.5 pt-1">
+                      <span className="w-2 h-2 rounded-full bg-slate-400 inline-block" />
+                      No reembolsado (renunciado / política)
+                    </p>
                   )}
                 </div>
               )}
@@ -2627,6 +2709,24 @@ export function BookingDetailSheet({
       hasOtaGuarantee={!!stay.channexGuaranteeMeta}
     />
 
+    {/* GROUP-BILLING Fase C C3b — registro del reembolso de cancelación. */}
+    <RegisterCancelRefundDialog
+      open={showCancelRefundDialog}
+      onClose={() => setShowCancelRefundDialog(false)}
+      onConfirm={(dto) => {
+        const stayId = stay.guestStayId ?? stay.id
+        registerCancelRefundMut.mutate(
+          { stayId, payload: dto },
+          { onSuccess: () => setShowCancelRefundDialog(false) },
+        )
+      }}
+      isPending={registerCancelRefundMut.isPending}
+      guestName={stay.guestName}
+      refundAmount={stay.cancelRefundAmount}
+      retentionAmount={stay.cancelRetentionAmount}
+      currency={stay.currency}
+    />
+
     {/* ── ChangeConfirmDialog: approval flow para paxCount/rate post-checkin.
         Disparado desde saveStayEdit / savePaymentEdit cuando phase=POST_CHECKIN.
         En este punto el draft local ya tiene el valor nuevo; el dialog sólo
@@ -2720,6 +2820,16 @@ export function BookingDetailSheet({
       open={groupCheckinOpen}
       onClose={() => setGroupCheckinOpen(false)}
       stayId={realStayId}
+      propertyId={propertyId ?? ''}
+      primaryName={stay?.groupPrimaryName ?? stay?.guestName ?? null}
+    />
+
+    {/* GROUP-BILLING Fase C C4 — cancelar grupo (parcial o total). */}
+    <GroupCancelDialog
+      open={groupCancelOpen}
+      onClose={() => setGroupCancelOpen(false)}
+      stayId={realStayId}
+      contextStayId={realStayId}
       propertyId={propertyId ?? ''}
       primaryName={stay?.groupPrimaryName ?? stay?.guestName ?? null}
     />

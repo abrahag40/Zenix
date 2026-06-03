@@ -60,6 +60,13 @@ function adaptStay(raw: Record<string, unknown>): GuestStayBlock {
     cancelInitiator:      raw.cancelInitiator as GuestStayBlock['cancelInitiator'],
     cancelReason:         raw.cancelReason as string | undefined,
     cancelReasonCode:     raw.cancelReasonCode as string | undefined,
+    // GROUP-BILLING Fase C C3b — outcome de cancelación (retención/reembolso).
+    cancelRetentionAmount:(raw.cancelRetentionAmount != null ? Number(raw.cancelRetentionAmount) : null),
+    cancelRefundAmount:   (raw.cancelRefundAmount != null ? Number(raw.cancelRefundAmount) : null),
+    cancelRefundStatus:   (raw.cancelRefundStatus as GuestStayBlock['cancelRefundStatus']) ?? null,
+    cancelRefundMethod:   (raw.cancelRefundMethod as string | null | undefined) ?? null,
+    cancelRefundReference:(raw.cancelRefundReference as string | null | undefined) ?? null,
+    cancelRefundAt:       raw.cancelRefundAt ? new Date(raw.cancelRefundAt as string) : null,
     // Sprint CHANNEX-INBOUND + CHANNEX-UX-E2-E3 §149-§152 — Channel Manager fields
     // surfaced en BookingDetailSheet (chip sync) + CancelReservationDialog (push CRS).
     channexBookingId:     (raw.channexBookingId as string | null | undefined) ?? null,
@@ -418,6 +425,69 @@ export function useCancelStay(propertyId: string) {
     onError: (err: Error) => {
       toast.error(err.message ?? 'No se pudo cancelar la reserva')
     },
+  })
+}
+
+/**
+ * GROUP-BILLING Fase C C3 — preview de retención/reembolso para el
+ * CancelReservationDialog. enabled solo cuando el dialog está abierto.
+ */
+export function useCancellationPreview(stayId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ['cancellation-preview', stayId],
+    queryFn: () => guestStaysApi.cancellationPreview(stayId!),
+    enabled: enabled && !!stayId,
+    staleTime: 15_000,
+    refetchOnWindowFocus: false,
+  })
+}
+
+/**
+ * GROUP-BILLING Fase C C3 — registra el outcome del reembolso de una reserva
+ * cancelada (procesado fuera de Zenix). Invalida el calendario.
+ */
+export function useRegisterCancelRefund(propertyId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ stayId, payload }: { stayId: string; payload: Parameters<typeof guestStaysApi.registerCancelRefund>[1] }) =>
+      guestStaysApi.registerCancelRefund(stayId, payload),
+    onSuccess: async () => {
+      await qc.refetchQueries({ queryKey: ['guest-stays', propertyId], exact: false })
+      await qc.refetchQueries({ queryKey: ['cancelled-stays', propertyId], exact: false })
+      toast.success('Reembolso registrado')
+    },
+    onError: (err: Error) => toast.error(err.message ?? 'No se pudo registrar el reembolso'),
+  })
+}
+
+/**
+ * GROUP-BILLING Fase C C4 — preview de cancelación por miembro del grupo.
+ */
+export function useGroupCancellationPreview(stayId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ['group-cancellation-preview', stayId],
+    queryFn: () => guestStaysApi.groupCancellationPreview(stayId!),
+    enabled: enabled && !!stayId,
+    staleTime: 15_000,
+    refetchOnWindowFocus: false,
+  })
+}
+
+/**
+ * GROUP-BILLING Fase C C4 — cancela N miembros de un grupo (parcial o total).
+ */
+export function useGroupCancel(propertyId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: Parameters<typeof guestStaysApi.groupCancel>[0]) =>
+      guestStaysApi.groupCancel(payload),
+    onSuccess: async () => {
+      await qc.refetchQueries({ queryKey: ['guest-stays', propertyId], exact: false })
+      await qc.refetchQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false })
+      await qc.refetchQueries({ queryKey: ['cancelled-stays', propertyId], exact: false })
+      await qc.refetchQueries({ queryKey: ['cancelled-today-count', propertyId], exact: false })
+    },
+    onError: (err: Error) => toast.error(err.message ?? 'No se pudo cancelar el grupo'),
   })
 }
 

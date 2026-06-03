@@ -32,6 +32,7 @@ import { StaffGamificationModule } from './staff-gamification/staff-gamification
 // activo y expone EmailService con envío no-op hasta que se configure SMTP.
 import { EmailModule } from './common/email/email.module'
 import { GuestStaysModule } from './pms/guest-stays/guest-stays.module'
+import { CancellationPolicyModule } from './pms/cancellation/cancellation-policy.module'
 import { RoomReadinessModule } from './pms/room-readiness/room-readiness.module'
 import { RoomTypesModule } from './pms/room-types/room-types.module'
 import { StayJourneysModule } from './pms/stay-journeys/stay-journeys.module'
@@ -94,6 +95,7 @@ import { PropertyScopeGuard } from './common/guards/property-scope.guard'
     StaffGamificationModule, // Sprint 8I-J — Hub Recamarista gamificación
     EmailModule,            // stubbed — ver comentario arriba
     GuestStaysModule,
+    CancellationPolicyModule,
     RoomReadinessModule,
     RoomTypesModule,
     StayJourneysModule,

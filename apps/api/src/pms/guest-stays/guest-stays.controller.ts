@@ -13,6 +13,8 @@ import { CreateContactLogDto } from './dto/create-contact-log.dto'
 import { ConfirmCheckinDto } from './dto/confirm-checkin.dto'
 import { RegisterPaymentDto } from './dto/register-payment.dto'
 import { BulkCheckinDto } from './dto/bulk-checkin.dto'
+import { RegisterCancelRefundDto } from './dto/register-cancel-refund.dto'
+import { GroupCancelDto } from './dto/group-cancel.dto'
 import { VoidPaymentDto } from './dto/void-payment.dto'
 import { UpdateGuestStayDto } from './dto/update-guest-stay.dto'
 import { CreateGuestStayNoteDto, UpdateGuestStayNoteDto } from './dto/guest-stay-note.dto'
@@ -260,6 +262,16 @@ export class GuestStaysController {
   }
 
   /**
+   * GET /v1/guest-stays/:id/group-cancellation-preview
+   * GROUP-BILLING Fase C C4 — preview retención/reembolso por miembro del grupo si
+   * se cancela AHORA. Alimenta GroupCancelDialog. `members: []` si no es grupo.
+   */
+  @Get(':id/group-cancellation-preview')
+  getGroupCancellationPreview(@Param('id') id: string) {
+    return this.service.getGroupCancellationPreview(id)
+  }
+
+  /**
    * Timeline unificado de auditoría para una estadía:
    *   GuestStayLog (eventos stay-level) + StayJourneyEvent (journey-level).
    * Ordenado cronológicamente. Sprint 2026-05-19 — feedback usuario: el
@@ -343,6 +355,16 @@ export class GuestStaysController {
   @Post('group-checkin')
   bulkCheckin(@Body() dto: BulkCheckinDto, @CurrentUser() actor: JwtPayload) {
     return this.service.bulkCheckin(dto, actor.sub)
+  }
+
+  /**
+   * POST /v1/guest-stays/group-cancel
+   * GROUP-BILLING Fase C C4 (D-GRP-C6) — cancela N miembros de un grupo (parcial o
+   * total). Cada stay aplica su política. Literal route ANTES de `:id`.
+   */
+  @Post('group-cancel')
+  cancelGroup(@Body() dto: GroupCancelDto, @CurrentUser() actor: JwtPayload) {
+    return this.service.cancelGroup(dto, actor.sub)
   }
 
   @Post(':id/checkout')
@@ -594,5 +616,30 @@ export class GuestStaysController {
     @CurrentUser() actor: JwtPayload,
   ) {
     return this.service.restoreStay(id, actor.sub)
+  }
+
+  /**
+   * GET /v1/guest-stays/:id/cancellation-preview
+   * GROUP-BILLING Fase C C2 — retención/reembolso si se cancela AHORA, según la
+   * política aplicable. Read-only; alimenta el preview del CancelReservationDialog.
+   */
+  @Get(':id/cancellation-preview')
+  cancellationPreview(@Param('id') id: string) {
+    return this.service.getCancellationPreview(id)
+  }
+
+  /**
+   * POST /v1/guest-stays/:id/register-cancel-refund
+   * GROUP-BILLING Fase C C2 (D-GRP-C5) — registra el outcome del reembolso de una
+   * reserva cancelada (procesado fuera de Zenix). REFUNDED | WAIVED. Append-only
+   * (solo desde PENDING). Mismo patrón que register-noshow-charge.
+   */
+  @Post(':id/register-cancel-refund')
+  registerCancelRefund(
+    @Param('id') id: string,
+    @Body() dto: RegisterCancelRefundDto,
+    @CurrentUser() actor: JwtPayload,
+  ) {
+    return this.service.registerCancelRefund(id, dto, actor.sub)
   }
 }

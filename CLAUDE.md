@@ -1230,6 +1230,85 @@ housekeeping3/
 
 > **Sprint GROUP-BILLING Fase B + GROUP-BADGE — cerrados 2026-06-01 con typecheck web + API verdes + 163/163 tests guest-stays (7 nuevos bulk-checkin + 1 COMP) + validación end-to-end en navegador (Modos A/B + casos extensión/1-noche + tooltip). Siguiente: Fase C CANCELLATION-POLICY-ENGINE (D-GRP-C1..C8) — revenue + compliance blocker.**
 
+### Cancellation policy engine — Sprint GROUP-BILLING Fase C (EN CURSO, branch `feat/cancellation-policy-engine`)
+
+> **Fase C COMPLETA + AFINADA 2026-06-03** — C1 foundation + C2 wire + C3a/C3b cancel+refund UI + C4 group cancel + C5 Settings UI + bitácora fix + readiness reportes + **polish ReservationDetailPage estado cancelado**. Todo validado end-to-end en navegador (C5 simulador, group cancel, refund register, timeline "Reembolso registrado", pill "Cancelada"). **NO mergear** hasta autorización del owner.
+>
+> **Hallazgo paralelo — 3 bugs Channex (sprint aparte, NO en esta rama):** un test e2e en vivo contra `staging.channex.io` reveló que la cancelación PMS→Channex→OTA NO funciona hoy: (1) inbound resuelve propiedad por `Property.id == channex property_id` en vez de `PropertySettings.channexPropertyId` (`booking-new.handler.ts:122`) → `PROPERTY_NOT_FOUND`; (2) worker outbound compara `next_attempt_at <= NOW()` timezone-unsafe (BD dev no-UTC) (`channex-outbound-worker.service.ts`); (3) `cancelBookingAtChannex` envía payload incompleto → Channex **HTTP 422** → DEAD_LETTER (`channex.gateway.ts:597`). Los 93 tests unitarios no los detectan (mockean el HTTP del gateway). Documentado con repro en task spawneada. Bloquea la promesa "Channex avisa y cancela en la OTA" del piloto.
+
+#### ✅ Etapa C1 — Foundation (commit `f2b23de`, rama `feat/cancellation-policy-engine`)
+
+- **Schema + migración** `20260611000000_cancellation_policy`: modelo `CancellationPolicy` (propertyId, name, isDefault, freeWindowHours, `tiers: Json`, refundMode, `groupOverride: Json?`) + FK real `GuestStay.cancellationPolicy` (el hook `cancellationPolicyId` existía como string suelto desde CANCEL-ARCHIVE §95 — ahora es FK verdadera). Migración aplicada aislada.
+- **Motor de cálculo puro** `computeCancellationOutcome(policy, stay, now)` en `src/pms/cancellation/cancellation-policy.service.ts`: función sin BD, retorna `{ free, retention, refund, appliedTier, hoursUntilCheckin, currency }`. Soporta NIGHTS/PERCENT/FIXED, cap al total, pago parcial, ventana gratuita, no-show (check-in pasado → último tramo). Default conservador: gratis ≥48h · 48-24h=1ª noche · <24h=100%.
+- **CRUD** `CancellationPolicyService` (list/create/update + setDefault transaccional + validación de tramos) + controller `GET|POST|PATCH /v1/cancellation-policies` (SUPERVISOR) + `CancellationPolicyModule` registrado en `app.module.ts`.
+- **Tests:** 9/9 motor puro + suite guest-stays+cancellation 172/172 verde. Typecheck API verde.
+
+#### ✅ Etapa C2 — Wire al flujo real (commit en rama)
+
+- **Migración** `20260612000000_cancel_refund_fields`: campos append-only en `GuestStay` (`cancelRetentionAmount`, `cancelRefundAmount`, `cancelRefundStatus` [NONE|PENDING|REFUNDED|WAIVED], `cancelRefundMethod`, `cancelRefundReference`, `cancelRefundAt`, `cancelRefundById`, `cancelRefundReason`). Patrón `noShowCharge*` (§195 D-NOSHOW). *Nota: los campos ya estaban en el schema.prisma desde C1 pero sin migrar — esta migración los aplica a la BD.*
+- **`cancelStay()`** resuelve policy (helper privado `computeCancellationFor`: policy explícita → default property → default motor) → `computeCancellationOutcome()` → guarda `cancelRetentionAmount`/`cancelRefundAmount`/`cancelRefundStatus` (PENDING si reembolso>0, NONE si no) junto con `cancelledAt` en la misma `$transaction`.
+- **`GET /v1/guest-stays/:id/cancellation-preview`** (`getCancellationPreview`) → outcome si se cancela AHORA. Read-only. Alimenta el preview del dialog.
+- **`POST /v1/guest-stays/:id/register-cancel-refund`** (`registerCancelRefund` + `RegisterCancelRefundDto`) → registra el outcome del reembolso (REFUNDED|WAIVED × method/reference/reason). Guards: cancelada + status PENDING (append-only) + reason ≥5 si WAIVED. Mismo patrón que `registerNoShowCharge` (§198).
+- **`create()`** populate `cancellationPolicyId` = policy default de la property (null si no hay).
+- **Tests:** 7 nuevos en `guest-stays.cancel.spec` (outcome gratis/no-show + preview + register happy/guards/WAIVED) + 9 motor. Suite guest-stays+cancellation **179/179** verde. Typecheck API verde.
+
+#### ✅ Etapa C3a — Cancel preview (commit en rama)
+
+- **`CancelReservationDialog`** muestra el preview de retención/reembolso al elegir el iniciador: card emerald (ventana gratuita / sin penalización) ó amber (penalización · tramo). Líneas "Retención del hotel $X · Reembolso al huésped $Y". ADMIN_ERROR → "sin penalización, reembolso total". Sin pago → "nada que reembolsar".
+- **Backend tweak:** `cancelStay` con `initiator='ADMIN_ERROR'` → override outcome a reembolso total (retención 0) — el dialog ya decía "Sin penalty" pero el motor no lo respetaba.
+- **API + hooks:** `cancellationPreview` + `registerCancelRefund` en `guest-stays.api.ts`; `useCancellationPreview` (useQuery, enabled al abrir) + `useRegisterCancelRefund` (useMutation) en `useGuestStays.ts`.
+- **Verificado end-to-end vía HTTP+JWT:** preview de un stay (pagó $720, check-in ~30h) → tramo NIGHTS 1, retención $180, reembolso $540. Typecheck web+API verde. (UI del dialog no capturada por glitch del preview tooling; card es binding directo a los datos verificados.)
+
+#### ✅ Etapa C3b — RegisterCancelRefundDialog + integración drawer (commit en rama, validado end-to-end)
+
+- `RegisterCancelRefundDialog` (nuevo, molde `RegisterNoShowChargeDialog`): status `REFUNDED|WAIVED` × método (efectivo/transferencia/OTA VCC/POS/otro) + referencia (req para transferencia/OTA) + razón (req si WAIVED) + monto editable (default = calculado, ajustable para parcial).
+- **Acceso reachable = `CancelledTodayDrawer`** (no el sheet). Decisión clave tras detectar bug §1: las reservas canceladas se filtran del calendario y el `CancelledTodayDrawer` NO abre el `BookingDetailSheet` (solo "Restaurar") — el sheet quedaba **inalcanzable** para stays cancelados. El botón "Reembolso $Y" + dialog se montaron directamente en el drawer (botón cuando `row.type !== 'EXTENSION_SEGMENT' && cancelRefundStatus === 'PENDING'`; chips REFUNDED/WAIVED). La card en el sheet se mantiene como defensa pero el camino real es el drawer.
+- **Plumbing:** (a) `GuestStayBlock` expone `cancelRetention/Refund*` (type + mapping `useGuestStays`); (b) **el backend `listCancelled` (`UnifiedRow`) reshapeaba sin los campos financieros** → se agregaron `currency` + `cancelRetentionAmount` + `cancelRefundAmount` + `cancelRefundStatus` al push de filas STAY. Sin esto el drawer recibía las filas sin el outcome y el botón nunca aparecía.
+- **Verificado end-to-end en navegador:** cancelar "Ext Miembro 2" (pagó $720, check-in ~30h) → tramo NIGHTS 1, retención $180, reembolso $540 PENDING → drawer muestra botón "Reembolso USD 540" → dialog abre con A reembolsar 540 / Retención 180 / USD → registrar con referencia SPEI → status **PENDING → REFUNDED**. Typecheck web+API verde. 41/41 (cancel + cancellation-policy specs).
+
+#### ✅ Etapa C4 — Group cancel (commit en rama, validado end-to-end)
+
+- **Backend `cancelGroup(dto, actorId)` + `POST /v1/guest-stays/group-cancel`** (ruta literal antes de `:id`): recibe `{ stayIds[], initiator, reason? }`. Valida que todas pertenezcan al mismo grupo + sean cancelables (mismos guards que `cancelStay`). En una `$transaction` cancela cada miembro (política propia → snapshot retención/reembolso, journey cascade, room cleanup, audit). Tras la tx recomputa miembros activos: **0 restantes → marca `ReservationGroup.cancelledAt`** (total); **>0 → parcial** (grupo sigue vivo). Una sola notif resumen al SUPERVISOR.
+- **`GET /v1/guest-stays/:id/group-cancellation-preview`** (`getGroupCancellationPreview`) → retención/reembolso por miembro + flags `cancellable`/`checkedIn`/`cancelled` + `otaName`. Alimenta el dialog. Read-only.
+- **`GroupCancelDialog` (nuevo)** — molde `GroupCheckinDialog` (Radix primitives §116 + DialogActions destructive §123), acento rojo. Checkbox por miembro cancelable + "Seleccionar todas" + selector de iniciador (GUEST/HOTEL/OTA/ADMIN_ERROR) + razón opcional + **resumen agregado** "Cancelar N de M · Retiene $X · Reembolsa $Y". Botón "Cancelar grupo" agregado a la sección Grupo del `BookingDetailSheet` (rojo outline, debajo de intercambiar).
+- **Channex (decisión honesta D-GRP-C6):** `CHANNEX_BOOKING_MODIFY_REQUESTED` **NO existe** (§157 lo daba por hecho — el worker de modify nunca se construyó). Por eso: **total OTA → emite `CANCEL`** (cancela la reserva OTA completa, correcto); **parcial OTA originado por el hotel (HOTEL/ADMIN_ERROR) → NO auto-cancela** (un CANCEL borraría toda la reserva OTA) → levanta notif `ACTION_REQUIRED` al SUPERVISOR para ajuste manual en el extranet + el dialog muestra aviso ámbar. Grupos directos (sin OTA): parcial 100% correcto sin Channex. El push "modify" parcial real queda diferido a un sprint Channex MODIFY aparte.
+- **Verificado end-to-end en navegador:** grupo Smith Family (expedia, 2 hab Pagadas) → "Cancelar grupo" → dialog con ambos miembros (reembolso 360 c/u) + aviso OTA parcial → cancelar 1 (John Smith, GUEST) → DB: John Smith cancelled + refund 360 PENDING, Sarah activa, **grupo cancelledAt=null** (parcial). Tests: 5 nuevos en `guest-stays.cancel.spec` (parcial / total marca grupo / grupos distintos / sin grupo / preview por miembro). Suite guest-stays **175/175** + cancellation **46/46** verde. Typecheck web+API verde.
+
+#### ⏳ Etapa C5 — Settings UI (PENDIENTE)
+
+- Nueva sección `Settings → Políticas de cancelación` (D-GRP-C1).
+- Form: name + freeWindowHours + tramos visuales (timeline de penalización) + preview "qué pasaría si cancela hoy" (llama `cancellation-preview` con `now=now()`).
+- CRUD con toggle isDefault.
+
+#### ✅ Etapa C5 — Settings UI (commit en rama, validado end-to-end)
+
+- **Tab "Cancelaciones" en `/settings/cancellation`** (`CancellationPoliciesSection` en `apps/web/src/pages/settings/`). Modelo alineado con la competencia (research Cloudbeds Smart Policies / Mews / OPERA / Little Hotelier): la política es un **objeto reutilizable con nombre** (no per-reserva), con ventana gratuita + tramos NIGHTS/PERCENT/FIXED + isDefault. CRUD contra `GET|POST|PATCH /v1/cancellation-policies` (ya existían desde C1).
+- **Presets canónicos** Flexible / Moderada / Estricta / No-reembolsable (alineados Airbnb + Booking.com) — el hotel parte de uno y lo personaliza ("cada hotel expresa su propia política", resuelve el temor del owner de imponer una universal). No-reembolsable usa `freeWindowHours = 1_000_000` (nunca gratis).
+- **Diferenciador — simulador en dinero** (`computeOutcomePreview`, espejo client-side EXACTO del motor backend `computeCancellationOutcome`): muestra en vivo "si un huésped que pagó $X cancela 10d/3d/1d/6h antes / no-show → retiene $Y, reembolsa $Z". Ningún competidor muestra un simulador de dinero en su pantalla de config (research confirmado).
+- **Editor:** unit toggle días/horas para la ventana gratuita, tramos editables con hint de días, validación `fromHours > toHours`. SUPERVISOR-only para crear/editar (guards backend ya existían).
+- **Validado end-to-end:** tab renderiza → preset Moderada → simulador computa (10d/3d gratis, 6h/no-show retiene 2000) → crear política → BD persiste (Moderada, isDefault=true, 72h, 2 tramos). Typecheck web+API verde.
+
+#### ✅ Bitácora / timeline — reflejar reembolso (commit en rama)
+
+- **Gap detectado:** `registerCancelRefund` actualizaba la stay en silencio — el reembolso NO aparecía en el timeline del huésped (las cancelaciones SÍ vía `GuestStayLog 'CANCELLED'` + `StayJourneyEvent`). Fix: `registerCancelRefund` ahora escribe `GuestStayLog event='CANCEL_REFUND_REGISTERED'` (en `$transaction` con el update) + `ReservationDetailPage.renderEvent` lo renderiza ("Reembolso registrado · $X vía transferencia" emerald, o "Reembolso no aplicado" slate si WAIVED). `cancelGroup` ya logueaba por miembro.
+
+#### ✅ Polish — ReservationDetailPage refleja estado cancelado (commit en rama, validado)
+
+- Gap detectado en validación de navegador (2026-06-03): la página de detalle nivel 2 mostraba una reserva CANCELADA como "Llegada" con botón "Confirmar check-in" (el check-in se bloquea en backend §231, pero la UX engañaba). Fix: `isCancelled = !!data.cancelledAt` → header pill "Cancelada" (rojo) + StatTile Estado "Cancelada" + se ocultan CTAs check-in/checkout/in-house. `GuestStayDto.cancelledAt` agregado a `packages/shared` (findOne ya lo retornaba en runtime). Validado en navegador.
+
+#### ✅ Readiness BD para reportes (análisis + decisión)
+
+- **Análisis profundo** (3 agentes: reportes hoteleros + columnas más solicitadas + config competencia + esquema). Conclusión clave: **el reporte de cancelaciones/no-shows ya es query-ready** — los campos que la competencia más olvida (retención vs reembolso SEPARADOS + estado + iniciador + canal + lead time) YA existen en `GuestStay`, y los índices `@@index([cancelledAt])` + `@@index([noShowAt])` ya están. No se agregaron columnas muertas.
+- **Checklist REPORTS-CORE diferido** (campos que requieren wiring de sprints futuros, NO se agregan hasta su sprint): `GuestStay.ratePlanId` (Sprint 8 RATES), `commissionRate/Amount` (Sprint 8), `marketSegment`, `PaymentLog.baseAmount/fxRate` + `departmentCode/revenueCenter` (v1.0.1 PAY-CORE), y **`MetricsDailySnapshot`** con **on-the-books-por-fecha-futura + bookings-made-that-day** (v1.0.3 REPORTS-CORE) — el análisis recalca que pace/pickup/STLY son IMPOSIBLES de reconstruir retroactivamente sin el snapshot diario. Columnas más universales (Tier 1-2) y fórmulas USALI documentadas en el análisis (handoff a REPORTS-CORE).
+
+#### Pendiente diferido (sprint aparte) — Channex MODIFY parcial
+
+- Construir `CHANNEX_BOOKING_MODIFY_REQUESTED` + outbound kind + worker dispatch (`PUT /bookings/:id` con array de rooms restantes) para que el cancel PARCIAL de un grupo OTA empuje la modificación automáticamente, en vez de la notif de ajuste manual actual. Cierra la promesa §157.
+
+#### Datos de prueba en BD dev
+
+- `tc-grpA` (Grupo Extensión, 2 habs, Jun 5-9) y `tc-grpB` (Familia UnaNoche, 2 habs, Jun 2-3) sembrados para testing visual — **no son datos de producción**, se pueden limpiar.
+
 ---
 
 > **Sprint CHANNEX-AUTO-PROVISION — implementación cerrada 2026-05-28 con 886/920 backend tests verdes (10 nuevos Netflix + 30+ nuevos AUTO-PROVISION + 9 fails pre-existentes en main no relacionados) + 7 commits sobre `feature/netflix-trial-flow` (sprint compuesto: Netflix Days 1-2 + AUTO-PROVISION Days 1-5/6-7)**. Stack final del AUTO-PROVISION: 9 gateway methods nuevos (createProperty/updateProperty/getProperty/createGroup/assignPropertyToGroup/createChannel/updateChannel/deleteChannel/upsertChannelRoomType/upsertChannelRatePlan) alineados con Channex API oficial; `ChannelCredentialsCryptoService` AES-256-GCM con KEK en .env; `ChannexProvisionService` con pipeline Group → Property → RoomTypes → RatePlans → Channels best-effort outside-tx; `ChannexProvisionController` con 3 endpoints RESTful nested `GET /v1/nova/organizations/provisioning` + `POST /v1/nova/properties/:propertyId/channex/provision` (con flag opcional `force=true` para delete-recreate de channels existentes) + `POST /v1/nova/channex/channels/:channelId/credentials` (completar credentials de channels pending) — todos NovaActingOrgGuard + defense-in-depth IDOR check; frontend `/nova/billing/channex` recovery UI con state machine + per-property cards + StatusChips + error <details> + retry mutation idempotente + `CompleteCredentialsDialog` per-OTA-fields (mismo contrato que StepChannels) + botón externo "Abrir Airbnb extranet" para channels `requires_oauth`; wizard Step 5.5 channels selection UI (Days 3-4 commits previos) + Step 8 preview con counts; schema migration `20260604000000_channex_auto_provision` (Organization.channexGroupId + LegalEntity.channexApiKey + PropertySettings provisioning fields + new Channel model con UNIQUE constraint). Docs: `docs/architecture/channex-provisioning-flow.md` con diagramas + cert alignment + recovery flow + `docs/ops/channex-credentials-rotation.md` runbook standalone (API key + KEK paths, normal + emergency, cold migration script, GDPR breach notification). Integration spec sandbox `channex-provision.integration.spec.ts` (6 escenarios opt-in con `CHANNEX_API_KEY`: createGroup + createProperty con group_id + 2 RoomTypes + 4 RatePlans + 1 Channel + updateChannel toggle, con cleanup orden inverso). Pendientes post-sprint: (a) AIRBNB-OAUTH sprint para completar el OAuth handshake; (b) RATES-METRICS sprint para sustituir el placeholder $100 BAR con rates reales (Tests cert 2-8); (c) merge `feature/netflix-trial-flow` → `main` post-validación owner del flow end-to-end con cliente piloto real.

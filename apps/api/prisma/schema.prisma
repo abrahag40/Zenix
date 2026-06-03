@@ -565,6 +565,7 @@ model Organization {
   roomTypes           RoomType[]
   guestStays          GuestStay[]
   reservationGroups   ReservationGroup[]
+  cancellationPolicies CancellationPolicy[]
   roomTypeChecklists  RoomTypeChecklist[]
   roomReadinessTasks  RoomReadinessTask[]
   stayJourneys        StayJourney[]
@@ -862,6 +863,8 @@ model Property {
   channels                Channel[]
   // ── Sprint CHECK-IN C2 (2026-05-29) — OTA multi-room groups ──────────────
   reservationGroups       ReservationGroup[]
+  // ── Sprint GROUP-BILLING Fase C (2026-06-01) — políticas de cancelación ──
+  cancellationPolicies    CancellationPolicy[]
 
   @@index([organizationId])
   @@index([legalEntityId])
@@ -1621,8 +1624,23 @@ model GuestStay {
   cancelMetadata       Json?     @map("cancel_metadata")
   // 'PMS_DIRECT' | 'CHANNEX_WEBHOOK' | 'AUTO_SYSTEM'
   cancelledFromChannel String?   @map("cancelled_from_channel")
-  // FK hook para CancellationPolicy futura (v1.1+ rate plan policies)
+  // FK hook para CancellationPolicy (relación real desde Fase C — ver abajo)
   cancellationPolicyId String?   @map("cancellation_policy_id")
+  // GROUP-BILLING Fase C (D-GRP-C4/C5) — outcome de la política calculado AL
+  // cancelar (snapshot inmutable): cuánto retiene el hotel y cuánto se reembolsa.
+  // El reembolso se REGISTRA administrativamente (no Stripe, §195/§C5): el
+  // operador lo procesa fuera (OTA VCC / transferencia / efectivo) y registra
+  // method + reference + status. Append-only (solo se sobrescribe desde PENDING).
+  cancelRetentionAmount Decimal? @map("cancel_retention_amount") @db.Decimal(10, 2)
+  cancelRefundAmount    Decimal? @map("cancel_refund_amount")    @db.Decimal(10, 2)
+  // NONE (nada que reembolsar) | PENDING | REFUNDED | WAIVED
+  cancelRefundStatus    String?  @map("cancel_refund_status")
+  // cash | transfer | ota_card | manual_card | ota_collect | other
+  cancelRefundMethod    String?  @map("cancel_refund_method")
+  cancelRefundReference String?  @map("cancel_refund_reference")
+  cancelRefundAt        DateTime? @map("cancel_refund_at")
+  cancelRefundById      String?  @map("cancel_refund_by_id")
+  cancelRefundReason    String?  @map("cancel_refund_reason")
   // Sembrado para v1.0.2 CFDI-CORE — emite CFDI E + FormaPago=15 si folio
   // origen tuvo CFDI I previo y cancelInitiator != 'ADMIN_ERROR'
   requiresFiscalReview Boolean   @default(false) @map("requires_fiscal_review")
@@ -1671,6 +1689,9 @@ model GuestStay {
   guestStayLogs      GuestStayLog[]
   noteThread         GuestStayNote[]
   channexWebhookLogs ChannexWebhookLog[]
+  // GROUP-BILLING Fase C — política de cancelación aplicable (FK real; el hook
+  // cancellationPolicyId existía desde CANCEL-ARCHIVE §95 como string suelto).
+  cancellationPolicy CancellationPolicy? @relation(fields: [cancellationPolicyId], references: [id], onDelete: SetNull)
 
   @@index([organizationId])
   @@index([organizationId, propertyId])
@@ -1681,6 +1702,50 @@ model GuestStay {
   @@index([channexConflict])
   @@index([reservationGroupId])
   @@map("guest_stays")
+}
+
+// ====== Cancellation Policy (Sprint GROUP-BILLING Fase C, 2026-06-01) =========
+//
+// Política de cancelación per-property (per-rate-plan en v1.0.1 cuando exista
+// RatePlan de RATES-METRICS). Define la ventana gratuita + tramos de penalización
+// por tiempo-al-check-in. El motor CancellationPolicyService.computeOutcome()
+// calcula retención/reembolso; el reembolso se REGISTRA (no se procesa por
+// Stripe, §195/§C5). D-GRP-C1/C2.
+model CancellationPolicy {
+  id              String   @id @default(uuid())
+  organizationId  String   @map("organization_id")
+  propertyId      String   @map("property_id")
+  name            String
+  // Política por defecto de la property (se asigna a reservas nuevas sin policy
+  // explícita). Una sola default por property (enforce a nivel app).
+  isDefault       Boolean  @default(false) @map("is_default")
+  // Cancelación gratuita si faltan >= freeWindowHours para el check-in.
+  freeWindowHours Int      @default(48) @map("free_window_hours")
+  // Tramos de penalización por tiempo-al-check-in, ordenados de mayor a menor
+  // antelación. Cada tramo: { fromHours, toHours, chargeType, value }.
+  //   chargeType: 'NIGHTS' (value = nº noches × ratePerNight)
+  //             | 'PERCENT' (value = % del totalAmount)
+  //             | 'FIXED'   (value = monto absoluto en la moneda del folio)
+  // El último tramo (toHours = 0) cubre el no-show. Ej:
+  //   [{fromHours:48,toHours:24,chargeType:'NIGHTS',value:1},
+  //    {fromHours:24,toHours:0, chargeType:'PERCENT',value:100}]
+  tiers           Json
+  // Informativo/derivado: FULL | PARTIAL | NONE (qué se reembolsa típicamente).
+  refundMode      String   @default("PARTIAL") @map("refund_mode")
+  // Override per-grupo (ventana más larga + depósito, per industria). Mismo
+  // shape que el nivel raíz; null = usa los tramos base. D-GRP-C7.
+  groupOverride   Json?    @map("group_override")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  property        Property     @relation(fields: [propertyId], references: [id])
+  stays           GuestStay[]
+
+  @@index([organizationId])
+  @@index([propertyId])
+  @@index([propertyId, isDefault])
+  @@map("cancellation_policies")
 }
 
 // ====== Reservation Group (Sprint CHECK-IN C2, 2026-05-29) ===================

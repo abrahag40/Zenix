@@ -4,7 +4,7 @@ import { es } from 'date-fns/locale'
 import { X, AlertTriangle, User, Building2, Globe, AlertCircle, ChevronDown, ChevronUp, ExternalLink, RadioTower } from 'lucide-react'
 import { DialogActions } from '../shared/DialogActions'
 import type { GuestStayBlock } from '../../types/timeline.types'
-import type { CancelStayInput } from '../../hooks/useGuestStays'
+import { type CancelStayInput, useCancellationPreview } from '../../hooks/useGuestStays'
 import { useModalDismiss } from '../../hooks/useModalDismiss'
 import { resolveOtaDisplay } from '../../utils/timeline.constants'
 
@@ -52,6 +52,19 @@ export function CancelReservationDialog({
   const nights = differenceInDays(stay.checkOut, stay.checkIn)
   const total = Number(stay.totalAmount ?? stay.ratePerNight * nights)
   const isAdminError = initiator === 'ADMIN_ERROR'
+
+  // GROUP-BILLING Fase C C3 — preview de retención/reembolso según la política.
+  // Se carga al montar (el dialog solo existe abierto). resolvedStayId: para
+  // journey segments el GuestStay parent vive en guestStayId.
+  const resolvedStayId = stay.guestStayId ?? stay.id
+  const { data: preview } = useCancellationPreview(resolvedStayId, true)
+  const tierLabel = (() => {
+    const t = preview?.appliedTier
+    if (!t) return ''
+    if (t.chargeType === 'NIGHTS') return `${t.value} noche${t.value === 1 ? '' : 's'}`
+    if (t.chargeType === 'PERCENT') return `${t.value}%`
+    return 'monto fijo'
+  })()
 
   // ── Channex OTA detection ──────────────────────────────────────────────
   // Sprint CHANNEX-UX-E2-E3. La push CRS sólo se dispara cuando:
@@ -231,6 +244,46 @@ export function CancelReservationDialog({
                     ? 'Restaurable dentro de 7 días desde el archivo.'
                     : 'Una vez confirmada no se podrá restaurar (si vuelve, crea reserva nueva).'}
                 </p>
+              )}
+
+              {/* GROUP-BILLING Fase C C3 — preview de retención/reembolso por política.
+                  ADMIN_ERROR no penaliza (reembolso total). Sin pago → nada que reembolsar. */}
+              {initiator && initiator !== 'SYSTEM' && preview && (
+                isAdminError ? (
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] text-emerald-800 leading-snug">
+                    Error administrativo — <span className="font-semibold">sin penalización</span>.
+                    {preview.amountPaid > 0
+                      ? ` Reembolso total: ${preview.currency} ${preview.refund.toLocaleString()}.`
+                      : ' No hay pago registrado.'}
+                  </div>
+                ) : preview.amountPaid <= 0 && preview.retention <= 0 ? (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
+                    Sin pago registrado — nada que reembolsar.
+                  </div>
+                ) : (
+                  <div className={`rounded-lg border px-3 py-2 text-[11px] leading-snug space-y-1 ${preview.free ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
+                    {preview.free ? (
+                      <p className="text-emerald-800">
+                        Dentro de la ventana gratuita — <span className="font-semibold">sin penalización</span>.
+                      </p>
+                    ) : (
+                      <p className="text-amber-800 font-semibold flex items-center gap-1">
+                        Penalización por política {tierLabel && <span className="font-normal">· {tierLabel}</span>}
+                      </p>
+                    )}
+                    <div className="flex justify-between tabular-nums">
+                      <span className={preview.free ? 'text-emerald-700' : 'text-amber-700'}>Retención del hotel</span>
+                      <span className={`font-semibold ${preview.free ? 'text-emerald-800' : 'text-amber-800'}`}>{preview.currency} {preview.retention.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between tabular-nums">
+                      <span className={preview.free ? 'text-emerald-700' : 'text-amber-700'}>Reembolso al huésped</span>
+                      <span className={`font-semibold ${preview.free ? 'text-emerald-800' : 'text-amber-800'}`}>{preview.currency} {preview.refund.toLocaleString()}</span>
+                    </div>
+                    {preview.amountPaid <= 0 && (
+                      <p className="text-slate-500 pt-0.5">Sin pago registrado — la retención no se ha cobrado.</p>
+                    )}
+                  </div>
+                )
               )}
 
               {/* ─── SINCRONIZACIÓN OTA — Sprint CHANNEX-UX-E2-E3 §151-§152 ─── */}
