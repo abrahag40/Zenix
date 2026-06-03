@@ -57,7 +57,7 @@ export function RateQuoteSheet({
   const [from, setFrom] = useState<Date>(initialFrom ?? today)
   const [to, setTo] = useState<Date>(initialTo ?? addDays(today, 3))
 
-  const { data, isLoading, isError, error, refetch } = useRateQuoteGrid(propertyId, from, to, open)
+  const { data, isLoading, isError, error, refetch } = useRateQuoteGrid(propertyId, from, to, undefined, open)
   const { onBackdropClick } = useModalDismiss({ isDirty: false, onClose })
 
   const nights = Math.max(1, differenceInDays(to, from))

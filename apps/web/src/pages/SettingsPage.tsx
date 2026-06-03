@@ -19,10 +19,11 @@ import { SettingsScopeBanner } from '../components/SettingsScopeBanner'
 import { HousekeepingScheduleSection } from '../components/settings/HousekeepingScheduleSection'
 import { FxSection } from '../components/settings/FxSection'
 import { CancellationPoliciesSection } from './settings/CancellationPoliciesSection'
+import { RatesManagerSection } from './settings/RatesManagerSection'
 import type { UnitDto, PropertySettingsDto, RoomDto, StaffDto } from '@zenix/shared'
 import { Capability, StaffRole, RoomCategory } from '@zenix/shared'
 
-type Section = 'rooms' | 'staff' | 'scheduling' | 'property' | 'fx' | 'cancellation' | 'legal-entity' | 'support'
+type Section = 'rooms' | 'staff' | 'scheduling' | 'property' | 'fx' | 'rates' | 'cancellation' | 'legal-entity' | 'support'
 
 const TABS: { key: Section; label: string; icon: string }[] = [
   { key: 'rooms',        label: 'Habitaciones', icon: '🛏️' },
@@ -30,6 +31,7 @@ const TABS: { key: Section; label: string; icon: string }[] = [
   { key: 'scheduling',   label: 'Recamaristas', icon: '🧹' },
   { key: 'property',     label: 'Propiedad',    icon: '⚙️' },
   { key: 'fx',           label: 'Tipo de cambio', icon: '💱' },
+  { key: 'rates',        label: 'Tarifas',      icon: '💲' },
   { key: 'cancellation', label: 'Cancelaciones', icon: '🚫' },
   { key: 'legal-entity', label: 'Facturación',  icon: '🧾' },
   { key: 'support',      label: 'Soporte',      icon: '🛟' },
@@ -80,6 +82,7 @@ export function SettingsPage() {
       {section === 'scheduling' && <HousekeepingScheduleSection />}
       {section === 'property'   && <PropertySection isSupervisor={isSupervisor} />}
       {section === 'fx'         && <FxSection isSupervisor={isSupervisor} />}
+      {section === 'rates'      && <RatesManagerSection isSupervisor={isSupervisor} />}
       {section === 'cancellation' && <CancellationPoliciesSection isSupervisor={isSupervisor} />}
       {section === 'legal-entity' && <LegalEntitySection isSupervisor={isSupervisor} />}
       {section === 'support'    && <SupportSection isSupervisor={isSupervisor} />}
