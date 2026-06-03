@@ -1,6 +1,10 @@
 import { Link } from 'react-router-dom'
 import { FxRateWidget } from '@/components/FxRateWidget'
 import { OverstayedWidget } from '@/components/OverstayedWidget'
+import { MetricsOverview } from '@/components/MetricsOverview'
+import { useAuthStore } from '@/store/auth'
+import { usePropertyStore } from '@/store/property'
+import { StaffRole } from '@zenix/shared'
 
 /**
  * DashboardPage — placeholder landing.
@@ -10,15 +14,19 @@ import { OverstayedWidget } from '@/components/OverstayedWidget'
  * módulos de Calendario y Housekeeping.
  */
 export function DashboardPage() {
+  const isSupervisor = useAuthStore((s) => s.user?.role === StaffRole.SUPERVISOR)
+  const propertyId = usePropertyStore((s) => s.activePropertyId) ?? ''
+
   return (
     <div className="space-y-6">
       <header>
         <h1 className="text-2xl font-semibold text-gray-900">Dashboard</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Panel principal de Zenix. El contenido se construirá en un sprint
-          posterior.
+          Panel principal de Zenix.
         </p>
       </header>
+
+      {propertyId && <MetricsOverview propertyId={propertyId} isSupervisor={isSupervisor} />}
 
       <section className="grid gap-4 sm:grid-cols-2">
         <Link
@@ -59,7 +67,7 @@ export function DashboardPage() {
 
       <div className="bg-gray-50 border border-dashed border-gray-300 rounded-xl p-6 text-center">
         <p className="text-sm text-gray-500">
-          Más widgets (ocupación, revenue, pickup) se añadirán próximamente.
+          Próximamente: pace/pickup, forecast de ocupación y compset.
         </p>
       </div>
     </div>
