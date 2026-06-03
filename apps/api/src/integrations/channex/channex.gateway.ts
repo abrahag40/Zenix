@@ -617,7 +617,7 @@ export class ChannexGateway {
   async cancelBookingAtChannex(
     bookingId: string,
     reason?: string,
-  ): Promise<{ ok: boolean; status: number; skipped?: 'airbnb' }> {
+  ): Promise<{ ok: boolean; status: number; skipped?: 'airbnb' | 'unmapped' }> {
     this.requireEnabled('cancelBookingAtChannex')
 
     const booking = await this.getBooking(bookingId)
@@ -631,12 +631,25 @@ export class ChannexGateway {
     }
 
     // Re-armar el objeto booking completo + status cancelled (Channex CRS update).
+    // El PUT exige `room_type_id` + `rate_plan_id` (UUIDs), NO los `_code` del meta
+    // (confirmado en e2e: 422 "room_type_id/rate_plan_id can't be blank").
     const rooms = (booking.rooms ?? []).map((r) => ({
-      room_type_code: r.meta?.room_type_code ?? r.room_type_id,
-      rate_plan_code: r.meta?.rate_plan_code ?? r.rate_plan_id,
+      room_type_id: r.room_type_id,
+      rate_plan_id: r.rate_plan_id,
       days: r.days ?? {},
       occupancy: r.occupancy ?? { adults: 1, children: 0, infants: 0 },
     }))
+
+    // Una booking OTA cuyos rooms no tienen room_type_id/rate_plan_id de Channex
+    // (canal sin mapear) NO se puede cancelar vía CRS PUT (Channex 422). En vez de
+    // martillar hasta DEAD_LETTER, skip con razón clara → notif de ajuste manual.
+    if (rooms.length === 0 || rooms.some((r) => !r.room_type_id || !r.rate_plan_id)) {
+      this.logger.warn(
+        `[Channex] cancelBookingAtChannex SKIP unmapped booking=${bookingId} ota=${booking.ota_name} — ` +
+          `rooms sin room_type_id/rate_plan_id (canal sin mapear); ajuste manual en extranet`,
+      )
+      return { ok: false, status: 0, skipped: 'unmapped' }
+    }
     const body = {
       booking: {
         status: 'cancelled',

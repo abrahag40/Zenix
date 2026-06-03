@@ -193,8 +193,9 @@ export class ChannexOutboundWorker {
           payload.channexBookingId,
           payload.reason ?? undefined,
         )
-        if (cancelRes.skipped === 'airbnb') {
-          // Airbnb no permite cancel programático (§152) — avisar al supervisor
+        if (cancelRes.skipped) {
+          // Airbnb (regla §152) o booking OTA sin mapear (rooms sin room_type_id)
+          // → Channex no puede cancelar programáticamente. Avisar al supervisor
           // para que cancele en el extranet. NO es un fallo → row queda SUCCEEDED.
           const stay = await this.prisma.guestStay.findUnique({
             where: { id: payload.stayId },
