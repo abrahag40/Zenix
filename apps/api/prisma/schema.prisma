@@ -828,6 +828,14 @@ model Property {
   // same region (Slack/Google-picker pattern).
   region         String?
   city           String?
+  // RATES-METRICS-COMPSET Fase 3 chunk 2 (2026-06-04). Geo canónico para
+  // LocalEvents niveles 2 (regionCode) y 4 (radius). Se denormaliza del
+  // catálogo LATAM al crear property (Nova wizard) o se completa
+  // manualmente en Settings. regionCode ISO 3166-2 (e.g. "MX-ROO"); region
+  // free-text se preserva para UX.
+  regionCode     String?      @map("region_code")
+  latitude       Float?
+  longitude      Float?
   // Globally unique 3-digit code assigned sequentially at property creation.
   // Used as segment in bookingRef: MX-D-001-2604-0134
   propCode       String?      @unique @map("prop_code")

@@ -6,11 +6,10 @@ import { PrismaService } from '../../prisma/prisma.service'
  *
  * Resolución 4-niveles del scope geográfico (plan §6.4):
  *   1. city           — events con city match a property.city (case-insensitive)
- *   2. regionCode     — events con regionCode ISO 3166-2 (gap: Property no tiene
- *                       regionCode hoy; se agrega en sprint enhancement separado)
+ *   2. regionCode     — events ISO 3166-2 (e.g. MX-ROO) cuando property tiene regionCode
  *   3. countryCode    — events country-wide (sin city/region) match a LegalEntity.countryCode
  *   4. lat/lng radius — events con punto + radiusKm cubriendo property location
- *                       (gap: Property no tiene lat/lng hoy; mismo sprint enhancement)
+ *                       (haversine geo distance, filtrado post-query in-memory)
  *
  * Aplica `LocalEventOverride` per-property: `disabled=true` oculta el evento base;
  * customName/customDemandImpact reemplazan los campos del base. Eventos 100% custom
@@ -31,25 +30,39 @@ export class LocalEventsService {
     const loc = await this.resolvePropertyLocation(propertyId)
 
     // Eventos del catálogo base que cubran la ventana + match a algún nivel geo.
-    const baseEvents = await this.prisma.localEvent.findMany({
-      where: {
-        startDate: { lte: to },
-        endDate: { gte: from },
-        OR: [
-          // Nivel 1: city match (case-insensitive)
-          loc.city ? { city: { equals: loc.city, mode: 'insensitive' as const } } : { id: '__never__' },
-          // Nivel 2: regionCode match (skipped si property no tiene regionCode ISO)
-          loc.regionCode ? { regionCode: loc.regionCode, city: null } : { id: '__never__' },
-          // Nivel 3: country-wide events (sin region ni city)
-          loc.countryCode
-            ? { countryCode: loc.countryCode, regionCode: null, city: null }
-            : { id: '__never__' },
-        ],
-      },
-      orderBy: { startDate: 'asc' },
-    })
+    const orClauses: any[] = []
+    if (loc.city) orClauses.push({ city: { equals: loc.city, mode: 'insensitive' as const } })
+    if (loc.regionCode) orClauses.push({ regionCode: loc.regionCode, city: null })
+    if (loc.countryCode) orClauses.push({ countryCode: loc.countryCode, regionCode: null, city: null })
+    // Nivel 4 radius: traemos eventos con punto+radio en la misma country/region, filtramos post-query con haversine.
+    if (loc.latitude != null && loc.longitude != null && loc.countryCode) {
+      orClauses.push({ countryCode: loc.countryCode, latitude: { not: null }, longitude: { not: null }, radiusKm: { not: null } })
+    }
+    const baseEvents = orClauses.length
+      ? await this.prisma.localEvent.findMany({
+          where: { startDate: { lte: to }, endDate: { gte: from }, OR: orClauses },
+          orderBy: { startDate: 'asc' },
+        })
+      : []
 
-    // TODO(v1.0.1): Nivel 4 radius — requires Property.latitude/longitude. Skipped today.
+    // Nivel 4 (post-filter): radius con haversine. Eventos que ya entraron por city/region/country
+    // no se re-filtran (la pertenencia geo ya es exacta). Sólo los que entraron por radius
+    // (lat+lng+radiusKm no nulos) se chequean contra la property location.
+    const filtered = baseEvents.filter((ev) => {
+      if (ev.latitude != null && ev.longitude != null && ev.radiusKm != null) {
+        // Match por nombre/region/city ya cubre los demás niveles; si NINGUNO aplica,
+        // dependemos del radius para incluirlo.
+        const matchedByOtherLevel =
+          (loc.city && ev.city && ev.city.toLowerCase() === loc.city.toLowerCase()) ||
+          (loc.regionCode && ev.regionCode === loc.regionCode && !ev.city) ||
+          (loc.countryCode && ev.countryCode === loc.countryCode && !ev.regionCode && !ev.city)
+        if (matchedByOtherLevel) return true
+        if (loc.latitude == null || loc.longitude == null) return false
+        const distance = haversineKm(loc.latitude, loc.longitude, ev.latitude, ev.longitude)
+        return distance <= Number(ev.radiusKm)
+      }
+      return true
+    })
 
     // Overrides de la property (incluyendo customs sin baseEventId).
     const overrides = await this.prisma.localEventOverride.findMany({
@@ -64,7 +77,7 @@ export class LocalEventsService {
     }
 
     const result: ResolvedEvent[] = []
-    for (const ev of baseEvents) {
+    for (const ev of filtered) {
       const ov = overrideByBase.get(ev.id)
       if (ov?.disabled) continue
       result.push({
@@ -113,18 +126,35 @@ export class LocalEventsService {
   async resolvePropertyLocation(propertyId: string): Promise<PropertyLocation> {
     const p = await this.prisma.property.findUnique({
       where: { id: propertyId },
-      select: { city: true, region: true, legalEntity: { select: { countryCode: true } } },
+      select: {
+        city: true,
+        region: true,
+        regionCode: true,
+        latitude: true,
+        longitude: true,
+        legalEntity: { select: { countryCode: true } },
+      },
     })
     if (!p) throw new NotFoundException(`Property ${propertyId} not found`)
     return {
       propertyId,
       city: p.city ?? null,
-      regionCode: null, // TODO v1.0.1: Property.regionCode ISO 3166-2 (p.region es free-text)
+      regionCode: p.regionCode ?? null,
       countryCode: p.legalEntity?.countryCode ?? null,
-      latitude: null, // TODO v1.0.1
-      longitude: null, // TODO v1.0.1
+      latitude: p.latitude ?? null,
+      longitude: p.longitude ?? null,
     }
   }
+}
+
+/** Haversine great-circle distance (km). */
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371
+  const toRad = (d: number) => (d * Math.PI) / 180
+  const dLat = toRad(lat2 - lat1)
+  const dLon = toRad(lon2 - lon1)
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2
+  return 2 * R * Math.asin(Math.sqrt(a))
 }
 
 export interface ResolvedEvent {

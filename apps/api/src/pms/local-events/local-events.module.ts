@@ -1,15 +1,16 @@
 import { Module } from '@nestjs/common'
 import { LocalEventsService } from './local-events.service'
 import { LocalEventsController } from './local-events.controller'
+import { AdminEventsController } from './admin-events.controller'
 
 /**
- * LocalEventsModule — Fase 3 RATES-METRICS-COMPSET (chunk 1).
- * Admin Events Curator endpoints viven en módulo separado /v1/admin/local-events
- * (no incluido en chunk 1).
+ * LocalEventsModule — Fase 3 RATES-METRICS-COMPSET.
+ * Chunk 1: service + LocalEventsController (per-property).
+ * Chunk 2: AdminEventsController (Events Curator endpoints D-COMPSET9).
  */
 @Module({
   providers: [LocalEventsService],
-  controllers: [LocalEventsController],
+  controllers: [LocalEventsController, AdminEventsController],
   exports: [LocalEventsService],
 })
 export class LocalEventsModule {}
