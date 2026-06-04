@@ -25,7 +25,12 @@ describe('PropertiesService.remove — soft-delete + type-to-confirm regression 
         findMany: jest.fn().mockResolvedValue([]),
       },
     }
-    const tenant: any = { getOrganizationId: jest.fn().mockReturnValue('org-1') }
+    const tenant: any = {
+      getOrganizationId: jest.fn().mockReturnValue('org-1'),
+      // CI-RESCUE: TenantContextService got `getActingOrgIdOrThrow` post-Nova
+      // (Modelo D Fase 1 multi-tenant). PropertiesService.findAll lo usa.
+      getActingOrgIdOrThrow: jest.fn().mockReturnValue('org-1'),
+    }
     return { service: new PropertiesService(prisma, tenant), prisma }
   }
 

@@ -105,7 +105,13 @@ export class ChannexBookingMapper {
     // (multi-room donde cada room tiene un guest distinto).
     const { firstName: guestFirstName, lastName: guestLastName } =
       ChannexBookingMapper.composeGuestFirstLast(revision, roomIndex)
-    const guestName = `${guestFirstName} ${guestLastName}`.trim() || 'Huésped sin nombre'
+    // CI-RESCUE 2026-06-04: respeta el fallback de composeGuestName cuando
+    // ambos first+last están vacíos — usa ota_reservation_code para evidence
+    // chargeback (Visa CRR §5.9.2) en vez de "Huésped sin nombre" genérico.
+    const composedName = `${guestFirstName} ${guestLastName}`.trim()
+    const guestName =
+      composedName ||
+      (revision.ota_reservation_code ? `Huésped ${revision.ota_reservation_code}` : 'Huésped sin nombre')
     const guestEmail = revision.customer?.mail ?? null
     const guestPhone = revision.customer?.phone ?? null
     const nationality = revision.customer?.country ?? null

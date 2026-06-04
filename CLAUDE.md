@@ -1337,6 +1337,42 @@ Es decir: el api-key puede leer bookings + escribir ARI, pero **NO puede crear/m
 
 **Lo que SÍ se validó end-to-end en Zenix:** inbound crea la stay (bug 1), worker despacha solo (bug 2), cancel → notif al supervisor para ajuste manual (bug 3 gracioso). **Lo que NO se pudo validar:** el flip automático a "cancelled" en el dashboard de Channex (bloqueado por el 403 de permisos de cuenta).
 
+**¿El 403 bloquea la CERTIFICACIÓN? NO** (verificado contra `channex.cert-tests.integration.spec.ts`). La cert PMS valida (a) recibir reservas — Test 11 `booking_revisions` feed + `getBookingRevision` + `ack` (booking READ, ✅ 200) y (b) empujar ARI — Tests 1-10 availability/rates/restrictions (ARI WRITE, ✅ 200 `POST /availability`). **No existe ningún cert test que cree/cancele una reserva.** El Booking CRS write (lo único en 403) es una feature Beta opcional FUERA del alcance de la cert. Acción del owner: solicitar a Channex habilitar Booking CRS write (solo para el diferenciador opcional §150/§157, no para certificar). PR #75 mergeado a main (commit `a183599`).
+
+### CHECK-IN modal redesign — C2/C3 cerrados vía GROUP-BILLING (2026-06-03)
+
+Verificado: lo planeado para CHECK-IN C2/C3 ya se entregó en el sprint GROUP-BILLING:
+- **C2 auto-detección multi-room (§154):** ✅ `booking-new.handler.ts` crea `ReservationGroup` + N hijas cuando `revision.rooms.length > 1` (spec `booking-new.handler.multi-room.spec.ts`).
+- **C2 walk-in + identidad de grupo visual:** ✅ botón Walk-in en `TimelineTopBar` + **GROUP-BADGE** (color ring §243) reemplazó el bracket SVG planeado.
+- **C3 GroupCheckinDialog modos A/B (§156):** ✅ Fase B (`GroupCheckinDialog`). **Modo C (hostal per-bed): DIFERIDO por decisión del owner** (el modelo es per-room; per-bed names requiere decisión de esquema propia — sprint aparte). C1 (bug fixes + walk-in ancho + nacionalidad/género) cerrado 2026-05-29 §229-§234.
+- **Pendiente real del roadmap v1.0.0:** RATES-METRICS-COMPSET-CORE (abajo).
+
+### Rates core — Sprint RATES-METRICS-COMPSET-CORE Fase 1 (EN CURSO, branch `feat/rates-metrics-core`)
+
+> Arrancado 2026-06-03. Plan completo en [docs/sprints/RATES-METRICS-COMPSET-CORE-plan.md](docs/sprints/RATES-METRICS-COMPSET-CORE-plan.md) (~20-23 días-dev, 3 capas: Rates + Métricas + Compset). Revenue blocker + desbloquea Channex cert Tests 2-8. **NO mergear** hasta avanzar más. Decisiones D-RATES1..6 se §-numeran al cerrar.
+
+**Fase 1 — Schema Rates + resolver puro (commit en rama):**
+- **Schema + migración** `20260613000000_rates_core`: 6 modelos `RatePlan` + `RateSeason` + `DayOfWeekRule` + `RateRestriction` + `Promotion` + `RateOverride` (§4.1 del plan) + relaciones inversas en `Property` (ratePlans/promotions/rateOverrides) + `RoomType` (rateSeasons). Migración aplicada aislada (db execute + migrate resolve).
+- **Resolver puro** `resolveNightlyRate(input)` en `src/pms/rates/rate-resolver.ts` — precedencia **D-RATES2**: (1) RateOverride manual gana siempre → (2) RateSeason (overrideRate ó base×multiplier) × DayOfWeekRule del día → (3) base del plan (FIXED=baseRate / MULTIPLIER=BAR×mult / BAR=BAR). Season con overrideRate NO se modula por día de semana; season roomType-specific gana sobre la general. Función sin BD, testeable (patrón `computeCancellationOutcome`).
+- **Tests:** 9/9 `rate-resolver.spec.ts`. Typecheck API verde.
+
+**Capa Rates CERRADA (2026-06-03) — backend + UI + validado e2e en navegador:**
+- **RatesService** extendido (sin duplicar — reusó el módulo `rates` de FX-CORE): `getRateQuoteGrid(...,ratePlanId?)` resuelve con el motor; `resolvePrice` (debug, devuelve la capa que ganó); CRUD `RatePlan` (list/create/update/deactivate soft-delete); CRUD `RateSeason`; CRUD `RateRestriction` (create/delete); `RateOverride` upsert + **`bulkUpdateOverrides` con `dryRun` (preview obligatorio, NN/g H5)**; `setDayOfWeekRules` (set completo, deleteMany+create en tx). Helpers compartidos `assertPlanInProperty`/`validateDateRange`/`validateRateOrMultiplier`.
+- **Endpoints** `/v1/rates`: `quote?ratePlanId`, `resolve-price`, `plans` (GET/POST/PATCH/DELETE), `plans/:id/day-of-week` (PUT), `seasons`, `restrictions`, `overrides`, `overrides/bulk` — mutaciones `@Roles(SUPERVISOR)`. DTOs class-validator. `api.put` agregado al cliente web (genérico, timeout 20s §122).
+- **UI** Settings → **Tarifas** (`/settings/rates`, `RatesManagerSection`): sub-tab Planes (lista + editor con estrategia + temporadas inline + **ajuste por día de semana** 7 inputs) + sub-tab Calendario (grid RoomType × 14 días con tarifa resuelta + bulk-override con preview). Reusa/extiende `useRates`.
+- **Validado e2e en navegador:** plan ×0.8 → calendario recalcula (130→104); bulk preview "70 tarifas, 56→150"; día de semana Sábado ×1.5 → resolve-price 130→195 (lunes 130). Tests **27/27** (9 resolver + 18 servicio). Typecheck web+API verde.
+- **Sales:** Módulo 2.6 "Tarifas / Revenue Management" agregado a [zenix-sales-master.md](docs/zenix-sales-master.md) con tabla de diferenciadores honestos (preview H5 + resolución transparente + LATAM-first; yield/IA diferido a v1.1.x).
+- **Diferido (config sin enforcement = no se construye hasta su sprint):** `RateRestriction` enforcement at-booking (MLOS/CTA en AvailabilityService) + `Promotion` apply-at-booking + UI de restricciones/promociones. El schema + backend de restrictions existe; la UI llega cuando se wire el enforcement.
+
+**Fase 2 — Métricas: BACKEND cerrado (2026-06-03, commit en rama), validado e2e en vivo:**
+- **Schema + migración** `20260614000000_metrics_daily_snapshot`: modelo `MetricsDailySnapshot` (§4.2 — capacidad/ocupación, room revenue/ADR/RevPAR, cancel/no-show/llegadas/salidas counts, avg LOS/lead time, channelMix Json, revenueByRoomType Json) + relación inversa Property. Migración aislada.
+- **MetricsService** (`src/pms/metrics/`, NO usa TenantContext — cron-friendly, el caller pasa orgId): `computeDailySnapshot(propertyId, orgId, date)` calcula KPIs USALI (ocupación = sold/available; ADR = rev/sold; RevPAR = rev/available; noche D = [00:00 D, 00:00 D+1), checkout no cuenta) + upsert idempotente por [property,date]; `backfillSnapshots` reconstruye histórico; `getRange` para charts.
+- **MetricsSnapshotScheduler** dedicado `@Cron('0 4 * * *')` — puebla "ayer" para todas las properties. **NO se entrelazó con NightAuditScheduler** (frágil, multi-tz) — scheduler propio + upsert idempotente.
+- **Endpoints** `/v1/metrics` (SUPERVISOR — revenue): `range`, `backfill`. Controller inyecta TenantContext + pasa orgId al servicio.
+- **Validado e2e en vivo:** backfill 14 snapshots del seed → range 06-01 ocupación 54.55% (12/22), ADR 141.08, RevPAR 76.95, mix por canal. ADR×occ=RevPAR ✓. Tests 30/30 (9 resolver + 18 rates service + 3 metrics). Typecheck API verde.
+- **Fase 2 dashboard UI (commit en rama, validado e2e):** `MetricsOverview` (`apps/web/src/components/`) en `DashboardPage` — headline KPIs del último cierre (ocupación/ADR/RevPAR/ingreso) + tendencia de ocupación 14 días (bars con tooltip) + mix por canal. Hook `useMetrics.useMetricsRange` (`/v1/metrics/range`, `retry:false` por el 403). **SUPERVISOR-only** (gateado en el caller + endpoint). Validado en navegador: 06-02 ocupación 41% (9/22), ADR USD 150, RevPAR USD 61, mix Booking 4/Direct 3/Airbnb 2/Expedia 1. Typecheck web+API verde.
+- **Pendiente Fase 2:** pace/pickup/STLY (requieren capturar on-the-books-a-futuro día a día — el snapshot actual es de actuals; agregar la captura forward + forecast heatmap en un incremento siguiente). Luego Fase 3 Compset.
+
 **Tests:** unit gateway/worker/notif/puller 58/58 + AP-2.6 cert verde (whitelist `getBooking` + filtro JSDoc). Suite channex = baseline (44 fails DB-integration pre-existentes en main, 0 nuevos). Typecheck API verde. Decisiones D-CHX-FIX-1..3 se §-numeran al cerrar el sprint.
 
 ---
