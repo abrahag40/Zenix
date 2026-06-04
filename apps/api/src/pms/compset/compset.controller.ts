@@ -1,9 +1,19 @@
 import { Body, Controller, Delete, Get, Param, Post, Query } from '@nestjs/common'
-import { IsLatitude, IsLongitude, IsNumber, IsOptional, IsString, MaxLength } from 'class-validator'
+import { IsArray, IsLatitude, IsLongitude, IsNumber, IsObject, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator'
+import { Type } from 'class-transformer'
 import { StaffRole, type JwtPayload } from '@zenix/shared'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { CompsetService } from './compset.service'
+
+class ManualSnapshotEntryDto {
+  @IsString() competitorId!: string
+  @IsObject() ratesByDate!: Record<string, { lowestRate: number; currency: string; availability: boolean }>
+}
+class SubmitManualSnapshotDto {
+  @IsArray() @ValidateNested({ each: true }) @Type(() => ManualSnapshotEntryDto)
+  entries!: ManualSnapshotEntryDto[]
+}
 
 class AddCompetitorDto {
   @IsString() @MaxLength(120) name!: string
@@ -72,5 +82,16 @@ export class CompsetController {
   @Get('dashboard')
   dashboard(@Param('propertyId') propertyId: string, @Query('horizonDays') horizonDays?: string) {
     return this.service.getDashboardCard(propertyId, horizonDays ? parseInt(horizonDays, 10) : 14)
+  }
+
+  /**
+   * Captura MANUAL del compset — supervisor ingresa rates observados (no scraping).
+   * Crea 1 CompsetSnapshot por competidor con source='MANUAL'. Pattern alineado
+   * con la práctica real del revenue manager boutique (STAR Report + Booking.com
+   * check semanal) y evita los riesgos legales del scraping OTA (D-COMPSET5).
+   */
+  @Post('manual-snapshot')
+  manualSnapshot(@Param('propertyId') propertyId: string, @Body() dto: SubmitManualSnapshotDto) {
+    return this.service.submitManualSnapshot(propertyId, dto.entries)
   }
 }

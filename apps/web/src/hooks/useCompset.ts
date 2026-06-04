@@ -121,6 +121,21 @@ export function useCompsetDashboard(propertyId: string, enabled = true) {
   })
 }
 
+export interface ManualSnapshotEntry {
+  competitorId: string
+  ratesByDate: Record<string, { lowestRate: number; currency: string; availability: boolean }>
+}
+export function useSubmitManualSnapshot(propertyId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (entries: ManualSnapshotEntry[]) =>
+      api.post<{ created: number; skipped: number }>(`/v1/properties/${propertyId}/compset/manual-snapshot`, { entries }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['compset', 'dashboard', propertyId] })
+    },
+  })
+}
+
 export function useLocalEvents(propertyId: string, from: Date, to: Date, enabled = true) {
   return useQuery<{ property: unknown; events: LocalEventDto[] }>({
     queryKey: ['local-events', propertyId, from.toISOString().slice(0, 10), to.toISOString().slice(0, 10)],

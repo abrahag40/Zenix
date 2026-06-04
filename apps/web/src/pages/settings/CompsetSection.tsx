@@ -7,15 +7,17 @@
  *
  * Disclaimer permanente per D-COMPSET7.
  */
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { Info, Plus, Trash2, RefreshCw, MapPin } from 'lucide-react'
+import { Info, Plus, Trash2, RefreshCw, MapPin, PencilLine, Save, X } from 'lucide-react'
 import {
   useCompetitors,
   useAddCompetitor,
   useDeactivateCompetitor,
   useSearchHotel,
   useRefreshCompset,
+  useSubmitManualSnapshot,
+  useCompsetDashboard,
 } from '@/hooks/useCompset'
 import { usePropertyStore } from '@/store/property'
 
@@ -27,6 +29,7 @@ export function CompsetSection({ isSupervisor }: { isSupervisor: boolean }) {
   const refresh = useRefreshCompset(propertyId)
   const deactivate = useDeactivateCompetitor(propertyId)
   const [showAdd, setShowAdd] = useState(false)
+  const [showManualEntry, setShowManualEntry] = useState(false)
 
   if (!isSupervisor) {
     return (
@@ -55,15 +58,25 @@ export function CompsetSection({ isSupervisor }: { isSupervisor: boolean }) {
               3 a {MAX_COMPETITORS} competidores que el revenue manager elige a mano. Refresh diario automático (04:00 UTC).
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            <button
+              type="button"
+              onClick={() => setShowManualEntry((v) => !v)}
+              disabled={competitors.length === 0}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+            >
+              <PencilLine className="h-3.5 w-3.5" />
+              Capturar tarifas semanales
+            </button>
             <button
               type="button"
               onClick={handleRefresh}
               disabled={refresh.isPending || competitors.length === 0}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              title="Refresh sintético (stub adapter) hasta que llegue Lighthouse partnership o decisión legal sobre scraping"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${refresh.isPending ? 'animate-spin' : ''}`} />
-              Sincronizar ahora
+              Stub refresh
             </button>
             <button
               type="button"
@@ -86,6 +99,13 @@ export function CompsetSection({ isSupervisor }: { isSupervisor: boolean }) {
         </div>
 
         {showAdd && <AddCompetitorForm propertyId={propertyId} onClose={() => setShowAdd(false)} />}
+        {showManualEntry && (
+          <ManualRateEntry
+            propertyId={propertyId}
+            competitors={competitors}
+            onClose={() => setShowManualEntry(false)}
+          />
+        )}
 
         {isLoading ? (
           <p className="mt-4 text-sm text-gray-400">Cargando…</p>
@@ -189,6 +209,163 @@ function AddCompetitorForm({ propertyId, onClose }: { propertyId: string; onClos
           className="px-3 py-1 text-xs text-gray-600 hover:text-gray-900"
         >
           Cerrar
+        </button>
+      </div>
+    </div>
+  )
+}
+
+const HORIZON_DAYS = 14
+const SPANISH_MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+
+interface Competitor { id: string; name: string }
+
+function ManualRateEntry({
+  propertyId,
+  competitors,
+  onClose,
+}: {
+  propertyId: string
+  competitors: Competitor[]
+  onClose: () => void
+}) {
+  const dates = useMemo(() => {
+    const today = new Date(); today.setUTCHours(0, 0, 0, 0)
+    return Array.from({ length: HORIZON_DAYS }, (_, i) => new Date(today.getTime() + i * 86400000))
+  }, [])
+  const dateKeys = dates.map((d) => d.toISOString().slice(0, 10))
+  // Pre-load lo más reciente que ya estaba en dashboard para no obligar a re-tipear cada semana.
+  const { data: dash } = useCompsetDashboard(propertyId, true)
+  const initial = useMemo(() => {
+    const map: Record<string, Record<string, string>> = {}
+    for (const c of competitors) {
+      map[c.id] = {}
+      const existing = dash?.competitors.find((d) => d.id === c.id)
+      for (const k of dateKeys) {
+        const r = existing?.ratesByDate?.[k]
+        map[c.id][k] = r?.lowestRate != null ? String(r.lowestRate) : ''
+      }
+    }
+    return map
+  }, [competitors, dash, dateKeys.join(',')])
+  const [grid, setGrid] = useState<Record<string, Record<string, string>>>(initial)
+  const [currency, setCurrency] = useState('USD')
+  const submit = useSubmitManualSnapshot(propertyId)
+
+  // Re-sync if competitors change while panel open
+  useMemo(() => setGrid(initial), [initial])
+
+  const handleSave = async () => {
+    const entries = competitors
+      .map((c) => {
+        const ratesByDate: Record<string, { lowestRate: number; currency: string; availability: boolean }> = {}
+        for (const k of dateKeys) {
+          const raw = (grid[c.id]?.[k] ?? '').trim()
+          if (raw === '') continue
+          const n = Number(raw)
+          if (!Number.isFinite(n) || n < 0) continue
+          ratesByDate[k] = { lowestRate: n, currency, availability: true }
+        }
+        return { competitorId: c.id, ratesByDate }
+      })
+      .filter((e) => Object.keys(e.ratesByDate).length > 0)
+    if (entries.length === 0) {
+      toast.error('No capturaste tarifas. Llena al menos una celda.')
+      return
+    }
+    try {
+      const res = await submit.mutateAsync(entries)
+      toast.success(`Captura guardada: ${res.created} competidores · ${res.skipped} saltados`)
+      onClose()
+    } catch (e: any) {
+      toast.error(e?.message ?? 'No pude guardar la captura')
+    }
+  }
+
+  return (
+    <div className="mt-4 border border-emerald-200 rounded-md p-3 bg-emerald-50/50">
+      <div className="flex items-start justify-between mb-2 gap-3">
+        <div>
+          <p className="text-xs font-medium text-emerald-900">Captura semanal de tarifas del compset</p>
+          <p className="text-[10px] text-emerald-700 mt-0.5">
+            Tipea el "lowest available rate" que ves en Booking.com o tu STAR Report. Deja en blanco las noches sin
+            data — no las inventes.
+          </p>
+        </div>
+        <button type="button" onClick={onClose} className="p-1 text-emerald-700 hover:text-emerald-900" title="Cerrar">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="flex items-center gap-2 mb-2">
+        <label className="text-[10px] text-emerald-800">Moneda</label>
+        <select
+          value={currency}
+          onChange={(e) => setCurrency(e.target.value)}
+          className="text-[11px] border border-emerald-200 rounded px-2 py-0.5 bg-white"
+        >
+          <option value="USD">USD</option>
+          <option value="MXN">MXN</option>
+          <option value="EUR">EUR</option>
+        </select>
+      </div>
+
+      <div className="overflow-x-auto bg-white border border-emerald-100 rounded">
+        <table className="text-[11px] tabular-nums">
+          <thead>
+            <tr className="border-b border-emerald-100">
+              <th className="text-left px-2 py-1.5 text-emerald-900 font-medium sticky left-0 bg-white z-10">Hotel</th>
+              {dates.map((d) => (
+                <th key={d.toISOString()} className="px-1.5 py-1.5 text-emerald-700 font-medium whitespace-nowrap">
+                  {d.getUTCDate()} {SPANISH_MONTHS[d.getUTCMonth()]}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-emerald-50">
+            {competitors.map((c) => (
+              <tr key={c.id}>
+                <td className="px-2 py-1 text-gray-900 sticky left-0 bg-white z-10 whitespace-nowrap max-w-[140px] truncate">{c.name}</td>
+                {dateKeys.map((k) => (
+                  <td key={k} className="px-1 py-0.5">
+                    <input
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={grid[c.id]?.[k] ?? ''}
+                      onChange={(e) =>
+                        setGrid((prev) => ({
+                          ...prev,
+                          [c.id]: { ...prev[c.id], [k]: e.target.value },
+                        }))
+                      }
+                      placeholder="—"
+                      className="w-16 px-1.5 py-0.5 text-[11px] border border-gray-200 rounded text-right focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="mt-3 flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onClose}
+          className="px-3 py-1.5 text-xs text-gray-700 hover:text-gray-900"
+        >
+          Cancelar
+        </button>
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={submit.isPending}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+        >
+          <Save className="h-3.5 w-3.5" />
+          {submit.isPending ? 'Guardando…' : 'Guardar captura'}
         </button>
       </div>
     </div>

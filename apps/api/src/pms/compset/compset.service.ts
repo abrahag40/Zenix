@@ -158,6 +158,60 @@ export class CompsetService {
   }
 
   // ──────────────────────────────────────────────────────────────────
+  // Manual rate entry — alternativa legalmente segura al scraping OTA.
+  // El supervisor captura los rates observados manualmente (e.g. lunes 9am
+  // revisando Booking.com + STAR Report semanal STR). Misma forma que un
+  // CompsetSnapshot de scraping → downstream pipeline funciona idéntico.
+  // ──────────────────────────────────────────────────────────────────
+
+  /**
+   * Bulk-submit de rates manuales. Crea 1 CompsetSnapshot por competidor con
+   * source='MANUAL'. Ignora silenciosamente entries con `ratesByDate` vacío.
+   */
+  async submitManualSnapshot(
+    propertyId: string,
+    entries: ManualSnapshotEntry[],
+  ): Promise<{ created: number; skipped: number }> {
+    if (entries.length === 0) return { created: 0, skipped: 0 }
+    const competitorIds = entries.map((e) => e.competitorId)
+    // Verifica que TODOS los competitorId pertenezcan a esta property — defense
+    // contra IDOR cross-property en el bulk.
+    const competitors = await this.prisma.competitor.findMany({
+      where: { id: { in: competitorIds }, propertyId },
+      select: { id: true },
+    })
+    const valid = new Set(competitors.map((c) => c.id))
+    let created = 0
+    let skipped = 0
+    for (const e of entries) {
+      if (!valid.has(e.competitorId)) {
+        skipped += 1
+        continue
+      }
+      const filtered = Object.fromEntries(
+        Object.entries(e.ratesByDate).filter(([_, v]) => v != null && Number(v.lowestRate) >= 0),
+      )
+      if (Object.keys(filtered).length === 0) {
+        skipped += 1
+        continue
+      }
+      await this.prisma.compsetSnapshot.create({
+        data: {
+          competitorId: e.competitorId,
+          propertyId,
+          source: 'MANUAL',
+          ratesByDate: filtered as any,
+          ratingSnapshot: undefined as any,
+          durationMs: 0,
+          warnings: [],
+        },
+      })
+      created += 1
+    }
+    return { created, skipped }
+  }
+
+  // ──────────────────────────────────────────────────────────────────
   // Dashboard card data
   // ──────────────────────────────────────────────────────────────────
 
@@ -226,6 +280,12 @@ export interface AddCompetitorInput {
   guestRating?: number | null
   reviewCount?: number | null
   roomCount?: number | null
+}
+
+export interface ManualSnapshotEntry {
+  competitorId: string
+  /** Map ISO "YYYY-MM-DD" → { lowestRate, currency, availability }. */
+  ratesByDate: Record<string, { lowestRate: number; currency: string; availability: boolean }>
 }
 
 export interface CompsetCompetitorCard {
