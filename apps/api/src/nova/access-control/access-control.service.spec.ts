@@ -20,8 +20,52 @@ const PLATFORM_ADMIN_USER_ID = 'user-abraham-platform-admin'
 const ZAHARDEV_PARTNER_ID = 'partner-zahardev-internal'
 
 describe('AccessControlService — Day 3 integration', () => {
-  beforeAll(() => {
+  // CI-RESCUE residual (2026-06-04): el spec dependía de que el seed creara al
+  // user Abraham + ZaharDev partner. Cuando el seed local no estaba poblado
+  // (caso CI fresh + dev sin seed reciente), todos los tests fallaban con FK
+  // violations. Ahora upserteamos el fixture en beforeAll para que el spec sea
+  // self-sufficient (idempotente vs el seed real).
+  beforeAll(async () => {
     acl = new AccessControlService(prisma as any)
+    // Upsert ZaharDev (internal partner) + Abraham (PLATFORM_ADMIN) + PartnerMember link.
+    await prisma.partner.upsert({
+      where: { id: ZAHARDEV_PARTNER_ID },
+      create: {
+        id: ZAHARDEV_PARTNER_ID,
+        name: 'ZaharDev',
+        tier: 'PLATINUM',
+        countryCode: 'MX',
+        contactEmail: 'admin@zahardev.com',
+        licenseValidUntil: new Date('2099-12-31'),
+        isInternal: true,
+      },
+      update: {},
+    })
+    await prisma.user.upsert({
+      where: { id: PLATFORM_ADMIN_USER_ID },
+      create: {
+        id: PLATFORM_ADMIN_USER_ID,
+        // Email canónico del seed Abraham — debe coincidir con lo que
+        // nova-foundation.spec espera (assertion estricta en línea 312).
+        email: 'abrahag40@gmail.com',
+        passwordHash: 'fake-seed-hash',
+        firstName: 'Abraham',
+        lastName: 'Hernandez',
+        systemRole: 'PLATFORM_ADMIN',
+        organizationId: null,
+      },
+      update: {},
+    })
+    await prisma.partnerMember.upsert({
+      where: { userId: PLATFORM_ADMIN_USER_ID },
+      create: {
+        partnerId: ZAHARDEV_PARTNER_ID,
+        userId: PLATFORM_ADMIN_USER_ID,
+        role: 'PARTNER_ADMIN', // role base del staff interno
+        status: 'ACTIVE',
+      },
+      update: {},
+    })
   })
 
   afterAll(async () => {

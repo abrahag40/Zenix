@@ -3,7 +3,7 @@ Audiencia: Dev haciendo el live screenshare cert + Channex reviewer
 Tipo: Script de demo Stage 4
 Status: Activo — usar al agendar live screenshare con Channex team
 Padre: docs/sprints/CHANNEX-OUTBOUND-CERT-plan.md
-Última actualización: 2026-05-22
+Última actualización: 2026-06-04
 ---
 
 # Channex Cert Stage 4 — Live Screenshare Walkthrough (Zenix)
@@ -210,10 +210,19 @@ Reviewer probablemente pregunta:
   documented en CLAUDE.md §63-§80.
 
 **Q: "When will rates push be live?"**
-- A: Infra outbound 100% lista. Espera del sprint RATES-METRICS-COMPSET-CORE
-  (~20-23 días-dev) que agregue RatePlan model + RatesService. Una vez
-  ese sprint cierre, 0.5-1d-dev de wiring activa los Tests 2-8. ETA: 5-6
-  semanas calendar tras este Stage 4 review.
+- A: Sprint RATES-METRICS-COMPSET-CORE **cerrado 2026-06** — RatePlan
+  model + RatesService ya producen ARI events. La wiring de Tests 2-8
+  contra el outbound queda como un commit pequeño (~0.5d). Branch
+  `feat/rates-metrics-core` lista; merge a main + flip env cierra el loop.
+
+**Q: "What about booking create/cancel push (Booking CRS write)?"**
+- A: Identified as separate Beta capability del api-key. Tests
+  cert NO incluyen CRS write — sólo READ (`booking_revisions/feed` +
+  `getBookingRevision` + ack) y ARI WRITE (`POST /availability`). Estos
+  pasan con nuestro api-key actual. CRS write opcional para diferenciador
+  comercial (§150/§157); requiere habilitación de la cuenta Channex.
+  El path "Cancelar en OTA" del PMS hoy levanta notif manual al SUPERVISOR
+  (D-CHX-FIX-3b) cuando recibe 403 — comportamiento esperado pre-flip.
 
 ---
 

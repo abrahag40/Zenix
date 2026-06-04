@@ -48,11 +48,14 @@ function makeChannexMock(): ChannexGateway {
 describe('AvailabilityService — overstayed/zombie filter', () => {
   let svc: AvailabilityService
   let prisma: ReturnType<typeof makePrismaMock>
-  const realDateNow = Date.now
 
   beforeEach(() => {
     // Pin "now" a 2026-05-19 14:00 UTC para tests determinísticos.
-    Date.now = () => Date.UTC(2026, 4, 19, 14, 0, 0)
+    // CI-RESCUE 2026-06-04: el service usa `new Date()` (no `Date.now()`),
+    // así que parchear sólo `Date.now` no funcionaba. jest fake timers con
+    // setSystemTime sí intercepta el constructor sin argumentos.
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] })
+    jest.setSystemTime(new Date(Date.UTC(2026, 4, 19, 14, 0, 0)))
     prisma = makePrismaMock()
     svc = new AvailabilityService(prisma as any, makeChannexMock(), {
       // EventEmitter2 mock — Day 3 refactor: notifyChannex ahora emite event
@@ -63,7 +66,6 @@ describe('AvailabilityService — overstayed/zombie filter', () => {
   })
 
   afterEach(() => {
-    Date.now = realDateNow
     jest.useRealTimers()
   })
 
