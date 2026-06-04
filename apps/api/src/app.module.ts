@@ -38,6 +38,8 @@ import { RoomTypesModule } from './pms/room-types/room-types.module'
 import { StayJourneysModule } from './pms/stay-journeys/stay-journeys.module'
 import { RatesModule } from './pms/rates/rates.module'
 import { MetricsModule } from './pms/metrics/metrics.module'
+import { CompsetModule } from './pms/compset/compset.module'
+import { LocalEventsModule } from './pms/local-events/local-events.module'
 import { DashboardModule } from './dashboard/dashboard.module'
 import { BlocksModule } from './blocks/blocks.module'
 // PaymentsModule eliminado 2026-05-29 — no-show charging via Stripe estaba
@@ -102,6 +104,8 @@ import { PropertyScopeGuard } from './common/guards/property-scope.guard'
     StayJourneysModule,
     RatesModule,
     MetricsModule,
+    CompsetModule,
+    LocalEventsModule,
     DashboardModule,
     BlocksModule,
     SoftLockModule,

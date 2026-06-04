@@ -750,6 +750,12 @@ model LegalEntity {
   // API key (Fase 1, default). Set = cliente contrató su propia API key
   // (Partner Program Fase 2 / enterprise BYO Fase 3). Encriptado at-rest v1.0.1+.
   channexApiKey         String?   @map("channex_api_key")
+  // RATES-METRICS-COMPSET Fase 3 (D-COMPSET1). Adapter Strategy:
+  //   · SCRAPER_DIY — Playwright + 3-7 hoteles seleccionados manualmente (MVP, default)
+  //   · LIGHTHOUSE  — OTA Insight / Lighthouse partnership (v1.1.x DLC)
+  //   · RATEGAIN    — enterprise (futuro)
+  compsetProvider       String    @default("SCRAPER_DIY") @map("compset_provider")
+  compsetApiKey         String?   @map("compset_api_key") // BYO si LIGHTHOUSE
   // Mes de inicio del fiscal year (1-12, default enero):
   accountingPeriodStart Int       @default(1) @map("accounting_period_start")
   active                Boolean   @default(true)
@@ -871,6 +877,8 @@ model Property {
   rateOverrides           RateOverride[]
   metricsDailySnapshots   MetricsDailySnapshot[]
   metricsForwardSnapshots MetricsForwardSnapshot[]
+  competitors             Competitor[]
+  localEventOverrides     LocalEventOverride[]
 
   @@index([organizationId])
   @@index([legalEntityId])
@@ -4307,4 +4315,119 @@ model MetricsForwardSnapshot {
   @@index([propertyId, stayDate])
   @@index([propertyId, asOfDate])
   @@map("metrics_forward_snapshots")
+}
+
+// ======================= COMPSET + LOCAL EVENTS (Fase 3 RATES-METRICS) =======================
+
+/// Competidor seleccionado MANUALMENTE por el supervisor (D-COMPSET2: NO auto-radius
+/// en MVP — boutique compite por posicionamiento, no por proximidad). 3-7 hoteles max
+/// per property (enforced en service layer).
+model Competitor {
+  id             String   @id @default(uuid())
+  propertyId     String   @map("property_id")
+  name           String
+  // Resolución externa (Google Places / Booking Affiliate)
+  externalId     String?  @map("external_id")
+  externalSource String?  @map("external_source") // BOOKING | EXPEDIA | GOOGLE_PLACES
+  externalUrl    String?  @map("external_url")
+  // Geo
+  latitude       Float
+  longitude      Float
+  address        String?
+  // Metadata (snapshot al pin; refresh diario actualiza)
+  starRating     Decimal? @map("star_rating") @db.Decimal(2, 1)
+  guestRating    Decimal? @map("guest_rating") @db.Decimal(3, 2) // 0-10 Booking style
+  reviewCount    Int?     @map("review_count")
+  roomCount      Int?     @map("room_count")
+  // Lifecycle
+  isActive       Boolean  @default(true) @map("is_active")
+  addedById      String   @map("added_by_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  property  Property          @relation(fields: [propertyId], references: [id])
+  snapshots CompsetSnapshot[]
+
+  @@index([propertyId, isActive])
+  @@map("competitors")
+}
+
+/// Snapshot inmutable per competidor per día (D-COMPSET4 append-only). Histórico
+/// permite trend analysis. `ratesByDate` = { "2026-07-15": { lowestRate, currency, availability } }.
+model CompsetSnapshot {
+  id             String   @id @default(uuid())
+  competitorId   String   @map("competitor_id")
+  propertyId     String   @map("property_id")
+  scrapedAt      DateTime @default(now()) @map("scraped_at")
+  source         String   @default("SCRAPER_DIY") // SCRAPER_DIY | LIGHTHOUSE | RATEGAIN | STUB
+  // Rates por noche futura
+  ratesByDate    Json     @map("rates_by_date")
+  ratingSnapshot Json?    @map("rating_snapshot") // { starRating, guestRating, reviewCount }
+  // Audit
+  durationMs     Int?     @map("duration_ms")
+  warnings       String[] @default([]) // errores no-fatales (1 hotel falló, etc.)
+
+  competitor Competitor @relation(fields: [competitorId], references: [id])
+
+  @@index([competitorId, scrapedAt(sort: Desc)])
+  @@index([propertyId, scrapedAt(sort: Desc)])
+  @@map("compset_snapshots")
+}
+
+/// Eventos locales con scope 4-niveles (D-COMPSET8). Replicable LATAM, NO hardcoded
+/// QR. Resolution: city > regionCode > countryCode > lat/lng radius. Curated por
+/// Events Curator (D-COMPSET9, analog Tax Curator §91). Cliente NO edita el catálogo
+/// base; usa `LocalEventOverride` con reason + approvedById.
+model LocalEvent {
+  id                 String    @id @default(uuid())
+  name               String
+  description        String?
+  category           String // FESTIVAL | CONFERENCE | HOLIDAY | SPORTS | CONCERT | RELIGIOUS | NATIONAL_HOLIDAY
+  startDate          DateTime  @map("start_date")
+  endDate            DateTime  @map("end_date")
+  // Geo scoping 4 niveles
+  countryCode        String    @map("country_code") // ISO 3166-1 alpha-2 (e.g. MX, CO, CR)
+  regionCode         String?   @map("region_code") // ISO 3166-2 (e.g. MX-ROO, CO-DC)
+  city               String?
+  latitude           Float?
+  longitude          Float?
+  radiusKm           Decimal?  @map("radius_km") @db.Decimal(6, 2)
+  // Demand impact
+  demandImpact       String    @default("MEDIUM") @map("demand_impact") // LOW | MEDIUM | HIGH | EXTREME
+  expectedAttendance Int?      @map("expected_attendance")
+  // Source + curation
+  source             String    @default("MANUAL") // MANUAL | EVENTBRITE | SONGKICK | TICKETMASTER
+  sourceUrl          String?   @map("source_url")
+  sourceExternalId   String?   @map("source_external_id")
+  curatedById        String?   @map("curated_by_id")
+  verifiedAt         DateTime? @map("verified_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  overrides LocalEventOverride[]
+
+  @@index([countryCode, startDate])
+  @@index([regionCode, startDate])
+  @@index([city, startDate])
+  @@map("local_events")
+}
+
+/// Override per-property de un LocalEvent (D-COMPSET9 + analog Tax Override §92).
+/// Permite custom name/impact o `disabled=true` para ocultar el evento base. Reason +
+/// approvedById obligatorios (audit). Si `baseEventId=null`, es un evento 100% custom.
+model LocalEventOverride {
+  id                 String   @id @default(uuid())
+  propertyId         String   @map("property_id")
+  baseEventId        String?  @map("base_event_id")
+  customName         String?  @map("custom_name")
+  customDemandImpact String?  @map("custom_demand_impact")
+  disabled           Boolean  @default(false)
+  reason             String
+  approvedById       String   @map("approved_by_id")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  baseEvent LocalEvent? @relation(fields: [baseEventId], references: [id])
+  property  Property    @relation(fields: [propertyId], references: [id])
+
+  @@index([propertyId])
+  @@map("local_event_overrides")
 }
