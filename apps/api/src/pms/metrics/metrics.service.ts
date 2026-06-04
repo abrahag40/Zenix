@@ -123,6 +123,182 @@ export class MetricsService {
       orderBy: { date: 'asc' },
     })
   }
+
+  // ──────────────────────────────────────────────────────────────────
+  // D-METRICS3 — Forward capture (pace/pickup/STLY).
+  // ──────────────────────────────────────────────────────────────────
+
+  /**
+   * Captura "on-the-books" para cada noche futura `[asOfDate, asOfDate + horizonDays)`.
+   * Idempotente por [property, asOfDate, stayDate] (upsert). Lo llama el scheduler
+   * cada noche, después del snapshot del día que cerró.
+   */
+  async captureForwardSnapshot(
+    propertyId: string,
+    organizationId: string,
+    asOfDate: Date,
+    horizonDays = 90,
+  ): Promise<{ stays: number }> {
+    const asOf = startOfUtcDay(asOfDate)
+    const horizonEnd = addDaysUtc(asOf, horizonDays)
+
+    // Stays con cualquier noche dentro del horizonte (creadas antes del corte).
+    const stays = await this.prisma.guestStay.findMany({
+      where: {
+        propertyId,
+        organizationId,
+        deletedAt: null,
+        cancelledAt: null,
+        noShowAt: null,
+        createdAt: { lte: addDaysUtc(asOf, 1) }, // sólo lo que ya existía AS-OF
+        checkinAt: { lt: horizonEnd },
+        scheduledCheckout: { gt: asOf },
+      },
+      select: { roomId: true, checkinAt: true, scheduledCheckout: true, ratePerNight: true, currency: true },
+    })
+
+    const totalRoomsAvailable = await this.prisma.room.count({
+      where: { propertyId, organizationId, deletedAt: null, status: { not: 'OUT_OF_SERVICE' } },
+    })
+
+    // Agregar por noche futura.
+    type Bucket = { rooms: Set<string>; revenue: number; currency: string }
+    const buckets = new Map<number, Bucket>()
+    for (const s of stays) {
+      const start = startOfUtcDay(s.checkinAt).getTime()
+      const end = startOfUtcDay(s.scheduledCheckout).getTime()
+      const horizonStart = asOf.getTime()
+      const horizonStop = horizonEnd.getTime()
+      for (let t = Math.max(start, horizonStart); t < Math.min(end, horizonStop); t += 86400000) {
+        const b = buckets.get(t) ?? { rooms: new Set<string>(), revenue: 0, currency: s.currency }
+        b.rooms.add(s.roomId)
+        b.revenue = round2(b.revenue + Number(s.ratePerNight))
+        buckets.set(t, b)
+      }
+    }
+
+    // Upsert una row por noche del horizonte (también si no hay ventas → ceros,
+    // así pace/pickup puede comparar contra rows existentes sin huecos).
+    for (let t = asOf.getTime(); t < horizonEnd.getTime(); t += 86400000) {
+      const stayDate = new Date(t)
+      const b = buckets.get(t)
+      const roomsOnBooks = b ? b.rooms.size : 0
+      const roomRevenue = b ? round2(b.revenue) : 0
+      const baseCurrency = b?.currency ?? 'USD'
+      const occupancyPercent = totalRoomsAvailable > 0 ? round2((roomsOnBooks / totalRoomsAvailable) * 100) : 0
+      const adr = roomsOnBooks > 0 ? round2(roomRevenue / roomsOnBooks) : 0
+      const revpar = totalRoomsAvailable > 0 ? round2(roomRevenue / totalRoomsAvailable) : 0
+      await this.prisma.metricsForwardSnapshot.upsert({
+        where: { propertyId_asOfDate_stayDate: { propertyId, asOfDate: asOf, stayDate } },
+        create: {
+          propertyId, asOfDate: asOf, stayDate, totalRoomsAvailable, roomsOnBooks,
+          occupancyPercent, roomRevenue, baseCurrency, adr, revpar,
+        },
+        update: {
+          computedAt: new Date(), totalRoomsAvailable, roomsOnBooks, occupancyPercent,
+          roomRevenue, baseCurrency, adr, revpar,
+        },
+      })
+    }
+    return { stays: stays.length }
+  }
+
+  /**
+   * Pickup(N): cuántas hab. y cuánto revenue entró ENTRE [asOf−N, asOf] para cada
+   * noche futura. Devuelve la última asOf, la asOf comparada, y un array por noche.
+   */
+  async getPickup(
+    propertyId: string,
+    organizationId: string,
+    asOfDate: Date,
+    daysAgo: number,
+    horizonDays = 30,
+  ) {
+    const asOfNow = startOfUtcDay(asOfDate)
+    const asOfPrev = addDaysUtc(asOfNow, -daysAgo)
+    const horizonEnd = addDaysUtc(asOfNow, horizonDays)
+
+    const [now, prev] = await Promise.all([
+      this.prisma.metricsForwardSnapshot.findMany({
+        where: {
+          propertyId, property: { organizationId },
+          asOfDate: asOfNow,
+          stayDate: { gte: asOfNow, lt: horizonEnd },
+        },
+        orderBy: { stayDate: 'asc' },
+      }),
+      this.prisma.metricsForwardSnapshot.findMany({
+        where: {
+          propertyId, property: { organizationId },
+          asOfDate: asOfPrev,
+          stayDate: { gte: asOfNow, lt: horizonEnd },
+        },
+      }),
+    ])
+    const prevByDate = new Map(prev.map((r) => [r.stayDate.getTime(), r]))
+    const series = now.map((r) => {
+      const p = prevByDate.get(r.stayDate.getTime())
+      const prevRooms = p?.roomsOnBooks ?? 0
+      const prevRevenue = p ? Number(p.roomRevenue) : 0
+      return {
+        stayDate: r.stayDate,
+        roomsOnBooks: r.roomsOnBooks,
+        roomsPickup: r.roomsOnBooks - prevRooms,
+        revenue: Number(r.roomRevenue),
+        revenuePickup: round2(Number(r.roomRevenue) - prevRevenue),
+        occupancyPercent: Number(r.occupancyPercent),
+        adr: Number(r.adr),
+        baseCurrency: r.baseCurrency,
+      }
+    })
+    return { asOfDate: asOfNow, comparedTo: asOfPrev, daysAgo, series }
+  }
+
+  /**
+   * Pace YoY: on-the-books AS-OF hoy para noche D, vs on-the-books AS-OF hace-1-año
+   * para noche D−365 ("same time last year"). Útil cuando hay ≥1 año de histórico.
+   */
+  async getPace(propertyId: string, organizationId: string, asOfDate: Date, horizonDays = 90) {
+    const asOfNow = startOfUtcDay(asOfDate)
+    const asOfStly = addDaysUtc(asOfNow, -365)
+    const horizonEnd = addDaysUtc(asOfNow, horizonDays)
+
+    const [now, stly] = await Promise.all([
+      this.prisma.metricsForwardSnapshot.findMany({
+        where: {
+          propertyId, property: { organizationId },
+          asOfDate: asOfNow,
+          stayDate: { gte: asOfNow, lt: horizonEnd },
+        },
+        orderBy: { stayDate: 'asc' },
+      }),
+      this.prisma.metricsForwardSnapshot.findMany({
+        where: {
+          propertyId, property: { organizationId },
+          asOfDate: asOfStly,
+          stayDate: { gte: asOfStly, lt: addDaysUtc(asOfStly, horizonDays) },
+        },
+      }),
+    ])
+    const stlyByOffset = new Map<number, (typeof stly)[number]>()
+    for (const r of stly) {
+      const offset = Math.round((r.stayDate.getTime() - asOfStly.getTime()) / 86400000)
+      stlyByOffset.set(offset, r)
+    }
+    const series = now.map((r) => {
+      const offset = Math.round((r.stayDate.getTime() - asOfNow.getTime()) / 86400000)
+      const s = stlyByOffset.get(offset)
+      return {
+        stayDate: r.stayDate,
+        roomsOnBooks: r.roomsOnBooks,
+        stlyRoomsOnBooks: s?.roomsOnBooks ?? null,
+        occupancyPercent: Number(r.occupancyPercent),
+        stlyOccupancyPercent: s ? Number(s.occupancyPercent) : null,
+        baseCurrency: r.baseCurrency,
+      }
+    })
+    return { asOfDate: asOfNow, stlyAsOfDate: asOfStly, series }
+  }
 }
 
 function round2(n: number): number {

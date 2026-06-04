@@ -83,3 +83,81 @@ describe('MetricsService.computeDailySnapshot — KPIs USALI', () => {
     expect(where).toEqual({ propertyId_date: { propertyId: PROP, date: new Date('2026-07-10T00:00:00.000Z') } })
   })
 })
+
+describe('MetricsService.captureForwardSnapshot — pace/pickup (D-METRICS3)', () => {
+  let service: MetricsService
+  const prisma = {
+    guestStay: { findMany: jest.fn() },
+    room: { count: jest.fn() },
+    metricsForwardSnapshot: {
+      upsert: jest.fn().mockImplementation((args) => Promise.resolve({ ...args.create, id: 'fs' })),
+      findMany: jest.fn(),
+    },
+  }
+  const ASOF = new Date('2026-07-10T03:00:00.000Z')
+
+  beforeEach(async () => {
+    const mod: TestingModule = await Test.createTestingModule({
+      providers: [MetricsService, { provide: PrismaService, useValue: prisma }],
+    }).compile()
+    service = mod.get(MetricsService)
+    jest.clearAllMocks()
+  })
+
+  it('captura una row por noche del horizonte, agregando rooms y revenue', async () => {
+    // 1 stay 3 noches (jul 11→14), 1 stay 1 noche (jul 12→13) → noches:
+    //   jul 10 = 0, jul 11 = 1 hab (100), jul 12 = 2 hab (100+150),
+    //   jul 13 = 1 hab (100), jul 14+ = 0.
+    prisma.guestStay.findMany.mockResolvedValueOnce([
+      {
+        roomId: 'r1', currency: 'USD', ratePerNight: 100,
+        checkinAt: new Date('2026-07-11T15:00:00Z'),
+        scheduledCheckout: new Date('2026-07-14T12:00:00Z'),
+      },
+      {
+        roomId: 'r2', currency: 'USD', ratePerNight: 150,
+        checkinAt: new Date('2026-07-12T15:00:00Z'),
+        scheduledCheckout: new Date('2026-07-13T12:00:00Z'),
+      },
+    ])
+    prisma.room.count.mockResolvedValue(10)
+
+    const res = await service.captureForwardSnapshot(PROP, ORG, ASOF, 5)
+    expect(res.stays).toBe(2)
+    // upsert llamado 5 veces (5 noches del horizonte: jul 10, 11, 12, 13, 14)
+    expect(prisma.metricsForwardSnapshot.upsert).toHaveBeenCalledTimes(5)
+    const rows = prisma.metricsForwardSnapshot.upsert.mock.calls.map((c) => c[0].create)
+    const byDate = (iso: string) => rows.find((r) => r.stayDate.toISOString().startsWith(iso))!
+    expect(byDate('2026-07-10').roomsOnBooks).toBe(0)
+    expect(byDate('2026-07-11').roomsOnBooks).toBe(1)
+    expect(byDate('2026-07-11').roomRevenue).toBe(100)
+    expect(byDate('2026-07-12').roomsOnBooks).toBe(2)
+    expect(byDate('2026-07-12').roomRevenue).toBe(250)
+    expect(byDate('2026-07-13').roomsOnBooks).toBe(1)
+    expect(byDate('2026-07-14').roomsOnBooks).toBe(0)
+    // Ocupación + RevPAR derivados
+    expect(byDate('2026-07-12').occupancyPercent).toBe(20)  // 2/10
+    expect(byDate('2026-07-12').revpar).toBe(25)            // 250/10
+    expect(byDate('2026-07-12').adr).toBe(125)              // 250/2
+  })
+
+  it('pickup compara asOf vs asOf−daysAgo por stayDate', async () => {
+    // asOf=jul 10 → 5 hab para jul 15; asOf=jul 3 → 2 hab para jul 15. pickup = 3.
+    prisma.metricsForwardSnapshot.findMany
+      .mockResolvedValueOnce([
+        {
+          stayDate: new Date('2026-07-15T00:00:00Z'), roomsOnBooks: 5,
+          roomRevenue: '500', occupancyPercent: '50', adr: '100', baseCurrency: 'USD',
+        },
+      ])
+      .mockResolvedValueOnce([
+        { stayDate: new Date('2026-07-15T00:00:00Z'), roomsOnBooks: 2, roomRevenue: '200' },
+      ])
+
+    const res = await service.getPickup(PROP, ORG, ASOF, 7, 30)
+    expect(res.daysAgo).toBe(7)
+    expect(res.series).toHaveLength(1)
+    expect(res.series[0].roomsPickup).toBe(3)
+    expect(res.series[0].revenuePickup).toBe(300)
+  })
+})

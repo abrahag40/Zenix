@@ -870,6 +870,7 @@ model Property {
   promotions              Promotion[]
   rateOverrides           RateOverride[]
   metricsDailySnapshots   MetricsDailySnapshot[]
+  metricsForwardSnapshots MetricsForwardSnapshot[]
 
   @@index([organizationId])
   @@index([legalEntityId])
@@ -4272,4 +4273,38 @@ model MetricsDailySnapshot {
   @@unique([propertyId, date])
   @@index([propertyId, date(sort: Desc)])
   @@map("metrics_daily_snapshots")
+}
+
+/// Snapshot diario de "on-the-books a futuro" para pace/pickup/STLY (D-METRICS3,
+/// 2026-06-04). Cada día capturamos, para cada noche futura D (hasta `horizonDays`),
+/// cuántas habitaciones están reservadas AS-OF hoy + el revenue proyectado.
+///
+/// Pace      = onBooks(asOf=hoy, stay=D) vs onBooks(asOf=hace-1-año, stay=D-365)
+/// Pickup(N) = onBooks(asOf=hoy, stay=D) − onBooks(asOf=hoy−N, stay=D)
+/// STLY      = same metric same-time-last-year
+///
+/// IMPRESCINDIBLE capturarlo día a día — es irreconstruible retroactivamente
+/// (no podemos saber qué reservas existían "en aquel momento" sin un log temporal).
+model MetricsForwardSnapshot {
+  id         String   @id @default(uuid())
+  propertyId String   @map("property_id")
+  asOfDate   DateTime @map("as_of_date")
+  stayDate   DateTime @map("stay_date")
+  computedAt DateTime @default(now()) @map("computed_at")
+
+  totalRoomsAvailable Int     @map("total_rooms_available")
+  roomsOnBooks        Int     @map("rooms_on_books")
+  occupancyPercent    Decimal @map("occupancy_percent") @db.Decimal(5, 2)
+
+  roomRevenue  Decimal @map("room_revenue") @db.Decimal(12, 2)
+  baseCurrency String  @map("base_currency")
+  adr          Decimal @db.Decimal(10, 2)
+  revpar       Decimal @db.Decimal(10, 2)
+
+  property Property @relation(fields: [propertyId], references: [id])
+
+  @@unique([propertyId, asOfDate, stayDate])
+  @@index([propertyId, stayDate])
+  @@index([propertyId, asOfDate])
+  @@map("metrics_forward_snapshots")
 }

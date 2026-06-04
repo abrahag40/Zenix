@@ -10,8 +10,15 @@
  * headline dice "Último cierre", no "Hoy".
  */
 import { useMemo } from 'react'
-import { TrendingUp, BedDouble, DollarSign, Percent } from 'lucide-react'
+import { TrendingUp, BedDouble, DollarSign, Percent, Info } from 'lucide-react'
 import { useMetricsRange, type MetricsSnapshot } from '@/hooks/useMetrics'
+
+/** Formatea ISO "YYYY-MM-DD" → "2 jun 2026" en español, sin sufrir TZ shift. */
+function formatSnapshotDate(iso: string): string {
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number)
+  const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+  return `${d} ${months[m - 1]} ${y}`
+}
 
 export function MetricsOverview({ propertyId, isSupervisor }: { propertyId: string; isSupervisor: boolean }) {
   const { from, to } = useMemo(() => {
@@ -49,16 +56,20 @@ export function MetricsOverview({ propertyId, isSupervisor }: { propertyId: stri
         <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-1.5">
           <TrendingUp className="h-4 w-4 text-indigo-600" /> Desempeño
         </h2>
-        <span className="text-[11px] text-gray-400">Último cierre · {latest.date.slice(0, 10)}</span>
+        <span className="text-[11px] text-gray-400">Último cierre · {formatSnapshotDate(latest.date)}</span>
       </div>
 
       {/* Headline KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <KpiTile icon={Percent} label="Ocupación" value={`${Number(latest.occupancyPercent).toFixed(0)}%`}
-          hint={`${latest.roomsSold}/${latest.totalRoomsAvailable} hab.`} tone="indigo" />
-        <KpiTile icon={DollarSign} label="ADR" value={money(latest.adr)} hint="tarifa promedio" tone="emerald" />
-        <KpiTile icon={TrendingUp} label="RevPAR" value={money(latest.revpar)} hint="ingreso/hab. disp." tone="violet" />
-        <KpiTile icon={BedDouble} label="Ingreso hab." value={money(latest.roomRevenue)} hint="esa noche" tone="amber" />
+          hint={`${latest.roomsSold}/${latest.totalRoomsAvailable} hab.`} tone="indigo"
+          info="Porcentaje de habitaciones vendidas vs. habitaciones disponibles (USALI). Fórmula: hab. vendidas ÷ hab. disponibles × 100. Excluye OUT_OF_SERVICE, cancelaciones y no-shows. El día de checkout no cuenta como noche." />
+        <KpiTile icon={DollarSign} label="ADR" value={money(latest.adr)} hint="tarifa promedio" tone="emerald"
+          info="Average Daily Rate (USALI). Tarifa promedio cobrada por habitación vendida esa noche. Fórmula: ingreso de habitaciones ÷ habitaciones vendidas. No incluye F&B ni cargos extra." />
+        <KpiTile icon={TrendingUp} label="RevPAR" value={money(latest.revpar)} hint="ingreso/hab. disp." tone="violet"
+          info="Revenue Per Available Room (USALI). El KPI maestro de revenue management. Fórmula: ingreso de habitaciones ÷ habitaciones disponibles (= ADR × ocupación). Combina precio y demanda en un solo número." />
+        <KpiTile icon={BedDouble} label="Ingreso hab." value={money(latest.roomRevenue)} hint="esa noche" tone="amber"
+          info="Suma de tarifas de habitación de las stays que ocuparon esa noche. No incluye impuestos, fees, F&B ni cargos extra. Snapshot del día cerrado." />
       </div>
 
       {/* Tendencia de ocupación 14 días */}
@@ -87,17 +98,24 @@ export function MetricsOverview({ propertyId, isSupervisor }: { propertyId: stri
   )
 }
 
-function KpiTile({ icon: Icon, label, value, hint, tone }: {
+function KpiTile({ icon: Icon, label, value, hint, tone, info }: {
   icon: typeof Percent; label: string; value: string; hint: string
   tone: 'indigo' | 'emerald' | 'violet' | 'amber'
+  info: string
 }) {
   const toneCls = {
     indigo: 'bg-indigo-50 text-indigo-700', emerald: 'bg-emerald-50 text-emerald-700',
     violet: 'bg-violet-50 text-violet-700', amber: 'bg-amber-50 text-amber-700',
   }[tone]
   return (
-    <div className="rounded-lg border border-gray-100 p-3">
-      <div className="flex items-center gap-1.5">
+    <div className="rounded-lg border border-gray-100 p-3 relative">
+      <div className="absolute top-2 left-2 group/info">
+        <Info className="h-3 w-3 text-gray-300 hover:text-gray-500 cursor-help" />
+        <div className="absolute top-full left-0 mt-1 hidden group-hover/info:block w-56 bg-gray-900 text-white text-[10px] leading-snug rounded-md px-2 py-1.5 shadow-lg z-20">
+          {info}
+        </div>
+      </div>
+      <div className="flex items-center gap-1.5 pl-5">
         <span className={`inline-flex items-center justify-center h-6 w-6 rounded ${toneCls}`}><Icon className="h-3.5 w-3.5" /></span>
         <span className="text-[11px] text-gray-500">{label}</span>
       </div>
