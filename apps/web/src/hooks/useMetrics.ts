@@ -38,3 +38,58 @@ export function useMetricsRange(propertyId: string, from: Date, to: Date, enable
     retry: false, // 403 (no supervisor) no debe reintentar
   })
 }
+
+/** Pickup (D-METRICS3): delta de on-the-books entre asOf y asOf−daysAgo por noche futura. */
+export interface PickupRow {
+  stayDate: string
+  roomsOnBooks: number
+  roomsPickup: number
+  revenue: number
+  revenuePickup: number
+  occupancyPercent: number
+  adr: number
+  baseCurrency: string
+}
+export interface PickupResponse {
+  asOfDate: string
+  comparedTo: string
+  daysAgo: number
+  series: PickupRow[]
+}
+export function usePickup(propertyId: string, daysAgo: number, horizonDays = 14, enabled = true) {
+  return useQuery<PickupResponse>({
+    queryKey: ['metrics-pickup', propertyId, daysAgo, horizonDays],
+    queryFn: () =>
+      api.get<PickupResponse>(
+        `/v1/metrics/pickup?propertyId=${propertyId}&daysAgo=${daysAgo}&horizonDays=${horizonDays}`,
+      ),
+    enabled: enabled && !!propertyId,
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
+}
+
+/** Pace YoY (D-METRICS3): on-the-books AS-OF hoy vs same-time-last-year. */
+export interface PaceRow {
+  stayDate: string
+  roomsOnBooks: number
+  stlyRoomsOnBooks: number | null
+  occupancyPercent: number
+  stlyOccupancyPercent: number | null
+  baseCurrency: string
+}
+export interface PaceResponse {
+  asOfDate: string
+  stlyAsOfDate: string
+  series: PaceRow[]
+}
+export function usePace(propertyId: string, horizonDays = 30, enabled = true) {
+  return useQuery<PaceResponse>({
+    queryKey: ['metrics-pace', propertyId, horizonDays],
+    queryFn: () =>
+      api.get<PaceResponse>(`/v1/metrics/pace?propertyId=${propertyId}&horizonDays=${horizonDays}`),
+    enabled: enabled && !!propertyId,
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
+}
