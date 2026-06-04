@@ -1,6 +1,11 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common'
+import { EventEmitter2 } from '@nestjs/event-emitter'
 import { PrismaService } from '../../prisma/prisma.service'
 import { TenantContextService } from '../../common/tenant-context.service'
+import {
+  CHANNEX_RESTRICTION_UPDATED,
+  type ChannexRestrictionUpdatedEvent,
+} from '../../integrations/channex/outbound/channex-outbound-events'
 import {
   resolveNightlyRate,
   type BaseStrategy,
@@ -19,10 +24,101 @@ import {
  */
 @Injectable()
 export class RatesService {
+  private readonly logger = new Logger(RatesService.name)
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
+    private readonly events: EventEmitter2,
   ) {}
+
+  /**
+   * BUG #2 fix 2026-06-04 — push rate change a Channex outbound.
+   *
+   * Helper compartido por todas las mutations de rate (upsertOverride,
+   * bulkUpdateOverrides, futuras updatePlan/upsertSeason). Resuelve los
+   * roomTypeId locales → channexRatePlanId vía Room.channexRoomTypeId ↔
+   * ChannexRatePlanMapping.channexRoomTypeId (1 rate plan ↔ 1 room type
+   * per property — seed Day 2 NOVA-CHANNEX). Emite UN evento batch que
+   * el OutboundBuilder traduce a outbox rows; el worker maneja rate limit
+   * (D-CHX-OUT-5) y retry.
+   *
+   * Fire-and-forget: failure NO debe bloquear la operación local
+   * (§31 política best-effort outbound). Si no hay mapping (property sin
+   * Channex configurado, room sin channexRoomTypeId, plan sin rate plan
+   * Channex correspondiente), retorna en silencio.
+   *
+   * Limitación documentada (deferida a v1.0.1 RATES-METRICS-PHASE-4):
+   * el local RatePlan.id no tiene FK directa a ChannexRatePlanMapping.id.
+   * Hoy resolvemos via roomType→channex; cuando agreguemos
+   * `RatePlan.channexRatePlanMappingId String?` la resolución será directa
+   * y soportará múltiples rate plans per room type (BAR + Non-refundable).
+   */
+  private async notifyChannexRateChange(
+    propertyId: string,
+    affected: Array<{ roomTypeId: string; ratePlanId: string | null | undefined; date: string; newRate: number }>,
+  ): Promise<void> {
+    try {
+      const settings = await this.prisma.propertySettings.findUnique({
+        where: { propertyId },
+        select: { channexPropertyId: true },
+      })
+      if (!settings?.channexPropertyId) return // property sin Channex configurado
+
+      // Resolver roomTypeId local → channexRoomTypeId (a través de Room).
+      // Una room de ese tipo tendrá channexRoomTypeId; tomamos cualquiera.
+      const roomTypeIds = Array.from(new Set(affected.map((a) => a.roomTypeId)))
+      const rooms = await this.prisma.room.findMany({
+        where: { propertyId, roomTypeId: { in: roomTypeIds }, channexRoomTypeId: { not: null } },
+        select: { roomTypeId: true, channexRoomTypeId: true },
+      })
+      const rtToChannex = new Map<string, string>()
+      for (const r of rooms) {
+        if (r.roomTypeId && r.channexRoomTypeId && !rtToChannex.has(r.roomTypeId)) {
+          rtToChannex.set(r.roomTypeId, r.channexRoomTypeId)
+        }
+      }
+      if (rtToChannex.size === 0) return // ningún roomType mapeado
+
+      // channexRoomTypeId → channexRatePlanId (1 rate plan ↔ 1 room type per property).
+      const mappings = await this.prisma.channexRatePlanMapping.findMany({
+        where: { propertyId, channexRoomTypeId: { in: Array.from(rtToChannex.values()) }, isActive: true },
+        select: { channexRoomTypeId: true, channexRatePlanId: true },
+      })
+      const channexRtToPlan = new Map(mappings.map((m) => [m.channexRoomTypeId, m.channexRatePlanId]))
+
+      const entries = affected
+        .map((a) => {
+          const channexRt = rtToChannex.get(a.roomTypeId)
+          if (!channexRt) return null
+          const channexPlanId = channexRtToPlan.get(channexRt)
+          if (!channexPlanId) return null
+          return {
+            propertyId: settings.channexPropertyId!,
+            ratePlanId: channexPlanId,
+            date: a.date,
+            rate: a.newRate,
+          }
+        })
+        .filter((e): e is NonNullable<typeof e> => e !== null)
+      if (entries.length === 0) return // ningún rate plan Channex mapeable
+
+      const event: ChannexRestrictionUpdatedEvent = {
+        propertyId,
+        entries,
+      }
+      this.events.emit(CHANNEX_RESTRICTION_UPDATED, event)
+      this.logger.log(
+        `[Rates→Channex] property=${propertyId} entries=${entries.length} ` +
+          `(${roomTypeIds.length} room type(s) → ${mappings.length} rate plan(s)) — outbound enqueue requested`,
+      )
+    } catch (err) {
+      this.logger.warn(
+        `[Rates→Channex] notify failed property=${propertyId}: ` +
+          `${err instanceof Error ? err.message : String(err)} (rate change persisted locally; Channex sync skipped)`,
+      )
+    }
+  }
 
   /**
    * Daily BAR strip — un número por día across all room types activos.
@@ -444,7 +540,7 @@ export class RatesService {
     await this.assertPropertyInOrg(propertyId, orgId)
     if (dto.overrideRate < 0) throw new BadRequestException('overrideRate debe ser ≥ 0')
     const date = startOfUtcDay(dto.date)
-    return this.prisma.rateOverride.upsert({
+    const result = await this.prisma.rateOverride.upsert({
       where: {
         propertyId_roomTypeId_ratePlanId_date: {
           propertyId, roomTypeId: dto.roomTypeId, ratePlanId: dto.ratePlanId ?? '', date,
@@ -456,6 +552,14 @@ export class RatesService {
       },
       update: { overrideRate: dto.overrideRate, reason: dto.reason ?? null, createdById: dto.createdById },
     })
+    // BUG #2 fix — push rate change a Channex outbound (fire-and-forget).
+    void this.notifyChannexRateChange(propertyId, [{
+      roomTypeId: dto.roomTypeId,
+      ratePlanId: dto.ratePlanId,
+      date: date.toISOString().slice(0, 10),
+      newRate: dto.overrideRate,
+    }])
+    return result
   }
 
   /**
@@ -528,6 +632,13 @@ export class RatesService {
           update: { overrideRate: dto.newRate, reason: dto.reason ?? null, createdById: dto.createdById },
         }),
       ),
+    )
+    // BUG #2 fix — emit UN batch event con todas las (roomType × date)
+    // afectadas. El builder lo recibe y persiste row kind=RATES_RESTRICTIONS;
+    // el worker lo drena respetando token bucket. Fire-and-forget.
+    void this.notifyChannexRateChange(
+      propertyId,
+      preview.map((p) => ({ roomTypeId: p.roomTypeId, ratePlanId: dto.ratePlanId, date: p.date, newRate: dto.newRate })),
     )
     return { dryRun: false as const, affectedCount: preview.length, preview }
   }
