@@ -23,11 +23,16 @@ describe('RatesService — RATES-CORE Fase 1', () => {
   const tenant = { getOrganizationId: jest.fn().mockReturnValue(ORG) }
 
   beforeEach(async () => {
+    const events = { emit: jest.fn() }
     const mod: TestingModule = await Test.createTestingModule({
       providers: [
         RatesService,
         { provide: PrismaService, useValue: prisma },
         { provide: TenantContextService, useValue: tenant },
+        // BUG #2 fix — RatesService ahora inyecta EventEmitter2 para emit
+        // CHANNEX_RESTRICTION_UPDATED. En unit tests basta un emit() stub.
+        { provide: 'EventEmitter2', useValue: events },
+        { provide: require('@nestjs/event-emitter').EventEmitter2, useValue: events },
       ],
     }).compile()
     service = mod.get(RatesService)

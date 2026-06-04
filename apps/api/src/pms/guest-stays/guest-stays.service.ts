@@ -382,6 +382,22 @@ export class GuestStaysService {
       guestName: stay.guestName,
     })
 
+    // BUG #1 fix 2026-06-04 — push Channex availability=0 (room reservado).
+    // Antes este path sólo emitía `checkin.completed` y nunca notificaba a
+    // Channex → walk-ins / nuevas reservas direct dejaban la OTA con
+    // disponibilidad inflada (overbooking real, confirmado pre-prod testing
+    // 2026-06-04 con discrepancia 7 rooms vs sandbox). Fire-and-forget igual
+    // que el resto de paths (earlyCheckout, restoreStay, cancelStay) —
+    // failures se loggean, jamás bloquean la operación local (§31 política
+    // best-effort outbound).
+    void this.availability.notifyReservation({
+      roomId: dto.roomId,
+      from:   checkIn,
+      to:     checkOut,
+      reason: 'RESERVATION',
+      traceId: `create-${stay.id}-${Date.now()}`,
+    })
+
     if (dto.guestEmail) {
       this.email
         .sendCheckinConfirmation({
