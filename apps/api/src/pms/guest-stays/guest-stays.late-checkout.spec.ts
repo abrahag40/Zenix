@@ -63,7 +63,7 @@ describe('GuestStaysService.lateCheckout (EC-3)', () => {
     $transaction: jest.fn((fn: any) => fn(prismaMock)),
   }
   const eventsMock = { emit: jest.fn() }
-  const tenantMock = { getOrganizationId: jest.fn().mockReturnValue(ORG_ID) }
+  const tenantMock = { getOrganizationId: jest.fn().mockReturnValue(ORG_ID), getPropertyId: jest.fn().mockReturnValue('test-property-id') }
   const emailMock = { send: jest.fn() }
   const journeyMock = { recordEvent: jest.fn() }
   const channexMock = { pushInventory: jest.fn(), notifyRelease: jest.fn() }

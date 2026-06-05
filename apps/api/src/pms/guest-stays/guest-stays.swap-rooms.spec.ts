@@ -65,7 +65,7 @@ describe('GuestStaysService — swapStayRooms (CHECK-IN C3.1 v3)', () => {
     $transaction: jest.fn(async (cb: any) => cb(prismaMock as any)),
   }
 
-  const tenantMock = { getOrganizationId: jest.fn().mockReturnValue(ORG_ID) }
+  const tenantMock = { getOrganizationId: jest.fn().mockReturnValue(ORG_ID), getPropertyId: jest.fn().mockReturnValue('test-property-id') }
   const notificationsMock = { emit: jest.fn().mockResolvedValue(undefined) }
 
   beforeEach(async () => {

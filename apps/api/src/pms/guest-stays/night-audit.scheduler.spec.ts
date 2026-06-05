@@ -275,10 +275,11 @@ describe('NightAuditScheduler', () => {
       // Act
       await scheduler.processNoShows()
 
-      // Assert — rango correcto para el día local
+      // Assert — rango BACKLOG_DAYS (BUG #6 fix 2026-06-04): incluye los
+      // últimos 7 días, no solo hoy. Si cron falla un día, recovery automático.
       const callArgs = prismaMock.guestStay.findMany.mock.calls[0][0]
       expect(callArgs.where.checkinAt).toEqual({
-        gte: new Date('2026-04-19T00:00:00.000Z'),
+        gte: new Date('2026-04-13T00:00:00.000Z'),
         lte: new Date('2026-04-19T23:59:59.999Z'),
       })
     })

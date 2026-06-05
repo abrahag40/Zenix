@@ -78,7 +78,7 @@ describe('GuestStaysService — group payments (Fase A)', () => {
     $transaction: jest.fn(),
   }
 
-  const tenantMock = { getOrganizationId: jest.fn().mockReturnValue(ORG_ID) }
+  const tenantMock = { getOrganizationId: jest.fn().mockReturnValue(ORG_ID), getPropertyId: jest.fn().mockReturnValue('test-property-id') }
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -120,11 +120,12 @@ describe('GuestStaysService — group payments (Fase A)', () => {
 
     await service.registerPayment(JUAN, { method: PaymentMethod.CASH, amount: 120 } as any, 'staff-1')
 
-    expect(prismaMock.paymentLog.create).toHaveBeenCalledTimes(1)
-    const data = prismaMock.paymentLog.create.mock.calls[0][0].data
+    // BUG #17 fix 2026-06-04 — single-payment ahora usa $transaction(callback)
+    // para soportar lock+dedup atómicos. La create ahora va por txMock.
+    expect(txMock.paymentLog.create).toHaveBeenCalledTimes(1)
+    const data = txMock.paymentLog.create.mock.calls[0][0].data
     expect(data.stayId).toBe(JUAN)
     expect(data.paidByStayId).toBeNull()
-    expect(txMock.paymentLog.create).not.toHaveBeenCalled()
   })
 
   it('Juan paga todo el grupo — 3 PaymentLogs, cada stay saldada, paidByStayId=Juan', async () => {
@@ -178,8 +179,9 @@ describe('GuestStaysService — group payments (Fase A)', () => {
       service.registerPayment(JUAN, { method: PaymentMethod.COMP, amount: 120 } as any, 'staff-1'),
     ).resolves.toBeDefined()
 
-    expect(prismaMock.paymentLog.create).toHaveBeenCalledTimes(1)
-    expect(prismaMock.paymentLog.create.mock.calls[0][0].data.method).toBe(PaymentMethod.COMP)
+    // BUG #17 fix — single-payment ahora pasa por $transaction callback (txMock).
+    expect(txMock.paymentLog.create).toHaveBeenCalledTimes(1)
+    expect(txMock.paymentLog.create.mock.calls[0][0].data.method).toBe(PaymentMethod.COMP)
   })
 
   it('rechaza cobro de grupo si las stays no comparten grupo', async () => {

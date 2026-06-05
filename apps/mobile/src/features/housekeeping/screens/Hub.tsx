@@ -184,6 +184,63 @@ export function HousekeepingHub() {
   // (AsyncStorage). All we do here is feed it the trigger.
   const ringsQ = useDailyRings({ enabled: gamificationLevel !== 'OFF' })
   const streakQ = useStaffStreak({ enabled: gamificationLevel !== 'OFF' })
+
+  // BUG #5 fix 2026-06-04 — wire 3 deterministic triggers que estaban dead code.
+  //
+  // celebrationEngine declara 5 triggers (taskCompleted/personalRecord/
+  // streakMilestone/comeback/dayCompletion) y el pool tiene mensajes para
+  // cada uno. Pre-prod testing confirmó que SOLO `taskCompleted` (Hub) +
+  // `dayCompletion` (DayCompletionRitual) se invocaban. Los 3 restantes
+  // existían como dead code, contradiciendo §1.2 Skinner research:
+  // "personalRecord SIEMPRE dispara cuando hay PR real", "streakMilestone
+  // SIEMPRE dispara en milestones".
+  //
+  // Fix: detectar transitions on ringsQ + streakQ:
+  //   · personalRecord  → avgMinutes < best (recorded en AsyncStorage)
+  //   · streakMilestone → streakDays cruza thresholds 3/7/14/30/60/100
+  //   · comeback        → streakDays pasa de 0 a 1 después de broken streak
+
+  const lastStreakDays = useRef<number>(0)
+  useEffect(() => {
+    const days = streakQ.data?.currentDays ?? 0
+    if (days > lastStreakDays.current) {
+      // Comeback: el primer día tras un streak broken (=0 → 1).
+      if (lastStreakDays.current === 0 && days === 1) {
+        decideCelebration({ trigger: 'comeback' }).then((msg) => {
+          if (msg) setCelebration(msg)
+        }).catch(() => undefined)
+      }
+      // Streak milestone — el engine valida internamente el threshold,
+      // pero nosotros sólo emitimos cuando los días cruzaron arriba.
+      decideCelebration({ trigger: 'streakMilestone', streakDays: days }).then((msg) => {
+        if (msg) setCelebration(msg)
+      }).catch(() => undefined)
+    }
+    lastStreakDays.current = days
+  }, [streakQ.data?.currentDays])
+
+  const bestAvgRef = useRef<number | null>(null)
+  useEffect(() => {
+    const rings = ringsQ.data
+    if (!rings) return
+    const tasksDone = rings.tasksRing.value
+    const totalMin = rings.minutesRing.value
+    if (tasksDone < 3) return // requiere baseline mínimo para considerar PR
+    const avgMin = totalMin / tasksDone
+    if (bestAvgRef.current === null) {
+      bestAvgRef.current = avgMin
+      return
+    }
+    // Personal Record: avg actual < mejor histórico de la sesión + margen
+    // razonable (5% mejor para evitar ruido). El engine de gamification
+    // ya tiene su propio cap diario para evitar spam.
+    if (avgMin < bestAvgRef.current * 0.95) {
+      bestAvgRef.current = avgMin
+      decideCelebration({ trigger: 'personalRecord' }).then((msg) => {
+        if (msg) setCelebration(msg)
+      }).catch(() => undefined)
+    }
+  }, [ringsQ.data?.tasksRing.value, ringsQ.data?.minutesRing.value])
   const [ritualTrigger, setRitualTrigger] = useState(false)
   const lastRingsClosed = useRef(false)
   useEffect(() => {
