@@ -50,8 +50,14 @@ Padre: CLAUDE.md §"Plan de cierre wizard" + §"Bloque 1 v1.0.0"
 | 20 | 🟠 HI | S1 | Cancel solo escribe `guest_stay_logs`; `audit_log` queda vacío. Gap §165 D-NOVA-7 (AuditLog universal requerido para CFDI Art. 30 + Visa CRR §5.9.2) | ✅ Branch (auditLog.create en `$transaction` + helper `mapJwtRoleToSystemRole` + resolución Staff.userId fail-soft) |
 | 21 | 🟠 HI | PERF-5 | SEQ SCAN sobre `guest_stays` en queries calendar + overstayed. Sin índice `(property_id, checkin_at)` ni `(property_id, scheduled_checkout)`. A 100k stays → ~200ms p95 vs 65ms actual | ✅ Branch (2 índices Prisma + migration 20260619) |
 | 22 | 🟡 MED | PERF-1 | `/v1/metrics/range` sin validación DTO — params `from/to` ausentes → 500 genérico (debería 400). Patrón aplicable a otros endpoints sin DTO `@IsDateString` | ✅ Branch (`MetricsRangeDto` + 3 DTOs adicionales + helpful error messages) |
+| 23 | 🟠 HI | PERF-prep | `GET /v1/guest-stays?propertyId=X` retorna TODAS las stays sin pagination (78 → 213KB; 10k → 21MB/1.45s; 100k proyección → 210MB/14s). `from/to` query params **ignorados** server-side | ⚠️ Identificado, sprint follow-up PAGINATION-CORE (~2-3h) |
 
-**3 bugs en main, 17 pendientes de merge en `fix/bugs-batch-4-10` (PR #78) — los originales #4-#17 + 3 nuevos S/PERF (#20, #21, #22). #18 + #19 descartados por decisión owner.**
+**Bugs sistémicos detectados (sprints follow-up — no incluidos en PR #78):**
+- **#22 sistémico**: 22+ controllers con `@Query()` date params sin DTO. Sprint DTO-CORE (~6-8h)
+- **#20 sistémico**: 14+ métodos críticos sin AuditLog. Sprint AUDIT-CORE outbox pattern (~6-10h)
+- **#23**: pagination ausente. Sprint PAGINATION-CORE (~2-3h)
+
+**3 bugs en main, 17 pendientes de merge en `fix/bugs-batch-4-10` (PR #78) — los originales #4-#17 + 3 nuevos S/PERF (#20, #21, #22). #18 + #19 descartados por decisión owner. #23 identificado, requiere sprint dedicado.**
 
 ---
 
@@ -278,6 +284,80 @@ Cada bug detectado se documenta con:
 - **Causa raíz** (archivo:línea)
 - **Evidencia** (curl/jest output)
 - **Fix recomendado** (opcional)
+
+---
+
+## 6.5. Hallazgos sistémicos post-batch-2 (sprints follow-up requeridos)
+
+### Bug #22 sistémico — DTOs ausentes en 20+ controllers
+
+`grep` detectó al menos **22 endpoints con `@Query('date|from|to|asOf|startDate|endDate')` sueltos** sin DTO @IsDateString. Patrón #22 aplica a:
+
+- `blocks.controller` (startDate/endDate)
+- `staff-gamification.controller` (date)
+- `scheduling.controller` (from/to, ×2 endpoints)
+- `checkouts.controller` (date)
+- `nova/rate-calendar.controller` (from/to)
+- `nova/audit-log.controller` (dateFrom/dateTo)
+- `rates.controller` (from/to ×2 + date)
+- `stay-journeys.controller` (from/to)
+- `local-events.controller` (from/to)
+- `guest-stays.controller` (date + dateFilter + from + to)
+- `notification-center.controller` (from)
+- `compset.controller`, `fx.controller`, `reports.controller`, otros
+
+**Sprint follow-up DTO-CORE recomendado** (~6-8h):
+- Crear DTOs reutilizables: `DateRangeDto`, `SingleDateDto`, `PropertyScopedRangeDto`
+- Refactorizar los 22+ endpoints
+- Spec coverage: 1 test e2e por controller verifica 400 vs 500
+- Documentar en `docs/engineering/dto-conventions.md`
+
+Sin esto: cualquier malformed input devuelve 500 — feedback inútil (NN/g H9 fail), oculta posibles bugs, espanta al frontend.
+
+### Bug #20 sistémico — AuditLog ausente en 14+ métodos críticos
+
+Grep en `guest-stays.service.ts` confirma que **solo `cancelStay`** escribe `auditLog.create` post-batch-2. Métodos críticos sin auditLog universal:
+
+- `confirmCheckin` (check-in con captura ID — Visa CRR §5.9.2 evidence)
+- `earlyCheckout` / `checkout` (cobro final — disputa financiera)
+- `markNoShow` / `revertNoShow` / `registerNoShowCharge` (cobro contestable)
+- `registerPayment` / `voidPayment` (pagos — chargeback ventana 120d)
+- `update` (edit guestName/contactos — manipulación de evidence)
+- `extend` / `moveRoom` / `swapRooms` (cambios contractuales)
+- `restoreStay` (reversión de cancel)
+- `registerCancelRefund` (registro fiscal CFDI E §86)
+
+**Sprint follow-up AUDIT-CORE recomendado** (~8-14h):
+
+Tres approaches evaluados:
+
+| Approach | Esfuerzo | Latencia impact | Recomendación |
+|---|---|---|---|
+| Manual `tx.auditLog.create` × 14 métodos | 8-12h | +1 INSERT por tx | Más explícito |
+| Decorator `@AuditMutation('STAY_*')` | 10-14h | +1 INSERT post-success | Mantenible |
+| **Outbox pattern via EventEmitter2** | 6-10h | 0 (async listener) | ⭐ Recomendado |
+
+**Outbox justificado**:
+- Cero impacto path crítico
+- Fail-soft natural (retry queue si el listener falla)
+- Patrón ya usado en repo: `CHANNEX_AVAILABILITY_CHANGED` event (D-CHX-OUT-1)
+- Listener escribe auditLog asíncrono, no bloquea respuesta al usuario
+
+Sin esto: piloto v1.0.0 al primer chargeback Visa pierde la disputa por falta de trail unificado (los `guest_stay_logs` per-stay no son auditables cross-org para compliance §165).
+
+### Bug #23 — `/v1/guest-stays` sin pagination ni filtro server-side
+
+Detectado durante PERF-1 stress preparation. Endpoint `GET /v1/guest-stays?propertyId=X` retorna **TODAS las stays** del property sin pagination:
+- A 78 stays: 213KB, 50ms — OK
+- A 10k stays: **21MB, 1.45s** — bug serio para frontend
+- A 100k stays (proyección piloto 4-5 años): **210MB, ~14s** — inviable
+
+`from/to` query params son **ignorados** por el servicio (frontend filtra client-side).
+
+**Sprint follow-up PAGINATION-CORE recomendado** (~2-3h):
+- Agregar `take` (default 500, max 5000) + `cursor` o `skip`
+- Soportar `from/to` realmente del lado servidor
+- Frontend ya espera responseShape compatible (TimelineScheduler ya filtra by range visible)
 
 ---
 
