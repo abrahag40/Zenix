@@ -516,21 +516,42 @@ export class GuestStaysService {
     return stay
   }
 
-  async findByProperty(propertyId: string, from?: Date, to?: Date) {
+  /**
+   * Sprint PAGINATION-CORE — fix bug #23.
+   *
+   * `from/to` ahora REQUIRED y el overlap se aplica server-side.
+   *
+   * Lógica overlap correcta de intervalos:
+   *   stay [checkinAt, scheduledCheckout) overlaps window [from, to)
+   *   ⟺   checkinAt < to  AND  scheduledCheckout > from
+   *
+   * Antes el código usaba OR (siempre true para cualquier stay con fechas
+   * en el pasado o futuro razonable) — efectivamente no filtraba nada.
+   *
+   * Resultados PERF-1 stress (validación post-fix esperada):
+   *   - Antes: calendar p95 = 33.19s @ 30 VUs / 10k stays (21MB/request)
+   *   - Objetivo: calendar p95 < 800ms post-fix
+   */
+  async findByProperty(
+    propertyId: string,
+    from: Date,
+    to: Date,
+    opts: { includeCancelled?: boolean; limit?: number } = {},
+  ) {
     const orgId = this.tenant.getOrganizationId()
+    const limit = Math.min(opts.limit ?? 5000, 5000) // hard cap defensivo
 
     const stays = await this.prisma.guestStay.findMany({
       where: {
         organizationId: orgId,
         propertyId,
         deletedAt: null,
-        ...(from &&
-          to && {
-            OR: [
-              { checkinAt: { lte: to } },
-              { scheduledCheckout: { gte: from } },
-            ],
-          }),
+        // Exclusión de canceladas por default — calendar §97 las oculta del
+        // view (drawer "Canceladas hoy" usa endpoint /cancelled separado).
+        ...(opts.includeCancelled ? {} : { cancelledAt: null }),
+        // Overlap AND correcto — ver docstring del método.
+        checkinAt:         { lt: to },
+        scheduledCheckout: { gt: from },
       },
       include: {
         stayJourney: { select: { id: true } },
@@ -548,6 +569,7 @@ export class GuestStaysService {
         },
       },
       orderBy: { checkinAt: 'desc' },
+      take: limit,
     })
 
     // ── Sprint 9 — cleaningStatus per stay (CLAUDE.md §54-§57) ────────────

@@ -224,7 +224,7 @@ describe('GuestStaysService.lateCheckout (EC-3)', () => {
         { status: 'READY',       unit: { roomId: 'room-B' } },
       ])
 
-      const result = await service.findByProperty('property-1')
+      const result = await service.findByProperty('property-1', new Date('2026-01-01'), new Date('2027-01-01'))
 
       expect(result).toHaveLength(3)
       expect(result.find((s) => s.id === 'stay-1')?.cleaningStatus).toBe('IN_PROGRESS')
@@ -239,14 +239,14 @@ describe('GuestStaysService.lateCheckout (EC-3)', () => {
       ])
       prismaMock.cleaningTask.findMany.mockResolvedValue([])
 
-      const result = await service.findByProperty('property-1')
+      const result = await service.findByProperty('property-1', new Date('2026-01-01'), new Date('2027-01-01'))
       expect(result[0]?.cleaningStatus).toBeNull()
     })
 
     it('NO ejecuta query de tasks si no hay stays (optimización)', async () => {
       prismaMock.guestStay.findMany.mockResolvedValue([])
 
-      await service.findByProperty('property-1')
+      await service.findByProperty('property-1', new Date('2026-01-01'), new Date('2027-01-01'))
       expect(prismaMock.cleaningTask.findMany).not.toHaveBeenCalled()
     })
 
@@ -265,7 +265,7 @@ describe('GuestStaysService.lateCheckout (EC-3)', () => {
         { status: 'PAUSED',      unit: { roomId: 'dorm' } },
       ])
 
-      const result = await service.findByProperty('property-1')
+      const result = await service.findByProperty('property-1', new Date('2026-01-01'), new Date('2027-01-01'))
       const statuses = result.map((s) => s.cleaningStatus)
       expect(statuses).toEqual(['IN_PROGRESS', 'IN_PROGRESS', 'IN_PROGRESS', 'IN_PROGRESS'])
     })
