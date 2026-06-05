@@ -18,6 +18,7 @@ import { GroupCancelDto } from './dto/group-cancel.dto'
 import { VoidPaymentDto } from './dto/void-payment.dto'
 import { UpdateGuestStayDto } from './dto/update-guest-stay.dto'
 import { CreateGuestStayNoteDto, UpdateGuestStayNoteDto } from './dto/guest-stay-note.dto'
+import { ListStaysQueryDto } from './dto/list-stays-query.dto'
 import { mapJwtRoleToSystemRole } from '../../common/audit/system-role-mapper'
 
 class MarkNoShowDto {
@@ -327,16 +328,30 @@ export class GuestStaysController {
     return this.service.findOne(id)
   }
 
+  /**
+   * GET /v1/guest-stays?propertyId&from&to[&includeCancelled&limit]
+   *
+   * Sprint PAGINATION-CORE (bug #23 fix). El endpoint que renderiza el
+   * TimelineScheduler. Antes:
+   *   - `from/to` declarados pero ignorados → retornaba TODAS las stays
+   *     del property (10k = 21MB, 100k = 210MB).
+   *   - PERF-1 stress 30 VUs / 10min @ 10k stays → calendar p95 = 33.19s
+   *     (target <800ms). Bloqueante operativo del piloto.
+   *
+   * Ahora:
+   *   - `from/to` REQUIRED + validados (DTO ListStaysQueryDto)
+   *   - Lógica overlap correcta (AND, no OR — ver service)
+   *   - Hard limit 5000 con cap defensivo contra payload runaway
+   *   - includeCancelled default false (calendar §97 excluye cancelled del view;
+   *     drawer "Canceladas hoy" usa endpoint `/cancelled` separado)
+   */
   @Get()
-  findByProperty(
-    @Query('propertyId') propertyId: string,
-    @Query('from') from?: string,
-    @Query('to') to?: string,
-  ) {
+  findByProperty(@Query() dto: ListStaysQueryDto) {
     return this.service.findByProperty(
-      propertyId,
-      from ? new Date(from) : undefined,
-      to ? new Date(to) : undefined,
+      dto.propertyId,
+      new Date(dto.from),
+      new Date(dto.to),
+      { includeCancelled: dto.includeCancelled ?? false, limit: dto.limit ?? 5000 },
     )
   }
 

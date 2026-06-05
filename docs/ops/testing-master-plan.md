@@ -50,7 +50,7 @@ Padre: CLAUDE.md §"Plan de cierre wizard" + §"Bloque 1 v1.0.0"
 | 20 | 🟠 HI | S1 | Cancel solo escribe `guest_stay_logs`; `audit_log` queda vacío. Gap §165 D-NOVA-7 (AuditLog universal requerido para CFDI Art. 30 + Visa CRR §5.9.2) | ✅ Branch (auditLog.create en `$transaction` + helper `mapJwtRoleToSystemRole` + resolución Staff.userId fail-soft) |
 | 21 | 🟠 HI | PERF-5 | SEQ SCAN sobre `guest_stays` en queries calendar + overstayed. Sin índice `(property_id, checkin_at)` ni `(property_id, scheduled_checkout)`. A 100k stays → ~200ms p95 vs 65ms actual | ✅ Branch (2 índices Prisma + migration 20260619) |
 | 22 | 🟡 MED | PERF-1 | `/v1/metrics/range` sin validación DTO — params `from/to` ausentes → 500 genérico (debería 400). Patrón aplicable a otros endpoints sin DTO `@IsDateString` | ✅ Branch (`MetricsRangeDto` + 3 DTOs adicionales + helpful error messages) |
-| 23 | 🔴 CRIT | PERF-1 stress | `GET /v1/guest-stays?propertyId=X` retorna TODAS las stays sin pagination. **PERF-1 stress 30 VUs/10min @ 10k stays confirmó**: calendar p95=**33.19s** (target <800ms · 41× sobre) · metrics p95=5.56s (11× sobre · chocan con load calendar) · overstayed p95=292ms ✅. `from/to` ignorados server-side. Network 14GB recibidos en 10min. **Bloqueante operativo piloto** | 🔴 Sprint follow-up PAGINATION-CORE PRIORITY 1 (~2-3h) |
+| 23 | 🔴 CRIT | PERF-1 stress | `GET /v1/guest-stays?propertyId=X` retorna TODAS las stays sin pagination + bug lógico `OR` vs `AND` en overlap. Pre-fix: calendar p95=33.19s · post-fix: calendar p95=**3.01s** (91% mejora · 11× más rápido) · iteraciones 6× · failed 0.36% → **0.00%**. Bloqueante crítico resuelto; margen <800ms requiere COMPRESSION-CORE follow-up | ✅ PR #79 PAGINATION-CORE |
 
 **Bugs sistémicos detectados (sprints follow-up — no incluidos en PR #78):**
 - **#22 sistémico**: 22+ controllers con `@Query()` date params sin DTO. Sprint DTO-CORE (~6-8h)
@@ -374,6 +374,36 @@ Sin esto: piloto v1.0.0 al primer chargeback Visa pierde la disputa por falta de
 
 **Sin este fix, el piloto v1.0.0 NO es viable operacionalmente.**
 
+<<<<<<< HEAD
+### Resultados PERF-1 stress POST-fix (PR #79 — 2026-06-05)
+
+| Endpoint | PRE-fix p95 | POST-fix p95 | Mejora |
+|---|---|---|---|
+| calendar | 33.19s | **3.01s** | **91% (11×)** |
+| metrics | 5.56s | 1.59s | 71% |
+| overstayed | 292ms | 105ms | 64% |
+| Iteraciones totales | 641 | **3861** | 6× throughput |
+| Failed rate | 0.36% | **0.00%** | ✅ perfecto |
+| Network total | 14 GB | 13 GB | similar (6× reqs × 1/6 size) |
+
+**Análisis**:
+- Bloqueante crítico resuelto: calendar ya no provoca colapso operacional
+- Para perfil piloto realista (10-15 VUs simultáneos) p95 estaría ~1-1.5s · aceptable
+- Threshold conservador 800ms no alcanzado a 30 VUs (2× peak realista)
+- Margen restante = serialization + TCP throughput (Postgres ya no es cuello)
+
+### Sprint follow-up COMPRESSION-CORE (~1h, no bloqueante)
+
+Habilitar `compression` middleware en NestJS:
+- 3.3MB JSON gzipped ≈ 600KB (-82%)
+- Calendar p95 esperado: 3.01s → ~600ms (cumple threshold <800ms)
+- Cero cambio de contrato API
+- Trade-off: +5-10ms CPU server por gzip (negligible)
+
+Recomendación: incluir COMPRESSION-CORE como parte de PR #79 follow-up commit antes de merge → cumple threshold operacional definitivo.
+
+=======
+>>>>>>> origin/main
 ---
 
 ## 7. Decisiones del owner pendientes
