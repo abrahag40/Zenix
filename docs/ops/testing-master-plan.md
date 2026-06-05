@@ -50,7 +50,7 @@ Padre: CLAUDE.md §"Plan de cierre wizard" + §"Bloque 1 v1.0.0"
 | 20 | 🟠 HI | S1 | Cancel solo escribe `guest_stay_logs`; `audit_log` queda vacío. Gap §165 D-NOVA-7 (AuditLog universal requerido para CFDI Art. 30 + Visa CRR §5.9.2) | ✅ Branch (auditLog.create en `$transaction` + helper `mapJwtRoleToSystemRole` + resolución Staff.userId fail-soft) |
 | 21 | 🟠 HI | PERF-5 | SEQ SCAN sobre `guest_stays` en queries calendar + overstayed. Sin índice `(property_id, checkin_at)` ni `(property_id, scheduled_checkout)`. A 100k stays → ~200ms p95 vs 65ms actual | ✅ Branch (2 índices Prisma + migration 20260619) |
 | 22 | 🟡 MED | PERF-1 | `/v1/metrics/range` sin validación DTO — params `from/to` ausentes → 500 genérico (debería 400). Patrón aplicable a otros endpoints sin DTO `@IsDateString` | ✅ Branch (`MetricsRangeDto` + 3 DTOs adicionales + helpful error messages) |
-| 23 | 🟠 HI | PERF-prep | `GET /v1/guest-stays?propertyId=X` retorna TODAS las stays sin pagination (78 → 213KB; 10k → 21MB/1.45s; 100k proyección → 210MB/14s). `from/to` query params **ignorados** server-side | ⚠️ Identificado, sprint follow-up PAGINATION-CORE (~2-3h) |
+| 23 | 🔴 CRIT | PERF-1 stress | `GET /v1/guest-stays?propertyId=X` retorna TODAS las stays sin pagination. **PERF-1 stress 30 VUs/10min @ 10k stays confirmó**: calendar p95=**33.19s** (target <800ms · 41× sobre) · metrics p95=5.56s (11× sobre · chocan con load calendar) · overstayed p95=292ms ✅. `from/to` ignorados server-side. Network 14GB recibidos en 10min. **Bloqueante operativo piloto** | 🔴 Sprint follow-up PAGINATION-CORE PRIORITY 1 (~2-3h) |
 
 **Bugs sistémicos detectados (sprints follow-up — no incluidos en PR #78):**
 - **#22 sistémico**: 22+ controllers con `@Query()` date params sin DTO. Sprint DTO-CORE (~6-8h)
@@ -345,19 +345,34 @@ Tres approaches evaluados:
 
 Sin esto: piloto v1.0.0 al primer chargeback Visa pierde la disputa por falta de trail unificado (los `guest_stay_logs` per-stay no son auditables cross-org para compliance §165).
 
-### Bug #23 — `/v1/guest-stays` sin pagination ni filtro server-side
+### Bug #23 — `/v1/guest-stays` sin pagination ni filtro server-side (CRÍTICO)
 
-Detectado durante PERF-1 stress preparation. Endpoint `GET /v1/guest-stays?propertyId=X` retorna **TODAS las stays** del property sin pagination:
-- A 78 stays: 213KB, 50ms — OK
-- A 10k stays: **21MB, 1.45s** — bug serio para frontend
-- A 100k stays (proyección piloto 4-5 años): **210MB, ~14s** — inviable
+**Resultados PERF-1 stress 30 VUs / 10 min @ 10k stays**:
 
-`from/to` query params son **ignorados** por el servicio (frontend filtra client-side).
+| Endpoint | p95 | Target | Δ | Verdict |
+|---|---|---|---|---|
+| calendar | **33.19s** | <800ms | **41× over** | 🔴 BREAKS |
+| metrics  | 5.56s   | <500ms | 11× over | 🔴 BREAKS |
+| overstayed | 292ms | <500ms | ✅ | 🟢 PASS |
 
-**Sprint follow-up PAGINATION-CORE recomendado** (~2-3h):
+- calendar avg: 21.23s · max: 45.97s · 7 failed (0.36%)
+- iteration_duration avg: 23.25s · p95: 39.82s
+- Network: **14 GB received in 10 min** (22 MB/s sostenido — el server se ahogaba transfiriendo 21MB × 641 iteraciones)
+
+**Diagnóstico**: con 30 VUs concurrentes descargando 21MB cada uno, el bottleneck es serialización Prisma + JSON encoding + TCP throughput. CPU no es el limitante — la latencia es proporcional al payload.
+
+**Proyección piloto v1.0.0**:
+- 2-3 hoteles boutique × 5 recepcionistas concurrentes = 15 VUs reales → p95 ~15-20s para calendar
+- TimelineScheduler render hoy filtra client-side: cada navegación recarga 21MB
+- A 5 años (100k stays): **210MB / 14s base + ramp under load** → inviable
+
+**Sprint follow-up PAGINATION-CORE — PRIORITY 1 antes de piloto** (~2-3h):
 - Agregar `take` (default 500, max 5000) + `cursor` o `skip`
-- Soportar `from/to` realmente del lado servidor
+- Soportar `from/to` realmente del lado servidor (hoy ignorados)
 - Frontend ya espera responseShape compatible (TimelineScheduler ya filtra by range visible)
+- Spec coverage: PERF-1 stress re-run debe mostrar calendar p95 < 800ms post-fix
+
+**Sin este fix, el piloto v1.0.0 NO es viable operacionalmente.**
 
 ---
 
