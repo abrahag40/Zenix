@@ -115,7 +115,7 @@ describe('GuestStaysService — check-in alpha', () => {
     }),
   }
 
-  const tenantMock = { getOrganizationId: jest.fn().mockReturnValue(ORG_ID) }
+  const tenantMock = { getOrganizationId: jest.fn().mockReturnValue(ORG_ID), getPropertyId: jest.fn().mockReturnValue('test-property-id') }
   const eventsMock = { emit: jest.fn() }
   const notifCenterMock = { send: jest.fn().mockResolvedValue(undefined) }
 

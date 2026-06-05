@@ -29,6 +29,14 @@ function applyOptimistic(
   return tasks.map((t) => (t.id === taskId ? { ...t, ...patch } : t))
 }
 
+/** BUG #4 fix — módulo-level lock para evitar flushQueue concurrente. */
+let flushInFlight = false
+
+/** Stable signature de una SyncOperation para diff-vs-overwrite. */
+function sigOf(op: SyncOperation): string {
+  return `${op.type}:${op.taskId}:${op.timestamp}`
+}
+
 export const useTaskStore = create<TaskStore>()(
   persist(
     (set, get) => ({
@@ -166,34 +174,68 @@ export const useTaskStore = create<TaskStore>()(
       },
 
       flushQueue: async () => {
-        const { syncQueue } = get()
-        if (syncQueue.length === 0) return
+        // BUG #4 fix 2026-06-04 — concurrent-safe + no-overwrite.
+        //
+        // Pre-prod testing detectó dos races simultáneos:
+        //   1. Si `flushQueue` se invoca 2 veces concurrente (NetInfo
+        //      onChange + retry timer), ambas leen el mismo snapshot y
+        //      ambas re-procesan las mismas ops → server recibe duplicados.
+        //   2. Si el HK añade una op NUEVA durante un flush (taps "Start"),
+        //      la op queda en queue → al cerrar `set({ syncQueue: remaining })`
+        //      sobreescribe la queue eliminando la op nueva.
+        //
+        // Fix: módulo-level `inFlight` flag + diff vs overwrite.
+        if (flushInFlight) return
+        flushInFlight = true
+        try {
+          const snapshot = get().syncQueue
+          if (snapshot.length === 0) return
 
-        const remaining: SyncOperation[] = []
-
-        for (const op of syncQueue) {
-          try {
-            if (op.type === 'START_TASK') {
-              await api.patch(`/tasks/${op.taskId}/start`)
-            } else if (op.type === 'PAUSE_TASK') {
-              await api.patch(`/tasks/${op.taskId}/pause`)
-            } else if (op.type === 'RESUME_TASK') {
-              await api.patch(`/tasks/${op.taskId}/resume`)
-            } else if (op.type === 'END_TASK') {
-              await api.patch(`/tasks/${op.taskId}/end`, (op as any).payload ?? {})
-            }
-          } catch {
-            if (op.retryCount < 5) {
-              remaining.push({ ...op, retryCount: op.retryCount + 1 })
+          const remaining: SyncOperation[] = []
+          for (const op of snapshot) {
+            try {
+              if (op.type === 'START_TASK') {
+                await api.patch(`/tasks/${op.taskId}/start`)
+              } else if (op.type === 'PAUSE_TASK') {
+                await api.patch(`/tasks/${op.taskId}/pause`)
+              } else if (op.type === 'RESUME_TASK') {
+                await api.patch(`/tasks/${op.taskId}/resume`)
+              } else if (op.type === 'END_TASK') {
+                await api.patch(`/tasks/${op.taskId}/end`, (op as any).payload ?? {})
+              }
+            } catch {
+              if (op.retryCount < 5) {
+                remaining.push({ ...op, retryCount: op.retryCount + 1 })
+              }
             }
           }
-        }
 
-        set({ syncQueue: remaining })
+          // Diff vs overwrite: preserva ops añadidas DURANTE el flush.
+          // Filtra del current `syncQueue` las ops del snapshot que ya
+          // procesamos exitosamente (no en `remaining`), conservando las
+          // restantes (incluidas las nuevas).
+          set((s) => {
+            const processedIds = new Set(snapshot.map((o) => sigOf(o)))
+            const remainingIds = new Set(remaining.map((o) => sigOf(o)))
+            const next = s.syncQueue.filter((o) => {
+              const id = sigOf(o)
+              // Si la op estaba en snapshot Y NO está en remaining, fue procesada → drop.
+              if (processedIds.has(id) && !remainingIds.has(id)) return false
+              return true
+            })
+            // Agregar las que entraron a retry (con su retryCount++).
+            for (const r of remaining) {
+              if (!next.some((o) => sigOf(o) === sigOf(r))) next.push(r)
+            }
+            return { syncQueue: next }
+          })
 
-        // Re-fetch to get server state after sync
-        if (remaining.length < syncQueue.length) {
-          await get().fetchTasks()
+          // Re-fetch si procesamos al menos una op exitosa.
+          if (remaining.length < snapshot.length) {
+            await get().fetchTasks()
+          }
+        } finally {
+          flushInFlight = false
         }
       },
     }),

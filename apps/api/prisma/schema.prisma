@@ -1725,6 +1725,12 @@ model GuestStay {
   @@index([cancelledAt])
   @@index([channexConflict])
   @@index([reservationGroupId])
+  // Sprint testing BUG #21 — calendar timeline + overstayed widget rendering
+  // hacían SEQ SCAN sobre guest_stays. A 78 rows = 0.16 ms; proyección 100k
+  // = ~200 ms p95. Calendar query usa propertyId + checkinAt range; overstayed
+  // usa propertyId + scheduledCheckout < today + actualCheckout IS NULL.
+  @@index([propertyId, checkinAt])
+  @@index([propertyId, scheduledCheckout, actualCheckout])
   @@map("guest_stays")
 }
 
