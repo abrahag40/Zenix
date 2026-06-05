@@ -22,6 +22,7 @@ import { CreateGuestStayDto } from './dto/create-guest-stay.dto'
 import { MoveRoomDto } from './dto/move-room.dto'
 import type { AvailabilityConflict, RoomAvailabilityResult } from '@zenix/shared'
 import { PaymentMethod, StaffRole, CleaningStatus, TaskLogEvent } from '@zenix/shared'
+import { SystemRole, AuditLogStatus, AuditLogRetention } from '@prisma/client'
 import {
   addDays,
   localYMD,
@@ -4212,6 +4213,11 @@ export class GuestStaysService {
       cancelledFromChannel?: 'PMS_DIRECT' | 'CHANNEX_WEBHOOK' | 'AUTO_SYSTEM'
       metadata?: Record<string, unknown>
     },
+    // Sprint testing BUG #20 — actor.role para AuditLog universal (§165 D-NOVA-7).
+    // Opcional para backward-compat con callers internos (Channex webhook, system
+    // schedulers); cuando no presente, asume RECEPTIONIST (rol mínimo con
+    // permiso de cancel — fail-safe conservador).
+    actorRole?: SystemRole,
   ) {
     const orgId = this.tenant.getOrganizationId()
     const stay = await this.prisma.guestStay.findUnique({
@@ -4246,6 +4252,16 @@ export class GuestStaysService {
       outcome = { ...outcome, free: true, retention: 0, refund: Number(stay.amountPaid) }
     }
     const refundStatus = outcome.refund > 0.001 ? 'PENDING' : 'NONE'
+
+    // Sprint testing BUG #20 — resolver User.id del Staff para AuditLog.
+    // El JWT lleva Staff.id como `sub`, pero AuditLog.actor_real_id tiene FK
+    // a users(id) (Audit H1 fix). Staff sin User vinculado (legacy data) →
+    // skip auditLog con warning (fail-soft, no rompe el cancel).
+    const actorStaff = await this.prisma.staff.findUnique({
+      where: { id: actorId },
+      select: { userId: true },
+    })
+    const actorUserId = actorStaff?.userId ?? null
 
     await this.prisma.$transaction(async (tx) => {
       await tx.guestStay.update({
@@ -4321,6 +4337,62 @@ export class GuestStaysService {
           },
         },
       })
+
+      // Sprint testing BUG #20 — AuditLog universal §165 D-NOVA-7.
+      // Compliance dual:
+      //   (a) Visa CRR §5.9.2 — chargeback evidence ventana 120d. Sin esta
+      //       entry, una disputa de huésped sobre cancel "no autorizado" deja
+      //       a Zenix sin trail centralizado (guestStayLog es per-stay, no
+      //       cross-org append-only DB-level).
+      //   (b) CFDI Art. 30 CFF — 5 años retención. Si la cancel disparó CFDI E
+      //       (FormaPago=15 Condonación) en v1.0.2+, el auditLog congela el
+      //       contexto fiscal completo (initiator + retention + refund snapshot).
+      //
+      // retentionPolicy:
+      //   - PERMANENT cuando hubo pago (requiresFiscalReview=true) o cuando el
+      //     reembolso quedó PENDING — son los casos que pueden detonar disputa
+      //     posterior, NUNCA expiran.
+      //   - STANDARD (365d) para cancels gratis sin pago previo (informativo).
+      const auditRetention: AuditLogRetention =
+        requiresFiscalReview || refundStatus === 'PENDING'
+          ? AuditLogRetention.PERMANENT
+          : AuditLogRetention.STANDARD
+      if (actorUserId) {
+        await tx.auditLog.create({
+          data: {
+            organizationId: orgId,
+            actorRealId:    actorUserId,
+            actorRealRole:  actorRole ?? SystemRole.RECEPTIONIST,
+            action:         'STAY_CANCELLED',
+            target:         stayId,
+            payload: {
+              stayId,
+              initiator:            dto.initiator,
+              reason:               dto.reason ?? null,
+              reasonCode:           dto.reasonCode ?? null,
+              cancelledFromChannel: dto.cancelledFromChannel ?? 'PMS_DIRECT',
+              requiresFiscalReview,
+              outcome: {
+                free:      outcome.free,
+                retention: outcome.retention,
+                refund:    outcome.refund,
+                status:    refundStatus,
+              },
+              ...(dto.metadata ?? {}),
+            },
+            status:          AuditLogStatus.SUCCESS,
+            reason:          dto.reason ?? null,
+            retentionPolicy: auditRetention,
+          },
+        })
+      } else {
+        // Legacy staff sin User vinculado — audit_log inaccesible. Warning
+        // visible para que el ops detecte el gap (todos los staff productivos
+        // deben tener User vinculado, este path solo aplica a seeds antiguos).
+        this.logger.warn(
+          `cancelStay #${stayId}: actor staff ${actorId} sin userId vinculado — auditLog omitido. Audit completo solo en guest_stay_logs.`,
+        )
+      }
     })
 
     // Fire-and-forget Channex outbound — best-effort (§31).

@@ -18,6 +18,7 @@ import { GroupCancelDto } from './dto/group-cancel.dto'
 import { VoidPaymentDto } from './dto/void-payment.dto'
 import { UpdateGuestStayDto } from './dto/update-guest-stay.dto'
 import { CreateGuestStayNoteDto, UpdateGuestStayNoteDto } from './dto/guest-stay-note.dto'
+import { mapJwtRoleToSystemRole } from '../../common/audit/system-role-mapper'
 
 class MarkNoShowDto {
   @IsOptional()
@@ -619,7 +620,14 @@ export class GuestStaysController {
     @Body() dto: CancelStayDto,
     @CurrentUser() actor: JwtPayload,
   ) {
-    return this.service.cancelStay(id, actor.sub, dto)
+    // Sprint testing BUG #20 — actor.role (StaffRole — SUPERVISOR/RECEPTIONIST)
+    // mapea a SystemRole.ORG_STAFF para AuditLog universal §165. Cuando un
+    // PARTNER_MEMBER hace impersonation (cancel onBehalfOf), actor.actorTier
+    // lleva el tier real (PARTNER_MEMBER / PARTNER_ADMIN / PLATFORM_ADMIN);
+    // el service usará éste si está disponible (vía passthrough). Aquí
+    // resolvemos al SystemRole más fiel.
+    const systemRole = mapJwtRoleToSystemRole(actor)
+    return this.service.cancelStay(id, actor.sub, dto, systemRole)
   }
 
   /**

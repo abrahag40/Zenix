@@ -47,8 +47,11 @@ Padre: CLAUDE.md §"Plan de cierre wizard" + §"Bloque 1 v1.0.0"
 | 17 | 🔴 HIGH | U1 | POST `/payments` 3× concurrente → 3 PaymentLogs (sin dedup). Doble-cobro POS | ✅ Branch (natural-key dedup via reference + advisory lock) |
 | 18 | 🟡 LOW | Y1 | 0 skip-links WCAG 2.4.1 | ❌ Decisión owner 2026-06-04: bajo valor real para piloto boutique LATAM (casos uso poco probables). Diferido a si llega cliente que lo requiera por contrato |
 | 19 | 🟡 LOW | Y3 | 0/1388 BookingBlocks con aria-label. Viola WCAG 1.3.1 + 4.1.2 | ❌ Misma decisión que #18 |
+| 20 | 🟠 HI | S1 | Cancel solo escribe `guest_stay_logs`; `audit_log` queda vacío. Gap §165 D-NOVA-7 (AuditLog universal requerido para CFDI Art. 30 + Visa CRR §5.9.2) | ✅ Branch (auditLog.create en `$transaction` + helper `mapJwtRoleToSystemRole` + resolución Staff.userId fail-soft) |
+| 21 | 🟠 HI | PERF-5 | SEQ SCAN sobre `guest_stays` en queries calendar + overstayed. Sin índice `(property_id, checkin_at)` ni `(property_id, scheduled_checkout)`. A 100k stays → ~200ms p95 vs 65ms actual | ✅ Branch (2 índices Prisma + migration 20260619) |
+| 22 | 🟡 MED | PERF-1 | `/v1/metrics/range` sin validación DTO — params `from/to` ausentes → 500 genérico (debería 400). Patrón aplicable a otros endpoints sin DTO `@IsDateString` | ✅ Branch (`MetricsRangeDto` + 3 DTOs adicionales + helpful error messages) |
 
-**3 bugs en main, 14 pendientes de merge en `fix/bugs-batch-4-10` (#4-#17). #18 + #19 descartados por decisión owner.**
+**3 bugs en main, 17 pendientes de merge en `fix/bugs-batch-4-10` (PR #78) — los originales #4-#17 + 3 nuevos S/PERF (#20, #21, #22). #18 + #19 descartados por decisión owner.**
 
 ---
 
