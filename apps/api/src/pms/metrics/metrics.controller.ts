@@ -3,11 +3,22 @@ import { StaffRole } from '@zenix/shared'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { TenantContextService } from '../../common/tenant-context.service'
 import { MetricsService } from './metrics.service'
+import {
+  MetricsBackfillDto,
+  MetricsForwardCaptureDto,
+  MetricsPickupDto,
+  MetricsRangeDto,
+} from './dto/metrics-query.dto'
 
 /**
  * Métricas — KPIs financieros (ADR/RevPAR/ocupación). SUPERVISOR-only: contiene
  * revenue. El snapshot diario lo puebla el NightAuditScheduler; estos endpoints
  * lo consultan + permiten backfill manual del histórico.
+ *
+ * Sprint testing BUG #22 — los endpoints ahora validan inputs vía DTO +
+ * ValidationPipe global (main.ts: whitelist:true, transform:true,
+ * enableImplicitConversion:true). Params ausentes / malformed devuelven
+ * 400 con mensaje específico en vez de 500 genérico.
  */
 @Controller('v1/metrics')
 @Roles(StaffRole.SUPERVISOR)
@@ -19,18 +30,23 @@ export class MetricsController {
 
   /** GET /v1/metrics/range?propertyId&from&to — snapshots para charts. */
   @Get('range')
-  range(
-    @Query('propertyId') propertyId: string,
-    @Query('from') from: string,
-    @Query('to') to: string,
-  ) {
-    return this.service.getRange(propertyId, this.tenant.getOrganizationId(), new Date(from), new Date(to))
+  range(@Query() dto: MetricsRangeDto) {
+    return this.service.getRange(
+      dto.propertyId,
+      this.tenant.getOrganizationId(),
+      new Date(dto.from),
+      new Date(dto.to),
+    )
   }
 
   /** POST /v1/metrics/backfill?propertyId&from — reconstruye snapshots históricos. */
   @Post('backfill')
-  backfill(@Query('propertyId') propertyId: string, @Query('from') from: string) {
-    return this.service.backfillSnapshots(propertyId, this.tenant.getOrganizationId(), new Date(from))
+  backfill(@Query() dto: MetricsBackfillDto) {
+    return this.service.backfillSnapshots(
+      dto.propertyId,
+      this.tenant.getOrganizationId(),
+      new Date(dto.from),
+    )
   }
 
   /**
@@ -39,14 +55,15 @@ export class MetricsController {
    * tests; en operación normal lo dispara el scheduler nocturno.
    */
   @Post('forward-capture')
-  forwardCapture(
-    @Query('propertyId') propertyId: string,
-    @Query('asOf') asOf?: string,
-    @Query('horizonDays') horizonDays?: string,
-  ) {
-    const asOfDate = asOf ? new Date(asOf) : new Date()
-    const horizon = horizonDays ? parseInt(horizonDays, 10) : 90
-    return this.service.captureForwardSnapshot(propertyId, this.tenant.getOrganizationId(), asOfDate, horizon)
+  forwardCapture(@Query() dto: MetricsForwardCaptureDto) {
+    const asOfDate = dto.asOf ? new Date(dto.asOf) : new Date()
+    const horizon = dto.horizonDays ?? 90
+    return this.service.captureForwardSnapshot(
+      dto.propertyId,
+      this.tenant.getOrganizationId(),
+      asOfDate,
+      horizon,
+    )
   }
 
   /**
@@ -54,18 +71,13 @@ export class MetricsController {
    * Pickup de habitaciones/revenue entre [asOf−daysAgo, asOf] por noche futura.
    */
   @Get('pickup')
-  pickup(
-    @Query('propertyId') propertyId: string,
-    @Query('daysAgo') daysAgo: string,
-    @Query('asOf') asOf?: string,
-    @Query('horizonDays') horizonDays?: string,
-  ) {
+  pickup(@Query() dto: MetricsPickupDto) {
     return this.service.getPickup(
-      propertyId,
+      dto.propertyId,
       this.tenant.getOrganizationId(),
-      asOf ? new Date(asOf) : new Date(),
-      parseInt(daysAgo, 10) || 7,
-      horizonDays ? parseInt(horizonDays, 10) : 30,
+      dto.asOf ? new Date(dto.asOf) : new Date(),
+      dto.daysAgo,
+      dto.horizonDays ?? 30,
     )
   }
 
@@ -73,18 +85,17 @@ export class MetricsController {
    * GET /v1/metrics/pace?propertyId[&asOf&horizonDays]
    * Pace YoY: on-the-books AS-OF hoy vs same-time-last-year. Requiere ≥1 año
    * de historia para que `stly` no salga null.
+   *
+   * Reusa `MetricsForwardCaptureDto` — la forma (propertyId + asOf? + horizonDays?)
+   * coincide exactamente.
    */
   @Get('pace')
-  pace(
-    @Query('propertyId') propertyId: string,
-    @Query('asOf') asOf?: string,
-    @Query('horizonDays') horizonDays?: string,
-  ) {
+  pace(@Query() dto: MetricsForwardCaptureDto) {
     return this.service.getPace(
-      propertyId,
+      dto.propertyId,
       this.tenant.getOrganizationId(),
-      asOf ? new Date(asOf) : new Date(),
-      horizonDays ? parseInt(horizonDays, 10) : 90,
+      dto.asOf ? new Date(dto.asOf) : new Date(),
+      dto.horizonDays ?? 90,
     )
   }
 }

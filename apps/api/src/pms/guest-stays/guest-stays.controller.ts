@@ -19,6 +19,7 @@ import { VoidPaymentDto } from './dto/void-payment.dto'
 import { UpdateGuestStayDto } from './dto/update-guest-stay.dto'
 import { CreateGuestStayNoteDto, UpdateGuestStayNoteDto } from './dto/guest-stay-note.dto'
 import { ListStaysQueryDto } from './dto/list-stays-query.dto'
+import { mapJwtRoleToSystemRole } from '../../common/audit/system-role-mapper'
 
 class MarkNoShowDto {
   @IsOptional()
@@ -105,9 +106,26 @@ import { TaxBreakdownService } from './tax-breakdown.service'
 import { CreateGuestStayDto } from './dto/create-guest-stay.dto'
 import { MoveRoomDto } from './dto/move-room.dto'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
-import { JwtPayload } from '@zenix/shared'
+import { Roles } from '../../common/decorators/roles.decorator'
+import { JwtPayload, StaffRole } from '@zenix/shared'
 
+/**
+ * BUG #12 fix 2026-06-04 — RBAC enforcement.
+ *
+ * Pre-prod testing detectó: un usuario con rol HOUSEKEEPER podía ejecutar
+ * `POST /v1/guest-stays` (walk-in/nueva reserva) — el controller no tenía
+ * `@Roles()` decorator. Esto rompe segregación operativa:
+ *   · HOUSEKEEPER NUNCA debe crear reservas ni cobrar pagos
+ *   · RECEPTIONIST puede crear, modificar, cancelar
+ *   · SUPERVISOR puede todo + reports + revenue management
+ *
+ * Roles default a nivel controller (SUPERVISOR + RECEPTIONIST) para mutaciones
+ * de stay. GET endpoints quedan sin restricción adicional — el TenantContextService
+ * + PropertyScopeGuard ya cubren el acceso. Endpoints específicos pueden
+ * estrechar más con `@Roles(SUPERVISOR)` propio (e.g. revertNoShow, cancel).
+ */
 @Controller('v1/guest-stays')
+@Roles(StaffRole.SUPERVISOR, StaffRole.RECEPTIONIST)
 export class GuestStaysController {
   constructor(
     private readonly service: GuestStaysService,
@@ -617,7 +635,14 @@ export class GuestStaysController {
     @Body() dto: CancelStayDto,
     @CurrentUser() actor: JwtPayload,
   ) {
-    return this.service.cancelStay(id, actor.sub, dto)
+    // Sprint testing BUG #20 — actor.role (StaffRole — SUPERVISOR/RECEPTIONIST)
+    // mapea a SystemRole.ORG_STAFF para AuditLog universal §165. Cuando un
+    // PARTNER_MEMBER hace impersonation (cancel onBehalfOf), actor.actorTier
+    // lleva el tier real (PARTNER_MEMBER / PARTNER_ADMIN / PLATFORM_ADMIN);
+    // el service usará éste si está disponible (vía passthrough). Aquí
+    // resolvemos al SystemRole más fiel.
+    const systemRole = mapJwtRoleToSystemRole(actor)
+    return this.service.cancelStay(id, actor.sub, dto, systemRole)
   }
 
   /**

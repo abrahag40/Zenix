@@ -75,6 +75,9 @@ describe('GuestStaysService — cancel-archive', () => {
     stayJourney: { update: jest.fn() },
     stayJourneyEvent: { create: jest.fn() },
     guestStayLog: { create: jest.fn() },
+    // Sprint testing BUG #20 fix — cancelStay resuelve Staff.userId pre-tx para AuditLog.
+    staff: { findUnique: jest.fn().mockResolvedValue({ userId: 'user-1' }) },
+    auditLog: { create: jest.fn() },
     // GROUP-BILLING Fase C C2 — cancelStay resuelve policy. Default null → motor default.
     cancellationPolicy: { findFirst: jest.fn().mockResolvedValue(null) },
     // GROUP-BILLING Fase C C4 — cancelGroup.
@@ -87,7 +90,7 @@ describe('GuestStaysService — cancel-archive', () => {
     }),
   }
 
-  const tenantMock = { getOrganizationId: jest.fn().mockReturnValue(ORG_ID) }
+  const tenantMock = { getOrganizationId: jest.fn().mockReturnValue(ORG_ID), getPropertyId: jest.fn().mockReturnValue('test-property-id') }
   const eventsMock = { emit: jest.fn() }
   const availabilityMock = {
     notifyRelease: jest.fn().mockResolvedValue(undefined),

@@ -374,6 +374,7 @@ Sin esto: piloto v1.0.0 al primer chargeback Visa pierde la disputa por falta de
 
 **Sin este fix, el piloto v1.0.0 NO es viable operacionalmente.**
 
+<<<<<<< HEAD
 ### Resultados PERF-1 stress POST-fix (PR #79 — 2026-06-05)
 
 | Endpoint | PRE-fix p95 | POST-fix p95 | Mejora |
@@ -401,6 +402,8 @@ Habilitar `compression` middleware en NestJS:
 
 Recomendación: incluir COMPRESSION-CORE como parte de PR #79 follow-up commit antes de merge → cumple threshold operacional definitivo.
 
+=======
+>>>>>>> origin/main
 ---
 
 ## 7. Decisiones del owner pendientes

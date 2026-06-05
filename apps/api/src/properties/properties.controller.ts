@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common'
 import { Roles } from '../common/decorators/roles.decorator'
-import { StaffRole } from '@zenix/shared'
+import { CurrentUser } from '../common/decorators/current-user.decorator'
+import { JwtPayload, StaffRole } from '@zenix/shared'
 import { PropertiesService } from './properties.service'
 import { CreatePropertyDto } from './dto/create-property.dto'
 
@@ -14,9 +15,22 @@ export class PropertiesController {
     return this.service.create(dto)
   }
 
+  /**
+   * BUG #11 fix 2026-06-04 — scope filter por rol del actor.
+   *
+   * Antes: `findAll()` retornaba TODAS las properties de la organización al
+   * usuario, ignorando su rol. RECEPTIONIST/HOUSEKEEPER de Property A veían
+   * en SettingsScopeBanner la lista completa (Hotel A + Hotel B) — el banner
+   * incluso renderizaba la primera alfabéticamente, no la activa, confundiendo
+   * al usuario con "Editando Hotel B" cuando estaba en Hotel A.
+   *
+   * Ahora: usa `findMine(actor)` que filtra por rol:
+   *   · SUPERVISOR: ve todas las properties de su organización
+   *   · RECEPTIONIST/HOUSEKEEPER: ve solo su Property
+   */
   @Get()
-  findAll() {
-    return this.service.findAll()
+  findAll(@CurrentUser() actor: JwtPayload) {
+    return this.service.findMine(actor)
   }
 
   @Get(':id')

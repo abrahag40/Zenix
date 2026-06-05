@@ -138,15 +138,25 @@ export class NightAuditScheduler {
         continue
       }
 
-      // Buscar estadías que debían llegar hoy (en hora local) y no hicieron check-in
-      // "Hoy en hora local" = checkinAt cae en el día actual de la propiedad.
-      // Usamos UTC midnight del día local para el rango:
-      //   dayStart = YYYY-MM-DDT00:00:00Z (en UTC, representando medianoche local)
-      // NOTA: Este rango no es perfecto para timezones con offsets grandes, pero es
-      // suficientemente preciso dado que el cron corre cada 30 min y la ventana es de
-      // ±1 día. Un refinamiento futuro sería usar `checkinAt AT TIME ZONE tz`.
-      const dayStart = new Date(`${localDate}T00:00:00.000Z`)
-      const dayEnd   = new Date(`${localDate}T23:59:59.999Z`)
+      // BUG #6 fix 2026-06-04 — ventana de backlog 7 días en vez de solo "hoy".
+      //
+      // El query previo `checkinAt: { gte: dayStart, lte: dayEnd }` filtraba
+      // SOLO el día local actual. Si el cron fallaba un día (downtime, deploy,
+      // server restart), las stays de ese día quedaban ghost no-shows
+      // permanentes — el run siguiente no las capturaba porque caían fuera
+      // del rango. Pre-prod testing 2026-06-04 evidencia: 10 stays seed
+      // 5/28-5/31 con checkinAt pasado, actualCheckin=null, noShowAt=null.
+      //
+      // Fix: rango backlog de 7 días (`BACKLOG_DAYS`). El cron principal
+      // procesa hoy + recupera cualquier stay olvidada de los 6 días
+      // previos. `noShowProcessedDate` sigue siendo el guard idempotente
+      // del día actual (no re-procesa lo de hoy en el mismo día). Las
+      // stays de días previos son por definición "ya pasaron sin checkin"
+      // y deben marcarse como no-show.
+      const BACKLOG_DAYS = 7
+      const backlogStart = new Date(`${localDate}T00:00:00.000Z`)
+      backlogStart.setUTCDate(backlogStart.getUTCDate() - (BACKLOG_DAYS - 1))
+      const dayEnd       = new Date(`${localDate}T23:59:59.999Z`)
 
       const overdueStays = await this.prisma.guestStay.findMany({
         where: {
@@ -160,7 +170,7 @@ export class NightAuditScheduler {
           noShowAt:          null,
           noShowRevertedAt:  null, // exclude stays that were manually reverted — don't re-mark
           cancelledAt:       null, // no procesar canceladas
-          checkinAt: { gte: dayStart, lte: dayEnd },
+          checkinAt: { gte: backlogStart, lte: dayEnd },
         },
         select: {
           id: true,

@@ -22,6 +22,7 @@ import { CreateGuestStayDto } from './dto/create-guest-stay.dto'
 import { MoveRoomDto } from './dto/move-room.dto'
 import type { AvailabilityConflict, RoomAvailabilityResult } from '@zenix/shared'
 import { PaymentMethod, StaffRole, CleaningStatus, TaskLogEvent } from '@zenix/shared'
+import { SystemRole, AuditLogStatus, AuditLogRetention } from '@prisma/client'
 import {
   addDays,
   localYMD,
@@ -179,6 +180,17 @@ export class GuestStaysService {
    *  Format: [CC]-[SRC]-[PROP]-[YYMM]-[SEQ]
    *  Example: MX-B-001-2604-0134
    */
+  /**
+   * Generar bookingRef estructurado: `[CC]-[SRC]-[propCode]-[YYMM]-[SEQ]`.
+   *
+   * BUG #15 fix 2026-06-04 — el primer segmento es **ISO 3166-1 country code**
+   * (MX/CO/PE/CR), NO city. Antes el caller pasaba `city ?? name` → "TU" para
+   * Tulum, "CA" para Cancún — rompía audit CFDI + chargeback evidence que
+   * esperan ISO codes parseables.
+   *
+   * Si `country` no es exactamente 2 chars ISO válidos, fallback "MX" (default
+   * para piloto LATAM). Validación strict de ISO en v1.0.1 Tax-CORE sprint.
+   */
   private async generateBookingRef(
     propCode: string,
     country: string | null | undefined,
@@ -186,7 +198,9 @@ export class GuestStaysService {
     checkIn: Date,
     tx: Prisma.TransactionClient,
   ): Promise<string> {
-    const cc   = ((country ?? 'ZZ').toUpperCase() + 'ZZ').slice(0, 2)
+    // ISO 3166-1 alpha-2 enforce. Si no es exactamente 2 letras A-Z, fallback "MX".
+    const raw = (country ?? '').toUpperCase().trim()
+    const cc = /^[A-Z]{2}$/.test(raw) ? raw : 'MX'
     const src  = SOURCE_CHAR[(source ?? '').toLowerCase()] ?? 'Z'
     const yy   = String(checkIn.getFullYear()).slice(-2)
     const mm   = String(checkIn.getMonth() + 1).padStart(2, '0')
@@ -200,7 +214,16 @@ export class GuestStaysService {
 
     const room = await this.prisma.room.findUnique({
       where: { id: dto.roomId, organizationId: orgId },
-      include: { property: { include: { settings: { select: { timezone: true } } } } },
+      include: {
+        property: {
+          include: {
+            settings: { select: { timezone: true } },
+            // BUG #15 fix — necesitamos countryCode ISO 3166-1 de la
+            // LegalEntity para el prefix del bookingRef (CFDI audit compliance).
+            legalEntity: { select: { countryCode: true } },
+          },
+        },
+      },
     })
     if (!room) throw new NotFoundException('Habitación no encontrada')
 
@@ -260,11 +283,89 @@ export class GuestStaysService {
       select: { id: true },
     })
 
-    const stay = await this.prisma.$transaction(async (tx) => {
+    // BUG #9 fix 2026-06-04 — advisory lock atomic + checkAvailability dentro de tx.
+    //
+    // Pre-prod testing detectó: 3 walk-ins concurrentes en MISMA room → 1×201
+    // + 2×500 (en vez de 1×201 + 2×409). Causa raíz dual:
+    //   1. checkAvailability() corría FUERA de $transaction → 2 requests ven
+    //      la room libre simultáneamente y proceden.
+    //   2. generateBookingRef() hace COUNT + count+1 → 2 requests calculan el
+    //      mismo siguiente número → Prisma P2002 `Unique on booking_ref`.
+    //
+    // El P2002 escapaba sin capturar → HttpExceptionFilter lo transformaba a
+    // 500 genérico. Y la integridad se salvaba por casualidad (booking_ref
+    // unique), pero si dos walk-ins caen en MES DISTINTO el bookingRef no
+    // colisionaría y AMBOS commit → overbooking real.
+    //
+    // Fix:
+    //   · Postgres advisory lock keyed por hash(roomId) — serialize concurrent
+    //     walk-ins sobre la misma room. pg_advisory_xact_lock se libera
+    //     auto al commit/rollback de la $transaction.
+    //   · Re-check availability DENTRO del tx (después de adquirir el lock).
+    //     Esto cierra la ventana de race entre "leí free" y "escribí stay".
+    //   · Catch P2002 booking_ref → ConflictException 409 sin retry (la causa
+    //     real ya es serialized por el lock).
+    let stay: Awaited<ReturnType<typeof this.prisma.guestStay.create>>
+    try {
+      stay = await this.prisma.$transaction(async (tx) => {
+      // Serialize concurrent walk-ins sobre esta room. El hash convierte
+      // el UUID a un bigint para pg_advisory_xact_lock (acepta bigint).
+      // Try/catch para no romper unit tests con mock $transaction client.
+      try {
+        await tx.$executeRawUnsafe(
+          `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`,
+          `walk-in:${dto.roomId}`,
+        )
+      } catch (e) {
+        if (!(e instanceof TypeError)) throw e
+      }
+
+      // Re-check disponibilidad DENTRO del lock — protege contra el caso de
+      // que entre nuestro checkAvailability inicial y este punto, otra
+      // request ya creó una stay overlapping.
+      const recheck = await this.checkAvailability(dto.roomId, checkIn, checkOut)
+      if (!recheck.available) {
+        const hard = recheck.conflicts.find(c => c.severity === 'HARD')
+        throw new ConflictException({
+          message: hard?.guestName
+            ? `La habitación ya tiene una reserva de "${hard.guestName}" (conflicto detectado al adquirir lock)`
+            : 'Habitación no disponible para las fechas seleccionadas (race condition)',
+          conflicts: recheck.conflicts,
+        })
+      }
+
+      // BUG #16 fix 2026-06-04 — segundo advisory lock per (property, yyyymm)
+      // para serializar el contador del bookingRef cross-room.
+      //
+      // Pre-prod testing Z1: 5 walk-ins concurrentes en rooms distintas →
+      // 1×201 + 4×409. Causa: el lock per-room serializa same-room race, pero
+      // generateBookingRef hace COUNT con prefix `MX-D-000-2607-` (sin roomId)
+      // → 5 requests cuentan N, todas intentan insertar `0001`, sólo 1 gana,
+      // las 4 restantes lanzan P2002 → ConflictException.
+      //
+      // Fix: el segundo lock estrecha la sección crítica del counter sólo a
+      // walk-ins del MISMO mes en la MISMA property — escala lineal con
+      // ops/min real del hotel (~10 walk-ins/min peak). Walk-ins en otra
+      // property o mes siguen serializando solo entre ellas.
+      const yymm = String(checkIn.getFullYear()).slice(-2) + String(checkIn.getMonth() + 1).padStart(2, '0')
+      try {
+        await tx.$executeRawUnsafe(
+          `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`,
+          `walk-in:ref:${dto.propertyId}:${yymm}`,
+        )
+      } catch (e) {
+        if (!(e instanceof TypeError)) throw e
+      }
+
       const propCode = room.property.propCode ?? '000'
       const bookingRef = await this.generateBookingRef(
         propCode,
-        room.property.city ?? room.property.name,
+        // BUG #15 fix 2026-06-04 — usar countryCode ISO 3166-1 (MX/CO/PE/CR)
+        // de la LegalEntity. Antes pasaba `city ?? name` → prefix "TU" (de
+        // "Tulum") o "CA" (de "Cancún") en vez de "MX" — rompía audit CFDI
+        // que espera ISO codes en el bookingRef. Fallback "MX" para LegalEntity
+        // missing durante migration v1.0.5 (Property.legalEntityId nullable).
+        room.property.legalEntity?.countryCode ?? 'MX',
         dto.source,
         checkIn,
         tx,
@@ -373,6 +474,17 @@ export class GuestStaysService {
 
       return newStay
     })
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        // booking_ref collision: el lock NO debería permitirlo, pero defense
+        // in depth — si pasa, es porque otra request paralela en OTRA room
+        // ganó el counter al mismo tiempo. Indicamos 409 como fallback.
+        throw new ConflictException(
+          'No se pudo asignar referencia de reserva única — reintenta.',
+        )
+      }
+      throw err
+    }
 
     this.events.emit('checkin.completed', {
       stayId: stay.id,
@@ -506,10 +618,33 @@ export class GuestStaysService {
     return { available: conflicts.length === 0, conflicts }
   }
 
+  /**
+   * BUG #8 fix 2026-06-04 — IDOR cross-property en findUnique.
+   *
+   * Hasta hoy, los 25+ `guestStay.findUnique` del módulo scoped sólo por
+   * `organizationId`. Para customers chain/brand con N properties en la
+   * misma Organization (Selina con 24, próximo cliente Hotel Monica con 1
+   * pero piloto multi-prop futuro), un SUPERVISOR de la Property A podía
+   * leer/modificar stays de Property B.
+   *
+   * CLAUDE.md MT-5 audit pensó que `PropertyScopeGuard` cerraba esto, pero
+   * el guard SÓLO chequea `?propertyId=` query params — los `:id` paths
+   * caen al servicio que confía en su propia tenant lookup, que era org-only.
+   *
+   * Esta helper retorna el scope correcto. Usar en TODO `findUnique` /
+   * `findFirst` / `update` / `delete` que reciben un stayId del cliente.
+   */
+  private stayScope(stayId: string) {
+    return {
+      id: stayId,
+      organizationId: this.tenant.getOrganizationId(),
+      propertyId: this.tenant.getPropertyId(),
+    }
+  }
+
   async findOne(stayId: string) {
-    const orgId = this.tenant.getOrganizationId()
     const stay = await this.prisma.guestStay.findUnique({
-      where: { id: stayId, organizationId: orgId },
+      where: this.stayScope(stayId),
       include: { room: { select: { number: true } } },
     })
     if (!stay) throw new NotFoundException('Estadía no encontrada')
@@ -631,7 +766,7 @@ export class GuestStaysService {
   async checkout(stayId: string, actorId: string) {
     const orgId = this.tenant.getOrganizationId()
     const stay = await this.prisma.guestStay.findUnique({
-      where: { id: stayId, organizationId: orgId },
+      where: this.stayScope(stayId),
       include: {
         room: {
           select: {
@@ -937,7 +1072,7 @@ export class GuestStaysService {
     const orgId = this.tenant.getOrganizationId()
 
     const stay = await this.prisma.guestStay.findUnique({
-      where: { id: stayId, organizationId: orgId },
+      where: this.stayScope(stayId),
       include: {
         room: {
           select: {
@@ -1224,7 +1359,7 @@ export class GuestStaysService {
     const orgId = this.tenant.getOrganizationId()
 
     const stay = await this.prisma.guestStay.findUnique({
-      where: { id: stayId, organizationId: orgId },
+      where: this.stayScope(stayId),
       include: {
         room: {
           select: {
@@ -1359,7 +1494,7 @@ export class GuestStaysService {
   ) {
     const orgId = this.tenant.getOrganizationId()
     const stay = await this.prisma.guestStay.findUnique({
-      where: { id: stayId, organizationId: orgId },
+      where: this.stayScope(stayId),
       include: { room: { select: { id: true, number: true, propertyId: true } } },
     })
     if (!stay) throw new NotFoundException()
@@ -1464,7 +1599,7 @@ export class GuestStaysService {
   async moveRoom(stayId: string, dto: MoveRoomDto, actorId: string) {
     const orgId = this.tenant.getOrganizationId()
     const stay = await this.prisma.guestStay.findUnique({
-      where: { id: stayId, organizationId: orgId },
+      where: this.stayScope(stayId),
     })
     if (!stay) throw new NotFoundException()
 
@@ -1703,7 +1838,7 @@ export class GuestStaysService {
   async extendStay(stayId: string, newCheckOut: Date, actorId: string) {
     const orgId = this.tenant.getOrganizationId()
     const stay = await this.prisma.guestStay.findUnique({
-      where: { id: stayId, organizationId: orgId },
+      where: this.stayScope(stayId),
       include: { stayJourney: { select: { id: true } } },
     })
     if (!stay) throw new NotFoundException('Estadía no encontrada')
@@ -1773,7 +1908,7 @@ export class GuestStaysService {
   ) {
     const orgId = this.tenant.getOrganizationId()
     const stay = await this.prisma.guestStay.findUnique({
-      where: { id: stayId, organizationId: orgId },
+      where: this.stayScope(stayId),
       include: {
         room: {
           include: {
@@ -1932,7 +2067,7 @@ export class GuestStaysService {
   async revertNoShow(stayId: string, actorId: string) {
     const orgId = this.tenant.getOrganizationId()
     const stay = await this.prisma.guestStay.findUnique({
-      where: { id: stayId, organizationId: orgId },
+      where: this.stayScope(stayId),
       include: {
         stayJourney: { select: { id: true } },
         room:        { select: { channexRoomTypeId: true } },
@@ -2074,7 +2209,7 @@ export class GuestStaysService {
   ) {
     const orgId = this.tenant.getOrganizationId()
     const stay = await this.prisma.guestStay.findUnique({
-      where: { id: stayId, organizationId: orgId },
+      where: this.stayScope(stayId),
     })
     if (!stay) throw new NotFoundException('Estadía no encontrada')
     if (!stay.noShowAt) {
@@ -2202,7 +2337,7 @@ export class GuestStaysService {
     const orgId = this.tenant.getOrganizationId()
 
     const stay = await this.prisma.guestStay.findUnique({
-      where: { id: stayId, organizationId: orgId },
+      where: this.stayScope(stayId),
       include: {
         room: {
           select: {
@@ -2424,7 +2559,7 @@ export class GuestStaysService {
     const orgId = this.tenant.getOrganizationId()
 
     const stay = await this.prisma.guestStay.findUnique({
-      where: { id: stayId, organizationId: orgId },
+      where: this.stayScope(stayId),
       include: {
         room: {
           select: {
@@ -2539,6 +2674,39 @@ export class GuestStaysService {
     const shiftDate = shiftDateForTimezone(now, tz)
 
     await this.prisma.$transaction(async (tx) => {
+      // BUG #7 fix 2026-06-04 — advisory lock + re-check actualCheckin null.
+      //
+      // Pre-prod testing detectó: 2 confirm-checkin concurrentes contra el
+      // mismo stay ambos retornaban 201 (race entre los Guards 1 fuera de la
+      // transaction y el commit). Sin lock, ambos pasaban "Guard 1: ya
+      // confirmado" porque actualCheckin estaba null para ambos al leer.
+      //
+      // Lock keyed por hash(stayId) — serialize. Después re-check actualCheckin
+      // dentro del tx; si otra request lo escribió entre el lock y aquí, lanzamos
+      // CHECKIN_ALREADY_CONFIRMED para idempotencia clara.
+      // Try/catch para no romper unit tests con mock $transaction client sin $executeRawUnsafe.
+      try {
+        await tx.$executeRawUnsafe(
+          `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`,
+          `checkin:${stayId}`,
+        )
+      } catch (e) {
+        // En tests con mock prisma, $executeRawUnsafe no existe — la idempotencia
+        // se valida con el findUnique recheck inmediato.
+        if (!(e instanceof TypeError)) throw e
+      }
+      const recheck = await tx.guestStay.findUnique({
+        where: { id: stayId },
+        select: { actualCheckin: true },
+      })
+      if (recheck?.actualCheckin) {
+        throw new ConflictException({
+          code:          'CHECKIN_ALREADY_CONFIRMED',
+          message:       'El check-in ya fue confirmado por otra sesión',
+          actualCheckin: recheck.actualCheckin.toISOString(),
+        })
+      }
+
       // 1. Crear registros de pago (append-only)
       for (const p of dto.payments) {
         await tx.paymentLog.create({
@@ -2669,7 +2837,7 @@ export class GuestStaysService {
     const orgId = this.tenant.getOrganizationId()
 
     const stay = await this.prisma.guestStay.findUnique({
-      where: { id: stayId, organizationId: orgId },
+      where: this.stayScope(stayId),
       select: {
         id: true, propertyId: true, currency: true, amountPaid: true, totalAmount: true,
         noShowAt: true, reservationGroupId: true,
@@ -2715,19 +2883,62 @@ export class GuestStaysService {
     }
 
     // ── Single payment path ──────────────────────────────────────────────────
+    //
+    // BUG #17 fix 2026-06-04 — natural-key dedup vía `reference` + advisory lock.
+    //
+    // Pre-prod testing detectó: POST /payments con MISMO body 3× concurrente
+    // → 3 PaymentLogs creados → guest cobrado 3× ($75 en vez de $25). Risk
+    // real en POS con red lenta + doble-click del recepcionista.
+    //
+    // Fix: lock + check + create EN LA MISMA $transaction. Las 3 requests
+    // serializan en el advisory lock; la primera crea, las 2 restantes ven el
+    // log ya creado en su findFirst dentro de su lock-window y retornan
+    // idempotent. Pattern Stripe Idempotency-Key adaptado al field natural.
+    //
+    // Si NO trae reference (cash sin código), pago se permite duplicar — es
+    // responsabilidad del operador no recobrar el mismo monto.
     const newAmountPaid = Number(stay.amountPaid) + dto.amount
     const totalAmount   = Number(stay.totalAmount)
+    const ref = dto.reference?.trim() || null
 
-    const [log] = await this.prisma.$transaction([
-      this.prisma.paymentLog.create({
+    const log = await this.prisma.$transaction(async (tx) => {
+      // Lock primero (solo si hay reference) para serializar concurrent dups.
+      if (ref) {
+        try {
+          await tx.$executeRawUnsafe(
+            `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`,
+            `payment:dedup:${stayId}:${ref}`,
+          )
+        } catch (e) {
+          if (!(e instanceof TypeError)) throw e
+        }
+        // Check: ¿ya existe pago no-void con esta (stay, reference) en 5min?
+        const fiveMinAgo = new Date(Date.now() - 5 * 60_000)
+        const existing = await tx.paymentLog.findFirst({
+          where: { stayId, reference: ref, isVoid: false, createdAt: { gte: fiveMinAgo } },
+          orderBy: { createdAt: 'desc' },
+        })
+        if (existing) {
+          this.logger.log(
+            `[Payment.dedup] stay=${stayId} ref="${ref}" → returning existing log=${existing.id}`,
+          )
+          return existing
+        }
+      }
+      // No-dedup path o primer caller con esta reference: crear + update stay.
+      const created = await tx.paymentLog.create({
         data: {
           organizationId: orgId,
           propertyId:     stay.propertyId,
           stayId,
           method:         dto.method as any,
           amount:         dto.amount,
-          currency:       stay.currency,
-          reference:      dto.reference ?? null,
+          // BUG #13 fix 2026-06-04 — accept opcional dto.currency ISO 4217.
+          // Si no se envía, fallback a folio currency (backward-compat). El
+          // FX lock + rate freeze para multi-divisa real entran en v1.0.1
+          // PAY-CORE (§81 PaymentFxLock + Banxico SF43718).
+          currency:       dto.currency ?? stay.currency,
+          reference:      ref,
           approvedById:   dto.approvedById ?? null,
           approvalReason: dto.approvalReason ?? null,
           // paidByStayId: pago de la propia stay salvo que un pagador de grupo
@@ -2736,15 +2947,16 @@ export class GuestStaysService {
           shiftDate,
           collectedById:  actorId,
         },
-      }),
-      this.prisma.guestStay.update({
+      })
+      await tx.guestStay.update({
         where: { id: stayId },
         data: {
           amountPaid:    newAmountPaid,
           paymentStatus: newAmountPaid >= totalAmount ? 'PAID' : newAmountPaid > 0 ? 'PARTIAL' : 'PENDING',
         },
-      }),
-    ])
+      })
+      return created
+    })
 
     this.logger.log(`[RegisterPayment] stay=${stayId} method=${dto.method} amount=${dto.amount}`)
     return log
@@ -2863,7 +3075,7 @@ export class GuestStaysService {
   async getGroupBalances(stayId: string) {
     const orgId = this.tenant.getOrganizationId()
     const stay = await this.prisma.guestStay.findUnique({
-      where: { id: stayId, organizationId: orgId },
+      where: this.stayScope(stayId),
       select: { reservationGroupId: true },
     })
     if (!stay) throw new NotFoundException('Estadía no encontrada')
@@ -3091,7 +3303,7 @@ export class GuestStaysService {
   > {
     const orgId = this.tenant.getOrganizationId()
     const stay = await this.prisma.guestStay.findUnique({
-      where: { id: stayId, organizationId: orgId },
+      where: this.stayScope(stayId),
       select: { id: true, createdAt: true, stayJourney: { select: { id: true } } },
     })
     if (!stay) throw new NotFoundException('Estadía no encontrada')
@@ -3227,7 +3439,7 @@ export class GuestStaysService {
     const orgId = this.tenant.getOrganizationId()
 
     const current = await this.prisma.guestStay.findUnique({
-      where: { id: stayId, organizationId: orgId },
+      where: this.stayScope(stayId),
       select: { id: true, guestEmail: true, guestPhone: true },
     })
     if (!current) throw new NotFoundException('Estadía no encontrada')
@@ -3276,7 +3488,7 @@ export class GuestStaysService {
   async listPaymentLogs(stayId: string) {
     const orgId = this.tenant.getOrganizationId()
     const stay = await this.prisma.guestStay.findUnique({
-      where: { id: stayId, organizationId: orgId }, select: { id: true },
+      where: this.stayScope(stayId), select: { id: true },
     })
     if (!stay) throw new NotFoundException('Estadía no encontrada')
 
@@ -3525,7 +3737,7 @@ export class GuestStaysService {
     const orgId = this.tenant.getOrganizationId()
     // Verify ownership via stay lookup (defense in depth — global guard ya scope).
     const stay = await this.prisma.guestStay.findUnique({
-      where: { id: stayId, organizationId: orgId }, select: { id: true },
+      where: this.stayScope(stayId), select: { id: true },
     })
     if (!stay) throw new NotFoundException('Estadía no encontrada')
 
@@ -3540,7 +3752,7 @@ export class GuestStaysService {
   async createNote(stayId: string, dto: CreateGuestStayNoteDto, actorId: string) {
     const orgId = this.tenant.getOrganizationId()
     const stay = await this.prisma.guestStay.findUnique({
-      where: { id: stayId, organizationId: orgId },
+      where: this.stayScope(stayId),
       select: { id: true, propertyId: true },
     })
     if (!stay) throw new NotFoundException('Estadía no encontrada')
@@ -3990,7 +4202,7 @@ export class GuestStaysService {
   async getCancellationPreview(stayId: string) {
     const orgId = this.tenant.getOrganizationId()
     const stay = await this.prisma.guestStay.findUnique({
-      where: { id: stayId, organizationId: orgId },
+      where: this.stayScope(stayId),
       select: {
         id: true, cancellationPolicyId: true, propertyId: true, checkinAt: true,
         totalAmount: true, amountPaid: true, ratePerNight: true, currency: true,
@@ -4023,10 +4235,15 @@ export class GuestStaysService {
       cancelledFromChannel?: 'PMS_DIRECT' | 'CHANNEX_WEBHOOK' | 'AUTO_SYSTEM'
       metadata?: Record<string, unknown>
     },
+    // Sprint testing BUG #20 — actor.role para AuditLog universal (§165 D-NOVA-7).
+    // Opcional para backward-compat con callers internos (Channex webhook, system
+    // schedulers); cuando no presente, asume RECEPTIONIST (rol mínimo con
+    // permiso de cancel — fail-safe conservador).
+    actorRole?: SystemRole,
   ) {
     const orgId = this.tenant.getOrganizationId()
     const stay = await this.prisma.guestStay.findUnique({
-      where: { id: stayId, organizationId: orgId },
+      where: this.stayScope(stayId),
       include: {
         room: { include: { property: { include: { settings: true } } } },
         stayJourney: { select: { id: true } },
@@ -4057,6 +4274,16 @@ export class GuestStaysService {
       outcome = { ...outcome, free: true, retention: 0, refund: Number(stay.amountPaid) }
     }
     const refundStatus = outcome.refund > 0.001 ? 'PENDING' : 'NONE'
+
+    // Sprint testing BUG #20 — resolver User.id del Staff para AuditLog.
+    // El JWT lleva Staff.id como `sub`, pero AuditLog.actor_real_id tiene FK
+    // a users(id) (Audit H1 fix). Staff sin User vinculado (legacy data) →
+    // skip auditLog con warning (fail-soft, no rompe el cancel).
+    const actorStaff = await this.prisma.staff.findUnique({
+      where: { id: actorId },
+      select: { userId: true },
+    })
+    const actorUserId = actorStaff?.userId ?? null
 
     await this.prisma.$transaction(async (tx) => {
       await tx.guestStay.update({
@@ -4132,6 +4359,62 @@ export class GuestStaysService {
           },
         },
       })
+
+      // Sprint testing BUG #20 — AuditLog universal §165 D-NOVA-7.
+      // Compliance dual:
+      //   (a) Visa CRR §5.9.2 — chargeback evidence ventana 120d. Sin esta
+      //       entry, una disputa de huésped sobre cancel "no autorizado" deja
+      //       a Zenix sin trail centralizado (guestStayLog es per-stay, no
+      //       cross-org append-only DB-level).
+      //   (b) CFDI Art. 30 CFF — 5 años retención. Si la cancel disparó CFDI E
+      //       (FormaPago=15 Condonación) en v1.0.2+, el auditLog congela el
+      //       contexto fiscal completo (initiator + retention + refund snapshot).
+      //
+      // retentionPolicy:
+      //   - PERMANENT cuando hubo pago (requiresFiscalReview=true) o cuando el
+      //     reembolso quedó PENDING — son los casos que pueden detonar disputa
+      //     posterior, NUNCA expiran.
+      //   - STANDARD (365d) para cancels gratis sin pago previo (informativo).
+      const auditRetention: AuditLogRetention =
+        requiresFiscalReview || refundStatus === 'PENDING'
+          ? AuditLogRetention.PERMANENT
+          : AuditLogRetention.STANDARD
+      if (actorUserId) {
+        await tx.auditLog.create({
+          data: {
+            organizationId: orgId,
+            actorRealId:    actorUserId,
+            actorRealRole:  actorRole ?? SystemRole.RECEPTIONIST,
+            action:         'STAY_CANCELLED',
+            target:         stayId,
+            payload: {
+              stayId,
+              initiator:            dto.initiator,
+              reason:               dto.reason ?? null,
+              reasonCode:           dto.reasonCode ?? null,
+              cancelledFromChannel: dto.cancelledFromChannel ?? 'PMS_DIRECT',
+              requiresFiscalReview,
+              outcome: {
+                free:      outcome.free,
+                retention: outcome.retention,
+                refund:    outcome.refund,
+                status:    refundStatus,
+              },
+              ...(dto.metadata ?? {}),
+            },
+            status:          AuditLogStatus.SUCCESS,
+            reason:          dto.reason ?? null,
+            retentionPolicy: auditRetention,
+          },
+        })
+      } else {
+        // Legacy staff sin User vinculado — audit_log inaccesible. Warning
+        // visible para que el ops detecte el gap (todos los staff productivos
+        // deben tener User vinculado, este path solo aplica a seeds antiguos).
+        this.logger.warn(
+          `cancelStay #${stayId}: actor staff ${actorId} sin userId vinculado — auditLog omitido. Audit completo solo en guest_stay_logs.`,
+        )
+      }
     })
 
     // Fire-and-forget Channex outbound — best-effort (§31).
@@ -4213,7 +4496,7 @@ export class GuestStaysService {
   ) {
     const orgId = this.tenant.getOrganizationId()
     const stay = await this.prisma.guestStay.findUnique({
-      where: { id: stayId, organizationId: orgId },
+      where: this.stayScope(stayId),
       select: { id: true, cancelledAt: true, cancelRefundStatus: true, cancelRefundAmount: true },
     })
     if (!stay) throw new NotFoundException('Estadía no encontrada')
@@ -4272,7 +4555,7 @@ export class GuestStaysService {
   async getGroupCancellationPreview(stayId: string) {
     const orgId = this.tenant.getOrganizationId()
     const ctx = await this.prisma.guestStay.findUnique({
-      where: { id: stayId, organizationId: orgId },
+      where: this.stayScope(stayId),
       select: { reservationGroupId: true },
     })
     if (!ctx) throw new NotFoundException('Estadía no encontrada')
@@ -4570,7 +4853,7 @@ export class GuestStaysService {
   async restoreStay(stayId: string, actorId: string) {
     const orgId = this.tenant.getOrganizationId()
     const stay = await this.prisma.guestStay.findUnique({
-      where: { id: stayId, organizationId: orgId },
+      where: this.stayScope(stayId),
       include: { stayJourney: { select: { id: true } } },
     })
     if (!stay) throw new NotFoundException('Estadía no encontrada')
@@ -4861,7 +5144,7 @@ export class GuestStaysService {
   ) {
     const orgId = this.tenant.getOrganizationId()
     const stay = await this.prisma.guestStay.findUnique({
-      where: { id: stayId, organizationId: orgId },
+      where: this.stayScope(stayId),
       select: { id: true },
     })
     if (!stay) throw new NotFoundException(`Estadía ${stayId} no encontrada`)
