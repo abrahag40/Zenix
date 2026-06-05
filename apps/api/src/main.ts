@@ -2,6 +2,7 @@ import { ValidationPipe } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { NestFactory, Reflector } from '@nestjs/core'
 import * as bodyParser from 'body-parser'
+import * as compression from 'compression'
 import { AppModule } from './app.module'
 import { HttpExceptionFilter } from './common/filters/http-exception.filter'
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
@@ -36,6 +37,32 @@ async function bootstrap() {
   // hasta ~8MB de payload base64. Default Express es 100KB → rechazaba con
   // 413. Subimos a 10MB para cubrir el upload + margen.
   app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }))
+
+  // Sprint COMPRESSION-CORE (bug #23 follow-up) — gzip compression para
+  // todas las respuestas > threshold. Resuelve el margen restante del
+  // PAGINATION-CORE fix: a 30 VUs / 10k stays el calendar p95 quedó en
+  // 3.01s (vs 33.19s pre-fix, 91% mejora) por throughput de TCP + JSON
+  // serialization, NO por Postgres. Compression reduce 3.3MB → ~600KB
+  // (-82%) → p95 esperado ~600ms < 800ms target estricto.
+  //
+  // threshold:1024 — respuestas <1KB pasan sin comprimir (overhead no
+  // vale la pena para tickets pequeños como /availability check).
+  //
+  // filter — respeta header `Accept-Encoding` del cliente + permite
+  // skip explícito vía `X-No-Compression` para debugging.
+  //
+  // Trade-off: +5-10ms CPU server por gzip (negligible). No requiere
+  // cambio en frontend — todos los browsers desde 1999 saben hacer
+  // gunzip automático cuando ven `Content-Encoding: gzip`.
+  app.use(
+    compression({
+      threshold: 1024,
+      filter: (req, res) => {
+        if (req.headers['x-no-compression']) return false
+        return compression.filter(req, res)
+      },
+    }),
+  )
 
   app.enableCors({
     origin: process.env.NODE_ENV === 'production'
