@@ -27,6 +27,7 @@ import { AssignmentService } from '../../assignment/assignment.service'
 // CI-RESCUE 2026-05-15: 3 deps que el service tomó pero el spec no proveía
 import { PushService } from '../../notifications/push.service'
 import { NotificationsService } from '../../notifications/notifications.service'
+import { AuditOutboxService } from '../../common/audit/audit-outbox.service'
 import { AvailabilityService } from '../availability/availability.service'
 
 const ORG_ID = 'org-1'
@@ -87,7 +88,7 @@ describe('GuestStaysService.lateCheckout (EC-3)', () => {
         { provide: AssignmentService, useValue: assignmentMock },
         { provide: PushService, useValue: pushMock },
         { provide: NotificationsService, useValue: notifMock },
-        { provide: AvailabilityService, useValue: availabilityMock },
+        { provide: AuditOutboxService, useValue: { emit: jest.fn(), recordStayCheckinConfirmed: jest.fn(), recordCheckout: jest.fn(), recordLateCheckout: jest.fn(), recordStayUpdated: jest.fn(), recordStayExtended: jest.fn(), recordRoomMoved: jest.fn(), recordRoomsSwapped: jest.fn(), recordStayRestored: jest.fn(), recordNoShowMarked: jest.fn(), recordNoShowReverted: jest.fn(), recordNoShowChargeRegistered: jest.fn(), recordPaymentRegistered: jest.fn(), recordPaymentVoided: jest.fn(), recordCancelRefundRegistered: jest.fn() } }, { provide: AvailabilityService, useValue: availabilityMock },
       ],
     }).compile()
     service = moduleRef.get(GuestStaysService)
