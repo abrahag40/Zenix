@@ -19,6 +19,7 @@ import { VoidPaymentDto } from './dto/void-payment.dto'
 import { UpdateGuestStayDto } from './dto/update-guest-stay.dto'
 import { CreateGuestStayNoteDto, UpdateGuestStayNoteDto } from './dto/guest-stay-note.dto'
 import { ListStaysQueryDto } from './dto/list-stays-query.dto'
+import { PropertyDateDto } from '../../common/dto/date-range.dto'
 import { mapJwtRoleToSystemRole } from '../../common/audit/system-role-mapper'
 
 class MarkNoShowDto {
@@ -143,12 +144,8 @@ export class GuestStaysController {
    * IMPORTANT: declarado antes de :id para evitar que NestJS lo resuelva como param.
    */
   @Get('cash-summary')
-  getCashSummary(
-    @Query('propertyId') propertyId: string,
-    @Query('date')       date:       string,
-  ) {
-    if (!propertyId || !date) throw new BadRequestException('propertyId y date son requeridos')
-    return this.service.getCashSummary(propertyId, date)
+  getCashSummary(@Query() dto: PropertyDateDto) {
+    return this.service.getCashSummary(dto.propertyId, dto.date)
   }
 
   /**

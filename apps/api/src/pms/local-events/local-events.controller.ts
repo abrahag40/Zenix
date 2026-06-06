@@ -2,6 +2,7 @@ import { Controller, Get, Param, Query } from '@nestjs/common'
 import { StaffRole } from '@zenix/shared'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { LocalEventsService } from './local-events.service'
+import { DateRangeDto } from '../../common/dto/date-range.dto'
 
 /**
  * LocalEvents — eventos aplicables a esta property (D-COMPSET8). Visibilidad
@@ -16,11 +17,7 @@ export class LocalEventsController {
   constructor(private readonly service: LocalEventsService) {}
 
   @Get()
-  list(
-    @Param('propertyId') propertyId: string,
-    @Query('from') from: string,
-    @Query('to') to: string,
-  ) {
-    return this.service.findEventsForProperty(propertyId, new Date(from), new Date(to))
+  list(@Param('propertyId') propertyId: string, @Query() dto: DateRangeDto) {
+    return this.service.findEventsForProperty(propertyId, new Date(dto.from), new Date(dto.to))
   }
 }

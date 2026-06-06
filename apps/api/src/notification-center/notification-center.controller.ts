@@ -12,6 +12,7 @@ import {
 import { NotificationCenterService } from './notification-center.service'
 import { CurrentUser } from '../common/decorators/current-user.decorator'
 import type { JwtPayload } from '@zenix/shared'
+import { PropertyDateRangeDto } from '../common/dto/date-range.dto'
 
 @Controller('v1/notification-center')
 export class NotificationCenterController {
@@ -38,12 +39,8 @@ export class NotificationCenterController {
 
   /** GET /v1/notification-center/audit?propertyId=X&from=ISO&to=ISO */
   @Get('audit')
-  auditLog(
-    @Query('propertyId') propertyId: string,
-    @Query('from') from: string,
-    @Query('to') to: string,
-  ) {
-    return this.service.getAuditLog(propertyId, new Date(from), new Date(to))
+  auditLog(@Query() dto: PropertyDateRangeDto) {
+    return this.service.getAuditLog(dto.propertyId, new Date(dto.from), new Date(dto.to))
   }
 
   /** PATCH /v1/notification-center/read-all?propertyId=X */

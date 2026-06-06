@@ -24,6 +24,7 @@
  *     Salesforce Permission Set pattern — §D-CHX-CC-9).
  */
 import { BadRequestException, Body, Controller, Get, Headers, Param, Patch, Post, Query, UseGuards } from '@nestjs/common'
+import { DateRangeDto } from '../../../common/dto/date-range.dto'
 import { AuthGuard } from '@nestjs/passport'
 import type { JwtPayload } from '@zenix/shared'
 import { CurrentUser } from '../../../common/decorators/current-user.decorator'
@@ -46,15 +47,8 @@ export class RateCalendarController {
   constructor(private readonly service: RateCalendarService) {}
 
   @Get()
-  async getMatrix(
-    @Param('propertyId') propertyId: string,
-    @Query('from') from: string,
-    @Query('to') to: string,
-  ) {
-    if (!from || !to) {
-      throw new BadRequestException('Query params requeridos: ?from=YYYY-MM-DD&to=YYYY-MM-DD')
-    }
-    return this.service.getMatrix(propertyId, from, to)
+  async getMatrix(@Param('propertyId') propertyId: string, @Query() dto: DateRangeDto) {
+    return this.service.getMatrix(propertyId, dto.from, dto.to)
   }
 
   @Patch('bulk')

@@ -7,6 +7,8 @@ import {
   CreateRatePlanDto, UpdateRatePlanDto, CreateSeasonDto, UpdateSeasonDto,
   CreateRestrictionDto, UpsertOverrideDto, BulkOverrideDto, SetDayOfWeekDto,
 } from './dto/rate-plan.dto'
+import { RateQuoteDto, ResolvePriceDto, PropertyIdQueryDto } from './dto/rate-query.dto'
+import { PropertyDateRangeDto } from '../../common/dto/date-range.dto'
 
 @Controller('v1/rates')
 export class RatesController {
@@ -17,12 +19,8 @@ export class RatesController {
    * Returns array of { date, bar, currency } for the BAR strip header (Nivel 1).
    */
   @Get('daily-bar')
-  getDailyBar(
-    @Query('propertyId') propertyId: string,
-    @Query('from') from: string,
-    @Query('to') to: string,
-  ) {
-    return this.service.getDailyBar(propertyId, new Date(from), new Date(to))
+  getDailyBar(@Query() dto: PropertyDateRangeDto) {
+    return this.service.getDailyBar(dto.propertyId, new Date(dto.from), new Date(dto.to))
   }
 
   /**
@@ -31,13 +29,13 @@ export class RatesController {
    * (RATES-CORE D-RATES2); sin él usa la baseRate flat (v1.0.0).
    */
   @Get('quote')
-  getRateQuoteGrid(
-    @Query('propertyId') propertyId: string,
-    @Query('from') from: string,
-    @Query('to') to: string,
-    @Query('ratePlanId') ratePlanId?: string,
-  ) {
-    return this.service.getRateQuoteGrid(propertyId, new Date(from), new Date(to), ratePlanId || undefined)
+  getRateQuoteGrid(@Query() dto: RateQuoteDto) {
+    return this.service.getRateQuoteGrid(
+      dto.propertyId,
+      new Date(dto.from),
+      new Date(dto.to),
+      dto.ratePlanId || undefined,
+    )
   }
 
   /**
@@ -45,20 +43,15 @@ export class RatesController {
    * Resolución de UNA tarifa con la capa que ganó (debug/audit).
    */
   @Get('resolve-price')
-  resolvePrice(
-    @Query('propertyId') propertyId: string,
-    @Query('roomTypeId') roomTypeId: string,
-    @Query('date') date: string,
-    @Query('ratePlanId') ratePlanId: string,
-  ) {
-    return this.service.resolvePrice(propertyId, roomTypeId, new Date(date), ratePlanId)
+  resolvePrice(@Query() dto: ResolvePriceDto) {
+    return this.service.resolvePrice(dto.propertyId, dto.roomTypeId, new Date(dto.date), dto.ratePlanId)
   }
 
   // ── RatePlan CRUD ───────────────────────────────────────────────────────────
 
   @Get('plans')
-  listRatePlans(@Query('propertyId') propertyId: string) {
-    return this.service.listRatePlans(propertyId)
+  listRatePlans(@Query() dto: PropertyIdQueryDto) {
+    return this.service.listRatePlans(dto.propertyId)
   }
 
   @Post('plans')
@@ -72,19 +65,19 @@ export class RatesController {
   @Roles(StaffRole.SUPERVISOR)
   updateRatePlan(
     @Param('planId') planId: string,
-    @Query('propertyId') propertyId: string,
+    @Query() propertyIdDto: PropertyIdQueryDto,
     @Body() dto: UpdateRatePlanDto,
   ) {
-    return this.service.updateRatePlan(propertyId, planId, dto)
+    return this.service.updateRatePlan(propertyIdDto.propertyId, planId, dto)
   }
 
   @Delete('plans/:planId')
   @Roles(StaffRole.SUPERVISOR)
   deactivateRatePlan(
     @Param('planId') planId: string,
-    @Query('propertyId') propertyId: string,
+    @Query() propertyIdDto: PropertyIdQueryDto,
   ) {
-    return this.service.deactivateRatePlan(propertyId, planId)
+    return this.service.deactivateRatePlan(propertyIdDto.propertyId, planId)
   }
 
   @Put('plans/:planId/day-of-week')
@@ -103,8 +96,8 @@ export class RatesController {
 
   @Patch('seasons/:seasonId')
   @Roles(StaffRole.SUPERVISOR)
-  updateSeason(@Param('seasonId') seasonId: string, @Query('propertyId') propertyId: string, @Body() dto: UpdateSeasonDto) {
-    return this.service.updateSeason(propertyId, seasonId, {
+  updateSeason(@Param('seasonId') seasonId: string, @Query() propertyIdDto: PropertyIdQueryDto, @Body() dto: UpdateSeasonDto) {
+    return this.service.updateSeason(propertyIdDto.propertyId, seasonId, {
       name: dto.name, roomTypeId: dto.roomTypeId, overrideRate: dto.overrideRate, multiplier: dto.multiplier,
       startDate: dto.startDate ? new Date(dto.startDate) : undefined,
       endDate: dto.endDate ? new Date(dto.endDate) : undefined,
@@ -113,8 +106,8 @@ export class RatesController {
 
   @Delete('seasons/:seasonId')
   @Roles(StaffRole.SUPERVISOR)
-  deleteSeason(@Param('seasonId') seasonId: string, @Query('propertyId') propertyId: string) {
-    return this.service.deleteSeason(propertyId, seasonId)
+  deleteSeason(@Param('seasonId') seasonId: string, @Query() propertyIdDto: PropertyIdQueryDto) {
+    return this.service.deleteSeason(propertyIdDto.propertyId, seasonId)
   }
 
   // ── Restrictions ─────────────────────────────────────────────────────────
@@ -127,8 +120,8 @@ export class RatesController {
 
   @Delete('restrictions/:restId')
   @Roles(StaffRole.SUPERVISOR)
-  deleteRestriction(@Param('restId') restId: string, @Query('propertyId') propertyId: string) {
-    return this.service.deleteRestriction(propertyId, restId)
+  deleteRestriction(@Param('restId') restId: string, @Query() propertyIdDto: PropertyIdQueryDto) {
+    return this.service.deleteRestriction(propertyIdDto.propertyId, restId)
   }
 
   // ── Overrides (single + bulk con preview) ──────────────────────────────────

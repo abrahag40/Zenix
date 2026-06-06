@@ -11,6 +11,7 @@ import { BlockSemantic, BlockStatus, StaffRole, JwtPayload } from '@zenix/shared
 import { CurrentUser } from '../common/decorators/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
+import { CheckBlockAvailabilityQueryDto } from './dto/check-availability-query.dto'
 import { BlocksService } from './blocks.service'
 import { CreateBlockDto } from './dto/create-block.dto'
 import {
@@ -47,11 +48,12 @@ export class BlocksController {
   @Roles(StaffRole.RECEPTIONIST, StaffRole.SUPERVISOR)
   checkAvailability(
     @CurrentUser() actor: JwtPayload,
-    @Query('roomId') roomId: string,
-    @Query('startDate') startDate: string,
-    @Query('endDate') endDate?: string,
+    @Query() dto: CheckBlockAvailabilityQueryDto,
   ) {
-    return this.service.checkBlockAvailability({ roomId, startDate, endDate }, actor)
+    return this.service.checkBlockAvailability(
+      { roomId: dto.roomId, startDate: dto.startDate, endDate: dto.endDate },
+      actor,
+    )
   }
 
   /**

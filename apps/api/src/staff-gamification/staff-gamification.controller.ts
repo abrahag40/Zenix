@@ -17,6 +17,13 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard'
 import { CurrentUser } from '../common/decorators/current-user.decorator'
 import type { JwtPayload } from '@zenix/shared'
 import { StaffGamificationService } from './staff-gamification.service'
+import { IsDateString, IsOptional } from 'class-validator'
+
+class DailyRingsQueryDto {
+  @IsOptional()
+  @IsDateString({ strict: false }, { message: 'date debe ser ISO 8601 (YYYY-MM-DD)' })
+  date?: string
+}
 
 function todayYMD(): string {
   return new Date().toISOString().slice(0, 10)
@@ -38,11 +45,8 @@ export class StaffGamificationController {
   }
 
   @Get('daily-rings')
-  getRings(
-    @CurrentUser() user: JwtPayload,
-    @Query('date') date?: string,
-  ) {
-    return this.svc.getDailyRings(user.sub, user.sub, date ?? todayYMD())
+  getRings(@CurrentUser() user: JwtPayload, @Query() dto: DailyRingsQueryDto) {
+    return this.svc.getDailyRings(user.sub, user.sub, dto.date ?? todayYMD())
   }
 
   @Post('streak/freeze')
