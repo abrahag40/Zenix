@@ -14,6 +14,7 @@ import { AuthGuard } from '@nestjs/passport'
 import { NovaActingOrgGuard, RequireActingOrg } from '../guards/nova-acting-org.guard'
 import { NovaTiers, NovaTiersGuard } from '../guards/nova-tiers.guard'
 import { AuditLogQueryService } from './audit-log-query.service'
+import { AuditLogListQueryDto } from './dto/audit-log-list-query.dto'
 
 @Controller('v1/nova/audit-logs')
 @UseGuards(AuthGuard('jwt'), NovaTiersGuard, NovaActingOrgGuard)
@@ -23,23 +24,15 @@ export class AuditLogController {
   constructor(private readonly service: AuditLogQueryService) {}
 
   @Get()
-  async list(
-    @Query('action') action?: string,
-    @Query('actorRealId') actorRealId?: string,
-    @Query('status') status?: 'SUCCESS' | 'FAILURE' | 'PARTIAL',
-    @Query('dateFrom') dateFrom?: string,
-    @Query('dateTo') dateTo?: string,
-    @Query('cursor') cursor?: string,
-    @Query('limit') limit?: string,
-  ) {
+  async list(@Query() dto: AuditLogListQueryDto) {
     return this.service.list({
-      action,
-      actorRealId,
-      status,
-      dateFrom,
-      dateTo,
-      cursor,
-      limit: limit ? parseInt(limit, 10) : undefined,
+      action: dto.action,
+      actorRealId: dto.actorRealId,
+      status: dto.status,
+      dateFrom: dto.dateFrom,
+      dateTo: dto.dateTo,
+      cursor: dto.cursor,
+      limit: dto.limit,
     })
   }
 

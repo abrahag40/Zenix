@@ -6,6 +6,14 @@ import { TenantResource } from '../common/guards/tenant.guard'
 import { CheckoutsService } from './checkouts.service'
 import { CreateCheckoutDto, BatchCheckoutDto } from './dto/create-checkout.dto'
 import { CancelCheckoutDto } from './dto/cancel-checkout.dto'
+import { IsDateString, IsOptional } from 'class-validator'
+
+/** Sprint DTO-CORE — date opcional con default "hoy". */
+class DailyGridQueryDto {
+  @IsOptional()
+  @IsDateString({ strict: false }, { message: 'date debe ser ISO 8601 (YYYY-MM-DD)' })
+  date?: string
+}
 
 @Controller()
 export class CheckoutsController {
@@ -41,8 +49,8 @@ export class CheckoutsController {
 
   /** Daily planning grid for DailyPlanningPage */
   @Get('planning/daily')
-  dailyGrid(@CurrentUser() actor: JwtPayload, @Query('date') date?: string) {
-    const today = date ?? new Date().toISOString().split('T')[0]
+  dailyGrid(@CurrentUser() actor: JwtPayload, @Query() dto: DailyGridQueryDto) {
+    const today = dto.date ?? new Date().toISOString().split('T')[0]
     return this.service.getDailyGrid(actor.propertyId, today)
   }
 

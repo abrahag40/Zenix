@@ -22,6 +22,7 @@ import {
   CreateAbsenceDto,
 } from './shifts/dto/shift.dto'
 import { CreateCoverageDto, UpdateCoverageDto } from './coverage/dto/coverage.dto'
+import { OptionalDateRangeDto } from '../common/dto/date-range.dto'
 import { ClockInDto, ClockOutDto } from './clock/dto/clock.dto'
 import { AssignmentService } from '../assignment/assignment.service'
 import { MorningRosterScheduler } from './morning-roster.scheduler'
@@ -75,12 +76,8 @@ export class SchedulingController {
   // ── Shift exceptions ─────────────────────────────────────────────────────
 
   @Get('exceptions')
-  listExceptions(
-    @CurrentUser() user: JwtPayload,
-    @Query('from') from?: string,
-    @Query('to') to?: string,
-  ) {
-    return this.shifts.listExceptions(user.propertyId, from, to)
+  listExceptions(@CurrentUser() user: JwtPayload, @Query() dto: OptionalDateRangeDto) {
+    return this.shifts.listExceptions(user.propertyId, dto.from, dto.to)
   }
 
   @Post('exceptions')
@@ -168,12 +165,8 @@ export class SchedulingController {
 
   @Get('clock/staff/:staffId')
   @Roles(StaffRole.SUPERVISOR)
-  listClocksForStaff(
-    @Param('staffId') staffId: string,
-    @Query('from') from?: string,
-    @Query('to') to?: string,
-  ) {
-    return this.clock.listForStaff(staffId, from, to)
+  listClocksForStaff(@Param('staffId') staffId: string, @Query() dto: OptionalDateRangeDto) {
+    return this.clock.listForStaff(staffId, dto.from, dto.to)
   }
 
   // ── Manual roster trigger ────────────────────────────────────────────────

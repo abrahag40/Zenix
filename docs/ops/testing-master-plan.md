@@ -52,12 +52,17 @@ Padre: CLAUDE.md §"Plan de cierre wizard" + §"Bloque 1 v1.0.0"
 | 22 | 🟡 MED | PERF-1 | `/v1/metrics/range` sin validación DTO — params `from/to` ausentes → 500 genérico (debería 400). Patrón aplicable a otros endpoints sin DTO `@IsDateString` | ✅ Branch (`MetricsRangeDto` + 3 DTOs adicionales + helpful error messages) |
 | 23 | 🔴 CRIT | PERF-1 stress | `GET /v1/guest-stays?propertyId=X` retorna TODAS las stays sin pagination + bug lógico `OR` vs `AND` en overlap. Pre-fix: calendar p95=33.19s · post-fix: calendar p95=**3.01s** (91% mejora · 11× más rápido) · iteraciones 6× · failed 0.36% → **0.00%**. Bloqueante crítico resuelto; margen <800ms requiere COMPRESSION-CORE follow-up | ✅ PR #79 PAGINATION-CORE |
 
-**Bugs sistémicos detectados (sprints follow-up — no incluidos en PR #78):**
-- **#22 sistémico**: 22+ controllers con `@Query()` date params sin DTO. Sprint DTO-CORE (~6-8h)
-- **#20 sistémico**: 14+ métodos críticos sin AuditLog. Sprint AUDIT-CORE outbox pattern (~6-10h)
-- **#23**: pagination ausente. Sprint PAGINATION-CORE (~2-3h)
+**Bugs sistémicos detectados — TODOS RESUELTOS:**
+- ✅ **#23** PAGINATION-CORE — PR #79 mergeado (calendar -94% latency)
+- ✅ **#20 sistémico** AUDIT-CORE outbox — PR #81 mergeado (14 métodos cubiertos)
+- ✅ **#22 sistémico** DTO-CORE — PR #83 (este, 12 controllers refactor, 40+ endpoints con DTO)
+- ✅ **#24** SwitchPropertyDto — PR #82 mergeado (Bloque W)
 
-**3 bugs en main, 17 pendientes de merge en `fix/bugs-batch-4-10` (PR #78) — los originales #4-#17 + 3 nuevos S/PERF (#20, #21, #22). #18 + #19 descartados por decisión owner. #23 identificado, requiere sprint dedicado.**
+**Estado consolidado:**
+- 24 bugs catalogados (#1-#24)
+- 21 mergeados a main
+- 2 descartados (#18, #19 owner decision)
+- 1 en PR abierto (#22 sistémico, este PR)
 
 ---
 
@@ -172,6 +177,57 @@ Decisión owner pendiente: ¿completar parciales o pasar directo a Z (real-world
 - DD1: CSV con UTF-8 BOM (Excel abre OK con ñ/tildes)
 - DD2: Decimal LATAM (punto vs coma)
 - DD3: Filename con timestamp sortable
+
+---
+
+## 3.5. Bloques NUEVOS adversarial (EE → JJ) — bug hunting sistémico
+
+> Diseñados para sacar bugs escondidos del mismo patrón que generó #7, #9, #16,
+> #17, #20, #22, #23, #24 (input no validado → comportamiento silent).
+
+### Bloque EE — Contract Fuzzing manual (5)
+- EE1: Type confusion — `amount: "cien"` (string en vez de number)
+- EE2: Empty arrays/strings — `appliesToStayIds: []`, `paxCount: 0`
+- EE3: Boundary values — `paxCount: -1`, `amount: 99999999999.99`, sub-cent
+- EE4: Mass assignment — fields no editables (amountPaid, organizationId, cancelledAt)
+- EE5: Null vs undefined vs missing field — consistencia
+
+### Bloque FF — Security deep (6)
+- FF1: SQL injection en path params
+- FF2: SQL injection en text search
+- FF3: XSS en text fields (guestName con `<script>`)
+- FF4: Header injection (X-Forwarded-For con CRLF)
+- FF5: JWT manipulation — tier escalation sin re-firmar
+- FF6: Role escalation — JWT role=HOUSEKEEPER POST /guest-stays
+
+### Bloque GG — Concurrent operations (5)
+- GG1: 2 users editan misma reserva simultáneo → last-write-wins?
+- GG2: Cancel + check-in race (T0 vs T0+10ms)
+- GG3: Mark no-show + revert simultáneo
+- GG4: Confirm checkin de 2 stays diferentes en MISMA room (overbooking edge)
+- GG5: Background scheduler corre mid-operation (night audit + manual no-show)
+
+### Bloque HH — State machine fuzzing (5)
+- HH1: POST checkout sin previo confirmCheckin
+- HH2: POST no-show a stay ya checked-in
+- HH3: POST cancel a stay ya cancelled (idempotency)
+- HH4: POST cancel-refund antes de cancelar
+- HH5: POST revert no-show a stay nunca marcada no-show
+
+### Bloque II — Data corruption (4)
+- II1: UTF-8 edge cases (emoji 🇲🇽, ñ, hebreo RTL, surrogate pairs)
+- II2: Decimal precision (sub-cent, 10/3 repeating)
+- II3: Null bytes injection (`"text injected"`)
+- II4: String length max (guestName 10,000 chars)
+
+### Bloque JJ — Time-based bugs (5)
+- JJ1: DST transition (4 nov 2027 LATAM)
+- JJ2: Year boundary (31-dic-2026 → 1-ene-2027)
+- JJ3: Leap year (checkin 28-feb-2028, checkout 1-mar-2028)
+- JJ4: Timezone overlap (server UTC vs property TZ)
+- JJ5: Clock skew (server T vs client T+5min)
+
+**Total 30 escenarios nuevos · estimación 8-12h ejecución · diseño adversarial**
 
 ---
 

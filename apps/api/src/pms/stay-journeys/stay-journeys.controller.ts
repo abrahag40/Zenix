@@ -10,18 +10,15 @@ import {
 import { TenantResource } from '../../common/guards/tenant.guard'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { JwtPayload } from '@zenix/shared'
+import { PropertyDateRangeDto } from '../../common/dto/date-range.dto'
 
 @Controller('v1/stay-journeys')
 export class StayJourneyController {
   constructor(private readonly service: StayJourneyService) {}
 
   @Get('timeline')
-  findActiveForTimeline(
-    @Query('propertyId') propertyId: string,
-    @Query('from') from: string,
-    @Query('to') to: string,
-  ) {
-    return this.service.findActiveForTimeline(propertyId, new Date(from), new Date(to))
+  findActiveForTimeline(@Query() dto: PropertyDateRangeDto) {
+    return this.service.findActiveForTimeline(dto.propertyId, new Date(dto.from), new Date(dto.to))
   }
 
   @Get(':id')
