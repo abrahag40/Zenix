@@ -30,7 +30,14 @@ function makeConfig(extra: Record<string, string | undefined> = {}): ConfigServi
 
 describe('ChannexGateway CRUD extensions — Day 4 unit (mock fetch)', () => {
   let gateway: ChannexGateway
-  const fetchSpy = jest.spyOn(global, 'fetch')
+  // CI-RESCUE 2026-06-06: Node 20 sin global.fetch en jest env — asignar mock directo
+  // en globalThis (no spyOn que requiere descriptor existente).
+  const originalFetch = (globalThis as any).fetch
+  const fetchSpy = jest.fn()
+
+  beforeAll(() => {
+    ;(globalThis as any).fetch = fetchSpy
+  })
 
   beforeEach(() => {
     fetchSpy.mockReset()
@@ -38,7 +45,7 @@ describe('ChannexGateway CRUD extensions — Day 4 unit (mock fetch)', () => {
   })
 
   afterAll(() => {
-    fetchSpy.mockRestore()
+    ;(globalThis as any).fetch = originalFetch
   })
 
   // ── listRoomTypes ───────────────────────────────────────────────────────
