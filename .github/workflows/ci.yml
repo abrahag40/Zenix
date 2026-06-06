@@ -57,13 +57,18 @@ jobs:
         env:
           DATABASE_URL: postgresql://housekeeping:testpassword@localhost:5432/housekeeping_test
 
-      # Seed BD para tests de integración (multi-tenant-hierarchy,
-      # channex-crud-schema, nova-foundation, channex-management,
-      # tenant-isolation) — requieren `seed-org-1`, properties seed, y
-      # 5 channex rate plan mappings sandbox. Sin seed los e2e fallan
-      # con findFirstOrThrow / PrismaClientKnownRequestError.
-      - name: Seed test database
-        run: npm run db:seed --workspace=@zenix/api
+      # Seed BD para tests de integración. 3 scripts encadenados —
+      # specs explícitamente declaran sus pre-requisites:
+      #   - seed.ts:                 seed-org-1, properties, rooms, users
+      #   - seed-nova-foundation.ts: nova-foundation.spec.ts + rbac-integration
+      #   - seed-channex-rate-plans: channex-crud-schema.spec.ts (5 mappings)
+      # Sin estos los e2e fallan con findFirstOrThrow / PrismaClientKnownRequestError.
+      - name: Seed test database (base + nova + channex sandbox)
+        run: |
+          cd apps/api
+          npx ts-node -r tsconfig-paths/register prisma/seed.ts
+          npx ts-node -r tsconfig-paths/register prisma/scripts/seed-nova-foundation.ts
+          npx ts-node -r tsconfig-paths/register prisma/scripts/seed-channex-rate-plans.ts
         env:
           DATABASE_URL: postgresql://housekeeping:testpassword@localhost:5432/housekeeping_test
 
