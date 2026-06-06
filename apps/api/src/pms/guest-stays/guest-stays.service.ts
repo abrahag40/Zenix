@@ -23,6 +23,7 @@ import { MoveRoomDto } from './dto/move-room.dto'
 import type { AvailabilityConflict, RoomAvailabilityResult } from '@zenix/shared'
 import { PaymentMethod, StaffRole, CleaningStatus, TaskLogEvent } from '@zenix/shared'
 import { SystemRole, AuditLogStatus, AuditLogRetention } from '@prisma/client'
+import { AuditOutboxService } from '../../common/audit/audit-outbox.service'
 import {
   addDays,
   localYMD,
@@ -174,6 +175,10 @@ export class GuestStaysService {
     private readonly push: PushService,
     private readonly notifications: NotificationsService,
     private readonly availability: AvailabilityService,
+    // Sprint AUDIT-CORE — outbox pattern para audit_log universal §165.
+    // Inject opcional: si AuditModule no está cargado (tests legacy), los
+    // métodos siguen funcionando — el helper hace fail-soft.
+    private readonly audit: AuditOutboxService,
   ) {}
 
   /** Generates a globally unique human-readable booking reference.
@@ -1112,6 +1117,15 @@ export class GuestStaysService {
       this.logger.warn(`[Checkout] notification failed: ${err?.message}`),
     )
 
+    // Sprint AUDIT-CORE — checkout cierra folio fiscal. CFDI Art. 30 (5y).
+    this.audit.recordCheckout({
+      stayId,
+      actorStaffId: actorId,
+      organizationId: orgId,
+      actualCheckoutAt: updated.actualCheckout ?? new Date(),
+      isEarly: false,
+    })
+
     return updated
   }
 
@@ -1395,6 +1409,15 @@ export class GuestStaysService {
         `taskScheduled=${localHour < HOUSEKEEPING_END_HOUR ? 'today' : 'tomorrow'}`,
     )
 
+    // Sprint AUDIT-CORE — early checkout cierra folio (potential refund).
+    this.audit.recordCheckout({
+      stayId,
+      actorStaffId: actorId,
+      organizationId: orgId,
+      actualCheckoutAt: now,
+      isEarly: true,
+    })
+
     return {
       success: true,
       freedFrom: now.toISOString(),
@@ -1524,6 +1547,14 @@ export class GuestStaysService {
       `[lateCheckout] stay=${stayId} new=${newCheckoutTime.toISOString()} ` +
         `tasks=${updatedTaskIds.length}`,
     )
+
+    // Sprint AUDIT-CORE — late checkout puede afectar revenue (fee tier).
+    this.audit.recordLateCheckout({
+      stayId,
+      actorStaffId: actorId,
+      organizationId: orgId,
+      tier: stay.lateCheckoutTier ?? 0,
+    })
 
     return {
       success: true,
@@ -1733,6 +1764,15 @@ export class GuestStaysService {
       orgId,
     })
 
+    // Sprint AUDIT-CORE — room move puede afectar facturación (categoría/tarifa).
+    this.audit.recordRoomMoved({
+      stayId,
+      actorStaffId: actorId,
+      organizationId: orgId,
+      fromRoomId: stay.roomId,
+      toRoomId: dto.newRoomId,
+    })
+
     return { success: true }
   }
 
@@ -1882,6 +1922,15 @@ export class GuestStaysService {
       orgId,
     })
 
+    // Sprint AUDIT-CORE — swap cross-stay puede afectar facturación de AMBOS folios.
+    this.audit.recordRoomsSwapped({
+      stayIdA: stayA.id,
+      stayIdB: stayB.id,
+      actorStaffId: actorId,
+      organizationId: orgId,
+      reason,
+    })
+
     return {
       success: true,
       stayA: { id: stayA.id, newRoomId: oldRoomIdB },
@@ -1916,6 +1965,18 @@ export class GuestStaysService {
     if (newCheckOut <= stay.scheduledCheckout) {
       throw new BadRequestException('La nueva fecha de checkout debe ser posterior a la actual')
     }
+
+    // Sprint AUDIT-CORE — extend afecta totalAmount (revenue + facturación).
+    // Emit antes del delegate journey — journey service tiene su propio
+    // audit trail (StayJourneyEvent), pero el audit_log universal §165
+    // necesita el cross-org snapshot del extend.
+    this.audit.recordStayExtended({
+      stayId,
+      actorStaffId: actorId,
+      organizationId: orgId,
+      previousCheckOut: stay.scheduledCheckout,
+      newCheckOut,
+    })
 
     // Always route through the journey-aware path so the extend creates a new
     // EXTENSION_SAME_ROOM segment instead of stretching the original block.
@@ -2113,6 +2174,18 @@ export class GuestStaysService {
     )
 
     this.logger.log(`No-show marcado: stay=${stayId} guest="${stay.guestName}" fee=${feeAmount} ${chargeStatus}`)
+
+    // Sprint AUDIT-CORE — Visa CRR §5.9.2 + ISAHC no-show audit trail.
+    // El audit_log es la prueba primaria de "guest didn't show up + cobro intentado".
+    this.audit.recordNoShowMarked({
+      stayId,
+      actorStaffId: actorId,
+      organizationId: orgId,
+      feeAmount: Number(feeAmount),
+      feeCurrency: stay.currency,
+      reason: opts?.reason,
+    })
+
     return { success: true, feeAmount: feeAmount.toString(), chargeStatus }
   }
 
@@ -2237,6 +2310,16 @@ export class GuestStaysService {
     }
 
     this.logger.log(`No-show revertido: stay=${stayId}`)
+
+    // Sprint AUDIT-CORE — revert no-show puede afectar Visa CRR dispute.
+    // Crítico para audit trail: si OTA reclama "guest cancelled by hotel",
+    // necesitamos prueba de quién hizo revert y cuándo.
+    this.audit.recordNoShowReverted({
+      stayId,
+      actorStaffId: actorId,
+      organizationId: orgId,
+    })
+
     return { success: true }
   }
 
@@ -2307,6 +2390,20 @@ export class GuestStaysService {
     this.logger.log(
       `No-show charge registered: stay=${stayId} status=${dto.status} method=${dto.method} ref=${dto.reference ?? '∅'} actor=${actorId}`,
     )
+
+    // Sprint AUDIT-CORE — outcome del cobro no-show es Visa CRR + ISAHC evidence.
+    this.audit.recordNoShowChargeRegistered({
+      stayId,
+      actorStaffId: actorId,
+      organizationId: orgId,
+      status: dto.status,
+      method: dto.method,
+      reference: dto.reference?.trim() || null,
+      amount: stay.noShowFeeAmount ? Number(stay.noShowFeeAmount) : undefined,
+      currency: stay.noShowFeeCurrency ?? undefined,
+      reason: dto.reason?.trim() || undefined,
+    })
+
     return { success: true }
   }
 
@@ -2889,6 +2986,19 @@ export class GuestStaysService {
     )
 
     this.logger.log(`[ConfirmCheckin] stay=${stayId} guest="${stay.guestName}" paid=${paidSoFar + paymentSum}`)
+
+    // Sprint AUDIT-CORE — emit audit event post-tx exitosa.
+    // Visa CRR §5.9.2 chargeback evidence: la captura del documento + check-in
+    // físico es la prueba primaria de "guest checked in and consumed the service".
+    this.audit.recordStayCheckinConfirmed({
+      stayId,
+      actorStaffId: actorId,
+      organizationId: orgId,
+      documentVerified: !!dto.documentVerified,
+      paymentModel: (stay as { paymentModel?: string | null }).paymentModel ?? null,
+      balanceAtCheckin: Number(stay.totalAmount) - (paidSoFar + paymentSum),
+    })
+
     return { success: true, actualCheckin: now.toISOString() }
   }
 
@@ -3023,6 +3133,20 @@ export class GuestStaysService {
     })
 
     this.logger.log(`[RegisterPayment] stay=${stayId} method=${dto.method} amount=${dto.amount}`)
+
+    // Sprint AUDIT-CORE — Visa CRR §5.9.2 + CFDI Art. 30 (5y retention).
+    // Cada pago es chargeback evidence + comprobante fiscal.
+    this.audit.recordPaymentRegistered({
+      paymentLogId: log.id,
+      stayId,
+      actorStaffId: actorId,
+      organizationId: orgId,
+      method: dto.method,
+      amount: Number(dto.amount),
+      currency: stay.currency,
+      reference: dto.reference ?? null,
+    })
+
     return log
   }
 
@@ -3340,6 +3464,21 @@ export class GuestStaysService {
     ])
 
     this.logger.log(`[VoidPayment] paymentLogId=${paymentLogId} amount=${original.amount} voided by ${actorId}`)
+
+    // Sprint AUDIT-CORE — void de pago es operación sensible §28 USALI append-only.
+    // Necesita trail explícito: quién voidió, cuándo, por qué.
+    const voidEntry2 = await this.prisma.paymentLog.findFirst({
+      where: { voidsLogId: paymentLogId }, select: { id: true },
+    })
+    this.audit.recordPaymentVoided({
+      paymentLogId,
+      voidingLogId: voidEntry2?.id ?? 'unknown',
+      stayId: original.stayId,
+      actorStaffId: actorId,
+      organizationId: orgId,
+      reason: dto.voidReason,
+    })
+
     return { success: true }
   }
 
@@ -3788,6 +3927,19 @@ export class GuestStaysService {
     })
 
     this.logger.log(`[UpdateStay] stayId=${stayId} phase=${phase} fields=${Object.keys(changes).join(',')}`)
+
+    // Sprint AUDIT-CORE — edit post-checkin es manipulation evidence.
+    // PRE_CHECKIN edits son STANDARD; POST_CHECKIN son PERMANENT (audit
+    // detecta cambios de guestName/contactos pre/post-stay).
+    this.audit.recordStayUpdated({
+      stayId,
+      actorStaffId: actorId,
+      organizationId: orgId,
+      changes: changes as Record<string, { from: unknown; to: unknown }>,
+      phase: phase as 'PRE_CHECKIN' | 'POST_CHECKIN',
+      reason: dto.reason,
+    })
+
     return { ok: true, changed: true, phase, changedFields: Object.keys(changes) }
   }
 
@@ -4608,6 +4760,19 @@ export class GuestStaysService {
     })
 
     this.logger.log(`[CancelRefund] stay=${stayId} status=${dto.status} method=${dto.method ?? '—'}`)
+
+    // Sprint AUDIT-CORE — refund post-cancel = CFDI E + Visa CRR evidence.
+    this.audit.recordCancelRefundRegistered({
+      stayId,
+      actorStaffId: actorId,
+      organizationId: orgId,
+      status: dto.status,
+      amount: finalAmount,
+      method: dto.method ?? 'unknown',
+      reference: dto.reference?.trim() || null,
+      reason: dto.reason?.trim() || undefined,
+    })
+
     return { ok: true as const, cancelRefundStatus: updated.cancelRefundStatus }
   }
 
@@ -5018,6 +5183,14 @@ export class GuestStaysService {
       propertyId: stay.propertyId,
       roomId:     stay.roomId,
       guestName:  stay.guestName,
+    })
+
+    // Sprint AUDIT-CORE — restore puede afectar disputa Visa post-chargeback.
+    // Crítico para evidencia: "hotel decidió revivir la reserva" debe quedar trail.
+    this.audit.recordStayRestored({
+      stayId,
+      actorStaffId: actorId,
+      organizationId: orgId,
     })
 
     return { ok: true as const, restoredAt: new Date() }

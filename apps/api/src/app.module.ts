@@ -6,6 +6,7 @@ import { ScheduleModule } from '@nestjs/schedule'
 import { ClsModule, ClsMiddleware } from 'nestjs-cls'
 import configuration from './config/configuration'
 import { PrismaModule } from './prisma/prisma.module'
+import { AuditModule } from './common/audit/audit.module'
 import { AuthModule } from './auth/auth.module'
 import { PropertiesModule } from './properties/properties.module'
 import { RoomsModule } from './rooms/rooms.module'
@@ -71,9 +72,17 @@ import { PropertyScopeGuard } from './common/guards/property-scope.guard'
       global: true,
       middleware: { mount: false },
     }),
-    EventEmitterModule.forRoot(),
+    // Sprint AUDIT-CORE — wildcard support para que AuditOutboxListener
+    // matchee `audit.**` con un solo @OnEvent en vez de 14. Performance
+    // negligible (set-based lookup vs literal map) y permite naming
+    // convention consistente.
+    EventEmitterModule.forRoot({
+      wildcard: true,
+      delimiter: '.',
+    }),
     ScheduleModule.forRoot(),
     PrismaModule,
+    AuditModule, // Sprint AUDIT-CORE — global, expone AuditOutboxService
     AuthModule,
     PropertiesModule,
     RoomsModule,

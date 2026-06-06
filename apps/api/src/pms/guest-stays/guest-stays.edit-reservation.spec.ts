@@ -18,6 +18,7 @@ import { NotificationCenterService } from '../../notification-center/notificatio
 import { AssignmentService } from '../../assignment/assignment.service'
 import { PushService } from '../../notifications/push.service'
 import { NotificationsService } from '../../notifications/notifications.service'
+import { AuditOutboxService } from '../../common/audit/audit-outbox.service'
 import { AvailabilityService } from '../availability/availability.service'
 
 const ORG_ID = 'org-test-1'
@@ -88,7 +89,7 @@ describe('GuestStaysService — edit reservation', () => {
         { provide: AssignmentService, useValue: { autoAssign: jest.fn().mockResolvedValue(undefined) } },
         { provide: PushService, useValue: { sendToStaff: jest.fn().mockResolvedValue(undefined), sendBatch: jest.fn().mockResolvedValue(undefined) } },
         { provide: NotificationsService, useValue: { emit: jest.fn().mockResolvedValue(undefined) } },
-        { provide: AvailabilityService, useValue: { check: jest.fn().mockResolvedValue({ available: true, conflicts: [] }) } },
+        { provide: AuditOutboxService, useValue: { emit: jest.fn(), recordStayCheckinConfirmed: jest.fn(), recordCheckout: jest.fn(), recordLateCheckout: jest.fn(), recordStayUpdated: jest.fn(), recordStayExtended: jest.fn(), recordRoomMoved: jest.fn(), recordRoomsSwapped: jest.fn(), recordStayRestored: jest.fn(), recordNoShowMarked: jest.fn(), recordNoShowReverted: jest.fn(), recordNoShowChargeRegistered: jest.fn(), recordPaymentRegistered: jest.fn(), recordPaymentVoided: jest.fn(), recordCancelRefundRegistered: jest.fn() } }, { provide: AvailabilityService, useValue: { check: jest.fn().mockResolvedValue({ available: true, conflicts: [] }) } },
       ],
     }).compile()
 
