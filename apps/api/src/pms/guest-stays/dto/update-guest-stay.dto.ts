@@ -27,10 +27,13 @@
  * (guestName vacío rompe display, documentType vacío rompe identification).
  */
 import { IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator'
+import { StrictString } from '../../../common/dto/strict-string.decorator'
 
 export class UpdateGuestStayDto {
   // ── Soft fields — editables siempre (salvo cancelled/no-show) ──────────
-  @IsString() @MinLength(1) @MaxLength(200) @IsOptional()
+  // BUG #25 fix — StrictString rechaza boolean/number/object coerced antes
+  // de pasar al validator. Sin esto: {guestName: true} → coerced a "true".
+  @StrictString({ minLength: 1, maxLength: 200 })
   guestName?: string
 
   @IsString() @MaxLength(254) @IsOptional()

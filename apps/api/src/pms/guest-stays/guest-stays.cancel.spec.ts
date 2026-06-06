@@ -172,7 +172,7 @@ describe('GuestStaysService — cancel-archive', () => {
         makeStay({ amountPaid: new Prisma.Decimal(120) }),
       )
 
-      await service.cancelStay(STAY_ID, ACTOR_ID, { initiator: 'ADMIN_ERROR' })
+      await service.cancelStay(STAY_ID, ACTOR_ID, { initiator: 'ADMIN_ERROR', reason: 'Habitacion equivocada' })
 
       expect(prismaMock.guestStay.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -207,7 +207,7 @@ describe('GuestStaysService — cancel-archive', () => {
       )
 
       await expect(
-        service.cancelStay(STAY_ID, ACTOR_ID, { initiator: 'HOTEL' }),
+        service.cancelStay(STAY_ID, ACTOR_ID, { initiator: 'HOTEL', reason: 'Overbooking confirmado por gerencia' }),
       ).rejects.toThrow('checkout')
     })
 
@@ -282,7 +282,7 @@ describe('GuestStaysService — cancel-archive', () => {
           }),
         )
 
-        await service.cancelStay(STAY_ID, ACTOR_ID, { initiator: 'ADMIN_ERROR' })
+        await service.cancelStay(STAY_ID, ACTOR_ID, { initiator: 'ADMIN_ERROR', reason: 'Habitacion equivocada' })
 
         expect(eventsMock.emit).toHaveBeenCalledWith(
           'channex.booking.cancel.requested',
@@ -330,7 +330,7 @@ describe('GuestStaysService — cancel-archive', () => {
           makeStay({ channexBookingId: null, channexOtaName: null }),
         )
 
-        await service.cancelStay(STAY_ID, ACTOR_ID, { initiator: 'HOTEL' })
+        await service.cancelStay(STAY_ID, ACTOR_ID, { initiator: 'HOTEL', reason: 'Overbooking confirmado por gerencia' })
 
         const cancelEmits = eventsMock.emit.mock.calls.filter(
           (c) => c[0] === 'channex.booking.cancel.requested',
