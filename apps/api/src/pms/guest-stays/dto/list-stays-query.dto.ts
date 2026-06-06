@@ -23,8 +23,32 @@
  * Backward-compat: frontend (useGuestStays + guestStaysApi.list) ya envía
  * from/to ISO en cada request — no rompe el caller actual.
  */
-import { IsBoolean, IsDateString, IsInt, IsOptional, IsString, Max, Min } from 'class-validator'
+import {
+  IsBoolean, IsDateString, IsInt, IsOptional, IsString, Max, Min,
+  Validate, ValidatorConstraint, ValidatorConstraintInterface, ValidationArguments,
+} from 'class-validator'
 import { Type } from 'class-transformer'
+
+/**
+ * BUG #35 fix — `from > to` ahora rechaza 400 (antes retornaba [] HTTP 200
+ * silently). Frontend con bug pedía "31-dic → 1-ene" y no veía nada sin pista.
+ *
+ * Validator cross-field: chequea que `from` ISO sea ≤ `to` ISO al parsear.
+ */
+@ValidatorConstraint({ name: 'isAfterFromField', async: false })
+class IsAfterFromConstraint implements ValidatorConstraintInterface {
+  validate(toValue: string, args: ValidationArguments) {
+    const obj = args.object as { from?: string }
+    if (!obj.from || !toValue) return true // otros validators atrapan ausentes
+    const from = new Date(obj.from)
+    const to = new Date(toValue)
+    if (isNaN(from.getTime()) || isNaN(to.getTime())) return true // IsDateString atrapa
+    return from <= to
+  }
+  defaultMessage() {
+    return 'to debe ser posterior o igual a from (rango inverted no permitido)'
+  }
+}
 
 export class ListStaysQueryDto {
   @IsString()
@@ -34,6 +58,7 @@ export class ListStaysQueryDto {
   from!: string
 
   @IsDateString({ strict: false }, { message: 'to debe ser ISO 8601 (e.g. 2026-06-30)' })
+  @Validate(IsAfterFromConstraint)
   to!: string
 
   @IsOptional()
