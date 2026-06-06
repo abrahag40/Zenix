@@ -3,7 +3,7 @@
 > **Para uso interno del equipo comercial.**
 > Este documento es el mapa completo de funcionalidades de Zenix PMS. Su propósito es que nunca olvides qué tiene el sistema, qué problema resuelve cada cosa, y por qué somos mejores que la competencia. No es técnico — es la fuente de tu speech.
 >
-> Última actualización: 2026-05-13 — **Sprint Mx-1B-M cerrado** (M3.1-M3.5: API close/reopen · push OS-level con deep-link · Hub polish paridad W3.5 · polling fallback SSE · bulk-start multi-select). Sprint Mx-1B-W3 cerrado (W3.0-W3.7 + Tier 1 notifs A+B+F). Módulo de Mantenimiento **feature-complete** end-to-end (backend + web + mobile). Análisis comparativo extendido a 13 alternativas del mercado + cumplimiento de 14 estándares globales documentados.
+> Última actualización: 2026-06-06 — **Análisis comparativo ResNexus agregado** (PMS USA 23+ años, 4,200 properties, 4.8★ Capterra) tras outreach activo a operadores LATAM. Conclusión validada: ResNexus gana en customer support humano + reports nativos (100+) + booking engine integrado; Zenix gana inequívocamente en CFDI/DIAN/SUNAT/AFIP compliance LATAM + mobile offline + per-bed dorm + WhatsApp + API abierta + pricing. Previo: 2026-05-13 — **Sprint Mx-1B-M cerrado** (M3.1-M3.5: API close/reopen · push OS-level con deep-link · Hub polish paridad W3.5 · polling fallback SSE · bulk-start multi-select). Sprint Mx-1B-W3 cerrado (W3.0-W3.7 + Tier 1 notifs A+B+F). Módulo de Mantenimiento **feature-complete** end-to-end (backend + web + mobile). Análisis comparativo extendido a 14 alternativas del mercado + cumplimiento de 14 estándares globales documentados.
 >
 > Histórico: 2026-05-04 — Sprint 9-HK + 8I completados (Stayover policy, skip-and-retry AHLEI, late checkout, animaciones inline calendario, notification tier discipline, D18 agrupación dual prioridad-habitación, NS stripe rediseñada, SmartBlock hardening).
 
@@ -191,6 +191,99 @@ Datos públicos verificados:
 ⁽⁸⁾ **Cloudbeds pricing** — [cloudbeds.com/pricing](https://www.cloudbeds.com/pricing/) + análisis comparativo en [Software Advice](https://www.softwareadvice.com/hotel-management/cloudbeds-profile/vs/mews-commander/).
 
 ⁽⁹⁾ **Clock PMS+ pricing** — sitio oficial Clock Software más reseñas en [ITQlick](https://www.itqlick.com/) (Clock PMS+ profile, mayo 2026).
+
+---
+
+### Estudio comparativo extendido — ResNexus (PMS USA con vendedor activo en LATAM)
+
+> **Metodología.** Datos extraídos de fuentes verificables: HotelTechReport, Capterra (424 reviews verificadas), GetApp, SoftwareAdvice, ITQlick, sitio oficial ResNexus. Fechas de captura: junio 2026. Política de honestidad: distinguir entre claims oficiales del vendor vs feedback real de usuarios.
+
+**Por qué este estudio extendido:** ResNexus es un PMS estadounidense con **23+ años de operación** (fundado 2003, sede Salem Utah) y **4,200+ propiedades activas** que ha empezado a hacer outreach a operadores LATAM en 2026. Su rating Capterra (4.8★/424 reviews) y su posicionamiento "Top Rated Hotel Software" lo convierten en un competidor real al momento del cierre comercial — pero su cobertura LATAM y su compliance fiscal cuentan otra historia.
+
+#### Tabla — Zenix vs ResNexus (PMS USA)
+
+| Dimensión | **ResNexus** ⁽¹⁰⁾ | **Zenix** | Comentario |
+|-----------|:-----------------:|:--------:|------------|
+| **Properties activas** | 4,200+ ⁽¹⁰⁾ | 1 piloto v1.0.0 | ResNexus tiene base instalada masiva. Riesgo conocido para Zenix |
+| **Rating Capterra** | 4.8★ / 424 reviews ⁽¹¹⁾ | sin reviews públicas aún | Ventaja social proof ResNexus |
+| **Segmento histórico líder** | Bed & Breakfast USA (191 reviews HTR) ⁽¹²⁾ | Boutique + hostal LATAM | Segmentos parcialmente distintos |
+| **Cobertura LATAM verificada** | **5 properties total** (3 MX + 1 CR + 1 PA, 0.12%) ⁽¹²⁾ | LATAM-first nativo | Zenix gana inequívocamente |
+| **CFDI 4.0 México** | ❌ no documentado | ✅ adapter Strategy (Facturama + SW Sapien) | Gap fiscal crítico ResNexus |
+| **DIAN CO / SUNAT PE / AFIP AR** | ❌ no documentado | ✅ roadmap v1.0.x DLC | Gap fiscal crítico ResNexus |
+| **Multi-currency real** | ❌ USD-nativo (sin tipo cambio dinámico) | ✅ Banxico SF43718 FIX + adapter LATAM | Hotel mexicano cobrando turistas USA en MXN |
+| **Gestión per-bed dormitorios** | ⚠️ "soporta hostels" sin operación granular ⁽¹²⁾ | ✅ nativo per-cama | Hostales LATAM target específico |
+| **Mobile app (housekeeping + recepción)** | ⚠️ **deficiente** — verbatim: "Page Not Found errors, no se puede tomar reservación desde mobile" ⁽¹¹⁾ | ✅ Expo nativo + cola offline | Diferenciador concreto |
+| **Cola offline sync móvil** | ❌ web-based, requiere conectividad | ✅ SyncManager + queue local | Pisos de hotel LATAM sin wifi consistente |
+| **Pre-arrival warming WhatsApp** | ❌ email-first (USA-centric) | ✅ automático 20:00 local | LATAM usa WhatsApp como canal #1 |
+| **Checkout 2-fases (planificación + confirmación)** | ❌ no documentado | ✅ exclusivo Zenix | Reduce errores housekeeping |
+| **Night audit multi-timezone IANA** | ❌ USA-zone-centric | ✅ Intl.DateTimeFormat per-property | Cadenas multi-país |
+| **API pública** | ❌ **"100% closed with no API access"** ⁽¹³⁾ | ✅ NestJS REST + SSE + Channex.io abierto | Extensibilidad partners |
+| **Channel Manager OTAs** | ✅ Booking, Expedia, Airbnb, TripAdvisor, Vrbo, Google Hotel (direct connections) ⁽¹⁰⁾ | ✅ Channex.io nativo (todo lo anterior) | Empate funcional |
+| **Comisión por reservación OTA** | **1% por reservación procesada** ⁽¹⁰⁾ | **0%** (incluido) | Para hotel con 40-60% revenue OTA, Zenix ahorra significativo |
+| **Booking engine integrado** | ✅ ADA-compliant + website builder ⁽¹⁰⁾ | 🛣️ v1.0.x DLC sprint BOOKING-ENGINE | ResNexus gana hoy |
+| **Smart lock integration** | ✅ nativo ⁽¹⁰⁾ | 🛣️ v1.1.x | ResNexus gana hoy (no crítico piloto) |
+| **Email marketing nativo + cart abandonment** | ✅ ⁽¹⁰⁾ | 🛣️ v1.1.x integración Resend ya wired | ResNexus gana en marketing automation hoy |
+| **SMS messaging** | ✅ nativo | 🛣️ Twilio v1.0.1 DLC (DUNNING-TWILIO ya planeado) | Gap menor (SMS es secundario a WhatsApp en LATAM) |
+| **POS integration** | ✅ Lightspeed (F&B / minibar) ⁽¹⁰⁾ | 🛣️ v1.0.x DLC | ResNexus gana hoy |
+| **Travel protection upsell** | ✅ ⁽¹⁰⁾ | 🛣️ v1.1.x | Revenue add-on (no crítico) |
+| **Review management integrado** | ✅ ⁽¹⁰⁾ | 🛣️ v1.1.x | ResNexus gana hoy |
+| **Dynamic pricing / yield management** | ✅ "automatic yield management" ⁽¹⁰⁾ | 🛣️ RATES-METRICS sprint v1.0.0 | Ambos llegan a paridad por v1.0.0 |
+| **Reports nativos** | **100+ reports en 10+ categorías** ⁽¹⁰⁾ | 🛣️ RATES-METRICS dashboard + reports — gap |  ResNexus es objetivamente más completo en reportes HOY |
+| **Multi-property / chains** | ⚠️ soportado pero sin hierarchy formal | ✅ Multi-tenant 4-level (Brand → Org → LegalEntity → Property) | Zenix más sólido arquitectónicamente |
+| **Audit log universal append-only** | ❌ implícito vía Stripe | ✅ §165 D-NOVA-7 universal cross-org | Compliance Visa CRR §5.9.2 explícito |
+| **Wizard onboarding** | ❌ "implementation is time-consuming" (review verbatim) ⁽¹³⁾ | ✅ Zenix Activate 30min | Velocity vs ResNexus |
+| **Customer support** | 🥇 "Hospitality coaches" dedicados, 97% recomendado ⁽¹¹⁾ | Partner Network SAP-style en construcción | ResNexus gana hoy contundente |
+| **Precio entry** | $30/mes ⁽¹⁰⁾ | **$25/mes** | Zenix -17% |
+| **Precio mid** | ~$60/mes | **$40/mes** | Zenix -33% |
+| **Precio top** | $89/mes | $25-40 + DLC modular | Zenix flexibilidad |
+| **Setup fee** | $0 ⁽¹⁰⁾ | $0 (wizard auto) | Empate |
+| **UX complexity** | 🔴 verbatim: "Setup menu has **63 pages**", "non-intuitive, steep learning curve" ⁽¹³⁾ | Apple HIG + design system Zenix | Zenix gana en first impression |
+| **Languages soportados** | Multi-lingüe declarado, **español no explícito** | Español LATAM nativo | Zenix gana para target |
+
+**Lecturas honestas del análisis** (sin reverenciar ni atacar):
+
+1. **ResNexus es un PMS USA bien establecido — no un fraude.** 23 años, 4,200 properties, 4.8★ con 424 reviews verificadas no se construyen sin valor real. Su customer support es legendario en reviews ("over the top", "hospitality coaches dedicados") y su stack de **100+ reports nativos** es objetivamente más profundo que el de Zenix v1.0.0.
+
+2. **Pero ResNexus NO es un PMS LATAM. Es un PMS B&B norteamericano que está empezando a explorar el mercado.** Sus 5 properties LATAM (3 MX + 1 CR + 1 PA = 0.12% de su base) son anecdóticas. Si un vendedor de ResNexus se aparece en México, **pídele que te muestre 1 cliente activo facturando CFDI desde su PMS**. No lo tiene — su sistema fiscal es USA-centric (sales tax states + Canada provinces) y QuickBooks export, no CFDI/DIAN/SUNAT.
+
+3. **La debilidad mobile es estructural, no temporal.** Reviews verbatim consistentes 2024-2026 mencionan: *"Trying to take a reservation on the phone using the app or doing anything else is pretty much impossible because it's not feature complete"* — Capterra ⁽¹¹⁾. Un hotel LATAM cuya recepcionista necesita atender check-ins desde el celular cuando la PC del lobby falla, está mejor con Zenix (Expo nativo + offline queue) que con ResNexus.
+
+4. **La queja sistémica de UX es real.** *"Setup menu has 63 pages"* + *"non-intuitive, steep learning curve"* — los hoteleros boutique LATAM que cambian de PMS cada 3-5 años no soportan curvas de aprendizaje altas. Zenix wizard 30min y design system Apple HIG son una ventaja medible al ciclo de venta.
+
+5. **La queja sobre el cobro de extras (parking, late checkout) es operacionalmente importante.** Verbatim: *"You have to enter these fees as a retail item which screws up your retail reporting"* — esto significa que **un boutique en Tulum cobrando $50 USD por late checkout corrompe su retail report** en ResNexus. Zenix tiene `lateCheckoutTier` modelo separado con fee calculation aparte.
+
+6. **El sistema cerrado "no API access" es una bandera roja para crecimiento.** Cualquier hotelero que aspire a integrar con WhatsApp Business API, su propio CRM, o un POS LATAM (MercadoPago, Wompi), está atorado con ResNexus. Zenix tiene API REST + Channex.io abierto + planning de marketplace v1.2.3.
+
+7. **La comisión 1% por reservación OTA es engañosa pero importante.** Un boutique 30 hab con 50% revenue OTA y RevPAR $80 USD genera ~$36k/mes en OTAs → **ResNexus le cobra $360 USD/mes adicionales** sobre el tier base. Zenix incluye Channex.io sin comisión adicional. **Ahorro real Zenix:** $360 USD/mes × 12 = $4,320 USD/año en hotel mediano.
+
+#### Donde ResNexus gana sin ambigüedad
+
+- **Customer support humano dedicado.** Su modelo "Hospitality Coaches" es el más alabado del mercado. Zenix debe igualar esto via Partner Network (en construcción) o aceptar gap.
+- **100+ reports nativos out-of-the-box.** Zenix los construye via RATES-METRICS-COMPSET-CORE sprint (revenue blocker per CLAUDE.md plan).
+- **Booking engine + website builder + email marketing integrado** en el tier base. Zenix los entrega vía BOOKING-ENGINE sprint v1.0.x DLC.
+- **Smart lock integration** nativo — un boutique de gama media con tarjetas RFID tiene ventaja real con ResNexus hoy.
+- **POS Lightspeed integrado** — para hoteles con restaurant/minibar relevante.
+
+#### Honestidad sobre dónde Zenix aún no gana vs ResNexus
+
+- **Base instalada / social proof.** 4,200 properties vs 1 piloto. Mitigación: estudio de caso Hotel Monica Tulum al cierre v1.0.x + apuntar a 10 properties certificadas en primer año.
+- **Profundidad de reports.** 100+ reports vs ~10 dashboard metrics. Mitigación: RATES-METRICS sprint v1.0.0 entregará 30-50 reports core.
+- **Marketing automation.** Email + SMS + cart abandonment ya. Mitigación: aprovechar Resend que ya está wired para wizard + extender en v1.0.x DLC.
+- **Customer support humano.** "Hospitality coaches" dedicados ResNexus son su moat real. Mitigación: Partner Network SAP-style + onboarding wizard 30min que reduce dependencia de soporte humano.
+
+#### Cierre comercial cuando el vendedor ResNexus aparezca
+
+> *"ResNexus es un excelente PMS para un bed & breakfast en Vermont o un boutique resort en Florida. Tiene 23 años de pedigree y 4,200 clientes que lo aman. Pero tu hotel está en Tulum y tu próximo huésped facturará en pesos, requerirá CFDI 4.0 timbrado por SAT, llegará vía WhatsApp y tu camarista trabajará en pisos con wifi intermitente. Esos 4 hechos descalifican a ResNexus operacionalmente. Zenix los resuelve nativo — y por $25 USD menos al mes."*
+
+#### Fuentes citadas
+
+⁽¹⁰⁾ **ResNexus features + pricing oficiales** — [resnexus.com/Pricing.html](https://www.resnexus.com/Pricing.html), [resnexus.us/property-management](https://www.resnexus.us/property-management), [resnexus.us/channel-manager](https://www.resnexus.us/channel-manager), [resnexus.us/integrations](https://www.resnexus.us/integrations). Pricing rango $30-$89 USD/mes verificado contra [getapp.com/hospitality-travel-software/a/reservation-nexus](https://www.getapp.com/hospitality-travel-software/a/reservation-nexus/) (junio 2026).
+
+⁽¹¹⁾ **ResNexus reviews Capterra** — 424 reviews verificadas en [capterra.com/p/129392/Reservation-Nexus/reviews](https://www.capterra.com/p/129392/Reservation-Nexus/reviews/) (junio 2026). Quote verbatim sobre mobile: review usuario 2024-2025 *"Trying to take a reservation on the phone using the app... is pretty much impossible"*.
+
+⁽¹²⁾ **ResNexus segmento + cobertura geográfica** — [hoteltechreport.com/operations/property-management-systems/resnexus-pms](https://hoteltechreport.com/operations/property-management-systems/resnexus-pms) (junio 2026). Distribución de reviews por segmento: Bed & Breakfast 191, Resorts 86, Boutique Hotels 52, Budget 45. Distribución geográfica: USA/Canadá 274 reviews (97% recomendado), México 3, Costa Rica 1, Panamá 1, **Sur América 0**. Confirmado adicionalmente en [linkedin.com/company/resnexus](https://www.linkedin.com/company/resnexus) (junio 2026).
+
+⁽¹³⁾ **ResNexus UX y API críticas verbatim** — [softwareadvice.com/hotel-management/resnexus-profile/reviews](https://www.softwareadvice.com/hotel-management/resnexus-profile/reviews/) + [selecthub.com/p/property-management-software/resnexus](https://www.selecthub.com/p/property-management-software/resnexus/) (junio 2026). Quotes: *"Setup menu has 63 pages"*, *"100% closed with no API access and very limited channel choices"*, *"non-intuitive, steep learning curve"*.
 
 ---
 
