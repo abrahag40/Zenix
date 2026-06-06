@@ -31,6 +31,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import type { JwtPayload } from '@zenix/shared'
+import { randomUUID } from 'node:crypto'
 import { PrismaService } from '../prisma/prisma.service'
 import { AuditLogService } from '../nova/audit/audit-log.service'
 import { BillingService } from './billing.service'
@@ -182,7 +183,7 @@ export class SubscriptionService {
     }
 
     // ── (4) Pre-persist local con stripeSubscriptionId pendiente ───
-    const tentativeStripeSubId = `pending_${crypto.randomUUID()}`
+    const tentativeStripeSubId = `pending_${randomUUID()}`
     const tentativeRow = await this.prisma.subscription.upsert({
       where: { organizationId: dto.organizationId },
       create: {
@@ -756,7 +757,7 @@ export class SubscriptionService {
     }
 
     // ── (4) Persist local Subscription as pending_payment_method ───
-    const tentativeStripeSubId = `pending_${crypto.randomUUID()}`
+    const tentativeStripeSubId = `pending_${randomUUID()}`
     const trialDays = dto.trialDays ?? 14
     const created = await this.prisma.subscription.upsert({
       where: { organizationId: dto.organizationId },
@@ -1404,5 +1405,7 @@ export class SubscriptionService {
   }
 }
 
-// Polyfill mínimo: Node 19+ tiene crypto.randomUUID global; aseguramos
-declare const crypto: { randomUUID: () => string }
+// CI-RESCUE 2026-06-06: reemplazado el bare `crypto` global por import explícito
+// de `node:crypto` (randomUUID). El bare global solo funciona en runtime Node 19+
+// con flag --no-experimental-fetch desactivado; en jest test env (Node 20 jest-env)
+// falla con ReferenceError. Import explícito es seguro y portable.

@@ -57,24 +57,24 @@ jobs:
         env:
           DATABASE_URL: postgresql://housekeeping:testpassword@localhost:5432/housekeeping_test
 
-      # CI-RESCUE completado 2026-05-15 (parcial):
-      #   · Lint: ✅ reactivado como blocking. ESLint configs minimalistas
-      #     creados por workspace (.eslintrc.json en api/mobile/web) con
-      #     reglas permisivas — bootstrap pasa exit 0. Endurecimiento
-      #     progresivo de reglas se hará en sprint POLISH posterior.
-      #   · Test: ⚠️ sigue non-blocking. 102 de 110 tests rojos resueltos
-      #     (fix de mocks: agregado `room`, providers Push/Notifications/
-      #     Availability faltantes, mocks como Promise.resolve). 8 tests
-      #     restantes son ASSERTIONS OBSOLETAS (no infra) — requieren del
-      #     feature-owner ajustar expectations al comportamiento actual del
-      #     servicio. Suites afectadas: no-show (3), stay-journeys (4),
-      #     dashboard-overview (1).
+      # CI-RESCUE residual cerrado 2026-06-06:
+      #   · Lint: ✅ blocking (desde 2026-05-15).
+      #   · Test: ✅ BLOCKING. Última deuda residual cerrada:
+      #     - channex-crud.gateway.spec: `jest.spyOn(global, 'fetch')` →
+      #       asignación directa en globalThis (Node 16 no expone fetch)
+      #     - subscription.service: bare `crypto.randomUUID()` → import
+      #       explícito de 'node:crypto' (Node 16 sin global crypto)
+      #     - jest.setup.js polyfill `globalThis.crypto = webcrypto` para
+      #       que @nestjs/schedule (SchedulerOrchestrator.addCron) funcione
+      #       en Node 16 jest env — afectaba tenant-isolation y todo test
+      #       que importara módulos con cron decorators.
+      #     - --runInBand evita resource contention DB en CI single-node
+      #       (channex-management.spec falla intermitente en paralelo).
       - name: Lint
         run: npx turbo lint
 
-      - name: Test (non-blocking — 8 stale assertions pendientes)
-        run: npx turbo test
-        continue-on-error: true
+      - name: Test
+        run: npx turbo test -- --runInBand
         env:
           DATABASE_URL: postgresql://housekeeping:testpassword@localhost:5432/housekeeping_test
           JWT_SECRET: test-secret-not-for-production
