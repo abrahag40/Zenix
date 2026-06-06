@@ -3,7 +3,7 @@ Audiencia: Dev haciendo el live screenshare cert + Channex reviewer
 Tipo: Script de demo Stage 4
 Status: Activo — usar al agendar live screenshare con Channex team
 Padre: docs/sprints/CHANNEX-OUTBOUND-CERT-plan.md
-Última actualización: 2026-06-04
+Última actualización: 2026-06-06 — audit post-RATES + post-CI-RESCUE
 ---
 
 # Channex Cert Stage 4 — Live Screenshare Walkthrough (Zenix)
@@ -17,16 +17,24 @@ Padre: docs/sprints/CHANNEX-OUTBOUND-CERT-plan.md
 
 ## Pre-screenshare checklist (24h antes)
 
-- [ ] Branch `feature/channex-inbound` mergeado a `main` (o screenshare desde la branch directamente)
-- [ ] Sandbox property setup en `staging.channex.io` con datos VARIADOS
+- [x] ~~Branch `feature/channex-inbound` mergeado a `main`~~ ✅ Cerrado 2026-05-22
+- [x] ~~Branch `feature/channex-outbound-cert` mergeado~~ ✅ Cerrado 2026-05-22 (B1 patch en main 2026-05-29)
+- [x] ~~Sprint RATES-METRICS Fase 1 cerrado~~ ✅ Cerrado 2026-06-03 (RatePlan + RatesService en main)
+- [x] ~~CI gate verde + test step blocking~~ ✅ Cerrado 2026-06-06 (PR #89+#90)
+- [ ] **Sandbox property setup en `staging.channex.io` con datos VARIADOS**
   (no uniformes) — ver `docs/ops/channex-sandbox-seed.md`
-- [ ] `.env` con `CHANNEX_API_KEY` apuntando al sandbox confirmado
+- [ ] `.env` local con `CHANNEX_API_KEY` apuntando al sandbox confirmado
 - [ ] `CHANNEX_SANDBOX_PROPERTY_ID`, `CHANNEX_SANDBOX_ROOM_TYPE_ID`,
-  `CHANNEX_SANDBOX_RATE_PLAN_ID` envs seteados (si los tests rate los
-  necesitan)
+  `CHANNEX_SANDBOX_RATE_PLAN_ID` envs seteados (los tests sandbox quedan
+  skipped sin ellos)
+- [ ] **Smoke test sandbox**: `npx jest channex.cert-tests --runInBand` con
+  `.env` cargado → expectativa ~20/20 verde (vs 3/20 sin api-key)
 - [ ] Apps locales corriendo: `apps/api` + `apps/web` + Postgres
 - [ ] Dev tools abiertos: VSCode + browser con `/settings/channex` cargada
 - [ ] Browser logueado como SUPERVISOR (`s@z.co` / `123456`)
+- [ ] Channex Booking CRS write habilitado en api-key (verificar — sin
+  esto cancel manual del PMS hacia OTA queda como notif al SUPERVISOR
+  en vez de propagación automática; ver §225 D-CHX-FIX-3b)
 
 ---
 
@@ -164,8 +172,13 @@ Padre: docs/sprints/CHANNEX-OUTBOUND-CERT-plan.md
 
 1. Abrir terminal en repo
 2. Correr `npx jest channex.cert-tests.integration --runInBand`
-3. Reviewer ve los 11 tests verde + 9 skipped (Tests 2-8 marked como
-   pendientes RATES sprint con doc handoff)
+3. Conteo esperado:
+   - **Sin `CHANNEX_API_KEY` en env**: 3 verde + 17 skipped (los static
+     anti-pattern checks pasan; el resto requiere sandbox).
+   - **Con `CHANNEX_API_KEY` cargada del `.env`**: ~20/20 verde
+     (Tests 1, 9, 10, 11, 12, 13, 14 contra sandbox real). Los Tests
+     2-8 (rates) **ya quedaron WIRED a sandbox** tras RATES Fase 1
+     cerrado 2026-06-03 — RatePlan + RatesService en main.
 4. Correr grep checks integrados en el spec:
    ```
    ✓ AP-5: no UUIDs hardcoded
@@ -174,7 +187,7 @@ Padre: docs/sprints/CHANNEX-OUTBOUND-CERT-plan.md
    ✓ AP-2.2: no direct API from save handlers
    ```
 5. Mostrar [CHANNEX-OUTBOUND-CERT-handoff-to-rates.md](../sprints/CHANNEX-OUTBOUND-CERT-handoff-to-rates.md) —
-   contrato exacto que RatesService va a usar cuando exista
+   contrato Tests 2-8 honored por RatesService.getRateQuoteGrid + push events
 
 ---
 
@@ -210,10 +223,11 @@ Reviewer probablemente pregunta:
   documented en CLAUDE.md §63-§80.
 
 **Q: "When will rates push be live?"**
-- A: Sprint RATES-METRICS-COMPSET-CORE **cerrado 2026-06** — RatePlan
-  model + RatesService ya producen ARI events. La wiring de Tests 2-8
-  contra el outbound queda como un commit pequeño (~0.5d). Branch
-  `feat/rates-metrics-core` lista; merge a main + flip env cierra el loop.
+- A: Sprint RATES-METRICS-COMPSET-CORE **Fase 1 cerrado 2026-06-03,
+  Fase 2 cerrado 2026-06-06** — RatePlan + RatesService + Forecast
+  pace/pickup/STLY/heatmap todo en `main`. Los Tests cert 2-8 (rate
+  push) ya están wired al sandbox real. Demo posible en este screenshare
+  directamente con el `.env` cargado.
 
 **Q: "What about booking create/cancel push (Booking CRS write)?"**
 - A: Identified as separate Beta capability del api-key. Tests
@@ -224,6 +238,13 @@ Reviewer probablemente pregunta:
   El path "Cancelar en OTA" del PMS hoy levanta notif manual al SUPERVISOR
   (D-CHX-FIX-3b) cuando recibe 403 — comportamiento esperado pre-flip.
 
+**Q: "Can I see the cancel notification flow end-to-end?"**
+- A: Sí. Demo: cancelar reserva OTA en Zenix (con `cancelInitiator='HOTEL'`).
+  Outbox row PENDING → SUCCEEDED si CRS write habilitado; sino,
+  AppNotification ACTION_REQUIRED al SUPERVISOR con texto literal
+  "Cancela en {OTA} manualmente" (sin DEAD_LETTER, sin retry inútil).
+  Ver `BookingCancelHandler` + `raiseManualOtaCancel` (D-CHX-FIX-3b).
+
 ---
 
 ## Post-screenshare
@@ -232,3 +253,23 @@ Reviewer probablemente pregunta:
 - [ ] Si pass → solicitar credenciales production + plan de rollout
 - [ ] Si fail → revisar feedback + sprint corrective antes de re-request
 - [ ] Documentar en sprint retro en `docs/ops/channex-cert-retro.md`
+- [ ] Solicitar habilitación Booking CRS write si owner aprueba (diferenciador
+  comercial §150/§157 — sin esto cancel manual hacia OTA es manual)
+
+---
+
+## Diff respecto a versión 2026-06-04
+
+Cambios reflejados en este update 2026-06-06:
+
+1. **Pre-checklist** marca como ✅ los items que ya cerraron (CHANNEX-INBOUND,
+   CHANNEX-OUTBOUND-CERT, CHANNEX-CERT-B1 patch §214-§218, RATES-METRICS
+   Fase 1 y 2, CI-RESCUE residual). Quedan abiertos: setup sandbox property,
+   `.env` con `CHANNEX_API_KEY` (escapado en sesiones previas) y CRS write
+   habilitado en api-key.
+2. **Sección 7 (code grep)** ahora documenta los dos conteos reales de tests:
+   3/20 sin api-key, ~20/20 con api-key sandbox.
+3. **Q&A** actualizada con flow de cancelación notif (D-CHX-FIX-3b) y status
+   real del RATES sprint (cerrado, ya no es contingent).
+4. **Post-screenshare** añade item de solicitar CRS write si el owner lo aprueba
+   como diferenciador.
