@@ -1,17 +1,26 @@
 /**
- * CompsetCard — Fase 3 chunk 2. Mi posición vs el compset + eventos del período.
+ * CompsetCard — Fase 3 cierre 2026-06-06. Mi posición vs el compset + eventos del período.
  *
  * Reglas no-negociables:
  *   · D-COMPSET6: SUPERVISOR-only (caller gates + backend 403 fail-soft).
  *   · D-COMPSET7: disclaimer permanente "best-effort, refresh diario".
  *
- * Lectura del gráfico: para las próximas 14 noches, muestra mi rate (placeholder
- * hasta wire con RatesService getRateQuoteGrid) vs la mediana del compset + min/max.
- * Eventos locales del período se listan abajo como context.
+ * Lectura del gráfico: para las próximas 14 noches, muestra **mi BAR del día**
+ * (de `RatesService` vía `useDailyBar`) vs la mediana del compset + min/max +
+ * delta absoluto color-coded:
+ *   · Mi rate >> mediana (>+15%):  amber  "premium positioning"
+ *   · Mi rate dentro de ±15%:      slate  "alineado al mercado"
+ *   · Mi rate << mediana (<−15%):  rose   "underpriced — oportunidad subir"
+ *
+ * Honesto con histórico ausente: si la mediana del compset es null (sin scrape
+ * todavía), el delta no se renderiza para esa noche — sin valor inventado.
+ *
+ * Eventos locales del período se listan abajo como context para revenue management.
  */
 import { useMemo } from 'react'
-import { Info, AlertTriangle, Calendar } from 'lucide-react'
+import { Info, AlertTriangle, Calendar, ArrowUpRight, ArrowDownRight, Minus } from 'lucide-react'
 import { useCompsetDashboard, useLocalEvents } from '@/hooks/useCompset'
+import { useDailyBar } from '@/modules/rooms/hooks/useRates'
 
 const SPANISH_MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
 function formatDay(iso: string): string {
@@ -26,6 +35,16 @@ export function CompsetCard({ propertyId, isSupervisor }: { propertyId: string; 
     return { from: t, to: new Date(t.getTime() + 14 * 86400000) }
   }, [])
   const events = useLocalEvents(propertyId, from, to, isSupervisor)
+  // Mi BAR del día por noche — para comparar contra mediana compset (CompsetCard
+  // Fase 3 cierre). useDailyBar respeta scope SUPERVISOR; si el caller no lo es,
+  // el componente ya retorna null arriba — la query queda enabled pero
+  // backend devuelve 403 y la convertimos a "sin data" silenciosamente.
+  const myBar = useDailyBar(propertyId, from, to)
+  const myRateByDate = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const r of myBar.data ?? []) m.set(r.date, r.bar)
+    return m
+  }, [myBar.data])
 
   if (!isSupervisor || isError) return null
   if (isLoading || !data) {
@@ -79,28 +98,51 @@ export function CompsetCard({ propertyId, isSupervisor }: { propertyId: string; 
         </div>
       )}
 
-      {/* Heatmap simple: por noche min/median/max */}
+      {/* Heatmap simple: por noche Mi rate vs Mín/Mediana/Máx + Δ% */}
       <div className="overflow-x-auto">
         <table className="w-full text-[11px] tabular-nums">
           <thead>
             <tr className="text-left text-gray-400 border-b border-gray-100">
               <th className="py-1.5 font-medium">Noche</th>
+              <th className="py-1.5 font-medium">Mi rate</th>
               <th className="py-1.5 font-medium">Mín.</th>
               <th className="py-1.5 font-medium">Mediana</th>
               <th className="py-1.5 font-medium">Máx.</th>
+              <th className="py-1.5 font-medium">Δ vs mediana</th>
               <th className="py-1.5 font-medium">Disp.</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
-            {matrix.map((m) => (
-              <tr key={m.iso}>
-                <td className="py-1 text-gray-500">{formatDay(m.iso)}</td>
-                <td className="py-1 text-gray-900">{m.min != null ? `${ccy} ${Math.round(m.min)}` : '—'}</td>
-                <td className="py-1 text-gray-900 font-medium">{m.median != null ? `${ccy} ${Math.round(m.median)}` : '—'}</td>
-                <td className="py-1 text-gray-500">{m.max != null ? `${ccy} ${Math.round(m.max)}` : '—'}</td>
-                <td className="py-1 text-gray-400">{m.availableCount}/{data.competitors.length}</td>
-              </tr>
-            ))}
+            {matrix.map((m) => {
+              const myRate = myRateByDate.get(m.iso)
+              const delta = myRate != null && m.median != null ? myRate - m.median : null
+              const deltaPct = delta != null && m.median ? (delta / m.median) * 100 : null
+              const tone = deltaPctTone(deltaPct)
+              const Arrow = deltaPct == null ? null : deltaPct > 5 ? ArrowUpRight : deltaPct < -5 ? ArrowDownRight : Minus
+              return (
+                <tr key={m.iso}>
+                  <td className="py-1 text-gray-500">{formatDay(m.iso)}</td>
+                  <td className="py-1 text-gray-900 font-medium">
+                    {myRate != null ? `${ccy} ${Math.round(myRate)}` : <span className="text-gray-300">—</span>}
+                  </td>
+                  <td className="py-1 text-gray-500">{m.min != null ? `${ccy} ${Math.round(m.min)}` : '—'}</td>
+                  <td className="py-1 text-gray-900">{m.median != null ? `${ccy} ${Math.round(m.median)}` : '—'}</td>
+                  <td className="py-1 text-gray-500">{m.max != null ? `${ccy} ${Math.round(m.max)}` : '—'}</td>
+                  <td className="py-1">
+                    {deltaPct == null ? (
+                      <span className="text-gray-300">—</span>
+                    ) : (
+                      <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] ${tone}`}>
+                        {Arrow && <Arrow className="h-3 w-3" />}
+                        {deltaPct > 0 ? '+' : ''}
+                        {deltaPct.toFixed(0)}%
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-1 text-gray-400">{m.availableCount}/{data.competitors.length}</td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
@@ -156,4 +198,21 @@ function firstCurrency(competitors: { ratesByDate: Record<string, { currency?: s
     }
   }
   return null
+}
+
+/**
+ * Color del badge de delta. Umbral ±15% per consensus de revenue management
+ * (Mews benchmark + Cloudbeds): cambios ≥15% son significativos comercialmente,
+ * <15% suelen ser ruido entre estrategias de pricing alineadas.
+ *   · |Δ| ≤ 5%  → slate neutro (alineado al mercado)
+ *   · 5-15%    → amber light (atención pero sin acción inmediata)
+ *   · > 15%    → emerald (positiva: premium si arriba, oportunidad si abajo)
+ * Color simétrico arriba/abajo — el dueño decide qué tan agresivo posicionarse.
+ */
+function deltaPctTone(pct: number | null): string {
+  if (pct == null) return 'bg-gray-50 text-gray-400'
+  const abs = Math.abs(pct)
+  if (abs <= 5) return 'bg-slate-50 text-slate-600'
+  if (abs <= 15) return 'bg-amber-50 text-amber-700'
+  return pct > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
 }
