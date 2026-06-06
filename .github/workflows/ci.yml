@@ -97,7 +97,7 @@ jobs:
       #   - channex-crud-schema.spec.ts
       #   - channex-management/channex-management.spec.ts
       - name: Test
-        run: npx turbo test -- --runInBand --testPathIgnorePatterns='/nova/channex-crud-schema\\.spec\\.ts|/nova/channex-management/channex-management\\.spec\\.ts'
+        run: npx turbo test -- --runInBand --testPathIgnorePatterns="channex-crud-schema" --testPathIgnorePatterns="channex-management/channex-management"
         env:
           DATABASE_URL: postgresql://housekeeping:testpassword@localhost:5432/housekeeping_test
           JWT_SECRET: test-secret-not-for-production
