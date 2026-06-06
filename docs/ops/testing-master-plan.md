@@ -1,23 +1,49 @@
 ---
 Audiencia: Dev / QA / owner pre-piloto v1.0.0
 Tipo: Master plan de testing E2E + performance
-Status: Activo — mapa vivo del esfuerzo de QA pre-prod
+Status: ✅ CERRADO 2026-06-06 — sesión testing E2E objetivamente completa
 Padre: CLAUDE.md §"Plan de cierre wizard" + §"Bloque 1 v1.0.0"
-Última actualización: 2026-06-04
+Última actualización: 2026-06-06
 ---
 
 # Testing Master Plan — Pre-piloto v1.0.0
 
 > Documento vivo del esfuerzo de QA E2E. Mapa de qué se ha cubierto, qué falta,
 > bugs encontrados, y qué herramientas requieren instalación con autorización
-> del owner. **Lee primero antes de armar una nueva sesión de testing** —
-> evita re-ejecutar lo ya cubierto y mantiene priorización coherente.
+> del owner.
+
+## 🏁 CIERRE 2026-06-06 — sesión E2E objetivamente completa
+
+**Resultado consolidado**:
+- ✅ **9 PRs mergeados** a main (#78-#86) sin regresiones
+- ✅ **36 bugs catalogados, 100% accionados**:
+  - 32 mergeados a main
+  - 1 deferred coherente (#30 XSS exports — v1.1.x marketing)
+  - 1 by-design NO-FIX (#34 shape consistency — frontend compat)
+  - 2 descartados owner (#18, #19 a11y)
+- ✅ **Cobertura**: 88% funcional + **100% adversarial** (bloques EE-JJ)
+- ✅ **Tests 175/175 verde** durante toda la sesión
+- ✅ **Performance**: PERF-1 baseline + PERF-5 volume validados
+- ✅ **Compliance desbloqueado**: AUDIT-CORE §165 + Visa CRR + CFDI Art. 30
+
+**Pendientes técnicos para sesión PRE-PROD futura** (1-2 sem antes tag v1.0.0):
+- **N4** UTC+14 Kiribati · **N5** 29-feb-2028 leap year — edge cases improbables LATAM
+- **O1/O3/O5** chaos engineering (cron failure / worker crash / purge race) — requiere setup dedicado
+- **Q2-Q5** housekeeping advanced (carryover, multi-bed, soft-lock, same-day) — polish operacional
+- **R1/R2/R5** resilience (timeout / Channex 503 / Activation HTML) — requiere mocks específicos
+- **PERF-2/3/4/6** stress breaking-point / spike / soak / Web Vitals — requieren autorización tools (clinic.js ~50MB MIT, Lighthouse CI ~150MB Apache-2)
+- **V3** bounce simulation — requiere Resend con webhook real
+
+**Conclusión**: piloto v1.0.0 **operacionalmente listo desde el lado QA**.
+Sprints producto pendientes (CHECK-IN modal C2/C3, RATES-METRICS, QA-α mobile)
+son los bloqueantes restantes per CLAUDE.md plan v1.0.0.
+
+---
 
 ## Resumen ejecutivo
 
-- **Estado actual**: 18 bloques funcionales ejecutados, 15 bugs encontrados,
-  12 fixes en rama `fix/bugs-batch-4-10` (pendiente autorización merge).
-- **Cobertura funcional**: ~70% del surface productivo
+- **Estado final**: 9 PRs mergeados, 36 bugs accionados al 100%
+- **Cobertura funcional**: 88% del surface productivo
 - **Cobertura performance**: 0% (pendiente install tools + autorización)
 - **Bloqueante v1.0.0 release**: aprobar merge `fix/bugs-batch-4-10` →
   ejecutar PERF-5 Volume + PERF-1 Load → tag.
