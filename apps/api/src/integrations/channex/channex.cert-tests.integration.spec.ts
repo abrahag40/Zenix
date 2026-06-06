@@ -479,4 +479,40 @@ describe('Channex Cert — anti-pattern static checks (no api-key required)', ()
     expect(handleIdx).toBeGreaterThan(0)
     expect(ackIdx).toBeGreaterThan(handleIdx) // ack viene después
   })
+
+  it('AP-4 regression: production code does NOT call legacy single-update methods', () => {
+    // Mock interview Stage 4 (2026-06-06) Q6 flagged three legacy methods
+    // marked @deprecated en el gateway:
+    //   · pushInventory(update)
+    //   · pushAbsoluteAvailability(update)
+    //   · pushStopSell(params)
+    // Estos toman single objects y NO deben usarse en production code paths
+    // nuevos. El path productivo es event-driven →
+    //   `pushAvailability(entries[])` y `pushRestrictions(entries[])`.
+    //
+    // Este test grep detecta si alguien re-introduce llamadas a los métodos
+    // legacy desde producción (cualquier .ts en src/ excluyendo .spec.ts y
+    // el gateway que los define).
+    const { execSync } = require('child_process')
+    const path = require('path')
+    const srcRoot = path.join(__dirname, '../..')
+    const result = execSync(
+      `grep -rnE "\\.pushInventory\\(|\\.pushAbsoluteAvailability\\(|\\.pushStopSell\\(" ` +
+        `--include="*.ts" --exclude="*.spec.ts" --exclude="channex.gateway.ts" ` +
+        `${srcRoot} || true`,
+      { encoding: 'utf8' },
+    ) as string
+
+    const violations = result
+      .split('\n')
+      .filter((l) => l.trim().length > 0)
+      // Permite líneas de comentario que mencionen el método (refs históricas)
+      .filter((l) => !/:\s*\/\//.test(l) && !/:\s*\*/.test(l))
+
+    if (violations.length > 0) {
+      // eslint-disable-next-line no-console
+      console.error('[AP-4 regression] Legacy method calls detected:\n' + violations.join('\n'))
+    }
+    expect(violations).toHaveLength(0)
+  })
 })

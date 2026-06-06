@@ -148,6 +148,14 @@ export class ChannexGateway {
   // IMPORTANTE — Best-effort (CLAUDE.md §31):
   //   La operación local ya fue commiteada antes de llamar aquí.
   //   Si Channex falla, logueamos pero NO lanzamos excepción.
+  /**
+   * @deprecated Cert AP-4 risk — toma single update + itera per-date
+   * internamente. **NUNCA llamar desde production code path nuevo**.
+   * Migrado a event-driven `CHANNEX_AVAILABILITY_CHANGED` → outbox →
+   * worker → `pushAvailability(entries[])` (arrays only).
+   * Mock cert interview Stage 4 (2026-06-06) Q6 flagged este método.
+   * Removal: v1.0.1 cleanup sprint.
+   */
   async pushInventory(update: ChannexInventoryUpdate): Promise<void> {
     if (!this.enabled) return
     // Skip silently if the property has no Channex ID configured (§31 fail-soft)
@@ -214,6 +222,11 @@ export class ChannexGateway {
   //
   // Idempotente: llamar dos veces con el mismo conteo produce el mismo resultado.
   // Best-effort (CLAUDE.md §31): nunca lanza excepción.
+  /**
+   * @deprecated Cert AP-4 risk — toma single update + itera per-date.
+   * Use event-driven path con `pushAvailability(entries[])` arrays.
+   * Removal: v1.0.1 cleanup sprint (mock interview Stage 4 2026-06-06 Q6).
+   */
   async pushAbsoluteAvailability(update: ChannexAbsoluteUpdate): Promise<void> {
     if (!this.enabled) return
     if (!update.channexPropertyId) return
@@ -261,6 +274,11 @@ export class ChannexGateway {
   //
   // Channex endpoint: POST /restrictions
   // Usada cuando la propiedad bloquea venta (renovación, mantenimiento).
+  /**
+   * @deprecated Cert AP-4 risk — toma single params. Use event-driven path
+   * con `pushRestrictions(entries[])` arrays. Removal: v1.0.1 cleanup sprint
+   * (mock interview Stage 4 2026-06-06 Q6).
+   */
   async pushStopSell(params: {
     channexPropertyId: string
     roomTypeId: string
