@@ -11,37 +11,51 @@
  *
  * NOTA: `checkinAt` y `scheduledCheckout` NO están aquí — usar endpoints
  * dedicados `extendStay` / `moveRoom` que tienen su lógica AvailabilityService.
+ *
+ * BUG #33 fix (Bloque II4) — MaxLength en todos los text fields para prevenir
+ * DoS via storage overflow. Límites conservadores basados en formatos reales:
+ *   - guestName: 200 chars (cubre nombres compuestos LATAM extensos)
+ *   - email: 254 chars (RFC 5321)
+ *   - phone: 20 chars (E.164 max)
+ *   - documentNumber: 30 chars (CURP/RFC/DNI/Passport)
+ *   - nationality: 50 chars (nombre país completo)
+ *   - notes/arrivalNotes: 1000 chars (operativo, no testimonio)
+ *   - documentPhotoUrl: 2MB base64 ≈ 2.8M chars (data URI cap)
+ *   - reason/approvalReason/approvalCode: 500 chars
+ *
+ * BUG #26 fix (Bloque EE2.2) — MinLength para campos con semántica de valor
+ * (guestName vacío rompe display, documentType vacío rompe identification).
  */
-import { IsInt, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator'
+import { IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator'
 
 export class UpdateGuestStayDto {
   // ── Soft fields — editables siempre (salvo cancelled/no-show) ──────────
-  @IsString() @IsOptional()
+  @IsString() @MinLength(1) @MaxLength(200) @IsOptional()
   guestName?: string
 
-  @IsString() @IsOptional()
+  @IsString() @MaxLength(254) @IsOptional()
   guestEmail?: string
 
-  @IsString() @IsOptional()
+  @IsString() @MaxLength(20) @IsOptional()
   guestPhone?: string
 
-  @IsString() @IsOptional()
+  @IsString() @MaxLength(30) @IsOptional()
   documentType?: string
 
-  @IsString() @IsOptional()
+  @IsString() @MaxLength(30) @IsOptional()
   documentNumber?: string
 
-  /** Data URI base64; locked post-checkout (fiscal evidence). */
-  @IsString() @IsOptional()
+  /** Data URI base64; locked post-checkout (fiscal evidence). 2MB cap. */
+  @IsString() @MaxLength(2_800_000) @IsOptional()
   documentPhotoUrl?: string
 
-  @IsString() @IsOptional()
+  @IsString() @MaxLength(50) @IsOptional()
   nationality?: string
 
-  @IsString() @IsOptional()
+  @IsString() @MaxLength(1000) @IsOptional()
   notes?: string
 
-  @IsString() @IsOptional()
+  @IsString() @MaxLength(1000) @IsOptional()
   arrivalNotes?: string
 
   // ── Numeric / fiscal — guards más estrictos ────────────────────────────
@@ -55,20 +69,20 @@ export class UpdateGuestStayDto {
    *  - Post-checkout: 403 (CFDI lock).
    * Total se recalcula automáticamente en backend si esto cambia.
    */
-  @IsNumber() @Min(0) @IsOptional()
+  @IsNumber() @Min(0) @Max(999_999_999) @IsOptional()
   ratePerNight?: number
 
   // ── Approval para cambios significativos post-checkin ──────────────────
-  @IsString() @IsOptional()
+  @IsString() @MaxLength(50) @IsOptional()
   managerApprovalCode?: string
 
-  @IsString() @IsOptional()
+  @IsString() @MaxLength(500) @IsOptional()
   managerApprovalReason?: string
 
   /**
    * Razón general del cambio (opcional para soft fields, requerido para
    * rate/pax post-checkin junto con managerApprovalCode).
    */
-  @IsString() @IsOptional()
+  @IsString() @MaxLength(500) @IsOptional()
   reason?: string
 }

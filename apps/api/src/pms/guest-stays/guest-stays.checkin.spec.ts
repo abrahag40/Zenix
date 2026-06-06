@@ -101,9 +101,14 @@ describe('GuestStaysService — check-in alpha', () => {
   const prismaMock = {
     guestStay: {
       findUnique: jest.fn(),
+      findFirst: jest.fn().mockResolvedValue(null), // BUG #31 fix — room-occupancy guard
       update: jest.fn().mockResolvedValue({}),
     },
-    room: { update: jest.fn().mockResolvedValue({}) },
+    // BUG #31 fix — confirmCheckin ahora hace findUnique para room.category guard.
+    room: {
+      update: jest.fn().mockResolvedValue({}),
+      findUnique: jest.fn().mockResolvedValue({ category: 'PRIVATE' }),
+    },
     paymentLog: { create: jest.fn().mockResolvedValue({}) },
     exchangeRate:    { findFirst: jest.fn().mockResolvedValue(null) },
     propertyFxRate:  { findFirst: jest.fn().mockResolvedValue(null) },

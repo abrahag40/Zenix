@@ -5,10 +5,17 @@ import {
   IsNumber,
   IsInt,
   IsDateString,
+  Max,
+  MaxLength,
   Min,
+  MinLength,
 } from 'class-validator'
 import { Transform } from 'class-transformer'
 
+/**
+ * BUG #33 fix (Bloque II4) — MaxLength en text fields para prevenir DoS
+ * via storage overflow. Mismos límites que UpdateGuestStayDto.
+ */
 export class CreateGuestStayDto {
   @IsString()
   propertyId: string
@@ -16,50 +23,40 @@ export class CreateGuestStayDto {
   @IsString()
   roomId: string
 
-  @IsString()
+  @IsString() @MinLength(1) @MaxLength(100)
   firstName: string
 
-  @IsString()
+  @IsString() @MinLength(1) @MaxLength(100)
   lastName: string
 
-  @IsEmail()
-  @IsOptional()
+  @IsEmail() @MaxLength(254) @IsOptional()
   guestEmail?: string
 
-  @IsString()
-  @IsOptional()
+  @IsString() @MaxLength(20) @IsOptional()
   guestPhone?: string
 
-  @IsString()
-  @IsOptional()
+  @IsString() @MaxLength(50) @IsOptional()
   nationality?: string
 
   /**
    * Sex/gender del huésped principal. Opcional al crear; campo BI-friendly.
-   * Valores aceptados: M | F | O (other/non-binary) | N (prefer not to say).
-   * Persistido como string libre por flexibilidad cultural — el enum vive
-   * en el client si se quiere validar más estricto.
+   * Valores aceptados: M | F | O | N. Persistido como string libre.
    */
-  @IsString()
-  @IsOptional()
+  @IsString() @MaxLength(5) @IsOptional()
   guestSex?: string
 
-  @IsString()
-  @IsOptional()
+  @IsString() @MaxLength(30) @IsOptional()
   documentType?: string
 
-  @IsString()
-  @IsOptional()
+  @IsString() @MaxLength(30) @IsOptional()
   documentNumber?: string
 
   @Transform(({ value }) => parseInt(value))
-  @IsInt()
-  @Min(1)
+  @IsInt() @Min(1) @Max(20)
   adults: number
 
   @Transform(({ value }) => parseInt(value))
-  @IsInt()
-  @Min(0)
+  @IsInt() @Min(0) @Max(20)
   children: number
 
   @IsDateString()
@@ -69,36 +66,29 @@ export class CreateGuestStayDto {
   checkOut: string
 
   @Transform(({ value }) => parseFloat(value))
-  @IsNumber()
-  @Min(0)
+  @IsNumber() @Min(0) @Max(999_999_999)
   ratePerNight: number
 
-  @IsString()
+  @IsString() @MaxLength(10)
   currency: string
 
-  @IsString()
+  @IsString() @MaxLength(50)
   source: string
 
-  @IsString()
-  @IsOptional()
+  @IsString() @MaxLength(50) @IsOptional()
   otaName?: string
 
   @Transform(({ value }) => parseFloat(value))
-  @IsNumber()
-  @Min(0)
+  @IsNumber() @Min(0) @Max(999_999_999)
   amountPaid: number
 
-  @IsString()
-  @IsOptional()
+  @IsString() @MaxLength(30) @IsOptional()
   paymentMethod?: string
 
-  /** PAYMENT-MODAL-UNIFY (Fase D) — referencia del anticipo (POS auth / folio
-   *  SPEI). Se persiste en el PaymentLog del anticipo (chargeback evidence). */
-  @IsString()
-  @IsOptional()
+  /** PAYMENT-MODAL-UNIFY (Fase D) — referencia del anticipo. */
+  @IsString() @MaxLength(100) @IsOptional()
   paymentReference?: string
 
-  @IsString()
-  @IsOptional()
+  @IsString() @MaxLength(1000) @IsOptional()
   notes?: string
 }
