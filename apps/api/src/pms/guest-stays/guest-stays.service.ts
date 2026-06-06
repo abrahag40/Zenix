@@ -867,6 +867,23 @@ export class GuestStaysService {
     if (stay.noShowAt) {
       throw new BadRequestException('No se puede realizar checkout de un no-show')
     }
+    // BUG #32 fix (Bloque HH1) — checkout requiere confirmCheckin previo.
+    // Sin este guard, POST /checkout a stay con actualCheckin=null aceptaba
+    // 201 y dejaba estado inválido: actualCheckin=null + actualCheckout=set.
+    // Eso es violación de máquina de estados §1 + audit fiscal hueco (¿qué
+    // huésped se fue si nunca entró?).
+    if (!stay.actualCheckin) {
+      throw new BadRequestException({
+        code: 'CHECKIN_REQUIRED',
+        message: 'No se puede realizar checkout sin confirmar check-in primero. Si la reserva no se concretó, marca como cancelación o no-show.',
+      })
+    }
+    if (stay.cancelledAt) {
+      throw new BadRequestException({
+        code: 'CANCELLED',
+        message: 'La reserva está cancelada — no se puede realizar checkout',
+      })
+    }
 
     const now = new Date()
     const tz = stay.room.property.settings?.timezone ?? 'UTC'
@@ -1179,6 +1196,19 @@ export class GuestStaysService {
     }
     if (stay.noShowAt) {
       throw new BadRequestException('No se puede realizar checkout de un no-show')
+    }
+    // BUG #32 fix — earlyCheckout también requiere checkin previo.
+    if (!stay.actualCheckin) {
+      throw new BadRequestException({
+        code: 'CHECKIN_REQUIRED',
+        message: 'No se puede hacer checkout anticipado sin confirmar check-in primero.',
+      })
+    }
+    if (stay.cancelledAt) {
+      throw new BadRequestException({
+        code: 'CANCELLED',
+        message: 'La reserva está cancelada — no se puede realizar checkout',
+      })
     }
 
     const now = new Date()
@@ -2851,6 +2881,14 @@ export class GuestStaysService {
           `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`,
           `checkin:${stayId}`,
         )
+        // BUG #31 fix (Bloque GG4) — segundo advisory lock per-roomId.
+        // El lock per-stayId NO serializa 2 confirm-checkin a stays DISTINTAS
+        // en MISMA room. Sin este lock, 2 guests pueden "checkear-in" en la
+        // misma habitación PRIVATE concurrentemente — overbooking real.
+        await tx.$executeRawUnsafe(
+          `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`,
+          `checkin:room:${stay.roomId}`,
+        )
       } catch (e) {
         // En tests con mock prisma, $executeRawUnsafe no existe — la idempotencia
         // se valida con el findUnique recheck inmediato.
@@ -2866,6 +2904,36 @@ export class GuestStaysService {
           message:       'El check-in ya fue confirmado por otra sesión',
           actualCheckin: recheck.actualCheckin.toISOString(),
         })
+      }
+
+      // BUG #31 fix — guard contra room PRIVATE ya ocupada por otra stay.
+      // Para rooms DORMITORY multi-bed el caso es legítimo (compartido). Para
+      // PRIVATE, dos stays simultáneamente checked-in es overbooking visible.
+      const roomCategory = await tx.room.findUnique({
+        where: { id: stay.roomId },
+        select: { category: true },
+      })
+      if (roomCategory?.category === 'PRIVATE') {
+        const otherActive = await tx.guestStay.findFirst({
+          where: {
+            roomId: stay.roomId,
+            organizationId: orgId,
+            deletedAt: null,
+            actualCheckin: { not: null },
+            actualCheckout: null,
+            cancelledAt: null,
+            noShowAt: null,
+            id: { not: stayId },
+          },
+          select: { id: true, guestName: true },
+        })
+        if (otherActive) {
+          throw new ConflictException({
+            code: 'ROOM_ALREADY_OCCUPIED',
+            message: `La habitación ya está ocupada por ${otherActive.guestName}. Mueve a una habitación libre antes de confirmar el check-in.`,
+            occupyingStayId: otherActive.id,
+          })
+        }
       }
 
       // 1. Crear registros de pago (append-only)
