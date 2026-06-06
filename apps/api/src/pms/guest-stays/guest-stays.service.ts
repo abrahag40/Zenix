@@ -4541,6 +4541,19 @@ export class GuestStaysService {
     if (stay.actualCheckout) throw new ConflictException('La estadía ya hizo checkout — no se puede cancelar')
     if (stay.actualCheckin)  throw new ConflictException('El huésped ya hizo check-in — usar checkout anticipado en su lugar')
 
+    // BUG #28 fix — cancellation iniciada por HOTEL o ADMIN_ERROR debe tener
+    // razón ≥5 chars para audit trail (compliance + chargeback evidence).
+    // GUEST/OTA/SYSTEM: razón opcional (la inicia el huésped o sistema).
+    if (
+      (dto.initiator === 'HOTEL' || dto.initiator === 'ADMIN_ERROR') &&
+      (!dto.reason || dto.reason.trim().length < 5)
+    ) {
+      throw new BadRequestException({
+        code: 'REASON_REQUIRED',
+        message: `Cancelar con iniciador "${dto.initiator}" requiere una razón explícita (≥5 caracteres) para audit trail.`,
+      })
+    }
+
     const now = new Date()
     // Seed flag para v1.0.2 CFDI-CORE: si hubo CFDI I previo y la cancel es
     // legítima (no ADMIN_ERROR), v1.0.2 emitirá CFDI E + FormaPago=15 (§86).

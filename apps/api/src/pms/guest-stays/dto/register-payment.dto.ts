@@ -1,4 +1,4 @@
-import { IsArray, IsEnum, IsNumber, IsOptional, IsString, Length, Matches, Max, Min } from 'class-validator'
+import { ArrayMinSize, IsArray, IsEnum, IsNumber, IsOptional, IsString, Length, Matches, Max, Min } from 'class-validator'
 import { PaymentMethod } from '@zenix/shared'
 
 /**
@@ -70,8 +70,14 @@ export class RegisterPaymentDto {
    * Si tiene >1 entrada, el monto se distribuye proporcionalmente al balance
    * de cada stay y se crea un PaymentLog por stay (mismo transactionGroupId +
    * paidByStayId). Vacío/ausente = el pago aplica solo a la stay en contexto.
+   *
+   * BUG #27 fix — `ArrayMinSize(1)` cuando el campo viene presente. Sin esto,
+   * `appliesToStayIds: []` era aceptado silently y se trataba como pago
+   * individual — confuso para arqueo. Caller debe omitir el field si no
+   * aplica a múltiples stays (`undefined`), no enviarlo vacío.
    */
   @IsArray()
+  @ArrayMinSize(1, { message: 'appliesToStayIds vacío no permitido — omite el campo si el pago es solo para esta reserva' })
   @IsString({ each: true })
   @IsOptional()
   appliesToStayIds?: string[]

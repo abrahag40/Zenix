@@ -11,6 +11,7 @@ import {
   MinLength,
 } from 'class-validator'
 import { Transform } from 'class-transformer'
+import { StrictStringRequired } from '../../../common/dto/strict-string.decorator'
 
 /**
  * BUG #33 fix (Bloque II4) — MaxLength en text fields para prevenir DoS
@@ -23,10 +24,11 @@ export class CreateGuestStayDto {
   @IsString()
   roomId: string
 
-  @IsString() @MinLength(1) @MaxLength(100)
+  // BUG #25 fix — StrictStringRequired rechaza boolean/number/object coerced.
+  @StrictStringRequired({ minLength: 1, maxLength: 100 })
   firstName: string
 
-  @IsString() @MinLength(1) @MaxLength(100)
+  @StrictStringRequired({ minLength: 1, maxLength: 100 })
   lastName: string
 
   @IsEmail() @MaxLength(254) @IsOptional()
