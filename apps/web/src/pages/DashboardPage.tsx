@@ -1,6 +1,7 @@
 import { FxRateWidget } from '@/components/FxRateWidget'
 import { OverstayedWidget } from '@/components/OverstayedWidget'
 import { MetricsOverview } from '@/components/MetricsOverview'
+import { ForecastHeatmap } from '@/components/ForecastHeatmap'
 import { PickupSection } from '@/components/PickupSection'
 import { CompsetCard } from '@/components/CompsetCard'
 import { useAuthStore } from '@/store/auth'
@@ -28,6 +29,7 @@ export function DashboardPage() {
       </header>
 
       {propertyId && <MetricsOverview propertyId={propertyId} isSupervisor={isSupervisor} />}
+      {propertyId && <ForecastHeatmap propertyId={propertyId} isSupervisor={isSupervisor} />}
       {propertyId && <PickupSection propertyId={propertyId} isSupervisor={isSupervisor} />}
       {propertyId && <CompsetCard propertyId={propertyId} isSupervisor={isSupervisor} />}
 
