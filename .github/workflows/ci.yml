@@ -57,6 +57,16 @@ jobs:
         env:
           DATABASE_URL: postgresql://housekeeping:testpassword@localhost:5432/housekeeping_test
 
+      # Seed BD para tests de integración (multi-tenant-hierarchy,
+      # channex-crud-schema, nova-foundation, channex-management,
+      # tenant-isolation) — requieren `seed-org-1`, properties seed, y
+      # 5 channex rate plan mappings sandbox. Sin seed los e2e fallan
+      # con findFirstOrThrow / PrismaClientKnownRequestError.
+      - name: Seed test database
+        run: npm run db:seed --workspace=@zenix/api
+        env:
+          DATABASE_URL: postgresql://housekeeping:testpassword@localhost:5432/housekeeping_test
+
       # CI-RESCUE residual cerrado 2026-06-06:
       #   · Lint: ✅ blocking (desde 2026-05-15).
       #   · Test: ✅ BLOCKING. Última deuda residual cerrada:
