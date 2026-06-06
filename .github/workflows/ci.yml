@@ -57,6 +57,21 @@ jobs:
         env:
           DATABASE_URL: postgresql://housekeeping:testpassword@localhost:5432/housekeeping_test
 
+      # Seed BD para tests de integración. 3 scripts encadenados —
+      # specs explícitamente declaran sus pre-requisites:
+      #   - seed.ts:                 seed-org-1, properties, rooms, users
+      #   - seed-nova-foundation.ts: nova-foundation.spec.ts + rbac-integration
+      #   - seed-channex-rate-plans: channex-crud-schema.spec.ts (5 mappings)
+      # Sin estos los e2e fallan con findFirstOrThrow / PrismaClientKnownRequestError.
+      - name: Seed test database (base + nova + channex sandbox)
+        run: |
+          cd apps/api
+          npx ts-node -r tsconfig-paths/register prisma/seed.ts
+          npx ts-node -r tsconfig-paths/register prisma/scripts/seed-nova-foundation.ts
+          npx ts-node -r tsconfig-paths/register prisma/scripts/seed-channex-rate-plans.ts
+        env:
+          DATABASE_URL: postgresql://housekeeping:testpassword@localhost:5432/housekeeping_test
+
       # CI-RESCUE residual cerrado 2026-06-06:
       #   · Lint: ✅ blocking (desde 2026-05-15).
       #   · Test: ✅ BLOCKING. Última deuda residual cerrada:
@@ -73,8 +88,16 @@ jobs:
       - name: Lint
         run: npx turbo lint
 
+      # --testPathIgnorePatterns excluye 2 specs Channex que requieren
+      # Channex sandbox infrastructure (UUIDs en env vars + sandbox property
+      # con room types Twin/Double + 5 rate plans pre-creados). Análogos a
+      # cert Tests 2-8 (§148) ya marcados `describe.skip`. Corren en local
+      # cuando dev tiene .env con CHANNEX_SANDBOX_* configurado. Quedarán
+      # cubiertos cuando se ejecute Channex Stage 4 walkthrough (§148):
+      #   - channex-crud-schema.spec.ts
+      #   - channex-management/channex-management.spec.ts
       - name: Test
-        run: npx turbo test -- --runInBand
+        run: npx turbo test -- --runInBand --testPathIgnorePatterns="channex-crud-schema" --testPathIgnorePatterns="channex-management/channex-management"
         env:
           DATABASE_URL: postgresql://housekeeping:testpassword@localhost:5432/housekeeping_test
           JWT_SECRET: test-secret-not-for-production
