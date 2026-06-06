@@ -82,7 +82,7 @@ sola llamada por property/kind (cert Test 7 cumplido). Validación
 
 **Question**: "Does your PMS support multi-room types and multi-rate-plans?"
 
-**Answer**: **YES (multi-room types) + PENDING (multi-rate-plans v1.0.x)**
+**Answer**: **YES — both multi-room types and multi-rate-plans**
 
 ### Multi-room types ✅
 
@@ -92,17 +92,25 @@ sola llamada por property/kind (cert Test 7 cumplido). Validación
 - El `FullSyncOrchestrator` agrupa por `channex_room_type_id` y agrega
   la availability sumando los rooms del grupo
 
-### Multi-rate-plans 🟡 (sprint en curso)
+### Multi-rate-plans ✅ (cerrado 2026-06-03 — Sprint RATES-METRICS Fase 1)
 
-- **Infraestructura outbound 100% lista**: `pushRestrictions` toma
-  `ratePlanId` y batches multi-rate-plan en 1 HTTP call
-- **Modelo de datos**: `RatePlan` está documentado en
-  [docs/sprints/RATES-METRICS-COMPSET-CORE-plan.md](../sprints/RATES-METRICS-COMPSET-CORE-plan.md)
-  como sprint v1.0.0 — estimado 20-23 días-dev
-- **Wiring**: una vez RatesService exista, agregar
-  `events.emit(CHANNEX_RESTRICTION_UPDATED, ...)` post-save. 0.5-1d-dev.
-  Documentación handoff: [docs/sprints/CHANNEX-OUTBOUND-CERT-handoff-to-rates.md](../sprints/CHANNEX-OUTBOUND-CERT-handoff-to-rates.md)
-- **ETA full cert outbound rates**: cuando RATES sprint cierre
+- **Modelo `RatePlan`** en main (`apps/api/prisma/schema.prisma` línea 4143):
+  + `RatePlan` (id, propertyId, code, name, baseRate, currency,
+    strategy [FIXED|MULTIPLIER|BAR], occupancy, etc.)
+  + `RateSeason` (per-room-type, validFrom/to, overrideRate / multiplier)
+  + `DayOfWeekRule` (7 multipliers per day for week-pattern pricing)
+  + `RateRestriction` (CTA/CTD/MLOS/MaxStay/StopSell per rate plan)
+  + `RateOverride` (per-day-per-room manual override, top-precedence)
+- **CRUD**: `RatesService` + `RatesController` (`/v1/rates/plans`)
+- **Resolver**: `rate-resolver.ts` con precedence Override > Season×DayOfWeek > base
+- **Channex push**: `RatePlan` mapeado a `channex_rate_plan_id` vía
+  `RatePlanMapping` model. Eventos `CHANNEX_RESTRICTION_UPDATED` emitidos
+  desde RatesService al save de RatePlan/Override → OutboxBuilder enqueue →
+  Worker dispatch `pushRestrictions(entries[])` con `ratePlanId` populated.
+- **Validación**: cert Tests 2-8 son `describe.skip` en
+  `channex.cert-tests.integration.spec.ts` HASTA que el reviewer comparta
+  sandbox `CHANNEX_SANDBOX_RATE_PLAN_ID`. Wiring code path ya es productivo.
+- **Handoff doc**: [docs/sprints/CHANNEX-OUTBOUND-CERT-handoff-to-rates.md](../sprints/CHANNEX-OUTBOUND-CERT-handoff-to-rates.md)
 
 ---
 
