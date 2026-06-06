@@ -88,8 +88,16 @@ jobs:
       - name: Lint
         run: npx turbo lint
 
+      # --testPathIgnorePatterns excluye 2 specs Channex que requieren
+      # Channex sandbox infrastructure (UUIDs en env vars + sandbox property
+      # con room types Twin/Double + 5 rate plans pre-creados). Análogos a
+      # cert Tests 2-8 (§148) ya marcados `describe.skip`. Corren en local
+      # cuando dev tiene .env con CHANNEX_SANDBOX_* configurado. Quedarán
+      # cubiertos cuando se ejecute Channex Stage 4 walkthrough (§148):
+      #   - channex-crud-schema.spec.ts
+      #   - channex-management/channex-management.spec.ts
       - name: Test
-        run: npx turbo test -- --runInBand
+        run: npx turbo test -- --runInBand --testPathIgnorePatterns='/nova/channex-crud-schema\\.spec\\.ts|/nova/channex-management/channex-management\\.spec\\.ts'
         env:
           DATABASE_URL: postgresql://housekeeping:testpassword@localhost:5432/housekeeping_test
           JWT_SECRET: test-secret-not-for-production
