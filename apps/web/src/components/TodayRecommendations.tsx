@@ -94,7 +94,10 @@ export function TodayRecommendations({
           </div>
         </div>
       ) : (
-        <div className="space-y-2">
+        // Fix 2026-06-07: cap height + overflow para que el card ocupe el
+        // mismo alto visual que FxRate/Overstayed en el row top y no rompa
+        // el grid cuando hay 4-6 bullets.
+        <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
           {recommendations.map((rec) => {
             const Icon = ICON_BY_KIND[rec.kind]
             const tone = TONE_BY_KIND[rec.kind]

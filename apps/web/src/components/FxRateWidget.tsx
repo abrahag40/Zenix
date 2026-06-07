@@ -35,19 +35,51 @@ interface FxCurrent {
 export function FxRateWidget({ base = 'USD', quote = 'MXN' }: { base?: string; quote?: string }) {
   const propertyId = usePropertyStore((s) => s.activePropertyId)
 
-  const { data, isLoading } = useQuery<FxCurrent>({
+  const { data, isLoading, isError, refetch, isFetching } = useQuery<FxCurrent>({
     queryKey: ['fx-current', propertyId, base, quote],
     queryFn: () => api.get(`/v1/fx/current?propertyId=${propertyId}&base=${base}&quote=${quote}`),
     enabled: !!propertyId,
     staleTime: 5 * 60_000,
+    // Fix 2026-06-07: si la query falla (Banxico down, network error),
+    // auto-retry cada 5 min en lugar de quedar muerto. React Query maneja
+    // backoff exponencial entre intentos del mismo ciclo automáticamente.
+    refetchInterval: (query) => (query.state.error ? 5 * 60_000 : false),
+    retry: 2,
   })
 
-  if (isLoading || !data) {
+  if (isLoading) {
     return (
       <div className="bg-white border border-slate-200 rounded-xl p-5 animate-pulse">
         <div className="h-3 w-24 bg-slate-100 rounded mb-3" />
         <div className="h-6 w-32 bg-slate-100 rounded mb-2" />
         <div className="h-3 w-40 bg-slate-100 rounded" />
+      </div>
+    )
+  }
+
+  // Estado error: muestra mensaje + botón "Reintentar" + countdown del auto-retry.
+  if (isError || !data) {
+    return (
+      <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
+        <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+          Tipo de cambio HOY
+        </h3>
+        <div className="flex items-start gap-2 text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
+          <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+          <div className="text-xs leading-relaxed">
+            <p className="font-medium">No pudimos conectar al servicio de tipo de cambio.</p>
+            <p className="text-amber-700 mt-0.5">Reintentamos cada 5 minutos automáticamente.</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => refetch()}
+          disabled={isFetching}
+          className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <RefreshCw className={`h-3 w-3 ${isFetching ? 'animate-spin' : ''}`} />
+          {isFetching ? 'Reintentando…' : 'Reintentar ahora'}
+        </button>
       </div>
     )
   }

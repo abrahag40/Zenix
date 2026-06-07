@@ -108,7 +108,7 @@ export function MetricsOverview({ propertyId, isSupervisor }: { propertyId: stri
                 <div className="w-full rounded-t bg-indigo-400/80 group-hover:bg-indigo-600 transition-colors" style={{ height: `${h}px` }} />
                 <span className="text-[8px] text-gray-400 mt-0.5 tabular-nums">{d.date.slice(8, 10)}</span>
                 <div className="absolute bottom-full mb-1 hidden group-hover:block bg-gray-900 text-white text-[10px] rounded px-1.5 py-0.5 whitespace-nowrap z-10">
-                  {d.date.slice(5)} · {occ.toFixed(0)}% · {money(d.revpar)} RevPAR
+                  {formatSnapshotDate(d.date)} · {occ.toFixed(0)}% · {money(d.revpar)} RevPAR
                 </div>
               </div>
             )

@@ -125,12 +125,13 @@ export function PickupSection({ propertyId, isSupervisor }: { propertyId: string
         />
       </div>
 
-      {/* Series por noche futura */}
+      {/* Series por noche futura — max-w controla el sprawl horizontal en
+          cards anchas (fix 2026-06-07: blanco gigante entre contenido y badges). */}
       <div>
         <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400 mb-1.5">
           Por noche · próximas 14 noches
         </p>
-        <div className="space-y-1">
+        <div className="space-y-1 max-w-md">
           {data.series.map((r) => (
             <PickupRow key={r.stayDate} row={r} ccy={ccy} />
           ))}
@@ -220,20 +221,22 @@ function PickupRow({ row, ccy }: { row: PickupRow; ccy: string }) {
       ? 'bg-rose-50 text-rose-700'
       : 'bg-gray-50 text-gray-400'
   return (
-    <div className="grid grid-cols-[60px_1fr_72px_88px] items-center gap-2 text-[11px] tabular-nums">
-      <span className="text-gray-500">{formatDay(row.stayDate)}</span>
-      <div className="flex items-center gap-1.5 min-w-0">
+    // Layout: flex compacto con gap fijo — sin `1fr` que expandía la columna
+    // central y dejaba un blanco gigante en cards anchas (reportado 2026-06-07).
+    <div className="flex items-center gap-3 text-[11px] tabular-nums">
+      <span className="text-gray-500 w-[60px] flex-shrink-0">{formatDay(row.stayDate)}</span>
+      <div className="flex items-center gap-1.5 flex-1 min-w-0">
         <span className="text-gray-900 font-medium">{row.roomsOnBooks}</span>
         <span className="text-gray-400">hab.</span>
         <span className="text-gray-300">·</span>
         <span className="text-gray-400">{row.occupancyPercent.toFixed(0)}%</span>
       </div>
-      <span className={`px-1.5 py-0.5 rounded text-[10px] flex items-center gap-0.5 justify-center ${badgeCls}`}>
+      <span className={`px-1.5 py-0.5 rounded text-[10px] flex items-center gap-0.5 justify-center w-[72px] flex-shrink-0 ${badgeCls}`}>
         {Icon && <Icon className="h-3 w-3" />}
         {row.roomsPickup > 0 ? '+' : ''}
         {row.roomsPickup}
       </span>
-      <span className={`px-1.5 py-0.5 rounded text-[10px] text-right ${badgeCls}`}>
+      <span className={`px-1.5 py-0.5 rounded text-[10px] text-right w-[88px] flex-shrink-0 ${badgeCls}`}>
         {row.revenuePickup > 0 ? '+' : ''}
         {formatMoney(row.revenuePickup, ccy)}
       </span>

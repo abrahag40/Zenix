@@ -85,7 +85,14 @@ export function OverstayedWidget() {
         )}
       </div>
 
-      <ul className="divide-y divide-slate-100 border-t border-slate-100">
+      {/* Fix 2026-06-07: cap height + overflow-y-auto cuando se expande →
+          evita card super largo cuando hay 10+ overstayed.
+          Cap visible default (collapsed=3) sin scroll; expanded cap a 18rem (~6 rows). */}
+      <ul
+        className={`divide-y divide-slate-100 border-t border-slate-100 ${
+          expanded ? 'max-h-72 overflow-y-auto pr-1' : ''
+        }`}
+      >
         {visible.map((s) => {
           const days = Math.floor(s.hoursOverdue / 24)
           const label = days >= 1 ? `${days}d` : `${s.hoursOverdue}h`

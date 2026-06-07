@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
+import { humanizeOtaName } from '@zenix/shared'
 import { PrismaService } from '../../../prisma/prisma.service'
 import { NotificationsService } from '../../../notifications/notifications.service'
 import { PushService } from '../../../notifications/push.service'
@@ -45,8 +46,9 @@ export class ChannexNotifService {
   }): Promise<{ notificationId: string }> {
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7d window
 
-    const title = `Conflicto Channex — ${args.otaName ?? 'OTA'}`
-    const body = ChannexNotifService.bodyForReason(args.reason, args.otaName)
+    const otaDisplay = humanizeOtaName(args.otaName)
+    const title = `Conflicto Channex — ${otaDisplay}`
+    const body = ChannexNotifService.bodyForReason(args.reason, otaDisplay)
 
     const notif = await this.prisma.appNotification.create({
       data: {
@@ -161,7 +163,7 @@ export class ChannexNotifService {
   }): Promise<{ notificationId: string }> {
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7d
 
-    const ota = args.otaName ?? 'OTA'
+    const ota = humanizeOtaName(args.otaName)
     const title = args.hasConflicts
       ? `Grupo de ${args.roomCount} habs requiere asignación — ${ota}`
       : `Grupo de ${args.roomCount} habs recibido — ${ota}`

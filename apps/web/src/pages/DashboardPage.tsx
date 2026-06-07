@@ -29,16 +29,21 @@ export function DashboardPage() {
         </p>
       </header>
 
-      {propertyId && <TodayRecommendations propertyId={propertyId} isSupervisor={isSupervisor} />}
+      {/* Top row — 3 cards en grid responsivo (fix layout 2026-06-07):
+          FxRate + Overstayed son los "vistazos rápidos" (status del negocio
+          ahora), TodayRecommendations rellena el espacio derecho con qué
+          hacer hoy. items-start mantiene alineación arriba sin estirar el
+          de menor altura. */}
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 items-start">
+        <FxRateWidget />
+        <OverstayedWidget />
+        {propertyId && <TodayRecommendations propertyId={propertyId} isSupervisor={isSupervisor} />}
+      </section>
+
       {propertyId && <MetricsOverview propertyId={propertyId} isSupervisor={isSupervisor} />}
       {propertyId && <ForecastHeatmap propertyId={propertyId} isSupervisor={isSupervisor} />}
       {propertyId && <PickupSection propertyId={propertyId} isSupervisor={isSupervisor} />}
       {propertyId && <CompsetCard propertyId={propertyId} isSupervisor={isSupervisor} />}
-
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <FxRateWidget />
-        <OverstayedWidget />
-      </section>
     </div>
   )
 }
