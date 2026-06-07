@@ -11,8 +11,9 @@
  * Honesto: son métricas de ACTUALS (días cerrados), no "hoy en vivo".
  */
 import { useMemo } from 'react'
-import { TrendingUp, Info } from 'lucide-react'
+import { TrendingUp } from 'lucide-react'
 import { useMetricsRange, type MetricsSnapshot } from '@/hooks/useMetrics'
+import { InfoTooltip } from '@/components/InfoTooltip'
 
 function formatSnapshotDate(iso: string): string {
   const [y, m, d] = iso.slice(0, 10).split('-').map(Number)
@@ -182,9 +183,7 @@ function KpiTile({
         <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: accent }}>
           {label}
         </span>
-        <span title={info} style={{ cursor: 'help', color: 'var(--zx-ink-4)', display: 'inline-flex' }}>
-          <Info size={11} />
-        </span>
+        <InfoTooltip text={info} position="bottom" />
       </div>
       <span style={{ fontSize: 24, fontWeight: 600, letterSpacing: '-0.022em', lineHeight: 1, color: 'var(--zx-ink-1)', fontVariantNumeric: 'tabular-nums' }}>
         {value}

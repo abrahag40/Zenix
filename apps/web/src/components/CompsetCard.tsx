@@ -105,15 +105,50 @@ export function CompsetCard({ propertyId, isSupervisor }: { propertyId: string; 
         </div>
       )}
 
-      {/* Tabla con bar viz inline */}
+      {/* Leyenda al top de la tabla — siempre visible antes de las filas */}
+      <div style={{ display: 'flex', gap: 16, fontSize: 11, color: 'var(--zx-ink-3)', flexWrap: 'wrap', alignItems: 'center' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ width: 11, height: 11, borderRadius: 999, background: 'var(--zx-accent)', border: '2px solid var(--zx-surface)', boxShadow: '0 0 0 1px var(--zx-accent)', flexShrink: 0 }} />
+          <strong style={{ color: 'var(--zx-ink-1)', fontWeight: 500 }}>Tu rate</strong>
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ width: 8, height: 8, borderRadius: 999, background: 'var(--zx-ink-2)', flexShrink: 0 }} />
+          Mediana compset
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ width: 16, height: 3, borderRadius: 999, background: 'var(--zx-line-strong)', flexShrink: 0 }} />
+          Rango mín-máx
+        </span>
+      </div>
+
+      {/* Tabla con bar viz inline.
+          Grid columnas EXPLÍCITAS: noche | mi rate | min | barViz | max | mediana | Δ%
+          Cada celda con padding y alineación claros. */}
       <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid var(--zx-line)' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '64px 80px 1fr 80px 60px', gap: 0, padding: '10px 14px', background: 'var(--zx-surface-soft)', fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--zx-ink-3)' }}>
+        {/* Header */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '70px 80px 70px 1fr 70px 80px 70px',
+            gap: 12,
+            padding: '10px 14px',
+            background: 'var(--zx-surface-soft)',
+            fontSize: 10,
+            fontWeight: 600,
+            letterSpacing: '0.05em',
+            textTransform: 'uppercase',
+            color: 'var(--zx-ink-3)',
+          }}
+        >
           <span>Noche</span>
           <span style={{ textAlign: 'right' }}>Mi rate</span>
-          <span style={{ paddingLeft: 12 }}>Rango compset</span>
+          <span style={{ textAlign: 'right' }}>Mín</span>
+          <span style={{ textAlign: 'center' }}>Posición vs compset</span>
+          <span style={{ textAlign: 'left' }}>Máx</span>
           <span style={{ textAlign: 'right' }}>Mediana</span>
           <span style={{ textAlign: 'right' }}>Δ%</span>
         </div>
+        {/* Rows */}
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           {matrix.map((m, i) => {
             const myRate = myRateByDate.get(m.iso)
@@ -121,21 +156,37 @@ export function CompsetCard({ propertyId, isSupervisor }: { propertyId: string; 
             const tone = deltaTone(delta)
             const DeltaIcon = delta == null ? null : delta > 5 ? ArrowUpRight : delta < -5 ? ArrowDownRight : Minus
 
-            // Bar viz positions
             const minPct = m.min != null ? ((m.min - globalMin) / range) * 100 : null
             const maxPct = m.max != null ? ((m.max - globalMin) / range) * 100 : null
             const medianPct = m.median != null ? ((m.median - globalMin) / range) * 100 : null
             const myPct = myRate != null ? ((myRate - globalMin) / range) * 100 : null
 
             return (
-              <div key={m.iso} style={{ display: 'grid', gridTemplateColumns: '64px 80px 1fr 80px 60px', gap: 0, padding: '10px 14px', alignItems: 'center', borderTop: i > 0 ? '1px solid var(--zx-line-subtle)' : 'none', fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
+              <div
+                key={m.iso}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '70px 80px 70px 1fr 70px 80px 70px',
+                  gap: 12,
+                  padding: '10px 14px',
+                  alignItems: 'center',
+                  borderTop: i > 0 ? '1px solid var(--zx-line-subtle)' : 'none',
+                  fontSize: 12,
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
                 <span style={{ color: 'var(--zx-ink-3)' }}>{formatDay(m.iso)}</span>
+
                 <span style={{ textAlign: 'right', fontWeight: 600, color: 'var(--zx-ink-1)' }}>
                   {myRate != null ? `${ccy} ${Math.round(myRate)}` : <span style={{ color: 'var(--zx-ink-4)' }}>—</span>}
                 </span>
 
-                {/* Compset range bar viz */}
-                <div style={{ position: 'relative', height: 18, marginLeft: 12, marginRight: 12 }}>
+                <span style={{ textAlign: 'right', color: 'var(--zx-ink-3)', fontSize: 11 }}>
+                  {m.min != null ? `${ccy} ${Math.round(m.min)}` : '—'}
+                </span>
+
+                {/* Bar viz — centrado dentro de su columna */}
+                <div style={{ position: 'relative', height: 22 }}>
                   {minPct != null && maxPct != null && (
                     <div
                       style={{
@@ -155,11 +206,11 @@ export function CompsetCard({ propertyId, isSupervisor }: { propertyId: string; 
                         position: 'absolute',
                         top: '50%', transform: 'translate(-50%, -50%)',
                         left: `${medianPct}%`,
-                        width: 7, height: 7, borderRadius: 999,
+                        width: 8, height: 8, borderRadius: 999,
                         background: 'var(--zx-ink-2)',
                         border: '1.5px solid var(--zx-surface)',
                       }}
-                      title="Mediana del compset"
+                      title={`Mediana ${ccy} ${m.median!.toFixed(0)}`}
                     />
                   )}
                   {myPct != null && (
@@ -168,22 +219,27 @@ export function CompsetCard({ propertyId, isSupervisor }: { propertyId: string; 
                         position: 'absolute',
                         top: '50%', transform: 'translate(-50%, -50%)',
                         left: `${myPct}%`,
-                        width: 11, height: 11, borderRadius: 999,
+                        width: 12, height: 12, borderRadius: 999,
                         background: 'var(--zx-accent)',
                         border: '2px solid var(--zx-surface)',
                         boxShadow: '0 0 0 1px var(--zx-accent)',
                       }}
-                      title="Tu rate"
+                      title={`Tu rate ${ccy} ${myRate!.toFixed(0)}`}
                     />
                   )}
                 </div>
 
+                <span style={{ textAlign: 'left', color: 'var(--zx-ink-3)', fontSize: 11 }}>
+                  {m.max != null ? `${ccy} ${Math.round(m.max)}` : '—'}
+                </span>
+
                 <span style={{ textAlign: 'right', color: 'var(--zx-ink-2)' }}>
                   {m.median != null ? `${ccy} ${Math.round(m.median)}` : '—'}
                 </span>
+
                 <span style={{ textAlign: 'right' }}>
                   {delta == null ? <span style={{ color: 'var(--zx-ink-4)' }}>—</span> : (
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, padding: '2px 6px', borderRadius: 999, background: tone.bg, color: tone.fg, fontSize: 11, fontWeight: 500 }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, padding: '2px 8px', borderRadius: 999, background: tone.bg, color: tone.fg, fontSize: 11, fontWeight: 500 }}>
                       {DeltaIcon && <DeltaIcon size={10} />}{delta > 0 ? '+' : ''}{delta.toFixed(0)}%
                     </span>
                   )}
@@ -192,22 +248,6 @@ export function CompsetCard({ propertyId, isSupervisor }: { propertyId: string; 
             )
           })}
         </div>
-      </div>
-
-      {/* Leyenda mini */}
-      <div style={{ display: 'flex', gap: 14, fontSize: 11, color: 'var(--zx-ink-3)' }}>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-          <span style={{ width: 11, height: 11, borderRadius: 999, background: 'var(--zx-accent)', border: '2px solid var(--zx-surface)', boxShadow: '0 0 0 1px var(--zx-accent)' }} />
-          Tu rate
-        </span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-          <span style={{ width: 7, height: 7, borderRadius: 999, background: 'var(--zx-ink-2)' }} />
-          Mediana compset
-        </span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-          <span style={{ width: 14, height: 3, borderRadius: 999, background: 'var(--zx-line-strong)' }} />
-          Rango mín-máx
-        </span>
       </div>
 
       {/* Local events */}
