@@ -1,0 +1,361 @@
+/**
+ * Zenix Command Center — design tokens.
+ *
+ * Filosofía consolidada de research cross-industry (Linear, Vercel/Geist,
+ * Stripe, Raycast, Arc, Superhuman):
+ *
+ *   1. RESTRAINT  — monochrome foundation, acento como puntuación (no decoración)
+ *   2. DENSITY    — instrument-panel feel, jerarquía por LUMINANCIA no por peso
+ *   3. CRAFT      — bordes finos > sombras pesadas, tabular-nums + tight tracking
+ *   4. RATIONED   — 1 sola acción primaria por zona; el ojo va al lugar correcto
+ *
+ * NO TOCAR colors via Tailwind defaults. SIEMPRE usar var(--zx-*) custom
+ * properties para que el design system sea swappable y consistente.
+ */
+
+:root {
+  /* ── Surface stack ──────────────────────────────────────────────────────
+   * Pattern Linear: NO usar puro #FFF como fondo. Apilamos surfaces sobre
+   * un canvas levemente teñido para que las cards "floten" sin sombras.
+   * Canvas absorbe la luz, cards reflejan. Luminance hierarchy.
+   */
+  --zx-canvas:        oklch(0.985 0.002 240);   /* page background */
+  --zx-surface:       oklch(1 0 0);              /* default card */
+  --zx-surface-soft:  oklch(0.97 0.003 240);    /* nested card / chip */
+  --zx-surface-deep:  oklch(0.13 0.01 240);     /* hero strip (inverted) */
+
+  /* ── Border stack — depth via 1px alpha lines (Raycast / Arc) ───────── */
+  --zx-line-subtle:   oklch(0.92 0.005 240);    /* divider apenas visible */
+  --zx-line:          oklch(0.88 0.006 240);    /* default border */
+  --zx-line-strong:   oklch(0.82 0.008 240);    /* hover/focus border */
+
+  /* ── Ink — text by luminance, NOT weight ────────────────────────────── */
+  --zx-ink-1:         oklch(0.18 0.012 240);    /* primary text — headlines */
+  --zx-ink-2:         oklch(0.40 0.010 240);    /* body / metric labels */
+  --zx-ink-3:         oklch(0.58 0.008 240);    /* caption / meta */
+  --zx-ink-4:         oklch(0.72 0.006 240);    /* placeholder / disabled */
+  --zx-ink-on-deep:   oklch(0.97 0.005 240);    /* text on dark hero strip */
+
+  /* ── Accent — rationed (single primary action per zone) ─────────────── */
+  --zx-accent:        oklch(0.52 0.20 270);     /* indigo crisp */
+  --zx-accent-hover:  oklch(0.46 0.22 270);
+  --zx-accent-soft:   oklch(0.96 0.04 270);     /* subtle bg para chips */
+  --zx-accent-ink:    oklch(0.98 0.01 270);
+
+  /* ── Semantic status (Mehrabian-Russell + §31 Zenix) ────────────────── */
+  --zx-positive:      oklch(0.58 0.15 152);     /* emerald — al día / good */
+  --zx-positive-soft: oklch(0.95 0.04 152);
+  --zx-warn:          oklch(0.72 0.16 75);      /* amber — atención */
+  --zx-warn-soft:     oklch(0.96 0.06 75);
+  --zx-urgent:        oklch(0.58 0.21 25);      /* rose — acción urgente */
+  --zx-urgent-soft:   oklch(0.96 0.04 25);
+
+  /* ── Live state — pulsing dot ───────────────────────────────────────── */
+  --zx-live:          var(--zx-positive);
+
+  /* ── Type scale (Linear-like) — tight, modular ──────────────────────── */
+  --zx-text-micro:    10px;
+  --zx-text-meta:     11px;
+  --zx-text-caption:  12px;
+  --zx-text-body:     13px;
+  --zx-text-title:    15px;
+  --zx-text-display:  22px;
+  --zx-text-hero:     34px;
+
+  --zx-leading-tight: 1.15;
+  --zx-leading-snug:  1.35;
+  --zx-leading-body:  1.5;
+
+  --zx-tracking-tight: -0.01em;
+  --zx-tracking-cap:   0.06em;     /* uppercase labels */
+
+  /* ── Spacing — 4pt grid ─────────────────────────────────────────────── */
+  --zx-s1: 4px;
+  --zx-s2: 8px;
+  --zx-s3: 12px;
+  --zx-s4: 16px;
+  --zx-s5: 20px;
+  --zx-s6: 24px;
+  --zx-s7: 32px;
+  --zx-s8: 40px;
+
+  /* ── Radii ──────────────────────────────────────────────────────────── */
+  --zx-radius-xs: 4px;
+  --zx-radius-sm: 6px;
+  --zx-radius-md: 10px;
+  --zx-radius-lg: 14px;
+  --zx-radius-xl: 20px;
+
+  /* ── Shadows — fin y subtle, NO drop shadow heavy ───────────────────── */
+  --zx-shadow-inset:  inset 0 1px 0 0 oklch(1 0 0 / 0.4);
+  --zx-shadow-lift:   0 1px 2px 0 oklch(0.13 0.01 240 / 0.04), 0 1px 1px 0 oklch(0.13 0.01 240 / 0.03);
+  --zx-shadow-hover:  0 4px 12px 0 oklch(0.13 0.01 240 / 0.06), 0 2px 4px 0 oklch(0.13 0.01 240 / 0.04);
+  --zx-shadow-focus:  0 0 0 3px oklch(0.52 0.20 270 / 0.20);
+
+  /* ── Motion (existente, mantenemos) ─────────────────────────────────── */
+  --zx-ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
+  --zx-ease-sharp:  cubic-bezier(0.55, 0, 1, 0.45);
+  --zx-dur-fast:    120ms;
+  --zx-dur-med:     200ms;
+  --zx-dur-slow:    320ms;
+}
+
+/* ── Primitives — clases custom (NO Tailwind defaults) ──────────────── */
+
+/** Card surface — borde fino, sin shadow heavy. Pattern Linear/Vercel. */
+.zx-card {
+  background: var(--zx-surface);
+  border: 1px solid var(--zx-line);
+  border-radius: var(--zx-radius-lg);
+  box-shadow: var(--zx-shadow-lift);
+  transition: border-color var(--zx-dur-fast) var(--zx-ease-spring),
+              box-shadow var(--zx-dur-fast) var(--zx-ease-spring);
+}
+.zx-card:hover {
+  border-color: var(--zx-line-strong);
+}
+
+/** Card variant — soft (nested, no border) */
+.zx-card--soft {
+  background: var(--zx-surface-soft);
+  border: 1px solid transparent;
+  box-shadow: none;
+}
+
+/** Card variant — deep (hero strip dark surface) */
+.zx-card--deep {
+  background: var(--zx-surface-deep);
+  border: 1px solid oklch(1 0 0 / 0.08);
+  color: var(--zx-ink-on-deep);
+  box-shadow: var(--zx-shadow-lift);
+}
+
+/** Section label — micro caps, modular tracking. Linear-like. */
+.zx-eyebrow {
+  font-size: var(--zx-text-micro);
+  font-weight: 600;
+  letter-spacing: var(--zx-tracking-cap);
+  text-transform: uppercase;
+  color: var(--zx-ink-3);
+  line-height: var(--zx-leading-tight);
+}
+
+/** Section title */
+.zx-title {
+  font-size: var(--zx-text-title);
+  font-weight: 600;
+  letter-spacing: var(--zx-tracking-tight);
+  color: var(--zx-ink-1);
+  line-height: var(--zx-leading-snug);
+}
+
+/** Big metric number — display weight con tabular-nums */
+.zx-metric {
+  font-size: var(--zx-text-display);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--zx-ink-1);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum', 'cv11', 'ss01';
+}
+.zx-metric--hero {
+  font-size: var(--zx-text-hero);
+}
+
+/** Caption / supporting micro-text */
+.zx-meta {
+  font-size: var(--zx-text-meta);
+  color: var(--zx-ink-3);
+  line-height: var(--zx-leading-snug);
+}
+.zx-meta--strong {
+  color: var(--zx-ink-2);
+  font-weight: 500;
+}
+
+/** Primary action — rationed accent (Linear "single primary per screen") */
+.zx-action-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--zx-s2);
+  padding: 8px 14px;
+  background: var(--zx-accent);
+  color: var(--zx-accent-ink);
+  border: none;
+  border-radius: var(--zx-radius-md);
+  font-size: var(--zx-text-body);
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  cursor: pointer;
+  transition: background var(--zx-dur-fast) var(--zx-ease-spring),
+              transform var(--zx-dur-fast) var(--zx-ease-spring);
+  box-shadow: var(--zx-shadow-inset);
+}
+.zx-action-primary:hover {
+  background: var(--zx-accent-hover);
+}
+.zx-action-primary:active {
+  transform: translateY(0.5px) scale(0.99);
+}
+.zx-action-primary:focus-visible {
+  outline: none;
+  box-shadow: var(--zx-shadow-inset), var(--zx-shadow-focus);
+}
+
+/** Ghost action — secundario, sin background */
+.zx-action-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--zx-s2);
+  padding: 8px 12px;
+  background: transparent;
+  color: var(--zx-ink-2);
+  border: 1px solid var(--zx-line);
+  border-radius: var(--zx-radius-md);
+  font-size: var(--zx-text-body);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--zx-dur-fast) var(--zx-ease-spring);
+}
+.zx-action-ghost:hover {
+  border-color: var(--zx-line-strong);
+  color: var(--zx-ink-1);
+}
+
+/** Quiet action — link-like */
+.zx-action-quiet {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--zx-s1);
+  color: var(--zx-accent);
+  font-size: var(--zx-text-caption);
+  font-weight: 500;
+  cursor: pointer;
+  transition: color var(--zx-dur-fast);
+  background: none;
+  border: none;
+  padding: 0;
+}
+.zx-action-quiet:hover {
+  color: var(--zx-accent-hover);
+}
+
+/** Action row — clickable list item con affordance (chevron right) */
+.zx-action-row {
+  display: flex;
+  align-items: center;
+  gap: var(--zx-s3);
+  padding: var(--zx-s3) var(--zx-s4);
+  border-radius: var(--zx-radius-md);
+  cursor: pointer;
+  transition: background var(--zx-dur-fast) var(--zx-ease-spring);
+  text-align: left;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: inherit;
+}
+.zx-action-row:hover {
+  background: var(--zx-surface-soft);
+}
+.zx-action-row:active {
+  background: var(--zx-line-subtle);
+}
+
+/** Status chip — pill compact. NO solid background heavy. */
+.zx-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--zx-s1);
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: var(--zx-text-micro);
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.5;
+  border: 1px solid transparent;
+}
+.zx-chip--positive {
+  background: var(--zx-positive-soft);
+  color: oklch(0.32 0.10 152);
+  border-color: oklch(0.58 0.15 152 / 0.18);
+}
+.zx-chip--warn {
+  background: var(--zx-warn-soft);
+  color: oklch(0.40 0.13 75);
+  border-color: oklch(0.72 0.16 75 / 0.22);
+}
+.zx-chip--urgent {
+  background: var(--zx-urgent-soft);
+  color: oklch(0.40 0.18 25);
+  border-color: oklch(0.58 0.21 25 / 0.22);
+}
+.zx-chip--neutral {
+  background: var(--zx-surface-soft);
+  color: var(--zx-ink-2);
+  border-color: var(--zx-line);
+}
+
+/** Live dot — pulsing indicator (Apple HIG status visibility) */
+.zx-live-dot {
+  position: relative;
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--zx-live);
+  flex-shrink: 0;
+}
+.zx-live-dot::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  background: var(--zx-live);
+  opacity: 0.35;
+  animation: zx-pulse 2s var(--zx-ease-spring) infinite;
+}
+@keyframes zx-pulse {
+  0%   { transform: scale(0.9); opacity: 0.4; }
+  70%  { transform: scale(1.8); opacity: 0;   }
+  100% { transform: scale(1.8); opacity: 0;   }
+}
+@media (prefers-reduced-motion: reduce) {
+  .zx-live-dot::after { animation: none; opacity: 0.5; }
+}
+
+/** Divider — 1px subtle line */
+.zx-divider {
+  height: 1px;
+  background: var(--zx-line);
+  border: none;
+}
+
+/** Eyebrow row — eyebrow + count chip */
+.zx-eyebrow-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--zx-s2);
+}
+
+/** Stat tile — compact metric tile usable inside cards */
+.zx-stat-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--zx-s2);
+  padding: var(--zx-s4);
+  background: var(--zx-surface);
+  border: 1px solid var(--zx-line);
+  border-radius: var(--zx-radius-md);
+  transition: all var(--zx-dur-fast) var(--zx-ease-spring);
+}
+.zx-stat-tile:hover {
+  border-color: var(--zx-line-strong);
+  background: var(--zx-surface);
+}
+.zx-stat-tile--soft {
+  background: var(--zx-surface-soft);
+  border-color: transparent;
+}
