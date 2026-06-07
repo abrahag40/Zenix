@@ -1,24 +1,27 @@
 /**
- * MetricsOverview — sección de KPIs del dashboard (Fase 2 RATES-METRICS).
+ * MetricsOverview — KPIs del último cierre + tendencia 14d + channel mix.
  *
- * Consume `/v1/metrics/range` (snapshots diarios). Muestra el último cierre como
- * headline (ocupación / ADR / RevPAR / ingreso) + tendencia de ocupación 14 días
- * + mix por canal del último día. SUPERVISOR-only (revenue) — el caller gatea por
- * rol; el endpoint además responde 403 a no-supervisores.
+ * Rediseño 2026-06-07 al design system zx-* del Command Center (owner pidió
+ * coherencia visual cross-card). Patrón Behance "KPI cards con sparkline + chart":
+ *   · 4 KPI tiles top (Ocupación / ADR / RevPAR / Ingreso)
+ *   · Bar chart 14d ocupación
+ *   · Channel mix donut
  *
- * Honesto: son métricas de ACTUALS (días cerrados), no "hoy en vivo". Por eso el
- * headline dice "Último cierre", no "Hoy".
+ * SUPERVISOR-only (revenue). El endpoint además responde 403 a no-supervisores.
+ * Honesto: son métricas de ACTUALS (días cerrados), no "hoy en vivo".
  */
 import { useMemo } from 'react'
-import { TrendingUp, BedDouble, DollarSign, Percent, Info } from 'lucide-react'
+import { TrendingUp, Info } from 'lucide-react'
 import { useMetricsRange, type MetricsSnapshot } from '@/hooks/useMetrics'
-import { InfoTooltip } from '@/components/InfoTooltip'
 
-/** Formatea ISO "YYYY-MM-DD" → "2 jun 2026" en español, sin sufrir TZ shift. */
 function formatSnapshotDate(iso: string): string {
   const [y, m, d] = iso.slice(0, 10).split('-').map(Number)
   const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
   return `${d} ${months[m - 1]} ${y}`
+}
+function shortDay(iso: string): string {
+  const [, , d] = iso.slice(0, 10).split('-').map(Number)
+  return String(d)
 }
 
 export function MetricsOverview({ propertyId, isSupervisor }: { propertyId: string; isSupervisor: boolean }) {
@@ -30,16 +33,20 @@ export function MetricsOverview({ propertyId, isSupervisor }: { propertyId: stri
   const { data = [], isLoading, isError } = useMetricsRange(propertyId, from, to, isSupervisor)
 
   if (!isSupervisor) return null
-  if (isError) return null // 403 o sin datos → no romper el dashboard
+  if (isError) return null
   if (isLoading) {
-    return <div className="bg-white border border-gray-200 rounded-xl p-5 text-sm text-gray-400">Cargando métricas…</div>
+    return (
+      <div className="zx-card" style={{ padding: 20 }}>
+        <p className="zx-meta">Cargando métricas…</p>
+      </div>
+    )
   }
   if (data.length === 0) {
     return (
-      <div className="bg-white border border-gray-200 rounded-xl p-5">
-        <p className="text-sm font-medium text-gray-700">Métricas</p>
-        <p className="text-xs text-gray-400 mt-1">
-          Aún no hay snapshots diarios. Se generan cada noche; el supervisor puede reconstruir el
+      <div className="zx-card" style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <span className="zx-eyebrow">Desempeño</span>
+        <p style={{ fontSize: 13, color: 'var(--zx-ink-3)' }}>
+          Aún no hay snapshots diarios. El cron nocturno los genera; el supervisor puede reconstruir el
           histórico desde Configuración.
         </p>
       </div>
@@ -48,103 +55,141 @@ export function MetricsOverview({ propertyId, isSupervisor }: { propertyId: stri
 
   const latest = data[data.length - 1]
   const ccy = latest.baseCurrency
-  const money = (n: string | number) => `${ccy} ${Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+  const money = (n: string | number) =>
+    `${ccy} ${Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
   const maxOcc = Math.max(...data.map((d) => Number(d.occupancyPercent)), 1)
-
-  // Narrativa plain-language — compara último cierre vs promedio histórico
   const latestOcc = Number(latest.occupancyPercent)
-  const histAvg =
-    data.length > 1
-      ? data.slice(0, -1).reduce((s, d) => s + Number(d.occupancyPercent), 0) / (data.length - 1)
-      : null
+  const histAvg = data.length > 1
+    ? data.slice(0, -1).reduce((s, d) => s + Number(d.occupancyPercent), 0) / (data.length - 1)
+    : null
   const histDelta = histAvg != null ? latestOcc - histAvg : null
   const narrativeBand =
-    histDelta == null
-      ? 'sin histórico para comparar todavía.'
-      : histDelta >= 5
-        ? `por encima de tu promedio (${histAvg!.toFixed(0)}% últimas 2 semanas).`
-        : histDelta <= -5
-          ? `por debajo de tu promedio (${histAvg!.toFixed(0)}% últimas 2 semanas).`
-          : `en línea con tu promedio (${histAvg!.toFixed(0)}% últimas 2 semanas).`
+    histDelta == null ? 'sin histórico para comparar todavía.'
+    : histDelta >= 5 ? `por encima de tu promedio (${histAvg!.toFixed(0)}% últimas 2 semanas).`
+    : histDelta <= -5 ? `por debajo de tu promedio (${histAvg!.toFixed(0)}% últimas 2 semanas).`
+    : `en línea con tu promedio (${histAvg!.toFixed(0)}% últimas 2 semanas).`
 
   return (
-    <section className="bg-white border border-gray-200 rounded-xl p-5 space-y-5">
-      <div className="flex items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-1.5">
-          <TrendingUp className="h-4 w-4 text-indigo-600" /> Desempeño
-          <InfoTooltip text="Resumen de cómo cerró el último día con datos completos. Los snapshots se generan cada noche durante el cierre — esta NO es la foto de hoy en vivo, es 'cómo terminó ayer'." />
-        </h2>
-        <span className="text-[11px] text-gray-400">Último cierre · {formatSnapshotDate(latest.date)}</span>
+    <section className="zx-card" style={{ padding: 22, display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+        <div>
+          <span className="zx-eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <TrendingUp size={11} style={{ color: 'var(--zx-accent)' }} /> Desempeño
+          </span>
+          <h2 className="zx-card-h" style={{ marginTop: 6 }}>Cómo cerró tu último día</h2>
+          <p style={{ fontSize: 13, color: 'var(--zx-ink-2)', marginTop: 6, lineHeight: 1.5 }}>
+            Vendiste <strong style={{ color: 'var(--zx-ink-1)' }}>{latest.roomsSold} de {latest.totalRoomsAvailable}</strong> cuartos ({latestOcc.toFixed(0)}%) — {narrativeBand}
+          </p>
+        </div>
+        <span className="zx-meta">Último cierre · {formatSnapshotDate(latest.date)}</span>
+      </header>
+
+      {/* 4 KPI tiles — pattern Behance dashboard cards top row */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12 }}>
+        <KpiTile
+          label="Ocupación"
+          value={`${latestOcc.toFixed(0)}%`}
+          hint={`${latest.roomsSold}/${latest.totalRoomsAvailable} hab.`}
+          accent="oklch(0.52 0.20 270)"
+          tintBg="oklch(0.99 0.005 270)"
+          info="Porcentaje de habitaciones vendidas vs. disponibles. Fórmula USALI: vendidas ÷ disponibles × 100."
+        />
+        <KpiTile
+          label="ADR"
+          value={money(latest.adr)}
+          hint="tarifa promedio"
+          accent="oklch(0.55 0.15 152)"
+          tintBg="oklch(0.99 0.005 152)"
+          info="Average Daily Rate (USALI). Tarifa promedio cobrada por habitación vendida esa noche."
+        />
+        <KpiTile
+          label="RevPAR"
+          value={money(latest.revpar)}
+          hint="ingreso ÷ hab. disp."
+          accent="oklch(0.55 0.16 200)"
+          tintBg="oklch(0.99 0.005 200)"
+          info="Revenue Per Available Room. KPI maestro: ADR × ocupación. Combina precio y demanda."
+        />
+        <KpiTile
+          label="Ingreso hab."
+          value={money(latest.roomRevenue)}
+          hint="esa noche"
+          accent="oklch(0.62 0.17 75)"
+          tintBg="oklch(0.99 0.005 75)"
+          info="Suma de tarifas de la noche cerrada. No incluye impuestos ni cargos extra."
+        />
       </div>
 
-      {/* Narrative plain-language */}
-      <p className="text-[12px] text-gray-600 leading-relaxed -mt-2">
-        Vendiste <span className="font-medium text-gray-900">{latest.roomsSold} de {latest.totalRoomsAvailable}</span>{' '}
-        cuartos ({latestOcc.toFixed(0)}%) — {narrativeBand}
-      </p>
-
-      {/* Headline KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <KpiTile icon={Percent} label="Ocupación" value={`${Number(latest.occupancyPercent).toFixed(0)}%`}
-          hint={`${latest.roomsSold}/${latest.totalRoomsAvailable} hab.`} tone="indigo"
-          info="Porcentaje de habitaciones vendidas vs. habitaciones disponibles (USALI). Fórmula: hab. vendidas ÷ hab. disponibles × 100. Excluye OUT_OF_SERVICE, cancelaciones y no-shows. El día de checkout no cuenta como noche." />
-        <KpiTile icon={DollarSign} label="ADR" value={money(latest.adr)} hint="tarifa promedio" tone="emerald"
-          info="Average Daily Rate (USALI). Tarifa promedio cobrada por habitación vendida esa noche. Fórmula: ingreso de habitaciones ÷ habitaciones vendidas. No incluye F&B ni cargos extra." />
-        <KpiTile icon={TrendingUp} label="RevPAR" value={money(latest.revpar)} hint="ingreso/hab. disp." tone="violet"
-          info="Revenue Per Available Room (USALI). El KPI maestro de revenue management. Fórmula: ingreso de habitaciones ÷ habitaciones disponibles (= ADR × ocupación). Combina precio y demanda en un solo número." />
-        <KpiTile icon={BedDouble} label="Ingreso hab." value={money(latest.roomRevenue)} hint="esa noche" tone="amber"
-          info="Suma de tarifas de habitación de las stays que ocuparon esa noche. No incluye impuestos, fees, F&B ni cargos extra. Snapshot del día cerrado." />
-      </div>
-
-      {/* Tendencia de ocupación 14 días */}
+      {/* Tendencia de ocupación 14 días — bar chart con grid */}
       <div>
-        <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400 mb-1.5">Ocupación · últimos 14 días</p>
-        <div className="flex items-end gap-1 h-20">
+        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
+          <span className="zx-eyebrow">Tendencia ocupación · 14 días</span>
+          <span className="zx-meta">máx {maxOcc.toFixed(0)}%</span>
+        </header>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 72, padding: '4px 0' }}>
           {data.map((d) => {
             const occ = Number(d.occupancyPercent)
-            const h = Math.max(2, (occ / maxOcc) * 72)
+            const h = Math.max(3, (occ / maxOcc) * 64)
+            const isLast = d.date === latest.date
             return (
-              <div key={d.date} className="flex-1 flex flex-col items-center justify-end group relative">
-                <div className="w-full rounded-t bg-indigo-400/80 group-hover:bg-indigo-600 transition-colors" style={{ height: `${h}px` }} />
-                <span className="text-[8px] text-gray-400 mt-0.5 tabular-nums">{d.date.slice(8, 10)}</span>
-                <div className="absolute bottom-full mb-1 hidden group-hover:block bg-gray-900 text-white text-[10px] rounded px-1.5 py-0.5 whitespace-nowrap z-10">
-                  {formatSnapshotDate(d.date)} · {occ.toFixed(0)}% · {money(d.revpar)} RevPAR
-                </div>
+              <div key={d.date} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, position: 'relative', cursor: 'help' }} title={`${formatSnapshotDate(d.date)} · ${occ.toFixed(0)}% · ${money(d.revpar)} RevPAR`}>
+                <div
+                  style={{
+                    width: '100%',
+                    maxWidth: 22,
+                    height: `${h}px`,
+                    background: isLast
+                      ? 'linear-gradient(to top, oklch(0.52 0.20 270), oklch(0.65 0.18 250))'
+                      : 'linear-gradient(to top, oklch(0.72 0.08 270 / 0.65), oklch(0.78 0.06 270 / 0.45))',
+                    borderRadius: '4px 4px 0 0',
+                    transition: 'opacity var(--zx-dur-fast)',
+                  }}
+                />
               </div>
             )
           })}
         </div>
+        <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+          {data.map((d) => (
+            <span key={d.date} style={{ flex: 1, textAlign: 'center', fontSize: 9, color: 'var(--zx-ink-4)', fontVariantNumeric: 'tabular-nums' }}>
+              {shortDay(d.date)}
+            </span>
+          ))}
+        </div>
       </div>
 
-      {/* Channel mix del último cierre */}
+      {/* Channel mix */}
       <ChannelMix latest={latest} />
     </section>
   )
 }
 
-function KpiTile({ icon: Icon, label, value, hint, tone, info }: {
-  icon: typeof Percent; label: string; value: string; hint: string
-  tone: 'indigo' | 'emerald' | 'violet' | 'amber'
-  info: string
-}) {
-  const toneCls = {
-    indigo: 'bg-indigo-50 text-indigo-700', emerald: 'bg-emerald-50 text-emerald-700',
-    violet: 'bg-violet-50 text-violet-700', amber: 'bg-amber-50 text-amber-700',
-  }[tone]
+function KpiTile({
+  label, value, hint, accent, tintBg, info,
+}: { label: string; value: string; hint: string; accent: string; tintBg: string; info: string }) {
   return (
-    <div className="rounded-lg border border-gray-100 p-3 relative">
-      <div className="absolute top-2 left-2 group/info">
-        <Info className="h-3 w-3 text-gray-300 hover:text-gray-500 cursor-help" />
-        <div className="absolute top-full left-0 mt-1 hidden group-hover/info:block w-56 bg-gray-900 text-white text-[10px] leading-snug rounded-md px-2 py-1.5 shadow-lg z-20">
-          {info}
-        </div>
+    <div
+      className="zx-card"
+      style={{
+        padding: 14,
+        background: tintBg,
+        borderColor: accent.replace(')', ' / 0.15)'),
+        display: 'flex', flexDirection: 'column', gap: 8,
+        position: 'relative',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: accent }}>
+          {label}
+        </span>
+        <span title={info} style={{ cursor: 'help', color: 'var(--zx-ink-4)', display: 'inline-flex' }}>
+          <Info size={11} />
+        </span>
       </div>
-      <div className="flex items-center gap-1.5 pl-5">
-        <span className={`inline-flex items-center justify-center h-6 w-6 rounded ${toneCls}`}><Icon className="h-3.5 w-3.5" /></span>
-        <span className="text-[11px] text-gray-500">{label}</span>
-      </div>
-      <p className="text-xl font-semibold text-gray-900 mt-1.5 tabular-nums">{value}</p>
-      <p className="text-[10px] text-gray-400">{hint}</p>
+      <span style={{ fontSize: 24, fontWeight: 600, letterSpacing: '-0.022em', lineHeight: 1, color: 'var(--zx-ink-1)', fontVariantNumeric: 'tabular-nums' }}>
+        {value}
+      </span>
+      <span style={{ fontSize: 11, color: 'var(--zx-ink-3)' }}>{hint}</span>
     </div>
   )
 }
@@ -153,19 +198,39 @@ function ChannelMix({ latest }: { latest: MetricsSnapshot }) {
   const entries = Object.entries(latest.channelMix || {}).sort((a, b) => b[1] - a[1])
   const total = entries.reduce((a, [, n]) => a + n, 0)
   if (total === 0) return null
-  const colors = ['bg-indigo-500', 'bg-emerald-500', 'bg-amber-500', 'bg-violet-500', 'bg-sky-500', 'bg-rose-500']
+  const colors = [
+    'oklch(0.52 0.20 270)', // indigo
+    'oklch(0.55 0.15 152)', // emerald
+    'oklch(0.65 0.17 75)',  // amber
+    'oklch(0.55 0.16 200)', // teal
+    'oklch(0.58 0.18 320)', // pink
+    'oklch(0.58 0.21 25)',  // rose
+  ]
+
   return (
     <div>
-      <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400 mb-1.5">Mix por canal · último cierre</p>
-      <div className="flex h-2.5 rounded-full overflow-hidden">
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
+        <span className="zx-eyebrow">Mix por canal · último cierre</span>
+        <span className="zx-meta">{total} reservas</span>
+      </header>
+      <div style={{ display: 'flex', height: 8, borderRadius: 999, overflow: 'hidden', background: 'var(--zx-surface-soft)' }}>
         {entries.map(([ch, n], i) => (
-          <div key={ch} className={colors[i % colors.length]} style={{ width: `${(n / total) * 100}%` }} title={`${ch}: ${n}`} />
+          <div
+            key={ch}
+            style={{
+              width: `${(n / total) * 100}%`,
+              background: colors[i % colors.length],
+            }}
+            title={`${ch}: ${n}`}
+          />
         ))}
       </div>
-      <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px', marginTop: 12 }}>
         {entries.map(([ch, n], i) => (
-          <span key={ch} className="inline-flex items-center gap-1 text-[11px] text-gray-600">
-            <span className={`h-2 w-2 rounded-sm ${colors[i % colors.length]}`} /> {ch} {n}
+          <span key={ch} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--zx-ink-2)' }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: colors[i % colors.length] }} />
+            <strong style={{ color: 'var(--zx-ink-1)', fontWeight: 500 }}>{ch}</strong>
+            <span style={{ color: 'var(--zx-ink-3)', fontVariantNumeric: 'tabular-nums' }}>{n}</span>
           </span>
         ))}
       </div>

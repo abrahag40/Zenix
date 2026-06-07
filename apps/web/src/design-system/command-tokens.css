@@ -22,7 +22,11 @@
   --zx-canvas:         oklch(0.985 0.002 240);   /* page background neutro */
   --zx-surface:        oklch(1 0 0);              /* default card */
   --zx-surface-soft:   oklch(0.97 0.003 240);    /* nested / disabled */
-  --zx-surface-deep:   oklch(0.13 0.012 270);    /* hero deep (warm violet-tinted black) */
+  /* Hero deep — warm dark gray (NO near-black). Owner feedback 2026-06-07:
+   * el negro+blanco era visualmente "rudo". Bajamos a un gris cálido más amigable
+   * con el resto del UI. Sigue siendo dark pero menos drastic.
+   */
+  --zx-surface-deep:   oklch(0.27 0.012 260);    /* warm dark slate */
 
   /* Tinted surfaces por categoría — Pitch.com / Notion bento pattern */
   --zx-surface-positive: oklch(0.98 0.015 152);  /* emerald wash */
@@ -134,15 +138,18 @@
   box-shadow: none;
 }
 
-/** Card variant — deep (hero strip dark surface) */
+/** Card variant — deep (hero surface). Owner 2026-06-07: gradient mucho más sutil,
+ *  evita el efecto "black hole" que se sentía contra el canvas claro. Tonos
+ *  warm (no near-black saturado).
+ */
 .zx-card--deep {
   background:
-    radial-gradient(circle at top right, oklch(0.30 0.10 280 / 0.35), transparent 40%),
-    radial-gradient(circle at bottom left, oklch(0.25 0.12 200 / 0.25), transparent 50%),
+    radial-gradient(circle at top right, oklch(0.42 0.06 270 / 0.40), transparent 55%),
+    radial-gradient(circle at 30% bottom, oklch(0.35 0.05 200 / 0.30), transparent 60%),
     var(--zx-surface-deep);
-  border: 1px solid oklch(1 0 0 / 0.10);
+  border: 1px solid oklch(1 0 0 / 0.06);
   color: var(--zx-ink-on-deep);
-  box-shadow: var(--zx-shadow-lift), inset 0 1px 0 0 oklch(1 0 0 / 0.06);
+  box-shadow: 0 1px 2px 0 oklch(0.13 0.01 240 / 0.06), inset 0 1px 0 0 oklch(1 0 0 / 0.04);
 }
 
 /** Tinted card variants — Pitch bento.

@@ -12,6 +12,19 @@ import type { DashboardSnapshot } from '@/hooks/useDashboardSnapshot'
 import { greeting, formatLongDate, formatClockHM, formatInteger } from './format'
 import { ArrowDownRight, ArrowUpRight, BedDouble } from 'lucide-react'
 
+/** Returns "GMT-5" / "GMT+1" style offset hint extracted from IANA tz. */
+function tzLabel(tz: string): string {
+  try {
+    const fmt = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'shortOffset' })
+    const parts = fmt.formatToParts(new Date())
+    const off = parts.find((p) => p.type === 'timeZoneName')?.value
+    if (off) return off // e.g. "GMT-5"
+  } catch {}
+  // Fallback: city name from "America/Cancun" → "Cancun"
+  const last = tz.split('/').pop() ?? tz
+  return last.replace(/_/g, ' ')
+}
+
 export function HeroStrip({ hero }: { hero: DashboardSnapshot['hero'] }) {
   const now = new Date(hero.nowIso)
   const date = formatLongDate(hero.nowIso, hero.timezone)
@@ -78,22 +91,40 @@ export function HeroStrip({ hero }: { hero: DashboardSnapshot['hero'] }) {
           </p>
         </div>
 
-        {/* Reloj grande, mono */}
-        <div
-          style={{
-            fontFamily: 'JetBrains Mono, ui-monospace, SFMono-Regular, monospace',
-            fontSize: 32,
-            fontWeight: 500,
-            color: 'var(--zx-ink-on-deep)',
-            letterSpacing: '0.04em',
-            fontVariantNumeric: 'tabular-nums',
-            background: 'oklch(1 0 0 / 0.04)',
-            padding: '8px 16px',
-            borderRadius: 12,
-            border: '1px solid oklch(1 0 0 / 0.08)',
-          }}
-        >
-          {clock}
+        {/* Reloj — hora LOCAL del hotel seleccionado (multi-tenant).
+            Owner 2026-06-07: el reloj del SO está en cualquier PC; el valor
+            agregado es ver la hora del hotel cuando el operador no está allí. */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+          <span
+            style={{
+              fontSize: 10,
+              letterSpacing: '0.08em',
+              color: 'oklch(0.70 0.005 240)',
+              textTransform: 'uppercase',
+              fontWeight: 500,
+            }}
+          >Hora del hotel</span>
+          <div
+            style={{
+              fontFamily: 'JetBrains Mono, ui-monospace, SFMono-Regular, monospace',
+              fontSize: 30,
+              fontWeight: 500,
+              color: 'var(--zx-ink-on-deep)',
+              letterSpacing: '0.035em',
+              fontVariantNumeric: 'tabular-nums',
+              background: 'oklch(1 0 0 / 0.05)',
+              padding: '6px 14px',
+              borderRadius: 10,
+              border: '1px solid oklch(1 0 0 / 0.07)',
+            }}
+          >{clock}</div>
+          <span
+            style={{
+              fontSize: 10,
+              color: 'oklch(0.62 0.005 240)',
+              letterSpacing: 0,
+            }}
+          >{tzLabel(hero.timezone)}</span>
         </div>
       </div>
 

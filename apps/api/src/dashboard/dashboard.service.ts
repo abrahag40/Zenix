@@ -56,7 +56,10 @@ export class DashboardService {
     ] = await Promise.all([
       this.prisma.property.findUnique({
         where: { id: propertyId },
-        select: { id: true, name: true, city: true },
+        select: {
+          id: true, name: true, city: true,
+          settings: { select: { timezone: true } },
+        },
       }),
       this.prisma.user.findUnique({
         where: { id: userId },
@@ -223,9 +226,10 @@ export class DashboardService {
         userName,
         propertyName: property?.name ?? '',
         propertyCity: property?.city ?? null,
-        // timezone vive en PropertySettings (legacy field deprecated en
-        // Property post v1.0.5). Frontend usa Intl con fallback Tulum.
-        timezone: 'America/Cancun',
+        // Timezone REAL del hotel (multi-tenant): si el usuario abre Zenix
+        // desde Brasil viendo el hotel CDMX, debe ver la hora de CDMX.
+        // Lee de PropertySettings.timezone (autoridad operativa per CLAUDE.md §73).
+        timezone: property?.settings?.timezone ?? 'America/Cancun',
         nowIso: now.toISOString(),
         arrivalsCount: arrivalsToday,
         departuresCount: departuresToday,

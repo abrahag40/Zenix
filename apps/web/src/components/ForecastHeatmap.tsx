@@ -1,39 +1,23 @@
 /**
- * ForecastHeatmap — Fase 2 RATES-METRICS extendido (cierre 2026-06-06).
+ * ForecastHeatmap — pronóstico ocupación 28 días.
  *
- * Vista de 28 días (4 semanas × 7 días) con celdas color-coded según ocupación
- * proyectada (on-the-books AS-OF hoy). Hover muestra rooms + revenue + occ%.
+ * Rediseño 2026-06-07 al design system zx-* del Command Center.
+ * Patrón steal-as-artist: Dribbble Calendar Dashboard + GitHub contribution
+ * grid + Notion calendar — celdas con tint color-coded por ocupación band,
+ * today highlighted, hover panel debajo.
  *
- * Complementario a PickupSection — no lo reemplaza. La diferencia:
- *   · PickupSection: "qué CAMBIÓ en los últimos N días" (granular, vertical)
- *   · ForecastHeatmap: "DÓNDE está la demanda en las próximas 4 semanas"
- *                      (big picture, escaneable en <1s, NN/g pre-attentive Treisman 1980)
- *
- * Color scale (sequential single-hue, evita conflicto con §31 semantic colors).
- * Cloudbeds + Mews + RoomRaccoon pattern:
- *   · 0%       → slate-50 (neutro, "noche futura sin captura")
- *   · 1-39%    → slate-100 (open availability — demand cold)
- *   · 40-59%   → amber-100 / 200 (warming up)
- *   · 60-74%   → emerald-200 (healthy pace)
- *   · 75-89%   → emerald-400 (strong demand — considerar subir tarifa)
- *   · ≥90%     → emerald-600 (sold-out risk — revenue management peak)
- *
- * Justificación visual:
- *   · Treisman 1980 — color codificación pre-attentive (lectura en <200ms)
- *   · WCAG 1.4.1 — color + número siempre redundante (occ% visible en cada cell)
- *   · Mehrabian-Russell 1974 — emerald high arousal positiva = "negocio caliente"
- *
- * Honesto con datos faltantes: si no hay forward snapshot para una noche, la
- * celda queda slate-50 con texto "—". Sin overpromise — el primer mes del
- * cliente puede mostrar varias celdas vacías hasta que el scheduler nocturno
- * complete su primer ciclo.
+ * Color scale Mehrabian-Russell + §31:
+ *   <40% → slate cool (cold)
+ *   40-60% → amber (warming)
+ *   60-75% → emerald soft (healthy)
+ *   75-90% → emerald (strong)
+ *   ≥90% → emerald deep (peak)
  */
 import { useState } from 'react'
-import { CalendarRange, Info } from 'lucide-react'
+import { CalendarRange } from 'lucide-react'
 import { usePace, type PaceRow } from '@/hooks/useMetrics'
-import { InfoTooltip } from '@/components/InfoTooltip'
 
-const SPANISH_DAYS = ['L', 'M', 'X', 'J', 'V', 'S', 'D'] // L-M-X-J-V-S-D (Spain/LATAM Sunday-as-last)
+const SPANISH_DAYS = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
 const SPANISH_MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
 const HORIZON_DAYS = 28
 const WEEKS = 4
@@ -45,64 +29,52 @@ interface HeatmapCell {
 }
 
 function startOfWeekMonday(d: Date): Date {
-  const day = d.getUTCDay() // 0=Sun..6=Sat
+  const day = d.getUTCDay()
   const offset = day === 0 ? -6 : 1 - day
   const r = new Date(d)
   r.setUTCDate(r.getUTCDate() + offset)
   r.setUTCHours(0, 0, 0, 0)
   return r
 }
-
 function addDays(d: Date, n: number): Date {
   const r = new Date(d)
   r.setUTCDate(r.getUTCDate() + n)
   return r
 }
-
 function formatDayMonth(d: Date): string {
   return `${d.getUTCDate()} ${SPANISH_MONTHS[d.getUTCMonth()]}`
 }
 
-function occupancyTone(occ: number | undefined): {
-  bg: string
-  text: string
-  label: string
-} {
-  if (occ == null) return { bg: 'bg-slate-50', text: 'text-slate-300', label: 'sin datos' }
-  if (occ < 1) return { bg: 'bg-slate-50', text: 'text-slate-400', label: 'vacío' }
-  if (occ < 40) return { bg: 'bg-slate-100', text: 'text-slate-600', label: 'cold' }
-  if (occ < 60) return { bg: 'bg-amber-100', text: 'text-amber-800', label: 'warming' }
-  if (occ < 75) return { bg: 'bg-emerald-200', text: 'text-emerald-900', label: 'healthy' }
-  if (occ < 90) return { bg: 'bg-emerald-400', text: 'text-emerald-950', label: 'strong' }
-  return { bg: 'bg-emerald-600', text: 'text-white', label: 'peak' }
+function tone(occ: number | undefined): { bg: string; text: string; border: string } {
+  if (occ == null || occ < 1)
+    return { bg: 'oklch(0.97 0.003 240)', text: 'var(--zx-ink-4)', border: 'oklch(0.92 0.005 240)' }
+  if (occ < 40)
+    return { bg: 'oklch(0.94 0.012 240)', text: 'oklch(0.42 0.020 240)', border: 'oklch(0.86 0.015 240)' }
+  if (occ < 60)
+    return { bg: 'oklch(0.95 0.05 75)', text: 'oklch(0.40 0.14 75)', border: 'oklch(0.72 0.16 75 / 0.30)' }
+  if (occ < 75)
+    return { bg: 'oklch(0.92 0.07 152)', text: 'oklch(0.32 0.13 152)', border: 'oklch(0.55 0.15 152 / 0.30)' }
+  if (occ < 90)
+    return { bg: 'oklch(0.78 0.14 152)', text: 'oklch(0.98 0.02 152)', border: 'oklch(0.55 0.15 152 / 0.50)' }
+  return { bg: 'oklch(0.58 0.16 152)', text: 'oklch(0.99 0.02 152)', border: 'oklch(0.42 0.13 152 / 0.60)' }
 }
 
-export function ForecastHeatmap({
-  propertyId,
-  isSupervisor,
-}: {
-  propertyId: string
-  isSupervisor: boolean
-}) {
+export function ForecastHeatmap({ propertyId, isSupervisor }: { propertyId: string; isSupervisor: boolean }) {
   const { data, isLoading, isError } = usePace(propertyId, HORIZON_DAYS, isSupervisor)
-  const [hoverCell, setHoverCell] = useState<HeatmapCell | null>(null)
+  const [hover, setHover] = useState<HeatmapCell | null>(null)
 
   if (!isSupervisor || isError) return null
   if (isLoading || !data) {
     return (
-      <div className="bg-white border border-gray-200 rounded-xl p-5 text-sm text-gray-400">
-        Cargando forecast…
+      <div className="zx-card" style={{ padding: 20 }}>
+        <p className="zx-meta">Cargando forecast…</p>
       </div>
     )
   }
 
-  // Index por isoDate para lookup O(1).
   const byDate = new Map<string, PaceRow>()
-  for (const r of data.series) {
-    byDate.set(r.stayDate.slice(0, 10), r)
-  }
+  for (const r of data.series) byDate.set(r.stayDate.slice(0, 10), r)
 
-  // Genera 4 weeks × 7 days starting from start-of-week-containing-asOfDate.
   const asOf = new Date(data.asOfDate)
   const gridStart = startOfWeekMonday(asOf)
   const weeks: HeatmapCell[][] = []
@@ -110,95 +82,87 @@ export function ForecastHeatmap({
     const row: HeatmapCell[] = []
     for (let d = 0; d < 7; d++) {
       const date = addDays(gridStart, w * 7 + d)
-      const isoDate = date.toISOString().slice(0, 10)
-      row.push({ date, isoDate, data: byDate.get(isoDate) })
+      const iso = date.toISOString().slice(0, 10)
+      row.push({ date, isoDate: iso, data: byDate.get(iso) })
     }
     weeks.push(row)
   }
 
-  // Stats útiles para el header.
   const withData = data.series.filter((r) => r.roomsOnBooks > 0)
-  const peakNight = withData.reduce<PaceRow | undefined>(
+  const peak = withData.reduce<PaceRow | undefined>(
     (best, r) => (best == null || r.occupancyPercent > best.occupancyPercent ? r : best),
     undefined,
   )
-  const avgOcc =
-    data.series.length > 0
-      ? data.series.reduce((a, r) => a + r.occupancyPercent, 0) / data.series.length
-      : 0
+  const avg = data.series.length > 0
+    ? data.series.reduce((a, r) => a + r.occupancyPercent, 0) / data.series.length
+    : 0
 
   return (
-    <section className="bg-white border border-gray-200 rounded-xl p-5 space-y-4 relative">
-      <div className="flex items-baseline justify-between gap-3 flex-wrap">
-        <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-1.5">
-          <CalendarRange className="h-4 w-4 text-indigo-600" /> Forecast · próximas 4 semanas
-          <InfoTooltip text="Calendario de cuántas habitaciones ya están reservadas para cada noche futura. Verde = casi lleno (considera subir tarifa); gris = vacío (considera promoción). Te ayuda a ver de un vistazo dónde está la demanda." />
-        </h2>
-        <div className="flex items-center gap-3 text-[11px] text-gray-500">
-          <span>
-            Ocupación promedio <span className="font-semibold tabular-nums text-gray-800">{avgOcc.toFixed(0)}%</span>
+    <section className="zx-card" style={{ padding: 22, display: 'flex', flexDirection: 'column', gap: 18, position: 'relative' }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+        <div>
+          <span className="zx-eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <CalendarRange size={11} style={{ color: 'var(--zx-accent)' }} /> Forecast · próximas 4 semanas
           </span>
-          {peakNight && (
-            <span>
-              · Pico <span className="font-semibold tabular-nums text-gray-800">{peakNight.occupancyPercent.toFixed(0)}%</span> el{' '}
-              {formatDayMonth(new Date(peakNight.stayDate))}
-            </span>
-          )}
+          <h2 className="zx-card-h" style={{ marginTop: 6 }}>
+            {avg >= 75 ? 'Demanda sólida' : avg >= 50 ? 'Demanda mediana' : 'Demanda floja'} en las próximas semanas
+          </h2>
         </div>
-      </div>
+        <div style={{ display: 'flex', gap: 18, fontSize: 12 }}>
+          <Stat label="Ocup. promedio" value={`${avg.toFixed(0)}%`} accent="var(--zx-accent)" />
+          {peak && <Stat label="Pico" value={`${peak.occupancyPercent.toFixed(0)}%`} sub={formatDayMonth(new Date(peak.stayDate))} accent="oklch(0.55 0.15 152)" />}
+        </div>
+      </header>
 
-      {/* Narrative plain-language */}
-      <p className="text-[12px] text-gray-600 leading-relaxed -mt-1">
-        {avgOcc >= 75
-          ? `Tus próximas 4 semanas se ven sólidas (${avgOcc.toFixed(0)}% promedio). `
-          : avgOcc >= 50
-            ? `Demanda mediana en las próximas 4 semanas (${avgOcc.toFixed(0)}% promedio). `
-            : `Las próximas 4 semanas se ven flojas (${avgOcc.toFixed(0)}% promedio). `}
-        {peakNight && peakNight.occupancyPercent >= 75
-          ? `Noche más caliente: ${formatDayMonth(new Date(peakNight.stayDate))} con ${peakNight.occupancyPercent.toFixed(0)}% — buen momento para subir tarifa si aún no lo hiciste.`
-          : 'Sin noches al tope todavía — espacio para acciones comerciales.'}
-      </p>
-
-      {/* Day-of-week header */}
-      <div className="grid grid-cols-[42px_repeat(7,1fr)] gap-1 text-[10px] text-gray-400 uppercase tracking-wide">
+      {/* Day header */}
+      <div style={{ display: 'grid', gridTemplateColumns: '54px repeat(7, minmax(0, 1fr))', gap: 6, fontSize: 10, color: 'var(--zx-ink-4)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
         <span />
-        {SPANISH_DAYS.map((d) => (
-          <span key={d} className="text-center font-medium">
-            {d}
-          </span>
-        ))}
+        {SPANISH_DAYS.map((d) => <span key={d} style={{ textAlign: 'center' }}>{d}</span>)}
       </div>
 
       {/* 4 weeks grid */}
-      <div className="space-y-1">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {weeks.map((row, wi) => (
-          <div key={wi} className="grid grid-cols-[42px_repeat(7,1fr)] gap-1 items-stretch">
-            <span className="text-[10px] text-gray-400 self-center tabular-nums text-right pr-1">
+          <div key={wi} style={{ display: 'grid', gridTemplateColumns: '54px repeat(7, minmax(0, 1fr))', gap: 6 }}>
+            <span style={{ fontSize: 10, color: 'var(--zx-ink-4)', alignSelf: 'center', textAlign: 'right', paddingRight: 4, fontVariantNumeric: 'tabular-nums' }}>
               {formatDayMonth(row[0].date)}
             </span>
             {row.map((cell) => {
               const occ = cell.data?.occupancyPercent
-              const tone = occupancyTone(occ)
+              const t = tone(occ)
               const isToday = cell.isoDate === asOf.toISOString().slice(0, 10)
               const isPast = cell.date.getTime() < asOf.getTime() && !isToday
               return (
                 <button
                   key={cell.isoDate}
                   type="button"
-                  onMouseEnter={() => setHoverCell(cell)}
-                  onMouseLeave={() => setHoverCell(null)}
-                  onFocus={() => setHoverCell(cell)}
-                  onBlur={() => setHoverCell(null)}
-                  className={`relative rounded-md h-10 border transition-colors flex flex-col items-center justify-center
-                    ${tone.bg} ${tone.text}
-                    ${isToday ? 'border-indigo-500 ring-1 ring-indigo-200' : isPast ? 'border-transparent opacity-40' : 'border-transparent hover:ring-1 hover:ring-gray-300'}
-                  `}
+                  onMouseEnter={() => setHover(cell)}
+                  onMouseLeave={() => setHover(null)}
+                  onFocus={() => setHover(cell)}
+                  onBlur={() => setHover(null)}
+                  style={{
+                    height: 52,
+                    background: t.bg,
+                    color: t.text,
+                    border: `1px solid ${t.border}`,
+                    borderRadius: 8,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    opacity: isPast ? 0.35 : 1,
+                    boxShadow: isToday ? `0 0 0 2px var(--zx-accent), 0 0 0 4px oklch(0.52 0.20 270 / 0.18)` : 'none',
+                    transition: 'transform var(--zx-dur-fast) var(--zx-ease-spring), box-shadow var(--zx-dur-fast)',
+                  }}
                   aria-label={`${formatDayMonth(cell.date)}: ${occ != null ? occ.toFixed(0) + '% ocupado' : 'sin datos'}`}
+                  onMouseOver={(e) => { ;(e.currentTarget as HTMLElement).style.transform = 'scale(1.05)' }}
+                  onMouseOut={(e) => { ;(e.currentTarget as HTMLElement).style.transform = 'scale(1)' }}
                 >
-                  <span className="text-[10px] font-medium tabular-nums leading-none">
+                  <span style={{ fontSize: 11, fontWeight: 600, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
                     {cell.date.getUTCDate()}
                   </span>
-                  <span className="text-[9px] tabular-nums leading-none mt-0.5">
+                  <span style={{ fontSize: 10, marginTop: 3, fontVariantNumeric: 'tabular-nums', opacity: 0.85 }}>
                     {occ != null && occ > 0 ? `${occ.toFixed(0)}%` : '—'}
                   </span>
                 </button>
@@ -209,44 +173,49 @@ export function ForecastHeatmap({
       </div>
 
       {/* Legend */}
-      <div className="flex items-center justify-between flex-wrap gap-2 text-[10px] text-gray-500 pt-2 border-t border-gray-100">
-        <div className="flex items-center gap-2">
-          <span>Ocupación:</span>
-          <LegendChip color="bg-slate-100" label="<40%" />
-          <LegendChip color="bg-amber-100" label="40-59" />
-          <LegendChip color="bg-emerald-200" label="60-74" />
-          <LegendChip color="bg-emerald-400" label="75-89" />
-          <LegendChip color="bg-emerald-600 text-white" label="≥90" />
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, paddingTop: 12, borderTop: '1px solid var(--zx-line-subtle)', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10, color: 'var(--zx-ink-3)' }}>
+          <span style={{ letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: 600 }}>Ocupación</span>
+          <LegendDot color="oklch(0.94 0.012 240)" label="<40" />
+          <LegendDot color="oklch(0.95 0.05 75)" label="40-60" />
+          <LegendDot color="oklch(0.92 0.07 152)" label="60-75" />
+          <LegendDot color="oklch(0.78 0.14 152)" label="75-90" />
+          <LegendDot color="oklch(0.58 0.16 152)" label="≥90" />
         </div>
-        <span className="text-gray-400 flex items-center gap-1">
-          <Info className="h-3 w-3" />
-          Snapshot AS-OF {asOf.toISOString().slice(0, 10)}
-        </span>
+        <span className="zx-meta">AS-OF {asOf.toISOString().slice(0, 10)}</span>
       </div>
 
-      {/* Hover detail (sticky bottom — accessible vía mouse + keyboard focus) */}
-      {hoverCell && (
-        <div className="absolute left-5 right-5 bottom-3 bg-gray-900 text-white text-[11px] rounded-lg px-3 py-2 flex items-center justify-between gap-3 shadow-lg pointer-events-none">
-          <span className="font-medium">{formatDayMonth(hoverCell.date)}</span>
-          {hoverCell.data ? (
-            <span className="tabular-nums flex items-center gap-3">
-              <span>
-                <span className="text-gray-400">Hab. </span>
-                {hoverCell.data.roomsOnBooks}
-              </span>
-              <span>
-                <span className="text-gray-400">Ocup. </span>
-                {hoverCell.data.occupancyPercent.toFixed(0)}%
-              </span>
-              {hoverCell.data.stlyOccupancyPercent != null && (
-                <span>
-                  <span className="text-gray-400">YoY </span>
-                  {(hoverCell.data.occupancyPercent - hoverCell.data.stlyOccupancyPercent).toFixed(0)} pts
-                </span>
+      {/* Hover detail */}
+      {hover && (
+        <div
+          style={{
+            position: 'absolute',
+            left: 22,
+            right: 22,
+            bottom: 16,
+            background: 'var(--zx-surface-deep)',
+            color: 'var(--zx-ink-on-deep)',
+            padding: '8px 14px',
+            borderRadius: 10,
+            fontSize: 12,
+            display: 'flex',
+            justifyContent: 'space-between',
+            gap: 12,
+            boxShadow: '0 6px 18px oklch(0.13 0.01 240 / 0.18)',
+            pointerEvents: 'none',
+          }}
+        >
+          <strong style={{ fontWeight: 500 }}>{formatDayMonth(hover.date)}</strong>
+          {hover.data ? (
+            <span style={{ display: 'flex', gap: 14, fontVariantNumeric: 'tabular-nums' }}>
+              <span><span style={{ color: 'oklch(0.70 0.005 240)' }}>Hab.</span> {hover.data.roomsOnBooks}</span>
+              <span><span style={{ color: 'oklch(0.70 0.005 240)' }}>Ocup.</span> {hover.data.occupancyPercent.toFixed(0)}%</span>
+              {hover.data.stlyOccupancyPercent != null && (
+                <span><span style={{ color: 'oklch(0.70 0.005 240)' }}>YoY</span> {(hover.data.occupancyPercent - hover.data.stlyOccupancyPercent).toFixed(0)} pts</span>
               )}
             </span>
           ) : (
-            <span className="text-gray-400">Sin captura forward para esta noche</span>
+            <span style={{ color: 'oklch(0.70 0.005 240)' }}>Sin captura forward</span>
           )}
         </div>
       )}
@@ -254,11 +223,21 @@ export function ForecastHeatmap({
   )
 }
 
-function LegendChip({ color, label }: { color: string; label: string }) {
+function Stat({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent: string }) {
   return (
-    <span className="inline-flex items-center gap-1">
-      <span className={`inline-block h-2.5 w-2.5 rounded-sm ${color}`} />
-      <span className="tabular-nums">{label}</span>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+      <span style={{ fontSize: 10, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--zx-ink-3)', fontWeight: 500 }}>{label}</span>
+      <span style={{ fontSize: 18, fontWeight: 600, color: accent, letterSpacing: '-0.018em', fontVariantNumeric: 'tabular-nums' }}>{value}</span>
+      {sub && <span style={{ fontSize: 10, color: 'var(--zx-ink-3)' }}>{sub}</span>}
+    </div>
+  )
+}
+
+function LegendDot({ color, label }: { color: string; label: string }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+      <span style={{ width: 10, height: 10, borderRadius: 2, background: color, border: '1px solid oklch(0 0 0 / 0.05)' }} />
+      <span style={{ fontVariantNumeric: 'tabular-nums' }}>{label}</span>
     </span>
   )
 }
