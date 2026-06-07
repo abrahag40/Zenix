@@ -12,6 +12,7 @@
 import { useMemo } from 'react'
 import { TrendingUp, BedDouble, DollarSign, Percent, Info } from 'lucide-react'
 import { useMetricsRange, type MetricsSnapshot } from '@/hooks/useMetrics'
+import { InfoTooltip } from '@/components/InfoTooltip'
 
 /** Formatea ISO "YYYY-MM-DD" → "2 jun 2026" en español, sin sufrir TZ shift. */
 function formatSnapshotDate(iso: string): string {
@@ -50,14 +51,37 @@ export function MetricsOverview({ propertyId, isSupervisor }: { propertyId: stri
   const money = (n: string | number) => `${ccy} ${Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
   const maxOcc = Math.max(...data.map((d) => Number(d.occupancyPercent)), 1)
 
+  // Narrativa plain-language — compara último cierre vs promedio histórico
+  const latestOcc = Number(latest.occupancyPercent)
+  const histAvg =
+    data.length > 1
+      ? data.slice(0, -1).reduce((s, d) => s + Number(d.occupancyPercent), 0) / (data.length - 1)
+      : null
+  const histDelta = histAvg != null ? latestOcc - histAvg : null
+  const narrativeBand =
+    histDelta == null
+      ? 'sin histórico para comparar todavía.'
+      : histDelta >= 5
+        ? `por encima de tu promedio (${histAvg!.toFixed(0)}% últimas 2 semanas).`
+        : histDelta <= -5
+          ? `por debajo de tu promedio (${histAvg!.toFixed(0)}% últimas 2 semanas).`
+          : `en línea con tu promedio (${histAvg!.toFixed(0)}% últimas 2 semanas).`
+
   return (
     <section className="bg-white border border-gray-200 rounded-xl p-5 space-y-5">
-      <div className="flex items-baseline justify-between">
+      <div className="flex items-baseline justify-between gap-2">
         <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-1.5">
           <TrendingUp className="h-4 w-4 text-indigo-600" /> Desempeño
+          <InfoTooltip text="Resumen de cómo cerró el último día con datos completos. Los snapshots se generan cada noche durante el cierre — esta NO es la foto de hoy en vivo, es 'cómo terminó ayer'." />
         </h2>
         <span className="text-[11px] text-gray-400">Último cierre · {formatSnapshotDate(latest.date)}</span>
       </div>
+
+      {/* Narrative plain-language */}
+      <p className="text-[12px] text-gray-600 leading-relaxed -mt-2">
+        Vendiste <span className="font-medium text-gray-900">{latest.roomsSold} de {latest.totalRoomsAvailable}</span>{' '}
+        cuartos ({latestOcc.toFixed(0)}%) — {narrativeBand}
+      </p>
 
       {/* Headline KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

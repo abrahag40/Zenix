@@ -1,5 +1,6 @@
 import { FxRateWidget } from '@/components/FxRateWidget'
 import { OverstayedWidget } from '@/components/OverstayedWidget'
+import { TodayRecommendations } from '@/components/TodayRecommendations'
 import { MetricsOverview } from '@/components/MetricsOverview'
 import { ForecastHeatmap } from '@/components/ForecastHeatmap'
 import { PickupSection } from '@/components/PickupSection'
@@ -28,6 +29,7 @@ export function DashboardPage() {
         </p>
       </header>
 
+      {propertyId && <TodayRecommendations propertyId={propertyId} isSupervisor={isSupervisor} />}
       {propertyId && <MetricsOverview propertyId={propertyId} isSupervisor={isSupervisor} />}
       {propertyId && <ForecastHeatmap propertyId={propertyId} isSupervisor={isSupervisor} />}
       {propertyId && <PickupSection propertyId={propertyId} isSupervisor={isSupervisor} />}

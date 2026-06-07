@@ -13,6 +13,7 @@
 import { useState } from 'react'
 import { ArrowUpRight, ArrowDownRight, Info, TrendingUp, History } from 'lucide-react'
 import { usePickup, usePace, type PickupRow } from '@/hooks/useMetrics'
+import { InfoTooltip } from '@/components/InfoTooltip'
 
 const DAYS_AGO_PRESETS = [1, 3, 7, 14, 30]
 const SPANISH_MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
@@ -70,6 +71,7 @@ export function PickupSection({ propertyId, isSupervisor }: { propertyId: string
       <div className="flex items-baseline justify-between gap-3">
         <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-1.5">
           <TrendingUp className="h-4 w-4 text-indigo-600" /> Pickup & Pace
+          <InfoTooltip text="Pickup = cuántas reservas nuevas entraron en los últimos N días. Te dice si la demanda se está calentando o enfriando. Pace = comparación con el mismo momento del año pasado (se activa cuando tengas 1 año de historia)." />
         </h2>
         <div className="flex items-center gap-1.5">
           <span className="text-[10px] uppercase tracking-wide text-gray-400">Pickup</span>
@@ -99,6 +101,17 @@ export function PickupSection({ propertyId, isSupervisor }: { propertyId: string
               : 'Histórico aún insuficiente para este pickup. Hoy el delta refleja todo lo on-the-books — los días por venir mostrarán el incremento real.'}
           </span>
         </div>
+      )}
+
+      {/* Narrativa plain-language */}
+      {!sameAsOf && !histShallow && (
+        <p className="text-[12px] text-gray-600 leading-relaxed -mt-2">
+          {totals.rooms > 0
+            ? `Entraron ${totals.rooms} habitaciones nuevas (${formatMoney(totals.revenue, ccy)}) en los últimos ${daysAgo} días. Demanda ${totals.rooms >= 5 ? 'caliente' : 'tibia'}.`
+            : totals.rooms < 0
+              ? `Se cancelaron ${Math.abs(totals.rooms)} reservas en los últimos ${daysAgo} días — más cancels que altas. Revisa si hay un patrón.`
+              : `Cero movimiento neto en los últimos ${daysAgo} días. Sin altas, sin cancels.`}
+        </p>
       )}
 
       {/* Totales del pickup */}

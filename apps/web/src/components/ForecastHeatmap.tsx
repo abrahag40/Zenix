@@ -31,6 +31,7 @@
 import { useState } from 'react'
 import { CalendarRange, Info } from 'lucide-react'
 import { usePace, type PaceRow } from '@/hooks/useMetrics'
+import { InfoTooltip } from '@/components/InfoTooltip'
 
 const SPANISH_DAYS = ['L', 'M', 'X', 'J', 'V', 'S', 'D'] // L-M-X-J-V-S-D (Spain/LATAM Sunday-as-last)
 const SPANISH_MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
@@ -131,6 +132,7 @@ export function ForecastHeatmap({
       <div className="flex items-baseline justify-between gap-3 flex-wrap">
         <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-1.5">
           <CalendarRange className="h-4 w-4 text-indigo-600" /> Forecast · próximas 4 semanas
+          <InfoTooltip text="Calendario de cuántas habitaciones ya están reservadas para cada noche futura. Verde = casi lleno (considera subir tarifa); gris = vacío (considera promoción). Te ayuda a ver de un vistazo dónde está la demanda." />
         </h2>
         <div className="flex items-center gap-3 text-[11px] text-gray-500">
           <span>
@@ -144,6 +146,18 @@ export function ForecastHeatmap({
           )}
         </div>
       </div>
+
+      {/* Narrative plain-language */}
+      <p className="text-[12px] text-gray-600 leading-relaxed -mt-1">
+        {avgOcc >= 75
+          ? `Tus próximas 4 semanas se ven sólidas (${avgOcc.toFixed(0)}% promedio). `
+          : avgOcc >= 50
+            ? `Demanda mediana en las próximas 4 semanas (${avgOcc.toFixed(0)}% promedio). `
+            : `Las próximas 4 semanas se ven flojas (${avgOcc.toFixed(0)}% promedio). `}
+        {peakNight && peakNight.occupancyPercent >= 75
+          ? `Noche más caliente: ${formatDayMonth(new Date(peakNight.stayDate))} con ${peakNight.occupancyPercent.toFixed(0)}% — buen momento para subir tarifa si aún no lo hiciste.`
+          : 'Sin noches al tope todavía — espacio para acciones comerciales.'}
+      </p>
 
       {/* Day-of-week header */}
       <div className="grid grid-cols-[42px_repeat(7,1fr)] gap-1 text-[10px] text-gray-400 uppercase tracking-wide">

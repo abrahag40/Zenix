@@ -21,6 +21,7 @@ import { useMemo } from 'react'
 import { Info, AlertTriangle, Calendar, ArrowUpRight, ArrowDownRight, Minus } from 'lucide-react'
 import { useCompsetDashboard, useLocalEvents } from '@/hooks/useCompset'
 import { useDailyBar } from '@/modules/rooms/hooks/useRates'
+import { InfoTooltip } from '@/components/InfoTooltip'
 
 const SPANISH_MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
 function formatDay(iso: string): string {
@@ -79,14 +80,56 @@ export function CompsetCard({ propertyId, isSupervisor }: { propertyId: string; 
   const ccy = firstCurrency(data.competitors) ?? 'USD'
   const hasStubWarning = data.competitors.some((c) => c.warnings.some((w) => w.includes('STUB')))
 
+  // Narrative — count how many nights I'm out of band vs the market
+  const withDelta = matrix
+    .map((m) => {
+      const myRate = myRateByDate.get(m.iso)
+      if (myRate == null || m.median == null) return null
+      return ((myRate - m.median) / m.median) * 100
+    })
+    .filter((d): d is number => d != null)
+  const cheapNights = withDelta.filter((d) => d < -15).length
+  const premiumNights = withDelta.filter((d) => d > 15).length
+  const alignedNights = withDelta.length - cheapNights - premiumNights
+
   return (
     <section className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
       <div className="flex items-baseline justify-between gap-3">
-        <h2 className="text-sm font-semibold text-gray-800">Compset · próximas 14 noches</h2>
+        <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-1.5">
+          Compset · próximas 14 noches
+          <InfoTooltip text="Comparativa de tu tarifa contra hoteles similares (que tú seleccionaste). La 'mediana' es el rate típico del mercado para esa noche. Te ayuda a saber si estás barato (oportunidad de subir) o caro (riesgo de no vender)." />
+        </h2>
         <span className="text-[10px] text-gray-400">
           {data.competitors.length} hoteles · {data.disclaimer.split('Última')[1] ? 'Última' + data.disclaimer.split('Última')[1] : ''}
         </span>
       </div>
+
+      {/* Narrative plain-language */}
+      {withDelta.length > 0 && (
+        <p className="text-[12px] text-gray-600 leading-relaxed -mt-1">
+          De {withDelta.length} noches comparadas:{' '}
+          {alignedNights > 0 && (
+            <>
+              <span className="font-medium text-gray-900">{alignedNights}</span> alineadas al mercado
+              {(cheapNights > 0 || premiumNights > 0) && ', '}
+            </>
+          )}
+          {cheapNights > 0 && (
+            <>
+              <span className="font-medium text-rose-700">{cheapNights}</span>{' '}
+              {cheapNights === 1 ? 'noche por debajo' : 'noches por debajo'} del mercado (sube tarifa o vas a dejar dinero en la mesa)
+              {premiumNights > 0 && ', '}
+            </>
+          )}
+          {premiumNights > 0 && (
+            <>
+              <span className="font-medium text-emerald-700">{premiumNights}</span>{' '}
+              {premiumNights === 1 ? 'noche en premium' : 'noches en premium'} (sigue así si llenas; si no, baja un poco)
+            </>
+          )}
+          .
+        </p>
+      )}
 
       {hasStubWarning && (
         <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-800 flex gap-2">
