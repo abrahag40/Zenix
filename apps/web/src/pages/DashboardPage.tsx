@@ -29,12 +29,13 @@ export function DashboardPage() {
         </p>
       </header>
 
-      {/* Top row — 3 cards en grid responsivo (fix layout 2026-06-07):
-          FxRate + Overstayed son los "vistazos rápidos" (status del negocio
-          ahora), TodayRecommendations rellena el espacio derecho con qué
-          hacer hoy. items-start mantiene alineación arriba sin estirar el
-          de menor altura. */}
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 items-start">
+      {/* Top row — 3 cards en grid responsivo (fix 2026-06-07 + audit Apple HIG):
+          FxRate + Overstayed + TodayRecommendations al MISMO rol semántico.
+          Sin `items-start`: el grid default (stretch) iguala alturas al
+          contenido más alto del row — Apple HIG Visual Balance. min-h-280
+          dentro de cada card sigue siendo el piso (caso 1 sola card en
+          mobile). */}
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <FxRateWidget />
         <OverstayedWidget />
         {propertyId && <TodayRecommendations propertyId={propertyId} isSupervisor={isSupervisor} />}

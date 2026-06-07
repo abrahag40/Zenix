@@ -19,8 +19,25 @@ import {
   UserCheck, Inbox, PauseCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { humanizeOtaName } from '@zenix/shared'
 import { Button } from '@/components/ui/button'
 import type { AppNotification, AppNotificationCategory } from '@/api/notifications.api'
+
+/**
+ * Re-formatea title/body en read-time para humanizar nombres de OTA que
+ * Channex devuelve PascalCase ("BookingCom") → "Booking.com".
+ * Aplica a NOTIFs legacy en BD creadas antes del fix backend (2026-06-07).
+ * Las nuevas ya llegan humanizadas, esta función es no-op sobre ellas.
+ */
+function humanizeNotifText(text: string | null | undefined): string {
+  if (!text) return ''
+  // Regex que matchea los códigos OTA conocidos como token completo.
+  // Reemplaza con el display name del helper compartido.
+  return text.replace(
+    /\b(BookingCom|ExpediaCom|AirbnbCom|AgodaCom|VRBOCom|HotelbedsCom|DespegarCom|GoogleHotelAds|OpenChannel|booking_com|expedia_com|airbnb_com|agoda_com|vrbo_com)\b/g,
+    (match) => humanizeOtaName(match),
+  )
+}
 
 // ─── Category metadata ────────────────────────────────────────────────────────
 
@@ -144,12 +161,12 @@ function NotificationCard({ notif, onRead, onApprove, onReject, onNavigate, isAc
           'text-sm leading-snug line-clamp-2 tracking-tight',
           notif.isRead ? 'text-slate-600 font-medium' : 'text-slate-900 font-semibold',
         )}>
-          {notif.title}
+          {humanizeNotifText(notif.title)}
         </p>
 
         {/* Body */}
         <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">
-          {notif.body}
+          {humanizeNotifText(notif.body)}
         </p>
 
         {/* Single category chip — drop redundant type chip.

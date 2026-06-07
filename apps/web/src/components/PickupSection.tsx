@@ -125,13 +125,15 @@ export function PickupSection({ propertyId, isSupervisor }: { propertyId: string
         />
       </div>
 
-      {/* Series por noche futura — max-w controla el sprawl horizontal en
-          cards anchas (fix 2026-06-07: blanco gigante entre contenido y badges). */}
+      {/* Series por noche futura — 2 columnas de 7 cada una (fix real
+          2026-06-07: el max-w-md previo dejaba blanco gigante a la derecha
+          en cards anchas; ahora distribuimos las 14 noches en 2 cols que
+          usan el ancho completo de la card sin sprawl horizontal). */}
       <div>
         <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400 mb-1.5">
           Por noche · próximas 14 noches
         </p>
-        <div className="space-y-1 max-w-md">
+        <div className="grid gap-x-6 gap-y-1 md:grid-cols-2">
           {data.series.map((r) => (
             <PickupRow key={r.stayDate} row={r} ccy={ccy} />
           ))}
