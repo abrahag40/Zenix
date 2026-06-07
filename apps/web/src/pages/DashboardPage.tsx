@@ -1,19 +1,18 @@
 /**
- * DashboardPage — Command Center.
+ * DashboardPage — Command Center bento.
  *
- * Rediseño 2026-06-07 basado en research cross-industry (Linear/Vercel/Stripe
- * design language) + market research PMS (Cloudbeds/Mews/RoomRaccoon/Little
- * Hotelier).
+ * Rediseño visual 2026-06-07 #2 — applied steal-as-artist patterns:
+ *   · Bento layout asimétrico (Apple Keynote / Pitch.com)
+ *   · Cards tintadas por categoría (Pitch / Notion)
+ *   · Display typography Linear (Inter Display vibe)
+ *   · Integrated viz: progress bars, sparklines en cada KPI
+ *   · Radial gradient hero (Linear midnight + Vercel Geist accents)
  *
- * Anatomía:
- *   1. HeroStrip          — saludo + estado del día (3 stats grandes)
- *   2. LiveNow + TodayActions (grid 2 col)
- *   3. HeroRecommendation — 1 acción primaria + chips secundarias
- *   4. PulseStrip         — 3 KPIs con sparklines (Tufte)
- *
- * Las cards anteriores (MetricsOverview, ForecastHeatmap, PickupSection,
- * CompsetCard, FxRateWidget, OverstayedWidget) se preservarán como vistas
- * de detalle en /reports/* — fuera de scope este sprint.
+ * Grid 12 cols:
+ *   · HeroStrip                full width
+ *   · LiveNow (5)              + TodayActions (7)
+ *   · HeroRecommendation       full width
+ *   · PulseStrip               full width (3 mini-cards internas)
  */
 import { useAuthStore } from '@/store/auth'
 import { usePropertyStore } from '@/store/property'
@@ -32,8 +31,8 @@ export function DashboardPage() {
 
   if (isLoading && !data) {
     return (
-      <div style={{ background: 'var(--zx-canvas)', minHeight: '100vh', padding: 'var(--zx-s7) var(--zx-s8)' }}>
-        <div className="zx-card" style={{ padding: 'var(--zx-s7)' }}>
+      <div style={{ background: 'var(--zx-canvas)', minHeight: '100vh', padding: '32px 32px' }}>
+        <div className="zx-card" style={{ padding: 32 }}>
           <p className="zx-meta">Cargando estado del hotel…</p>
         </div>
       </div>
@@ -41,8 +40,8 @@ export function DashboardPage() {
   }
   if (isError || !data) {
     return (
-      <div style={{ background: 'var(--zx-canvas)', minHeight: '100vh', padding: 'var(--zx-s7) var(--zx-s8)' }}>
-        <div className="zx-card" style={{ padding: 'var(--zx-s7)' }}>
+      <div style={{ background: 'var(--zx-canvas)', minHeight: '100vh', padding: '32px 32px' }}>
+        <div className="zx-card" style={{ padding: 32 }}>
           <p className="zx-meta">No pudimos cargar el dashboard. Revisa la conexión.</p>
         </div>
       </div>
@@ -54,10 +53,10 @@ export function DashboardPage() {
       style={{
         background: 'var(--zx-canvas)',
         minHeight: '100vh',
-        padding: 'var(--zx-s7) var(--zx-s7) var(--zx-s8)',
+        padding: '28px 32px 48px',
         display: 'flex',
         flexDirection: 'column',
-        gap: 'var(--zx-s5)',
+        gap: 16,
         maxWidth: 1400,
         margin: '0 auto',
         width: '100%',
@@ -65,11 +64,12 @@ export function DashboardPage() {
     >
       <HeroStrip hero={data.hero} />
 
+      {/* Bento row — LiveNow 5 / Actions 7 */}
       <div
         style={{
           display: 'grid',
-          gap: 'var(--zx-s5)',
-          gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
+          gap: 16,
+          gridTemplateColumns: 'minmax(0, 5fr) minmax(0, 7fr)',
         }}
       >
         <LiveNow liveNow={data.liveNow} />

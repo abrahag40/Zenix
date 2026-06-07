@@ -15,14 +15,21 @@
 
 :root {
   /* ── Surface stack ──────────────────────────────────────────────────────
-   * Pattern Linear: NO usar puro #FFF como fondo. Apilamos surfaces sobre
-   * un canvas levemente teñido para que las cards "floten" sin sombras.
-   * Canvas absorbe la luz, cards reflejan. Luminance hierarchy.
+   * Pattern Linear + Pitch bento: surfaces TINTADAS por categoría (no todas
+   * blancas). Cada zona del bento tiene su tinte sutil que comunica función
+   * sin necesidad de leer el título.
    */
-  --zx-canvas:        oklch(0.985 0.002 240);   /* page background */
-  --zx-surface:       oklch(1 0 0);              /* default card */
-  --zx-surface-soft:  oklch(0.97 0.003 240);    /* nested card / chip */
-  --zx-surface-deep:  oklch(0.13 0.01 240);     /* hero strip (inverted) */
+  --zx-canvas:         oklch(0.985 0.002 240);   /* page background neutro */
+  --zx-surface:        oklch(1 0 0);              /* default card */
+  --zx-surface-soft:   oklch(0.97 0.003 240);    /* nested / disabled */
+  --zx-surface-deep:   oklch(0.13 0.012 270);    /* hero deep (warm violet-tinted black) */
+
+  /* Tinted surfaces por categoría — Pitch.com / Notion bento pattern */
+  --zx-surface-positive: oklch(0.98 0.015 152);  /* emerald wash */
+  --zx-surface-warn:     oklch(0.98 0.020 75);   /* amber wash */
+  --zx-surface-urgent:   oklch(0.98 0.018 25);   /* rose wash */
+  --zx-surface-accent:   oklch(0.98 0.012 270);  /* indigo wash */
+  --zx-surface-neutral:  oklch(0.975 0.003 240); /* slate wash */
 
   /* ── Border stack — depth via 1px alpha lines (Raycast / Arc) ───────── */
   --zx-line-subtle:   oklch(0.92 0.005 240);    /* divider apenas visible */
@@ -53,14 +60,19 @@
   /* ── Live state — pulsing dot ───────────────────────────────────────── */
   --zx-live:          var(--zx-positive);
 
-  /* ── Type scale (Linear-like) — tight, modular ──────────────────────── */
-  --zx-text-micro:    10px;
-  --zx-text-meta:     11px;
-  --zx-text-caption:  12px;
-  --zx-text-body:     13px;
-  --zx-text-title:    15px;
-  --zx-text-display:  22px;
-  --zx-text-hero:     34px;
+  /* ── Type scale — modular escalado para presencia visual.
+   * Linear-redesign: Display variant para headlines (más expression).
+   */
+  --zx-text-micro:     10px;
+  --zx-text-meta:      11px;
+  --zx-text-caption:   12px;
+  --zx-text-body:      14px;
+  --zx-text-title:     16px;
+  --zx-text-card-h:    18px;
+  --zx-text-section:   22px;
+  --zx-text-display:   32px;
+  --zx-text-display-l: 44px;
+  --zx-text-hero:      56px;
 
   --zx-leading-tight: 1.15;
   --zx-leading-snug:  1.35;
@@ -124,11 +136,22 @@
 
 /** Card variant — deep (hero strip dark surface) */
 .zx-card--deep {
-  background: var(--zx-surface-deep);
-  border: 1px solid oklch(1 0 0 / 0.08);
+  background:
+    radial-gradient(circle at top right, oklch(0.30 0.10 280 / 0.35), transparent 40%),
+    radial-gradient(circle at bottom left, oklch(0.25 0.12 200 / 0.25), transparent 50%),
+    var(--zx-surface-deep);
+  border: 1px solid oklch(1 0 0 / 0.10);
   color: var(--zx-ink-on-deep);
-  box-shadow: var(--zx-shadow-lift);
+  box-shadow: var(--zx-shadow-lift), inset 0 1px 0 0 oklch(1 0 0 / 0.06);
 }
+
+/** Tinted card variants — Pitch bento.
+ *  Border casi imperceptible matched al tinte. */
+.zx-card--positive { background: var(--zx-surface-positive); border-color: oklch(0.58 0.15 152 / 0.18); }
+.zx-card--warn     { background: var(--zx-surface-warn);     border-color: oklch(0.72 0.16 75 / 0.20); }
+.zx-card--urgent   { background: var(--zx-surface-urgent);   border-color: oklch(0.58 0.21 25 / 0.20); }
+.zx-card--accent   { background: var(--zx-surface-accent);   border-color: oklch(0.52 0.20 270 / 0.18); }
+.zx-card--neutral  { background: var(--zx-surface-neutral);  border-color: var(--zx-line); }
 
 /** Section label — micro caps, modular tracking. Linear-like. */
 .zx-eyebrow {
@@ -149,19 +172,73 @@
   line-height: var(--zx-leading-snug);
 }
 
-/** Big metric number — display weight con tabular-nums */
+/** Big metric number — display weight con tabular-nums.
+ *  Linear Inter Display: -0.03em tracking en sizes grandes.
+ */
 .zx-metric {
   font-size: var(--zx-text-display);
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.025em;
   color: var(--zx-ink-1);
-  line-height: 1;
+  line-height: 0.95;
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum', 'cv11', 'ss01';
 }
-.zx-metric--hero {
-  font-size: var(--zx-text-hero);
+.zx-metric--lg   { font-size: var(--zx-text-display-l); letter-spacing: -0.03em; }
+.zx-metric--hero { font-size: var(--zx-text-hero);      letter-spacing: -0.035em; }
+
+/** Display headline — Linear Inter Display vibe (2025 redesign). */
+.zx-display {
+  font-size: var(--zx-text-section);
+  font-weight: 600;
+  letter-spacing: -0.018em;
+  color: var(--zx-ink-1);
+  line-height: 1.15;
 }
+.zx-card-h {
+  font-size: var(--zx-text-card-h);
+  font-weight: 600;
+  letter-spacing: -0.014em;
+  color: var(--zx-ink-1);
+  line-height: 1.2;
+}
+
+/** Mini bar viz — usable inline para mostrar progreso/distribución sin chart. */
+.zx-progress {
+  position: relative;
+  height: 6px;
+  background: oklch(0.92 0.005 240 / 0.8);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.zx-progress__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(90deg, var(--zx-accent), oklch(0.65 0.18 250));
+  border-radius: inherit;
+  transition: width var(--zx-dur-slow) var(--zx-ease-spring);
+}
+.zx-progress--emerald .zx-progress__fill { background: linear-gradient(90deg, var(--zx-positive), oklch(0.68 0.15 152)); }
+.zx-progress--amber   .zx-progress__fill { background: linear-gradient(90deg, var(--zx-warn),     oklch(0.75 0.18 70)); }
+
+/** Avatar circle — staff/guests con iniciales o foto. */
+.zx-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--zx-surface-accent);
+  color: var(--zx-accent);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  border: 1.5px solid var(--zx-surface);
+  flex-shrink: 0;
+}
+.zx-avatar-stack { display: inline-flex; }
+.zx-avatar-stack > .zx-avatar:not(:first-child) { margin-left: -8px; }
 
 /** Caption / supporting micro-text */
 .zx-meta {
