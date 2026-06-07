@@ -63,41 +63,47 @@ export function TodayRecommendations({
   if (!isSupervisor) return null
   if (isLoading) {
     return (
-      <div className="bg-white border border-gray-200 rounded-xl p-5 text-sm text-gray-400">
-        Analizando datos para sugerencias…
-      </div>
+      <section className="bg-white border border-slate-200 rounded-xl p-5 space-y-4 min-h-[280px] flex flex-col">
+        <header className="flex items-baseline justify-between gap-2">
+          <h2 className="text-[13px] font-semibold text-gray-800 flex items-center gap-1.5">
+            <Sparkles className="h-4 w-4 text-indigo-600" /> Hoy te recomiendo
+          </h2>
+        </header>
+        <p className="text-[12px] text-gray-400">Analizando datos para sugerencias…</p>
+      </section>
     )
   }
 
+  // Patrón canónico unificado con FxRate + Overstayed.
   return (
-    <section className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
-      <div className="flex items-baseline justify-between gap-3">
-        <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-1.5">
+    <section className="bg-white border border-slate-200 rounded-xl p-5 space-y-4 min-h-[280px] flex flex-col">
+      <header className="flex items-baseline justify-between gap-2">
+        <h2 className="text-[13px] font-semibold text-gray-800 flex items-center gap-1.5">
           <Sparkles className="h-4 w-4 text-indigo-600" /> Hoy te recomiendo
         </h2>
-        <span className="text-[10px] text-gray-400">
+        <span className="text-[11px] text-gray-400 tabular-nums">
           {recommendations.length} {recommendations.length === 1 ? 'acción' : 'acciones'}
         </span>
-      </div>
+      </header>
 
       {recommendations.length === 0 ? (
-        <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-4 flex items-start gap-3">
+        <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-4 flex items-start gap-3 flex-1">
           <span className="inline-flex items-center justify-center h-7 w-7 rounded-full bg-emerald-100 text-emerald-700 flex-shrink-0">
             <CheckCircle2 className="h-4 w-4" />
           </span>
           <div>
-            <p className="text-sm font-medium text-emerald-900">Todo bajo control</p>
+            <p className="text-[13px] font-medium text-emerald-900">Todo bajo control</p>
             <p className="text-[12px] text-emerald-800 leading-relaxed mt-0.5">
-              No detectamos acciones urgentes con los datos actuales. Tu tarifa está alineada al mercado,
-              la demanda se mantiene y no hay picos sin atender. Revisa de nuevo en unas horas.
+              No detectamos acciones urgentes. Tu tarifa está alineada al mercado, la demanda se
+              mantiene y no hay picos sin atender. Revisa de nuevo en unas horas.
             </p>
           </div>
         </div>
       ) : (
-        // Fix 2026-06-07: cap height + overflow para que el card ocupe el
-        // mismo alto visual que FxRate/Overstayed en el row top y no rompa
-        // el grid cuando hay 4-6 bullets.
-        <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+        // Patrón canónico unificado: card cap altura ~360px (header + 280px contenido).
+        // overflow-y-auto cuando hay 4-6 bullets — alineado con Apple HIG Layout
+        // Visual Balance del row top.
+        <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1 flex-1">
           {recommendations.map((rec) => {
             const Icon = ICON_BY_KIND[rec.kind]
             const tone = TONE_BY_KIND[rec.kind]
@@ -121,9 +127,8 @@ export function TodayRecommendations({
         </div>
       )}
 
-      <p className="text-[10px] text-gray-400 italic">
-        Sugerencias generadas de tus datos de ventas, pickup, compset y forecast. No reemplazan tu criterio
-        comercial — son señales para ayudarte a decidir más rápido.
+      <p className="mt-auto text-[10px] text-gray-400 italic">
+        Señales para decidir más rápido — no reemplazan tu criterio comercial.
       </p>
     </section>
   )
