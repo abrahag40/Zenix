@@ -15,6 +15,7 @@ import {
   useAddCompetitor,
   useDeactivateCompetitor,
   useSearchHotel,
+  useSearchProviderStatus,
   useRefreshCompset,
   useSubmitManualSnapshot,
   useCompsetDashboard,
@@ -154,19 +155,37 @@ function AddCompetitorForm({ propertyId, onClose }: { propertyId: string; onClos
   const [query, setQuery] = useState('')
   const add = useAddCompetitor(propertyId)
   const { data: results = [], isLoading } = useSearchHotel(propertyId, query, query.length >= 2)
+  const { data: provider } = useSearchProviderStatus(propertyId)
+  const realProvider = provider?.available === true
 
   return (
     <div className="mt-4 border border-gray-200 rounded-md p-3 bg-gray-50">
-      <p className="text-xs font-medium text-gray-700 mb-2">Buscar hotel</p>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-medium text-gray-700">Buscar hotel</p>
+        {provider && (
+          realProvider ? (
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[10px] rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              Google Places · sesgo geo a tu zona
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[10px] rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+              Búsqueda real deshabilitada — pide al admin activar GOOGLE_PLACES_API_KEY
+            </span>
+          )
+        )}
+      </div>
       <input
         type="text"
         autoFocus
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="Nombre del hotel…"
-        className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        placeholder={realProvider ? 'Nombre del hotel…' : 'Activa Google Places para buscar'}
+        disabled={!realProvider}
+        className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-100 disabled:text-gray-400"
       />
-      {query.length >= 2 && (
+      {query.length >= 2 && realProvider && (
         <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
           {isLoading && <p className="text-xs text-gray-400">Buscando…</p>}
           {results.map((r) => (
