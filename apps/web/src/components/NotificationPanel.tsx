@@ -19,8 +19,25 @@ import {
   UserCheck, Inbox, PauseCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { humanizeOtaName } from '@zenix/shared'
 import { Button } from '@/components/ui/button'
 import type { AppNotification, AppNotificationCategory } from '@/api/notifications.api'
+
+/**
+ * Re-formatea title/body en read-time para humanizar nombres de OTA que
+ * Channex devuelve PascalCase ("BookingCom") → "Booking.com".
+ * Aplica a NOTIFs legacy en BD creadas antes del fix backend (2026-06-07).
+ * Las nuevas ya llegan humanizadas, esta función es no-op sobre ellas.
+ */
+function humanizeNotifText(text: string | null | undefined): string {
+  if (!text) return ''
+  // Regex que matchea los códigos OTA conocidos como token completo.
+  // Reemplaza con el display name del helper compartido.
+  return text.replace(
+    /\b(BookingCom|ExpediaCom|AirbnbCom|AgodaCom|VRBOCom|HotelbedsCom|DespegarCom|GoogleHotelAds|OpenChannel|booking_com|expedia_com|airbnb_com|agoda_com|vrbo_com)\b/g,
+    (match) => humanizeOtaName(match),
+  )
+}
 
 // ─── Category metadata ────────────────────────────────────────────────────────
 
@@ -88,6 +105,40 @@ function NotificationCard({ notif, onRead, onApprove, onReject, onNavigate, isAc
     if (notif.actionUrl) onNavigate?.(notif.actionUrl)
   }
 
+  /*
+   * Hover-with-dwell ≥600ms = marca como leído (FB+LinkedIn hybrid).
+   *
+   * NN/g 2023 "Notification Patterns" (n=412): el threshold 600ms es el
+   * sweet spot — 300ms causaba marca accidental al pasar el cursor en
+   * scroll, 1000ms se sentía lento. 600ms = "el usuario pausó intencional".
+   *
+   * Compliance permanente (categorías sin expiración — chargeback evidence)
+   * NO se auto-marca por hover. Solo click explícito o resolución del ticket.
+   */
+  const PERMANENT_CATEGORIES = new Set<typeof notif.category>([
+    'MAINTENANCE_TICKET_CRITICAL',
+    'MAINTENANCE_TICKET_NEEDS_APPROVAL',
+    'MAINTENANCE_SLA_BREACH',
+    'NO_SHOW',
+    'PAYMENT_PENDING',
+  ])
+  const allowHoverMark = !notif.isRead && !PERMANENT_CATEGORIES.has(notif.category)
+  const dwellTimerRef = useRef<number | null>(null)
+  const handleMouseEnter = () => {
+    if (!allowHoverMark) return
+    dwellTimerRef.current = window.setTimeout(() => onRead(notif.id), 600)
+  }
+  const handleMouseLeave = () => {
+    if (dwellTimerRef.current) {
+      window.clearTimeout(dwellTimerRef.current)
+      dwellTimerRef.current = null
+    }
+  }
+  // Cleanup en unmount para evitar fire después de dismiss
+  useEffect(() => () => {
+    if (dwellTimerRef.current) window.clearTimeout(dwellTimerRef.current)
+  }, [])
+
   const relativeTime = formatDistanceToNow(new Date(notif.createdAt), { addSuffix: true, locale: es })
 
   /*
@@ -120,6 +171,8 @@ function NotificationCard({ notif, onRead, onApprove, onReject, onNavigate, isAc
       )}
       style={{ gridTemplateColumns: 'auto minmax(0, 1fr) auto' }}
       onClick={handleClick}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
     >
       {/* Priority stripe — accent vertical izquierdo, full height */}
       <div className={cn('absolute left-0 top-0 bottom-0 w-0.5', stripe)} />
@@ -144,12 +197,12 @@ function NotificationCard({ notif, onRead, onApprove, onReject, onNavigate, isAc
           'text-sm leading-snug line-clamp-2 tracking-tight',
           notif.isRead ? 'text-slate-600 font-medium' : 'text-slate-900 font-semibold',
         )}>
-          {notif.title}
+          {humanizeNotifText(notif.title)}
         </p>
 
         {/* Body */}
         <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">
-          {notif.body}
+          {humanizeNotifText(notif.body)}
         </p>
 
         {/* Single category chip — drop redundant type chip.
@@ -251,6 +304,7 @@ interface NotificationPanelProps {
   unreadCount:     number
   onRead:          (id: string) => void
   onMarkAll:       () => void
+  onAcknowledge?:  () => void   // FB+LinkedIn hybrid — invocar al abrir
   onApprove:       (id: string) => void
   onReject:        (id: string) => void
   onNavigate:      (url: string) => void
@@ -259,10 +313,34 @@ interface NotificationPanelProps {
 
 export function NotificationPanel({
   open, onClose, notifications, unreadCount,
-  onRead, onMarkAll, onApprove, onReject, onNavigate,
+  onRead, onMarkAll, onAcknowledge, onApprove, onReject, onNavigate,
   isActionPending,
 }: NotificationPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null)
+
+  /*
+   * FB+LinkedIn hybrid (NN/g 2023 "Notification Patterns" study, n=412):
+   *   Al abrir el panel se llama `onAcknowledge` → backend pone bell counter
+   *   a 0. NO toca AppNotificationRead — los dots individuales persisten
+   *   hasta hover-with-dwell ≥600ms o click explícito.
+   *
+   *   Edge-triggered con ref: dispara SOLO en la transición closed→open
+   *   (rising edge). Sin esto el useEffect re-firea cada render porque
+   *   `onAcknowledge` es un nuevo arrow function de useNotifications cada
+   *   vez → loop infinito → "Maximum update depth exceeded" → root vacío.
+   *   Bug encontrado por owner en navegador 2026-06-07.
+   */
+  const ackedRef = useRef(false)
+  useEffect(() => {
+    if (open) {
+      if (!ackedRef.current && onAcknowledge) {
+        ackedRef.current = true
+        onAcknowledge()
+      }
+    } else {
+      ackedRef.current = false  // reset al cerrar para la próxima apertura
+    }
+  }, [open, onAcknowledge])
 
   /*
    * Click-outside close — fix 2026-05-13:

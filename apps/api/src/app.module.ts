@@ -42,6 +42,7 @@ import { MetricsModule } from './pms/metrics/metrics.module'
 import { CompsetModule } from './pms/compset/compset.module'
 import { LocalEventsModule } from './pms/local-events/local-events.module'
 import { DashboardModule } from './dashboard/dashboard.module'
+import { FeedModule } from './dashboard/feed/feed.module'
 import { BlocksModule } from './blocks/blocks.module'
 // PaymentsModule eliminado 2026-05-29 — no-show charging via Stripe estaba
 // fuera del scope productivo (Stripe solo se usa para SaaS subscription
@@ -116,6 +117,7 @@ import { PropertyScopeGuard } from './common/guards/property-scope.guard'
     CompsetModule,
     LocalEventsModule,
     DashboardModule,
+    FeedModule,
     BlocksModule,
     SoftLockModule,
     NotificationCenterModule,

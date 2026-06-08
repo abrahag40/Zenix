@@ -1,3 +1,12 @@
+// Polyfill `globalThis.crypto` para Node 16 — @nestjs/schedule usa
+// `crypto.randomUUID()` bare global y Node 16 no lo expone. Idéntico al
+// polyfill aplicado a tests vía jest.setup.js (cierre CI-RESCUE).
+// Debe correr ANTES de cualquier import que load @nestjs/schedule.
+if (typeof globalThis.crypto === 'undefined') {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  ;(globalThis as { crypto?: unknown }).crypto = require('node:crypto').webcrypto
+}
+
 import { ValidationPipe } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { NestFactory, Reflector } from '@nestjs/core'

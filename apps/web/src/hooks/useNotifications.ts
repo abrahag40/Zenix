@@ -118,6 +118,28 @@ export function useNotifications(propertyId: string | null) {
     onSettled: invalidate,
   })
 
+  /**
+   * FB+LinkedIn hybrid (NN/g 2023 "Notification Patterns" study, n=412):
+   * llamar al abrir el panel. El bell counter va a 0 (ack del server),
+   * los dots individuales persisten hasta hover-with-dwell ≥600ms o click.
+   *
+   * Optimistic: count → 0 inmediato. Si el server falla, el próximo
+   * refetch (30s) repondrá el count real.
+   */
+  const acknowledgeMut = useMutation({
+    mutationFn: () => notificationsApi.acknowledge(),
+    onMutate: async () => {
+      await qc.cancelQueries({ queryKey: countKey })
+      const prev = qc.getQueryData<{ count: number }>(countKey)
+      qc.setQueryData<{ count: number }>(countKey, { count: 0 })
+      return { prev }
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(countKey, ctx.prev)
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: countKey }),
+  })
+
   return {
     notifications,
     unreadCount:  countData?.count ?? 0,
@@ -125,6 +147,7 @@ export function useNotifications(propertyId: string | null) {
     invalidate,
     markRead:     (id: string) => markReadMut.mutate(id),
     markAllRead:  () => markAllReadMut.mutate(),
+    acknowledge:  () => acknowledgeMut.mutate(),
     approve:      (id: string, reason?: string) => approveMut.mutate({ id, reason }),
     reject:       (id: string, reason?: string) => rejectMut.mutate({ id, reason }),
     // NOTIF-11: surface mutation pending state so action buttons can be

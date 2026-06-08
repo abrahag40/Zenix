@@ -566,7 +566,7 @@ function BookingBlockInner({
           // drag para no pelear con el seguimiento del cursor.
           transition: isDragging
             ? 'none'
-            : 'top 220ms cubic-bezier(0.22,1,0.36,1), height 220ms cubic-bezier(0.22,1,0.36,1), width 360ms cubic-bezier(0.22,1,0.36,1), left 360ms cubic-bezier(0.22,1,0.36,1)',
+            : 'top 220ms var(--ease-spring), height 220ms var(--ease-spring), width 360ms var(--ease-spring), left 360ms var(--ease-spring)',
         }}
       >
         {/* OTA accent bar — left border stripe. Wider + brighter red for confirmed no-shows. */}
@@ -868,14 +868,14 @@ function BookingBlockInner({
                       'text-[12px] font-semibold text-emerald-700',
                       'bg-slate-50 hover:bg-emerald-600 hover:text-white',
                       'border-t border-slate-200',
-                      'transition-all duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]',
+                      'transition-all duration-200 ease-spring',
                       'focus-visible:outline-none focus-visible:bg-emerald-600 focus-visible:text-white',
                       'motion-reduce:transition-none',
                     )}
                   >
                     <span>Ver journey completo</span>
                     <ArrowUpRight
-                      className="h-3.5 w-3.5 transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover/cta:translate-x-0.5 group-hover/cta:-translate-y-0.5 motion-reduce:transition-none"
+                      className="h-3.5 w-3.5 transition-transform duration-200 ease-spring group-hover/cta:translate-x-0.5 group-hover/cta:-translate-y-0.5 motion-reduce:transition-none"
                       strokeWidth={2.5}
                     />
                   </button>

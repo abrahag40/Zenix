@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
 import { StubCompsetAdapter } from './stub-compset.adapter'
+import { GooglePlacesService } from './google-places.service'
 import type { HotelSearchResult, ICompsetAdapter } from './compset-adapter.interface'
 
 const MAX_COMPETITORS_PER_PROPERTY = 7
@@ -26,6 +27,7 @@ export class CompsetService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly stubAdapter: StubCompsetAdapter,
+    private readonly googlePlaces: GooglePlacesService,
   ) {}
 
   // ──────────────────────────────────────────────────────────────────
@@ -102,10 +104,52 @@ export class CompsetService {
   // Hotel search (via adapter — Google Places / Booking Affiliate)
   // ──────────────────────────────────────────────────────────────────
 
+  /**
+   * Hotel search — prioriza Google Places REAL si la env está configurada.
+   * Si no, cae al adapter del compset provider (stub hoy, scraper-diy/lighthouse después).
+   *
+   * Pull automático del centro geográfico desde Property.settings.{lat,lng}/radiusKm
+   * cuando el caller no lo provee — sin esto el sesgo geográfico no aplica y aparecen
+   * hoteles de otra ciudad (caso reportado por owner 2026-06-07).
+   */
   async searchHotel(propertyId: string, query: string, near?: { lat: number; lng: number }): Promise<HotelSearchResult[]> {
     if (!query?.trim()) return []
-    const adapter = await this.getAdapterForProperty(propertyId)
-    return adapter.searchHotel(query.trim(), near)
+    const trimmed = query.trim()
+
+    // Resolve geo bias from Property si el caller no lo provee.
+    // Sin esto el search no sesga geográficamente — cae el caso reportado por
+    // owner (Tulum vs Cancún mezclados). radius por default 30km — el rango típico
+    // de un compset boutique en zona turística.
+    let effectiveNear = near
+    const radiusKm: number | undefined = undefined
+    if (!effectiveNear) {
+      const prop = await this.prisma.property.findUnique({
+        where: { id: propertyId },
+        select: { latitude: true, longitude: true },
+      })
+      if (prop?.latitude != null && prop?.longitude != null) {
+        effectiveNear = { lat: prop.latitude, lng: prop.longitude }
+      }
+    }
+
+    if (this.googlePlaces.isConfigured()) {
+      const results = await this.googlePlaces.searchHotel(trimmed, effectiveNear ? { ...effectiveNear, radiusKm } : undefined)
+      return results  // [] honesto si no hay match (NO caemos al stub que inventa "X Hotel")
+    }
+    // Sin Google Places key: NO caer al stub (inventa hoteles fake = mala UX).
+    // Devolvemos [] + log; el frontend muestra estado vacío con explicación al admin.
+    this.logger.warn(
+      `searchHotel: Google Places no configurada — devolviendo [] para "${trimmed}". ` +
+      `Activa GOOGLE_PLACES_API_KEY en el backend para búsqueda real.`,
+    )
+    return []
+  }
+
+  /** Health-check para el frontend — saber si Google Places está activo. */
+  getSearchProviderStatus(): { provider: 'google_places' | 'none'; available: boolean } {
+    return this.googlePlaces.isConfigured()
+      ? { provider: 'google_places', available: true }
+      : { provider: 'none', available: false }
   }
 
   // ──────────────────────────────────────────────────────────────────

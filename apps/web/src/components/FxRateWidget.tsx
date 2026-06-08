@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { TrendingUp, TrendingDown, Minus, RefreshCw, AlertTriangle } from 'lucide-react'
+import { TrendingUp, TrendingDown, Minus, RefreshCw, AlertTriangle, Coins } from 'lucide-react'
 import { api } from '@/api/client'
 import { usePropertyStore } from '@/store/property'
 import { format } from 'date-fns'
@@ -35,47 +35,88 @@ interface FxCurrent {
 export function FxRateWidget({ base = 'USD', quote = 'MXN' }: { base?: string; quote?: string }) {
   const propertyId = usePropertyStore((s) => s.activePropertyId)
 
-  const { data, isLoading } = useQuery<FxCurrent>({
+  const { data, isLoading, isError, refetch, isFetching } = useQuery<FxCurrent>({
     queryKey: ['fx-current', propertyId, base, quote],
     queryFn: () => api.get(`/v1/fx/current?propertyId=${propertyId}&base=${base}&quote=${quote}`),
     enabled: !!propertyId,
     staleTime: 5 * 60_000,
+    // Fix 2026-06-07: si la query falla (Banxico down, network error),
+    // auto-retry cada 5 min en lugar de quedar muerto. React Query maneja
+    // backoff exponencial entre intentos del mismo ciclo automáticamente.
+    refetchInterval: (query) => (query.state.error ? 5 * 60_000 : false),
+    retry: 2,
   })
 
-  if (isLoading || !data) {
+  // Card shell unificado — patrón canónico top-row dashboard (Apple HIG
+  // Typography + Layout Visual Balance 2026-06-07).
+  const Shell: React.FC<{ children: React.ReactNode; meta?: React.ReactNode }> = ({ children, meta }) => (
+    <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4 min-h-[280px] flex flex-col">
+      <header className="flex items-baseline justify-between gap-2">
+        <h2 className="text-[13px] font-semibold text-gray-800 flex items-center gap-1.5">
+          <Coins className="h-4 w-4 text-indigo-600" />
+          Tipo de cambio
+        </h2>
+        {meta}
+      </header>
+      {children}
+    </div>
+  )
+
+  if (isLoading) {
     return (
-      <div className="bg-white border border-slate-200 rounded-xl p-5 animate-pulse">
-        <div className="h-3 w-24 bg-slate-100 rounded mb-3" />
-        <div className="h-6 w-32 bg-slate-100 rounded mb-2" />
-        <div className="h-3 w-40 bg-slate-100 rounded" />
-      </div>
+      <Shell>
+        <div className="space-y-2 animate-pulse">
+          <div className="h-6 w-32 bg-slate-100 rounded" />
+          <div className="h-3 w-40 bg-slate-100 rounded" />
+        </div>
+      </Shell>
+    )
+  }
+
+  // Estado error: muestra mensaje + botón "Reintentar" + countdown del auto-retry.
+  if (isError || !data) {
+    return (
+      <Shell>
+        <div className="flex-1 flex flex-col justify-between space-y-3">
+          <div className="flex items-start gap-2 text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
+            <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+            <div className="text-[12px] leading-relaxed">
+              <p className="font-medium">No conectamos al servicio de tipo de cambio.</p>
+              <p className="text-amber-700 mt-0.5">Reintentamos cada 5 min automáticamente.</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-[12px] font-medium text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <RefreshCw className={`h-3 w-3 ${isFetching ? 'animate-spin' : ''}`} />
+            {isFetching ? 'Reintentando…' : 'Reintentar ahora'}
+          </button>
+        </div>
+      </Shell>
     )
   }
 
   const noData = !data.official && !data.internal
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
-      <div className="flex items-baseline justify-between gap-2">
-        <div>
-          <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-            Tipo de cambio HOY
-          </h3>
-          <p className="text-sm font-semibold text-slate-700 mt-0.5">
-            {data.base} → {data.quote}
-          </p>
-        </div>
-        {data.official && (
-          <p className="text-[10px] text-slate-400 text-right">
+    <Shell
+      meta={
+        data.official ? (
+          <span className="text-[11px] text-gray-400 tabular-nums">
             {format(new Date(data.official.fetchedAt), "HH:mm 'CST'", { locale: es })}
-          </p>
-        )}
-      </div>
+          </span>
+        ) : null
+      }
+    >
+      <p className="text-[12px] text-gray-500 -mt-2">{data.base} → {data.quote}</p>
 
       {noData ? (
-        <div className="flex items-center gap-2 text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2.5">
+        <div className="flex items-center gap-2 text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
           <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
-          <span className="text-xs">Sin datos. Configura Banxico o override hotel.</span>
+          <span className="text-[12px]">Sin datos. Configura Banxico o override hotel.</span>
         </div>
       ) : (
         <>
@@ -129,11 +170,11 @@ export function FxRateWidget({ base = 'USD', quote = 'MXN' }: { base?: string; q
         </>
       )}
 
-      <div className="pt-1 flex items-center gap-1.5 text-[10px] text-slate-400">
+      <div className="mt-auto pt-1 flex items-center gap-1.5 text-[10px] text-slate-400">
         <RefreshCw className="h-2.5 w-2.5" />
         Actualización diaria 13:00 CST · Banxico FIX
       </div>
-    </div>
+    </Shell>
   )
 }
 

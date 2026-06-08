@@ -1,24 +1,14 @@
 /**
- * CompsetCard — Fase 3 cierre 2026-06-06. Mi posición vs el compset + eventos del período.
+ * CompsetCard — Mi tarifa vs mediana del compset.
  *
- * Reglas no-negociables:
- *   · D-COMPSET6: SUPERVISOR-only (caller gates + backend 403 fail-soft).
- *   · D-COMPSET7: disclaimer permanente "best-effort, refresh diario".
- *
- * Lectura del gráfico: para las próximas 14 noches, muestra **mi BAR del día**
- * (de `RatesService` vía `useDailyBar`) vs la mediana del compset + min/max +
- * delta absoluto color-coded:
- *   · Mi rate >> mediana (>+15%):  amber  "premium positioning"
- *   · Mi rate dentro de ±15%:      slate  "alineado al mercado"
- *   · Mi rate << mediana (<−15%):  rose   "underpriced — oportunidad subir"
- *
- * Honesto con histórico ausente: si la mediana del compset es null (sin scrape
- * todavía), el delta no se renderiza para esa noche — sin valor inventado.
- *
- * Eventos locales del período se listan abajo como context para revenue management.
+ * Rediseño 2026-06-07 al design system zx-* del Command Center.
+ * Pattern Behance "competitive analysis" + Linear Insights "table with inline bars":
+ *   · Hero summary (n noches comparadas + posición vs mercado)
+ *   · Tabla con bar viz inline para cada noche (mi rate / mín / mediana / máx)
+ *   · Eventos locales del período como chips
  */
 import { useMemo } from 'react'
-import { Info, AlertTriangle, Calendar, ArrowUpRight, ArrowDownRight, Minus } from 'lucide-react'
+import { AlertTriangle, Calendar, ArrowUpRight, ArrowDownRight, Minus, BarChart3 } from 'lucide-react'
 import { useCompsetDashboard, useLocalEvents } from '@/hooks/useCompset'
 import { useDailyBar } from '@/modules/rooms/hooks/useRates'
 
@@ -35,10 +25,6 @@ export function CompsetCard({ propertyId, isSupervisor }: { propertyId: string; 
     return { from: t, to: new Date(t.getTime() + 14 * 86400000) }
   }, [])
   const events = useLocalEvents(propertyId, from, to, isSupervisor)
-  // Mi BAR del día por noche — para comparar contra mediana compset (CompsetCard
-  // Fase 3 cierre). useDailyBar respeta scope SUPERVISOR; si el caller no lo es,
-  // el componente ya retorna null arriba — la query queda enabled pero
-  // backend devuelve 403 y la convertimos a "sin data" silenciosamente.
   const myBar = useDailyBar(propertyId, from, to)
   const myRateByDate = useMemo(() => {
     const m = new Map<string, number>()
@@ -48,18 +34,17 @@ export function CompsetCard({ propertyId, isSupervisor }: { propertyId: string; 
 
   if (!isSupervisor || isError) return null
   if (isLoading || !data) {
-    return <div className="bg-white border border-gray-200 rounded-xl p-5 text-sm text-gray-400">Cargando compset…</div>
+    return <div className="zx-card" style={{ padding: 20 }}><p className="zx-meta">Cargando compset…</p></div>
   }
   if (data.competitors.length === 0) {
     return (
-      <section className="bg-white border border-gray-200 rounded-xl p-5">
-        <p className="text-sm font-medium text-gray-700">Compset</p>
-        <p className="text-xs text-gray-400 mt-1">{data.disclaimer}</p>
+      <section className="zx-card" style={{ padding: 20 }}>
+        <span className="zx-eyebrow">Compset</span>
+        <p style={{ fontSize: 13, color: 'var(--zx-ink-3)', marginTop: 6 }}>{data.disclaimer}</p>
       </section>
     )
   }
 
-  // Construir matriz [stayDate → { rates: number[], compsCounted }]
   const dates = uniqueSortedDates(data.competitors)
   const matrix = dates.map((iso) => {
     const rates: number[] = []
@@ -79,106 +64,157 @@ export function CompsetCard({ propertyId, isSupervisor }: { propertyId: string; 
   const ccy = firstCurrency(data.competitors) ?? 'USD'
   const hasStubWarning = data.competitors.some((c) => c.warnings.some((w) => w.includes('STUB')))
 
+  // Narrative count
+  const withDelta = matrix
+    .map((m) => {
+      const myRate = myRateByDate.get(m.iso)
+      if (myRate == null || m.median == null) return null
+      return ((myRate - m.median) / m.median) * 100
+    })
+    .filter((d): d is number => d != null)
+  const cheapNights = withDelta.filter((d) => d < -15).length
+  const premiumNights = withDelta.filter((d) => d > 15).length
+
   return (
-    <section className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
-      <div className="flex items-baseline justify-between gap-3">
-        <h2 className="text-sm font-semibold text-gray-800">Compset · próximas 14 noches</h2>
-        <span className="text-[10px] text-gray-400">
-          {data.competitors.length} hoteles · {data.disclaimer.split('Última')[1] ? 'Última' + data.disclaimer.split('Última')[1] : ''}
-        </span>
-      </div>
+    <section className="zx-card" style={{ padding: 22, display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+        <div>
+          <span className="zx-eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <BarChart3 size={11} style={{ color: 'var(--zx-accent)' }} /> Compset · próximas 14 noches
+          </span>
+          <h2 className="zx-card-h" style={{ marginTop: 6 }}>
+            {cheapNights > 0 && premiumNights === 0 ? `${cheapNights} noches bajo el mercado`
+              : premiumNights > 0 && cheapNights === 0 ? `${premiumNights} noches premium`
+              : 'Posicionado vs el mercado'}
+          </h2>
+        </div>
+        <span className="zx-meta">{data.competitors.length} hoteles</span>
+      </header>
 
       {hasStubWarning && (
-        <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-800 flex gap-2">
-          <AlertTriangle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
-          <span>
-            Datos sintéticos (StubAdapter) — el scraping real Playwright se habilita en chunk 3 después del
-            review legal de anti-bot (D-COMPSET5).
-          </span>
+        <div style={{ display: 'flex', gap: 8, padding: '10px 14px', background: 'oklch(0.97 0.03 75)', border: '1px solid oklch(0.72 0.16 75 / 0.20)', borderRadius: 10, fontSize: 12, color: 'oklch(0.42 0.13 75)', lineHeight: 1.5 }}>
+          <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+          <span>Datos sintéticos (StubAdapter) — el scraping real Playwright se habilita en chunk 3 post-review legal anti-bot (D-COMPSET5).</span>
         </div>
       )}
 
-      {/* Heatmap simple: por noche Mi rate vs Mín/Mediana/Máx + Δ% */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-[11px] tabular-nums">
-          <thead>
-            <tr className="text-left text-gray-400 border-b border-gray-100">
-              <th className="py-1.5 font-medium">Noche</th>
-              <th className="py-1.5 font-medium">Mi rate</th>
-              <th className="py-1.5 font-medium">Mín.</th>
-              <th className="py-1.5 font-medium">Mediana</th>
-              <th className="py-1.5 font-medium">Máx.</th>
-              <th className="py-1.5 font-medium">Δ vs mediana</th>
-              <th className="py-1.5 font-medium">Disp.</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-50">
-            {matrix.map((m) => {
-              const myRate = myRateByDate.get(m.iso)
-              const delta = myRate != null && m.median != null ? myRate - m.median : null
-              const deltaPct = delta != null && m.median ? (delta / m.median) * 100 : null
-              const tone = deltaPctTone(deltaPct)
-              const Arrow = deltaPct == null ? null : deltaPct > 5 ? ArrowUpRight : deltaPct < -5 ? ArrowDownRight : Minus
-              return (
-                <tr key={m.iso}>
-                  <td className="py-1 text-gray-500">{formatDay(m.iso)}</td>
-                  <td className="py-1 text-gray-900 font-medium">
-                    {myRate != null ? `${ccy} ${Math.round(myRate)}` : <span className="text-gray-300">—</span>}
-                  </td>
-                  <td className="py-1 text-gray-500">{m.min != null ? `${ccy} ${Math.round(m.min)}` : '—'}</td>
-                  <td className="py-1 text-gray-900">{m.median != null ? `${ccy} ${Math.round(m.median)}` : '—'}</td>
-                  <td className="py-1 text-gray-500">{m.max != null ? `${ccy} ${Math.round(m.max)}` : '—'}</td>
-                  <td className="py-1">
-                    {deltaPct == null ? (
-                      <span className="text-gray-300">—</span>
-                    ) : (
-                      <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] ${tone}`}>
-                        {Arrow && <Arrow className="h-3 w-3" />}
-                        {deltaPct > 0 ? '+' : ''}
-                        {deltaPct.toFixed(0)}%
-                      </span>
-                    )}
-                  </td>
-                  <td className="py-1 text-gray-400">{m.availableCount}/{data.competitors.length}</td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+      {/* Descripción honesta y plana arriba de la tabla */}
+      <p style={{ fontSize: 12, color: 'var(--zx-ink-3)', lineHeight: 1.5, margin: 0 }}>
+        Comparativa de <strong style={{ color: 'var(--zx-ink-1)', fontWeight: 500 }}>tu tarifa</strong> contra el
+        rango y la mediana de tu compset por noche. La columna
+        <strong style={{ color: 'var(--zx-ink-1)', fontWeight: 500 }}> posición</strong> resume si estás bajo, en
+        línea o por encima del mercado.
+      </p>
+
+      {/* Tabla sin mini-bar (causaba confusión visual cuando MyRate caía fuera del rango).
+          6 columnas claras: noche | mi rate | mín | mediana | máx | posición */}
+      <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid var(--zx-line)' }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '70px 100px 100px 100px 100px 1fr',
+            gap: 12,
+            padding: '10px 14px',
+            background: 'var(--zx-surface-soft)',
+            fontSize: 10,
+            fontWeight: 600,
+            letterSpacing: '0.05em',
+            textTransform: 'uppercase',
+            color: 'var(--zx-ink-3)',
+          }}
+        >
+          <span>Noche</span>
+          <span style={{ textAlign: 'right' }}>Mi tarifa</span>
+          <span style={{ textAlign: 'right' }}>Mín</span>
+          <span style={{ textAlign: 'right' }}>Mediana</span>
+          <span style={{ textAlign: 'right' }}>Máx</span>
+          <span style={{ textAlign: 'right' }}>Posición</span>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {matrix.map((m, i) => {
+            const myRate = myRateByDate.get(m.iso)
+            const delta = myRate != null && m.median != null ? ((myRate - m.median) / m.median) * 100 : null
+            const pos = positionLabel(myRate, m.min, m.median, m.max)
+
+            return (
+              <div
+                key={m.iso}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '70px 100px 100px 100px 100px 1fr',
+                  gap: 12,
+                  padding: '12px 14px',
+                  alignItems: 'center',
+                  borderTop: i > 0 ? '1px solid var(--zx-line-subtle)' : 'none',
+                  fontSize: 12.5,
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
+                <span style={{ color: 'var(--zx-ink-3)' }}>{formatDay(m.iso)}</span>
+                <span style={{ textAlign: 'right', fontWeight: 600, color: 'var(--zx-ink-1)' }}>
+                  {myRate != null ? `${ccy} ${Math.round(myRate)}` : <span style={{ color: 'var(--zx-ink-4)' }}>—</span>}
+                </span>
+                <span style={{ textAlign: 'right', color: 'var(--zx-ink-3)' }}>
+                  {m.min != null ? `${ccy} ${Math.round(m.min)}` : '—'}
+                </span>
+                <span style={{ textAlign: 'right', color: 'var(--zx-ink-2)', fontWeight: 500 }}>
+                  {m.median != null ? `${ccy} ${Math.round(m.median)}` : '—'}
+                </span>
+                <span style={{ textAlign: 'right', color: 'var(--zx-ink-3)' }}>
+                  {m.max != null ? `${ccy} ${Math.round(m.max)}` : '—'}
+                </span>
+                <span style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  {pos ? (
+                    <span style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 6,
+                      padding: '3px 10px', borderRadius: 999,
+                      background: pos.bg, color: pos.fg,
+                      fontSize: 11, fontWeight: 500,
+                      whiteSpace: 'nowrap',
+                    }}>
+                      <pos.Icon size={11} />
+                      <span>{pos.label}</span>
+                      {delta != null && (
+                        <span style={{ opacity: 0.7, paddingLeft: 4, borderLeft: `1px solid ${pos.fg}33` }}>
+                          {delta > 0 ? '+' : ''}{delta.toFixed(0)}%
+                        </span>
+                      )}
+                    </span>
+                  ) : <span style={{ color: 'var(--zx-ink-4)' }}>—</span>}
+                </span>
+              </div>
+            )
+          })}
+        </div>
       </div>
 
-      {/* Eventos locales del período */}
+      {/* Local events */}
       {(events.data?.events ?? []).length > 0 && (
-        <div className="border-t border-gray-100 pt-3">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400 mb-2 flex items-center gap-1">
-            <Calendar className="h-3 w-3" /> Eventos en el período
-          </p>
-          <div className="space-y-1.5">
-            {(events.data?.events ?? []).slice(0, 5).map((ev) => (
-              <div key={ev.id} className="flex items-center gap-2 text-[11px]">
-                <span
-                  className={`px-1.5 py-0.5 rounded text-[10px] ${
-                    ev.demandImpact === 'EXTREME'
-                      ? 'bg-rose-50 text-rose-700'
-                      : ev.demandImpact === 'HIGH'
-                        ? 'bg-amber-50 text-amber-700'
-                        : 'bg-gray-50 text-gray-600'
-                  }`}
-                >
-                  {ev.demandImpact}
-                </span>
-                <span className="text-gray-900 font-medium truncate">{ev.name}</span>
-                <span className="text-gray-400 ml-auto">{formatDay(ev.startDate)} → {formatDay(ev.endDate)}</span>
-              </div>
-            ))}
+        <div style={{ borderTop: '1px solid var(--zx-line-subtle)', paddingTop: 14 }}>
+          <span className="zx-eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+            <Calendar size={11} /> Eventos del período
+          </span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {(events.data?.events ?? []).slice(0, 5).map((ev) => {
+              const tone =
+                ev.demandImpact === 'EXTREME' ? { bg: 'oklch(0.96 0.04 25)', fg: 'oklch(0.42 0.18 25)' }
+                : ev.demandImpact === 'HIGH' ? { bg: 'oklch(0.95 0.06 75)', fg: 'oklch(0.40 0.13 75)' }
+                : { bg: 'var(--zx-surface-soft)', fg: 'var(--zx-ink-2)' }
+              return (
+                <div key={ev.id} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
+                  <span style={{ padding: '2px 8px', borderRadius: 999, background: tone.bg, color: tone.fg, fontSize: 10, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                    {ev.demandImpact}
+                  </span>
+                  <span style={{ color: 'var(--zx-ink-1)', fontWeight: 500, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.name}</span>
+                  <span style={{ color: 'var(--zx-ink-3)', fontVariantNumeric: 'tabular-nums' }}>{formatDay(ev.startDate)} → {formatDay(ev.endDate)}</span>
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
 
-      <div className="rounded-md bg-gray-50 border border-gray-200 px-3 py-2 text-[10px] text-gray-500 flex gap-2 mt-2">
-        <Info className="h-3 w-3 mt-0.5 flex-shrink-0" />
-        <span>{data.disclaimer}</span>
-      </div>
+      <p className="zx-meta" style={{ fontSize: 10, fontStyle: 'italic' }}>{data.disclaimer}</p>
     </section>
   )
 }
@@ -201,18 +237,42 @@ function firstCurrency(competitors: { ratesByDate: Record<string, { currency?: s
 }
 
 /**
- * Color del badge de delta. Umbral ±15% per consensus de revenue management
- * (Mews benchmark + Cloudbeds): cambios ≥15% son significativos comercialmente,
- * <15% suelen ser ruido entre estrategias de pricing alineadas.
- *   · |Δ| ≤ 5%  → slate neutro (alineado al mercado)
- *   · 5-15%    → amber light (atención pero sin acción inmediata)
- *   · > 15%    → emerald (positiva: premium si arriba, oportunidad si abajo)
- * Color simétrico arriba/abajo — el dueño decide qué tan agresivo posicionarse.
+ * Posición vs mercado — categórica clara (5 buckets) que reemplaza al mini-bar
+ * confuso (causa: cuando MyRate < Min, el dot quedaba flotando antes del track).
+ *
+ * Bajo mercado    → MyRate < Min          (oportunidad de subir, posiblemente)
+ * Bajo mediana    → Min ≤ MyRate < Mediana
+ * En mediana      → ±5% de la mediana
+ * Sobre mediana   → Mediana < MyRate ≤ Max
+ * Premium         → MyRate > Max          (lider de precio del compset)
  */
-function deltaPctTone(pct: number | null): string {
-  if (pct == null) return 'bg-gray-50 text-gray-400'
+function positionLabel(
+  myRate: number | undefined,
+  min: number | null,
+  median: number | null,
+  max: number | null,
+): { label: string; bg: string; fg: string; Icon: typeof ArrowDownRight } | null {
+  if (myRate == null || median == null) return null
+  if (max != null && myRate > max) {
+    return { label: 'Premium', bg: 'oklch(0.95 0.05 152)', fg: 'oklch(0.32 0.10 152)', Icon: ArrowUpRight }
+  }
+  if (min != null && myRate < min) {
+    return { label: 'Bajo mercado', bg: 'oklch(0.96 0.04 25)', fg: 'oklch(0.40 0.18 25)', Icon: ArrowDownRight }
+  }
+  const pct = ((myRate - median) / median) * 100
+  if (Math.abs(pct) <= 5) {
+    return { label: 'En línea', bg: 'var(--zx-surface-soft)', fg: 'var(--zx-ink-2)', Icon: Minus }
+  }
+  if (pct < 0) {
+    return { label: 'Bajo mediana', bg: 'oklch(0.96 0.04 75)', fg: 'oklch(0.42 0.13 75)', Icon: ArrowDownRight }
+  }
+  return { label: 'Sobre mediana', bg: 'oklch(0.95 0.05 152)', fg: 'oklch(0.32 0.10 152)', Icon: ArrowUpRight }
+}
+
+function deltaTone(pct: number | null): { bg: string; fg: string } {
+  if (pct == null) return { bg: 'var(--zx-surface-soft)', fg: 'var(--zx-ink-4)' }
   const abs = Math.abs(pct)
-  if (abs <= 5) return 'bg-slate-50 text-slate-600'
-  if (abs <= 15) return 'bg-amber-50 text-amber-700'
-  return pct > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
+  if (abs <= 5) return { bg: 'var(--zx-surface-soft)', fg: 'var(--zx-ink-2)' }
+  if (abs <= 15) return { bg: 'oklch(0.96 0.04 75)', fg: 'oklch(0.42 0.13 75)' }
+  return pct > 0 ? { bg: 'oklch(0.95 0.05 152)', fg: 'oklch(0.32 0.10 152)' } : { bg: 'oklch(0.96 0.04 25)', fg: 'oklch(0.40 0.18 25)' }
 }

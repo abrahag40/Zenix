@@ -43,6 +43,14 @@ export class NotificationCenterController {
     return this.service.getAuditLog(dto.propertyId, new Date(dto.from), new Date(dto.to))
   }
 
+  /** POST /v1/notification-center/acknowledge — FB+LinkedIn hybrid (NN/g 2023).
+   *  Llamar cuando el usuario abre el NotificationPanel. Marca el ts del ack
+   *  para que el bell counter baje a 0 sin tocar los reads individuales. */
+  @Post('acknowledge')
+  acknowledge(@CurrentUser() actor: JwtPayload) {
+    return this.service.acknowledgePanelOpen(actor.sub).then(() => ({ ok: true }))
+  }
+
   /** PATCH /v1/notification-center/read-all?propertyId=X */
   @Patch('read-all')
   markAllRead(

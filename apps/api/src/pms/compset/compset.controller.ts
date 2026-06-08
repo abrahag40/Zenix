@@ -60,6 +60,12 @@ export class CompsetController {
     return this.service.deactivateCompetitor(propertyId, competitorId)
   }
 
+  /** Provider status del search (Google Places real vs ninguno). */
+  @Get('competitors/search-provider')
+  searchProvider() {
+    return this.service.getSearchProviderStatus()
+  }
+
   /** Search hotel via adapter (Google Places / Booking Affiliate / Stub). */
   @Get('competitors/search')
   search(

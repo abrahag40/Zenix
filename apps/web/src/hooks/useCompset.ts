@@ -90,6 +90,18 @@ export function useDeactivateCompetitor(propertyId: string) {
   })
 }
 
+export interface SearchProviderStatus { provider: 'google_places' | 'none'; available: boolean }
+
+/** Status del provider de búsqueda (Google Places real vs deshabilitado). */
+export function useSearchProviderStatus(propertyId: string, enabled = true) {
+  return useQuery<SearchProviderStatus>({
+    queryKey: ['compset', 'search-provider', propertyId],
+    queryFn: () => api.get(`/v1/properties/${propertyId}/compset/competitors/search-provider`),
+    enabled: enabled && !!propertyId,
+    staleTime: 5 * 60_000,
+  })
+}
+
 export function useSearchHotel(propertyId: string, q: string, enabled: boolean) {
   return useQuery<HotelSearchResult[]>({
     queryKey: ['compset', 'search', propertyId, q],

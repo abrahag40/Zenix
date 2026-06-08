@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, ChevronRight } from 'lucide-react'
+import { AlertTriangle, ChevronRight, ClockAlert } from 'lucide-react'
 import { useState } from 'react'
 import { api } from '@/api/client'
 
@@ -37,28 +37,40 @@ export function OverstayedWidget() {
     staleTime: 60_000,
   })
 
+  // Card shell unificado — patrón canónico top-row dashboard (Apple HIG 2026-06-07).
+  // Header siempre: icon + título + meta chip derecha. Border slate (neutro);
+  // los tonos amber están SOLO en el interior, comunicando estado del dato.
+  const Shell: React.FC<{ children: React.ReactNode; meta?: React.ReactNode }> = ({ children, meta }) => (
+    <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4 min-h-[280px] flex flex-col">
+      <header className="flex items-baseline justify-between gap-2">
+        <h2 className="text-[13px] font-semibold text-gray-800 flex items-center gap-1.5">
+          <ClockAlert className="h-4 w-4 text-indigo-600" />
+          Salidas vencidas
+        </h2>
+        {meta}
+      </header>
+      {children}
+    </div>
+  )
+
   if (isLoading || !data) {
     return (
-      <div className="bg-white border border-slate-200 rounded-xl p-5 animate-pulse">
-        <div className="h-3 w-32 bg-slate-100 rounded mb-3" />
-        <div className="h-6 w-16 bg-slate-100 rounded mb-2" />
-      </div>
+      <Shell>
+        <div className="space-y-2 animate-pulse">
+          <div className="h-7 w-16 bg-slate-100 rounded" />
+          <div className="h-3 w-40 bg-slate-100 rounded" />
+        </div>
+      </Shell>
     )
   }
 
   if (data.length === 0) {
     return (
-      <div className="bg-white border border-slate-200 rounded-xl p-5">
-        <p className="text-[11px] font-medium text-slate-500 uppercase tracking-wide mb-2">
-          Salidas vencidas
+      <Shell meta={<span className="text-[11px] text-emerald-700 font-medium">Al día</span>}>
+        <p className="text-[12px] text-gray-500">
+          Todos los checkouts del día están confirmados. Sin huéspedes pendientes de salir.
         </p>
-        <p className="text-sm text-emerald-700 font-medium">
-          Sin pendientes
-        </p>
-        <p className="text-xs text-slate-400 mt-1">
-          Todos los checkouts están confirmados al día.
-        </p>
-      </div>
+      </Shell>
     )
   }
 
@@ -66,26 +78,33 @@ export function OverstayedWidget() {
   const visible = expanded ? data : data.slice(0, 3)
 
   return (
-    <div className="bg-white border border-amber-200 rounded-xl p-5 space-y-3">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-[11px] font-medium text-amber-700 uppercase tracking-wide flex items-center gap-1.5">
-            <AlertTriangle className="h-3 w-3" />
-            Salidas vencidas
-          </p>
-          <p className="text-2xl font-bold text-amber-800 mt-1">{data.length}</p>
-        </div>
-        {totalOutstanding > 0 && (
-          <div className="text-right">
-            <p className="text-[10px] text-slate-500">Saldo pendiente</p>
-            <p className="text-sm font-semibold text-slate-800">
-              ${totalOutstanding.toLocaleString('es-MX', { maximumFractionDigits: 2 })}
-            </p>
-          </div>
-        )}
+    <Shell
+      meta={
+        totalOutstanding > 0 ? (
+          <span className="text-[11px] text-gray-400">
+            Saldo{' '}
+            <span className="font-semibold text-gray-700 tabular-nums">
+              ${totalOutstanding.toLocaleString('es-MX', { maximumFractionDigits: 0 })}
+            </span>
+          </span>
+        ) : null
+      }
+    >
+      <div className="flex items-baseline gap-2">
+        <span className="text-2xl font-bold text-amber-700 tabular-nums">{data.length}</span>
+        <span className="text-[12px] text-gray-500">
+          {data.length === 1 ? 'huésped no salió' : 'huéspedes sin salida confirmada'}
+        </span>
       </div>
 
-      <ul className="divide-y divide-slate-100 border-t border-slate-100">
+      {/* Fix 2026-06-07: cap height + overflow-y-auto cuando se expande →
+          evita card super largo cuando hay 10+ overstayed.
+          Cap visible default (collapsed=3) sin scroll; expanded cap a 18rem (~6 rows). */}
+      <ul
+        className={`divide-y divide-slate-100 border-t border-slate-100 ${
+          expanded ? 'max-h-72 overflow-y-auto pr-1' : ''
+        }`}
+      >
         {visible.map((s) => {
           const days = Math.floor(s.hoursOverdue / 24)
           const label = days >= 1 ? `${days}d` : `${s.hoursOverdue}h`
@@ -116,12 +135,12 @@ export function OverstayedWidget() {
       {data.length > 3 && (
         <button
           onClick={() => setExpanded(v => !v)}
-          className="w-full text-[11px] font-medium text-amber-700 hover:text-amber-800
+          className="mt-auto w-full text-[12px] font-medium text-indigo-700 hover:text-indigo-800
                      py-1 transition-colors"
         >
           {expanded ? 'Ver menos' : `Ver ${data.length - 3} más`}
         </button>
       )}
-    </div>
+    </Shell>
   )
 }

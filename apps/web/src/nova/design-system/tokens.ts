@@ -210,9 +210,13 @@ export const MOTION = {
   base: 'duration-150',
   medium: 'duration-200',
   slow: 'duration-300',
-  // Easing (definidos en index.css custom properties — ver tailwind config)
-  spring: 'ease-[cubic-bezier(0.22,1,0.36,1)]', // expo-out
-  sharp: 'ease-[cubic-bezier(0.55,0,1,0.45)]', // expo-in
+  // Easing — usa los tokens registrados en tailwind.config.js
+  // (transitionTimingFunction). Los nombres reemplazan a los arbitrary
+  // values con brackets que Tailwind v3.4 marca como ambiguous.
+  // Si necesitas la curva exacta para CSS inline, usa var(--ease-spring)
+  // o var(--ease-sharp-out) definidos en index.css.
+  spring: 'ease-spring',     // expo-out (suave al llegar)
+  sharp: 'ease-sharp-out',   // expo-in (rápido al salir)
   smooth: 'ease-out',
 } as const
 

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
+import { humanizeOtaName } from '@zenix/shared'
 import { PrismaService } from '../../../prisma/prisma.service'
 import { NotificationsService } from '../../../notifications/notifications.service'
 import { PushService } from '../../../notifications/push.service'
@@ -130,10 +131,11 @@ export class ChannexOutboundNotifService {
     stayId: string
     otaName: string
   }): Promise<{ notificationId: string }> {
-    const title = `Cancela en ${args.otaName} manualmente`
+    const display = humanizeOtaName(args.otaName)
+    const title = `Cancela en ${display} manualmente`
     const body =
-      `Zenix no puede cancelar reservas de ${args.otaName} automáticamente (regla del canal). ` +
-      `Cancela esta reserva en el extranet de ${args.otaName} para liberar la habitación.`
+      `Zenix no puede cancelar reservas de ${display} automáticamente (regla del canal). ` +
+      `Cancela esta reserva en el extranet de ${display} para liberar la habitación.`
     const notif = await this.prisma.appNotification.create({
       data: {
         organizationId: args.organizationId,
