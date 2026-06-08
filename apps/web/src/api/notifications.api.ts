@@ -48,6 +48,11 @@ export const notificationsApi = {
   markAllRead: (propertyId: string) =>
     api.patch(`${BASE}/read-all?propertyId=${propertyId}`, {}),
 
+  /** FB+LinkedIn hybrid — al abrir el panel, baja el bell counter sin marcar
+   *  items individuales como leídos. NN/g 2023 "Notification Patterns". */
+  acknowledge: () =>
+    api.post<{ ok: true }>(`${BASE}/acknowledge`, {}),
+
   approve: (id: string, reason?: string) =>
     api.post(`${BASE}/${id}/approve`, { reason }),
 

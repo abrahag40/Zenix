@@ -257,6 +257,35 @@ export class NotificationCenterService {
     })
   }
 
+  /**
+   * acknowledgePanelOpen — FB+LinkedIn hybrid pattern (NN/g 2023).
+   *
+   * Cuando el usuario abre el NotificationPanel, marcamos timestamp en
+   * Staff.notificationsAckedAt. El bell counter (unreadCount) cuenta SOLO
+   * notifs creadas DESPUÉS de este ts y sin AppNotificationRead. Por eso:
+   *
+   *   · Bell counter → 0 al abrir (usuario vio la lista).
+   *   · Cada item individual conserva su dot azul hasta hover-with-dwell ó click.
+   *
+   * Distingue "vi la lista" de "leí cada item" — Slack 2022 redesign + NN/g
+   * documentaron que el patrón "auto-mark-all on open" (Notion) causa
+   * "I missed it" en 23% de usuarios. Este modelo es el equilibrio.
+   *
+   * Idempotente: llamar 5 veces seguidas es == llamar 1 vez. No throws.
+   */
+  async acknowledgePanelOpen(staffId: string) {
+    const orgId = this.tenant.getOrganizationId()
+    const staff = await this.prisma.staff.findFirst({
+      where: { id: staffId, organizationId: orgId },
+      select: { id: true },
+    })
+    if (!staff) return
+    await this.prisma.staff.update({
+      where: { id: staffId },
+      data: { notificationsAckedAt: new Date() },
+    })
+  }
+
   async markAllRead(staffId: string, propertyId: string) {
     const orgId = this.tenant.getOrganizationId()
     const staff = await this.prisma.staff.findFirst({
@@ -387,11 +416,14 @@ export class NotificationCenterService {
     const orgId = this.tenant.getOrganizationId()
     const staff = await this.prisma.staff.findFirst({
       where: { id: staffId, organizationId: orgId },
-      select: { role: true },
+      select: { role: true, notificationsAckedAt: true },
     })
     if (!staff) return 0
 
     const now = new Date()
+    // NN/g hybrid: contar solo notifs creadas DESPUÉS del último ack del panel.
+    // Si el staff nunca abrió el panel (ackedAt=null), cuenta todas las no leídas.
+    const ackedAt = staff.notificationsAckedAt
     return this.prisma.appNotification.count({
       where: {
         organizationId: orgId,
@@ -424,6 +456,8 @@ export class NotificationCenterService {
         // introducido en este sprint. Backward-compat para data existente.
         approvals: { none: {} },
         reads: { none: { readById: staffId } },
+        // Filtro panel-ack: solo notifs creadas DESPUÉS del último ack.
+        ...(ackedAt ? { createdAt: { gt: ackedAt } } : {}),
       },
     })
   }
