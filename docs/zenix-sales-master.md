@@ -1968,7 +1968,50 @@ Pool de ≥80 mensajes contextuales únicos por categoría de resolución — "U
 
 **El resultado:** Zenix iguala a Opera Cloud en profundidad funcional (que cuesta $50K+/año setup + $500-5K/mes por property) y a Flexkeeping en UX (que cobra $150-300/mes EXTRA sobre el PMS base). En Zenix viene incluido en plan base.
 
-### Mobile feature-complete (Sprint Mx-1B-M cerrado mayo 2026)
+## Módulo Mobile Dashboard role-aware (Sprint MOBILE-DASHBOARD cerrado junio 2026)
+
+> Tagged `mobile-dashboard-v1` 2026-06-08 con 3 PRs mergeados (#96 + #97 + #98). 18 tests verde acumulados (12 backend listeners + 6 mobile screen).
+
+**Diferenciador único LATAM: 3 dashboards mobile distintos por rol, NO un dashboard genérico con feature gates.**
+
+Owner audit 2026-06-08 sobre 4 screenshots del mobile reveló 11 bugs visibles (datos inconsistentes, "—" frío como empty state, sin pull-to-refresh, sin last-sync, donut con semántica de color invertida, mezcla de operativos cross-role). Zenix resolvió los 11 con un único PR (#98) que:
+
+1. **Backend single endpoint role-aware `/v1/dashboard/mobile`** — projeta payload distinto según `actor.role`:
+   - **SUPERVISOR** recibe ocupación 3-state donut + revenue hoy + atender ahora + próximas 4h
+   - **RECEPTIONIST** recibe movements (Llegadas/Salidas) + cobros pendientes + bloqueadas
+   - **HOUSEKEEPER** → HTTP 403 + deeplink a `/v1/housekeeping/my-day` (Hub Recamarista ya tiene flow propio)
+   - Payload optimizado ~3-5KB vs ~15-20KB del snapshot web (4G LATAM friendly)
+
+2. **Donut ocupación 3-state, NO 4-state** (decisión owner verbatim 2026-06-08: *"no veo valor agregado en mostrar las habitaciones vacías, qué sentido tendría?"*). Solo se grafican segmentos accionables: Ocupadas (verde, revenue captured) · Llegadas hoy (ámbar, en proceso) · Bloqueadas (rojo, problema). Vacías = complemento implícito + número aislado en leyenda. Pattern Apple Fitness rings. Centro del donut: `N° ocupadas / total` (NO porcentaje aislado — el audit reportó "9% con 0 ocupadas" como bug de confianza).
+
+3. **Walk-in tab eliminada** (decisión owner verbatim 2026-06-08: *"no sé qué valor agregado tenga mostrar el walk-in ya que para mí es básicamente un checkin y ya"*). El receptionist tiene tabs `Llegadas/Salidas` y arranca walk-in desde botón `+ Reservación` que abre el flow de check-in con `paymentModel=HOTEL_COLLECT + checkInAt=now()`. Cero código extra.
+
+4. **Empty states con illustration explícita, NUNCA `—` frío**. AttentionList sin items muestra "🌱 Día limpio · Sin pendientes urgentes en este momento" en vez del placeholder del audit reportado. NN/g 2024 Empty States.
+
+5. **Pull-to-refresh + last-sync timestamp** universales (Airbnb Host + Mews Pocket + Stripe Dashboard mobile pattern). Footer "Última actualización · hace X min" derivado client-side.
+
+6. **SSE auto-refetch en eventos operativos críticos** — el hook `useMobileDashboard` se suscribe a 11 eventos incluyendo los 2 nuevos de Etapa A (`task:upgraded` + `task:moved` — ver Real-time HK ↔ Channex Sync abajo) + `room:moved` + `checkin:confirmed` + `checkout:early/confirmed` + `block:*` + `stay:no_show*`. Sin esperar el poll de 60s.
+
+### Diferenciador único LATAM: Real-time HK ↔ Channex Sync (Sprint HK-CHX-REALTIME cerrado junio 2026)
+
+Ningún PMS LATAM analizado (Cloudbeds, Mews, Opera, Little Hotelier, RoomRaccoon) tiene los 2 listeners siguientes funcionando end-to-end. Zenix los implementa nativos en backend con SSE propagation a Hub Recamarista mobile (12 tests unit verde).
+
+**Caso 1 — booking OTA same-day arrival a las 10AM** (owner verbatim: *"el sistema notifica a la recamarista... debería ser prioritaria"*):
+- `BookingNewHandler` emite event `channex.booking.same-day-arrival` post-save cuando `stay.checkIn` cae HOY timezone-aware
+- `BookingSameDayListener` valida + pull `CleaningTask` PENDING/READY del room + upgrade `priority=URGENT, hasSameDayCheckIn=true` + TaskLog audit + SSE `task:upgraded`
+- Hub Recamarista mobile reacciona con haptic + toast + re-orden de lista
+- Pre-Zenix gap: el cron `morning-roster` corre 07:00; booking 10AM quedaba invisible al HK hasta el día siguiente
+
+**Caso 2 — recepción cambia habitación (`moveRoom`)** (owner verbatim: *"si se queda con la habitación antes del movimiento, va a limpiar una que no debe ser"*):
+- `RoomMovedHkListener` escucha `room.moved` paralelo al SSE listener UI
+- Migra atomicly tasks de fromRoom → toRoom: cancela antigua (`RECEPTIONIST_MANUAL`) + crea nueva con `carryoverFromTaskId` + hereda priority/assignedToId/hasSameDayCheckIn
+- Si IN_PROGRESS → skip + warn (defensive; §54 D11 ya bloquea moveRoom aguas arriba)
+- SSE `task:moved` para Hub Recamarista refresh + haptic
+- Pre-Zenix gap: el listener existente solo refrescaba el calendar UI; la recamarista limpiaba el cuarto antiguo (libre) en vez del nuevo
+
+**ROI comercial:** ambos gaps generan tickets de queja de huésped ("encontré mi cuarto sucio" / "la recamarista entró al cuarto equivocado") cuyo costo promedio es $35-70 USD por incidente (research Hotel Tech Report 2024 — ticket compensación + tiempo supervisor + reputación online). Para un hotel boutique 22-room con 30% OTA same-day en temporada alta, esto puede eliminar 3-5 tickets/mes = $105-350 USD/mes.
+
+### Mobile feature-complete del módulo Mantenimiento (Sprint Mx-1B-M cerrado mayo 2026)
 
 El módulo mobile de mantenimiento cubre el ciclo end-to-end. El técnico opera 100% desde su teléfono sin volver al web. Cierra los gaps que Quore ($135-171/mes), Flexkeeping ($150-300/mes) y Optii ($350-500/mes) cobran como add-on:
 
