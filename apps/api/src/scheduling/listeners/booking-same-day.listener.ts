@@ -67,13 +67,24 @@ export class BookingSameDayListener {
 
       const todayUtc = startOfLocalDayUtc(new Date(), timezone)
 
-      // Resolve unitId for this room. CleaningTask.unitId → Unit.roomId.
+      // BUG-1 fix (2026-06-08) — defensive tenant scope. El payload del
+      // evento podría llegar con `propertyId` distinto al de la room real
+      // (event poisoning, stale replay, multi-tenant race). Cruzamos la
+      // resolución de units por `room.propertyId === payload.propertyId`
+      // para garantizar que NUNCA upgradeamos tasks de una property que
+      // no es la del evento. Defensa-en-profundidad sobre CLAUDE.md §9.
       const units = await this.prisma.unit.findMany({
-        where: { roomId: payload.roomId },
+        where: {
+          roomId: payload.roomId,
+          room: { propertyId: payload.propertyId },
+        },
         select: { id: true },
       })
       if (units.length === 0) {
-        this.logger.debug(`[hk-realtime] stay=${payload.stayId} room=${payload.roomId} sin units`)
+        this.logger.debug(
+          `[hk-realtime] stay=${payload.stayId} room=${payload.roomId} sin units ` +
+            `(o room no pertenece a propertyId=${payload.propertyId})`,
+        )
         return { upgraded: 0, skipped: 'NO_TASK' }
       }
       const unitIds = units.map((u) => u.id)
