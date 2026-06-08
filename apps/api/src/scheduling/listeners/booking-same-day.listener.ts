@@ -101,6 +101,37 @@ export class BookingSameDayListener {
       })
 
       if (tasks.length === 0) {
+        // BUG-2 mitigation (2026-06-08) — edge case PAUSED. La recamarista pudo
+        // haber pausado por DND ("no molestar") y la task quedó fuera del query
+        // anterior. Si hay una task PAUSED para esta room+hoy, notificamos al
+        // SUPERVISOR para que coordine con la recamarista (NO hacemos upgrade
+        // automático — la pausa puede ser por razón legítima como mantenimiento
+        // a la cama). Decisión §3 D-NOSHOW-3: "el sistema NUNCA queda silent
+        // ante una señal operativa relevante".
+        const pausedTasks = await this.prisma.cleaningTask.findMany({
+          where: {
+            unitId: { in: unitIds },
+            scheduledFor: todayUtc,
+            status: CleaningStatus.PAUSED,
+          },
+          select: { id: true, assignedToId: true },
+        })
+        if (pausedTasks.length > 0) {
+          this.notifications.emit(payload.propertyId, 'task:paused_same_day_arrival', {
+            roomId: payload.roomId,
+            stayId: payload.stayId,
+            taskIds: pausedTasks.map((t) => t.id),
+            assignedToIds: pausedTasks.map((t) => t.assignedToId).filter(Boolean),
+            otaName: payload.otaName,
+            reason: 'OTA same-day arrival — task PAUSED detected (review with housekeeper)',
+          })
+          this.logger.warn(
+            `[hk-realtime] stay=${payload.stayId} room=${payload.roomId} ` +
+              `tiene ${pausedTasks.length} task(s) PAUSED hoy + same-day arrival OTA. ` +
+              `Notif al SUPERVISOR emitida.`,
+          )
+          return { upgraded: 0, skipped: 'NO_TASK' }
+        }
         // No HK task pending — la room presumiblemente ya está limpia (sin
         // checkout previo hoy) y el huésped puede entrar directo. No-op.
         this.logger.log(
