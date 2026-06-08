@@ -50,4 +50,28 @@ config.resolver.nodeModulesPaths = [
 // — and disabling it caused the bundler to hang resolving deep transitive deps
 // like react-native-reanimated/scripts/validate-worklets-version → semver.
 
+// ── Expo SDK 54 web: fix `import.meta` SyntaxError ───────────────────────
+// Expo SDK 54 defaults to modern package-export resolution. Metro then
+// hands ESM builds (which may use `import.meta`) directly to the web
+// bundle — but the bundle is served via a classic `<script src="">`
+// (no `type="module"`), so the browser throws a parse-time
+// `SyntaxError: Cannot use 'import.meta' outside a module` BEFORE any
+// code runs. Root stays empty; no `window.onerror` fires.
+//
+// Official workaround (Expo SDK 54): force Metro to prefer CommonJS
+// exports of dependencies — the CJS build is pre-compiled and contains
+// no `import.meta`. Becomes default in SDK 56.
+//
+// Sources:
+//   - https://github.com/expo/expo/issues/36384
+//   - https://github.com/expo/expo/issues/30323
+//   - https://medium.com/@umairrx/solving-the-cannot-use-import-meta-outside-a-module-crash-in-expo-f56661249364
+//
+// After this change run `npx expo start -c` once to clear Metro cache.
+config.resolver.unstable_conditionNames = [
+  'browser',
+  'require',
+  'react-native',
+]
+
 module.exports = config
