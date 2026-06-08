@@ -63,7 +63,7 @@ const supervisorFixture: SupervisorSnapshot = {
   occupancy: { occupied: 14, arrivingToday: 2, blocked: 1, total: 22 },
   revenue: { todayAmount: 12500, currency: 'MXN', projected: true, vsYesterdayPct: 8 },
   attentionNow: [
-    { kind: 'overstayed', title: 'Salidas vencidas sin checkout', count: 1, deeplink: '/reports/overstayed' },
+    { kind: 'overstayed', title: 'Salidas vencidas sin checkout', count: 1, deeplink: 'mobile://overstayed' },
   ],
   upcoming4h: {
     arrivalsCount: 2,

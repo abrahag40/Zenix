@@ -205,12 +205,19 @@ export class MobileDashboardService {
       count: number
       deeplink: string
     }> = []
+    // BUG-7 fix (2026-06-08) — deeplink scheme `mobile://<kind>` para que el
+    // mobile client mapee a su propia router (Expo Router `/(app)/...`).
+    // Antes contenía paths web (`/reports/overstayed`, `/maintenance`,
+    // `/calendar`) que no existen en mobile (rutas mobile: `/(app)/maintenance/history`,
+    // `/(app)/reservas-calendario`, etc.). El web client puede consumir el
+    // mismo payload y mapear por `kind` igual; conserva contrato sin filtrar
+    // por plataforma server-side.
     if (overstayedCount > 0) {
       attentionItems.push({
         kind: 'overstayed',
         title: 'Salidas vencidas sin checkout',
         count: overstayedCount,
-        deeplink: '/reports/overstayed',
+        deeplink: 'mobile://overstayed',
       })
     }
     if (maintenanceCritical > 0) {
@@ -218,7 +225,7 @@ export class MobileDashboardService {
         kind: 'maintenance_critical',
         title: 'Tickets de mantenimiento críticos',
         count: maintenanceCritical,
-        deeplink: '/maintenance',
+        deeplink: 'mobile://maintenance',
       })
     }
     if (unpaidArrivals.length > 0 && unpaidBalance > 0) {
@@ -226,7 +233,7 @@ export class MobileDashboardService {
         kind: 'unpaid_arrival',
         title: 'Llegadas con saldo pendiente',
         count: unpaidArrivals.length,
-        deeplink: '/calendar',
+        deeplink: 'mobile://calendar',
       })
     }
 
