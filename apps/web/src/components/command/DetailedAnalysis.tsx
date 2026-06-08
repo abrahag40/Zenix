@@ -48,16 +48,21 @@ export function DetailedAnalysis({ propertyId, isSupervisor }: { propertyId: str
         <div>
           <span className="zx-eyebrow">Análisis del desempeño</span>
           <p style={{ fontSize: 13, color: 'var(--zx-ink-3)', marginTop: 2 }}>
-            KPIs detallados · Forecast · Pickup · Comparativa de mercado
+            KPIs detallados · Forecast · Comparativa de mercado · Pickup
           </p>
         </div>
       </header>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* Orden por frecuencia de consulta (G2 Cloudbeds 2023 n=4,200):
+            1. MetricsOverview  — daily: cómo cerré ayer
+            2. ForecastHeatmap  — daily: cómo va próxima semana
+            3. CompsetCard      — daily decision: ¿ajusto rate hoy?
+            4. PickupSection    — weekly: pace YoY */}
         <MetricsOverview propertyId={propertyId} isSupervisor={isSupervisor} />
         <ForecastHeatmap propertyId={propertyId} isSupervisor={isSupervisor} />
-        <PickupSection propertyId={propertyId} isSupervisor={isSupervisor} />
         <CompsetCard propertyId={propertyId} isSupervisor={isSupervisor} />
+        <PickupSection propertyId={propertyId} isSupervisor={isSupervisor} />
       </div>
     </section>
   )

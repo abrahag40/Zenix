@@ -22,7 +22,9 @@ import { HeroStrip } from '@/components/command/HeroStrip'
 import { LiveNow } from '@/components/command/LiveNow'
 import { TodayActions } from '@/components/command/TodayActions'
 import { HeroRecommendation } from '@/components/command/HeroRecommendation'
+import { InsightsFeed } from '@/components/command/InsightsFeed'
 import { PulseStrip } from '@/components/command/PulseStrip'
+import { DetailedAnalysis } from '@/components/command/DetailedAnalysis'
 
 export function DashboardPage() {
   const isSupervisor = useAuthStore((s) => s.user?.role === StaffRole.SUPERVISOR)
@@ -76,9 +78,27 @@ export function DashboardPage() {
         <TodayActions actions={data.actions} baseCurrency={data.pulse.baseCurrency} />
       </div>
 
-      {propertyId && <HeroRecommendation propertyId={propertyId} isSupervisor={isSupervisor} />}
+      {/* Bento row — Tu siguiente mejor acción (izq) + Insights feed externo (der).
+          alignItems:'stretch' = ambas cards igualan altura. Ambas usan height:100% +
+          flex distribution interna (CTA con marginTop:auto) → mismo footprint visual
+          incluso cuando el contenido cambia por el stepper. */}
+      {propertyId && (
+        <div
+          style={{
+            display: 'grid',
+            gap: 16,
+            gridTemplateColumns: 'minmax(0, 7fr) minmax(0, 5fr)',
+            alignItems: 'stretch',
+          }}
+        >
+          <HeroRecommendation propertyId={propertyId} isSupervisor={isSupervisor} />
+          <InsightsFeed propertyCity={data.hero.propertyCity ?? undefined} />
+        </div>
+      )}
 
       <PulseStrip pulse={data.pulse} />
+
+      {propertyId && <DetailedAnalysis propertyId={propertyId} isSupervisor={isSupervisor} />}
     </div>
   )
 }

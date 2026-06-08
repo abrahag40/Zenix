@@ -75,13 +75,6 @@ export function CompsetCard({ propertyId, isSupervisor }: { propertyId: string; 
   const cheapNights = withDelta.filter((d) => d < -15).length
   const premiumNights = withDelta.filter((d) => d > 15).length
 
-  // For inline bars — global min/max across all numbers
-  const allRates = matrix.flatMap((m) => [m.min, m.max, ...m.rates].filter((x): x is number => x != null))
-  const myRates = Array.from(myRateByDate.values())
-  const globalMin = Math.min(...allRates, ...myRates)
-  const globalMax = Math.max(...allRates, ...myRates)
-  const range = globalMax - globalMin || 1
-
   return (
     <section className="zx-card" style={{ padding: 22, display: 'flex', flexDirection: 'column', gap: 18 }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
@@ -105,31 +98,21 @@ export function CompsetCard({ propertyId, isSupervisor }: { propertyId: string; 
         </div>
       )}
 
-      {/* Leyenda al top de la tabla — siempre visible antes de las filas */}
-      <div style={{ display: 'flex', gap: 16, fontSize: 11, color: 'var(--zx-ink-3)', flexWrap: 'wrap', alignItems: 'center' }}>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ width: 11, height: 11, borderRadius: 999, background: 'var(--zx-accent)', border: '2px solid var(--zx-surface)', boxShadow: '0 0 0 1px var(--zx-accent)', flexShrink: 0 }} />
-          <strong style={{ color: 'var(--zx-ink-1)', fontWeight: 500 }}>Tu rate</strong>
-        </span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ width: 8, height: 8, borderRadius: 999, background: 'var(--zx-ink-2)', flexShrink: 0 }} />
-          Mediana compset
-        </span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ width: 16, height: 3, borderRadius: 999, background: 'var(--zx-line-strong)', flexShrink: 0 }} />
-          Rango mín-máx
-        </span>
-      </div>
+      {/* Descripción honesta y plana arriba de la tabla */}
+      <p style={{ fontSize: 12, color: 'var(--zx-ink-3)', lineHeight: 1.5, margin: 0 }}>
+        Comparativa de <strong style={{ color: 'var(--zx-ink-1)', fontWeight: 500 }}>tu tarifa</strong> contra el
+        rango y la mediana de tu compset por noche. La columna
+        <strong style={{ color: 'var(--zx-ink-1)', fontWeight: 500 }}> posición</strong> resume si estás bajo, en
+        línea o por encima del mercado.
+      </p>
 
-      {/* Tabla con bar viz inline.
-          Grid columnas EXPLÍCITAS: noche | mi rate | min | barViz | max | mediana | Δ%
-          Cada celda con padding y alineación claros. */}
+      {/* Tabla sin mini-bar (causaba confusión visual cuando MyRate caía fuera del rango).
+          6 columnas claras: noche | mi rate | mín | mediana | máx | posición */}
       <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid var(--zx-line)' }}>
-        {/* Header */}
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: '70px 80px 70px 1fr 70px 80px 70px',
+            gridTemplateColumns: '70px 100px 100px 100px 100px 1fr',
             gap: 12,
             padding: '10px 14px',
             background: 'var(--zx-surface-soft)',
@@ -141,108 +124,63 @@ export function CompsetCard({ propertyId, isSupervisor }: { propertyId: string; 
           }}
         >
           <span>Noche</span>
-          <span style={{ textAlign: 'right' }}>Mi rate</span>
+          <span style={{ textAlign: 'right' }}>Mi tarifa</span>
           <span style={{ textAlign: 'right' }}>Mín</span>
-          <span style={{ textAlign: 'center' }}>Posición vs compset</span>
-          <span style={{ textAlign: 'left' }}>Máx</span>
           <span style={{ textAlign: 'right' }}>Mediana</span>
-          <span style={{ textAlign: 'right' }}>Δ%</span>
+          <span style={{ textAlign: 'right' }}>Máx</span>
+          <span style={{ textAlign: 'right' }}>Posición</span>
         </div>
-        {/* Rows */}
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           {matrix.map((m, i) => {
             const myRate = myRateByDate.get(m.iso)
             const delta = myRate != null && m.median != null ? ((myRate - m.median) / m.median) * 100 : null
-            const tone = deltaTone(delta)
-            const DeltaIcon = delta == null ? null : delta > 5 ? ArrowUpRight : delta < -5 ? ArrowDownRight : Minus
-
-            const minPct = m.min != null ? ((m.min - globalMin) / range) * 100 : null
-            const maxPct = m.max != null ? ((m.max - globalMin) / range) * 100 : null
-            const medianPct = m.median != null ? ((m.median - globalMin) / range) * 100 : null
-            const myPct = myRate != null ? ((myRate - globalMin) / range) * 100 : null
+            const pos = positionLabel(myRate, m.min, m.median, m.max)
 
             return (
               <div
                 key={m.iso}
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: '70px 80px 70px 1fr 70px 80px 70px',
+                  gridTemplateColumns: '70px 100px 100px 100px 100px 1fr',
                   gap: 12,
-                  padding: '10px 14px',
+                  padding: '12px 14px',
                   alignItems: 'center',
                   borderTop: i > 0 ? '1px solid var(--zx-line-subtle)' : 'none',
-                  fontSize: 12,
+                  fontSize: 12.5,
                   fontVariantNumeric: 'tabular-nums',
                 }}
               >
                 <span style={{ color: 'var(--zx-ink-3)' }}>{formatDay(m.iso)}</span>
-
                 <span style={{ textAlign: 'right', fontWeight: 600, color: 'var(--zx-ink-1)' }}>
                   {myRate != null ? `${ccy} ${Math.round(myRate)}` : <span style={{ color: 'var(--zx-ink-4)' }}>—</span>}
                 </span>
-
-                <span style={{ textAlign: 'right', color: 'var(--zx-ink-3)', fontSize: 11 }}>
+                <span style={{ textAlign: 'right', color: 'var(--zx-ink-3)' }}>
                   {m.min != null ? `${ccy} ${Math.round(m.min)}` : '—'}
                 </span>
-
-                {/* Bar viz — centrado dentro de su columna */}
-                <div style={{ position: 'relative', height: 22 }}>
-                  {minPct != null && maxPct != null && (
-                    <div
-                      style={{
-                        position: 'absolute',
-                        top: '50%', transform: 'translateY(-50%)',
-                        left: `${minPct}%`,
-                        width: `${Math.max(2, maxPct - minPct)}%`,
-                        height: 4,
-                        background: 'var(--zx-line-strong)',
-                        borderRadius: 999,
-                      }}
-                    />
-                  )}
-                  {medianPct != null && (
-                    <div
-                      style={{
-                        position: 'absolute',
-                        top: '50%', transform: 'translate(-50%, -50%)',
-                        left: `${medianPct}%`,
-                        width: 8, height: 8, borderRadius: 999,
-                        background: 'var(--zx-ink-2)',
-                        border: '1.5px solid var(--zx-surface)',
-                      }}
-                      title={`Mediana ${ccy} ${m.median!.toFixed(0)}`}
-                    />
-                  )}
-                  {myPct != null && (
-                    <div
-                      style={{
-                        position: 'absolute',
-                        top: '50%', transform: 'translate(-50%, -50%)',
-                        left: `${myPct}%`,
-                        width: 12, height: 12, borderRadius: 999,
-                        background: 'var(--zx-accent)',
-                        border: '2px solid var(--zx-surface)',
-                        boxShadow: '0 0 0 1px var(--zx-accent)',
-                      }}
-                      title={`Tu rate ${ccy} ${myRate!.toFixed(0)}`}
-                    />
-                  )}
-                </div>
-
-                <span style={{ textAlign: 'left', color: 'var(--zx-ink-3)', fontSize: 11 }}>
-                  {m.max != null ? `${ccy} ${Math.round(m.max)}` : '—'}
-                </span>
-
-                <span style={{ textAlign: 'right', color: 'var(--zx-ink-2)' }}>
+                <span style={{ textAlign: 'right', color: 'var(--zx-ink-2)', fontWeight: 500 }}>
                   {m.median != null ? `${ccy} ${Math.round(m.median)}` : '—'}
                 </span>
-
-                <span style={{ textAlign: 'right' }}>
-                  {delta == null ? <span style={{ color: 'var(--zx-ink-4)' }}>—</span> : (
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, padding: '2px 8px', borderRadius: 999, background: tone.bg, color: tone.fg, fontSize: 11, fontWeight: 500 }}>
-                      {DeltaIcon && <DeltaIcon size={10} />}{delta > 0 ? '+' : ''}{delta.toFixed(0)}%
+                <span style={{ textAlign: 'right', color: 'var(--zx-ink-3)' }}>
+                  {m.max != null ? `${ccy} ${Math.round(m.max)}` : '—'}
+                </span>
+                <span style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  {pos ? (
+                    <span style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 6,
+                      padding: '3px 10px', borderRadius: 999,
+                      background: pos.bg, color: pos.fg,
+                      fontSize: 11, fontWeight: 500,
+                      whiteSpace: 'nowrap',
+                    }}>
+                      <pos.Icon size={11} />
+                      <span>{pos.label}</span>
+                      {delta != null && (
+                        <span style={{ opacity: 0.7, paddingLeft: 4, borderLeft: `1px solid ${pos.fg}33` }}>
+                          {delta > 0 ? '+' : ''}{delta.toFixed(0)}%
+                        </span>
+                      )}
                     </span>
-                  )}
+                  ) : <span style={{ color: 'var(--zx-ink-4)' }}>—</span>}
                 </span>
               </div>
             )
@@ -296,6 +234,39 @@ function firstCurrency(competitors: { ratesByDate: Record<string, { currency?: s
     }
   }
   return null
+}
+
+/**
+ * Posición vs mercado — categórica clara (5 buckets) que reemplaza al mini-bar
+ * confuso (causa: cuando MyRate < Min, el dot quedaba flotando antes del track).
+ *
+ * Bajo mercado    → MyRate < Min          (oportunidad de subir, posiblemente)
+ * Bajo mediana    → Min ≤ MyRate < Mediana
+ * En mediana      → ±5% de la mediana
+ * Sobre mediana   → Mediana < MyRate ≤ Max
+ * Premium         → MyRate > Max          (lider de precio del compset)
+ */
+function positionLabel(
+  myRate: number | undefined,
+  min: number | null,
+  median: number | null,
+  max: number | null,
+): { label: string; bg: string; fg: string; Icon: typeof ArrowDownRight } | null {
+  if (myRate == null || median == null) return null
+  if (max != null && myRate > max) {
+    return { label: 'Premium', bg: 'oklch(0.95 0.05 152)', fg: 'oklch(0.32 0.10 152)', Icon: ArrowUpRight }
+  }
+  if (min != null && myRate < min) {
+    return { label: 'Bajo mercado', bg: 'oklch(0.96 0.04 25)', fg: 'oklch(0.40 0.18 25)', Icon: ArrowDownRight }
+  }
+  const pct = ((myRate - median) / median) * 100
+  if (Math.abs(pct) <= 5) {
+    return { label: 'En línea', bg: 'var(--zx-surface-soft)', fg: 'var(--zx-ink-2)', Icon: Minus }
+  }
+  if (pct < 0) {
+    return { label: 'Bajo mediana', bg: 'oklch(0.96 0.04 75)', fg: 'oklch(0.42 0.13 75)', Icon: ArrowDownRight }
+  }
+  return { label: 'Sobre mediana', bg: 'oklch(0.95 0.05 152)', fg: 'oklch(0.32 0.10 152)', Icon: ArrowUpRight }
 }
 
 function deltaTone(pct: number | null): { bg: string; fg: string } {
