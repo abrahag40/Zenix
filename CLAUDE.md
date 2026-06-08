@@ -1183,6 +1183,43 @@ housekeeping3/
 
 > **Sprint CHECK-IN C1 — implementación cerrada 2026-05-29 con 60/60 tests verdes (43 no-show + 17 checkin específicos). Typecheck API + web verdes. C2 (ReservationGroup model + auto-detection BookingNewHandler §153-§154 + bracket visual + walk-in fast-path botón) próximo sprint. C3 (GroupCheckinDialog 3-modos §156) tras C2.**
 
+### Mobile Dashboard role-aware + HK realtime sync — Sprints MOBILE-DASHBOARD + HK-CHX-REALTIME (2026-06-08)
+
+> Sprints **Etapa A** (HK-CHX-REALTIME, PR #97) + **Etapa B** (MOBILE-DASHBOARD §B1-§B5, PR #98) cerrados 2026-06-08. Resuelven los 2 gaps operativos verificados en código que owner identificó como bloqueantes del piloto Hotel Monica Tulum + audit visual del mobile (4 screenshots 2026-06-08).
+
+**Etapa A — Real-time HK ↔ Channex sync:**
+
+235. **D-HK-CHX1 — `BookingSameDayListener` escala HK task al recibir booking OTA same-day.** Resuelve owner case 2026-06-08: "son las 10am, llega una reserva para hoy desde channex, automáticamente el sistema notifica a la recamarista... debería ser prioritaria". `booking-new.handler` ahora inyecta `EventEmitter2` + emite `channex.booking.same-day-arrival` event con `{stayId, roomId, propertyId, checkInIso, otaName}` post-save. Listener nuevo en `apps/api/src/scheduling/listeners/` valida timezone-aware que `checkInIso` cae HOY local + pull `CleaningTask` PENDING/READY/UNASSIGNED para `roomId+scheduledFor=hoy` + upgrade `priority=URGENT, hasSameDayCheckIn=true` + TaskLog `event=PRIORITY_OVERRIDDEN, note="auto-upgrade URGENT — OTA {name} same-day arrival"` + SSE `task:upgraded`. **Si no hay task** → no-op (room presumiblemente limpia, sin checkout previo). Fail-soft total (error no propaga, booking ya está en BD). Pre-fix gap: el cron `morning-roster` corre 07:00; booking OTA aterriza 10AM quedaba invisible para HK hasta el día siguiente.
+
+236. **D-HK-CHX2 — `RoomMovedHkListener` migra HK tasks cuando recepción cambia habitación.** Resuelve owner case 2026-06-08: "si se queda con la habitación antes de realizar el movimiento de habitación, va a limpiar una que no debe de ser". Listener escucha `room.moved` (paralelo al SSE listener existente que solo refresca UI) y migra atomicly tasks de fromRoom→toRoom. Cancela task antigua (`status=CANCELLED, cancelledReason=RECEPTIONIST_MANUAL, cancelledAt=now`) + crea task nueva con `carryoverFromTaskId` + hereda `priority/assignedToId/hasSameDayCheckIn`. **Si IN_PROGRESS** → skip + warn (defensive — §54 D11 ya bloquea moveRoom en GuestStaysService, este es double-check). SSE `task:moved` con `{fromTaskId, toTaskId, fromRoomId, toRoomId}` para Hub Recamarista refresh + haptic. Pre-fix: el listener `room.moved` SOLO re-emite SSE para UI calendar — NO tocaba `CleaningTask` → recamarista limpiaba el cuarto antiguo (libre) en vez del nuevo (donde llega el huésped).
+
+237. **D-HK-CHX3 — SSE types nuevos `'task:upgraded'` + `'task:moved'`** en `packages/shared/src/types.ts` line 756-757. Mobile + web SSE clients pueden suscribirse y reaccionar (Hub Recamarista: refetch + haptic notification + toast). 12/12 tests unit verdes (6 booking-same-day + 6 room-moved-hk). 24 tests booking-new actualizados con `EventEmitter2` mock — todos verde.
+
+**Etapa B — Mobile Dashboard role-aware (rediseño post-audit visual 4 screenshots):**
+
+238. **D-MOB-1 — Walk-in tab eliminada del dashboard mobile.** Owner 2026-06-08: *"no veo valor agregado en mostrar walk-in ya que para mí es básicamente un checkin y ya"*. El RECEPTIONIST mobile solo tiene tabs `Llegadas` y `Salidas`. El walk-in se inicia desde el botón `+ Reservación` que abre el flujo de check-in con `paymentModel='HOTEL_COLLECT'` + `checkInAt=now()` (mismo flow, cero código adicional). Pattern Cloudbeds Mobile + Mews Pocket.
+
+239. **D-MOB-3 — Single endpoint `/v1/dashboard/mobile` con projection role-aware** (NO 3 endpoints split). Backend `MobileDashboardService.getSupervisorSnapshot()` y `.getReceptionistSnapshot()`. Controller despacha según `actor.role`. HOUSEKEEPER → HTTP 403 con mensaje deeplink "usa /v1/housekeeping/my-day" (Hub Recamarista §60 D18 ya tiene su flow propio). Payload optimizado mobile (~3-5KB vs 15-20KB snapshot web). Sin pulse 14d (heavy + no se ve en mobile). Currency desde `LegalEntity.baseCurrency` (no PropertySettings). Time-aware greeting per `Property.settings.timezone`.
+
+240. **D-MOB-6 — Donut ocupación 3-state, NO 4-state.** Owner 2026-06-08: *"no veo valor agregado en mostrar las habitaciones vacías dentro de la gráfica, qué sentido tendría?"* — argumento válido (vacías = revenue NO captured pero NO requiere acción del supervisor, no es accionable). Solo 3 segmentos accionables se grafican:
+   - 🟢 **Ocupadas** (verde = revenue captured)
+   - 🟡 **Llegadas hoy** (ámbar = en proceso, requiere atención eventual)
+   - 🔴 **Bloqueadas** (rojo = mtto/OOO, problema activo)
+
+   Vacías = **track gris implícito** del donut (background no destacado) + número aislado en leyenda (`Disponibles 15/22` muted). Pattern Apple Fitness rings — el track sin progress = potencial, no estado. Centro del donut: **`N° ocupadas / total`** en formato fracción (NO porcentaje aislado — el audit owner reportó "9% con 0 ocupadas" como bug de confianza).
+
+241. **D-MOB-7 — Empty states con illustration + texto explícito, NUNCA `—` frío.** Owner audit visual 2026-06-08: card "Tu día — tareas activas" mostraba `—` (placeholder) lo cual el user interpreta como "esto está roto". Apple HIG Empty States: siempre mostrar mensaje explícito ("Día limpio · Sin pendientes urgentes en este momento" + emoji 🌱) o "0" tabular-nums. `AttentionList.tsx` implementa el patrón canónico mobile-v2.
+
+242. **D-MOB-bg — Auto-refetch SSE incluye los 2 events nuevos de Etapa A.** `useMobileDashboard` hook se suscribe a `task:upgraded` + `task:moved` (Etapa A SSE events) + `room:moved` + `checkin:confirmed` + `checkout:early/confirmed` + `block:*` + `stay:no_show*` → cualquier evento operativo invalida el snapshot y refetcha inmediato. Sin esperar el poll de 60s.
+
+243. **D-MOB-router — Router por rol con back-compat HK.** `apps/mobile/app/(app)/index.tsx` ramifica: si `user.role` es `SUPERVISOR` o `RECEPTIONIST` → renderea `DashboardScreenV2` (nuevo, consume `/v1/dashboard/mobile`). Si `HOUSEKEEPER` o no reconocido → renderea `DashboardScreenLegacy` (la implementación existente del Hub Recamarista mobile, sin tocar). Zero breaking change para HOUSEKEEPER del piloto.
+
+244. **D-MOB-pull-to-refresh — `RefreshControl` + last-sync timestamp visibles en todos los dashboards mobile.** Pattern Airbnb Host + Mews Pocket + Stripe Dashboard mobile. Footer "Última actualización · hace X min" derivado client-side de `data.lastSyncIso`.
+
+245. **D-MOB-tests — 6/6 tests verde** en `DashboardScreenV2.spec.tsx`: loading state · error state · supervisor happy path · supervisor empty attention (anti-regresión "—" frío) · receptionist happy path · D-MOB-1 (anti-regresión Walk-in tab no aparece). Uso `react-test-renderer` patrón existente del mobile (no `@testing-library/react-native` para no agregar dep). Mocks: `useMobileDashboard`, `expo-router`, `react-native-safe-area-context`, `react-native-svg`.
+
+> **Sprint MOBILE-DASHBOARD Etapa A + B — cerradas 2026-06-08 con 18 tests verde (12 backend listeners + 6 mobile screen). PRs #97 + #98 mergeados. Plan completo en [docs/sprints/MOBILE-DASHBOARD-plan.md](docs/sprints/MOBILE-DASHBOARD-plan.md). Etapa C (QA + polish + tag mobile-v1, ~1.5d) restante para owner approval — Hub Recamarista mobile redesign queda DIFERIDO al sprint HK-MOBILE-REDESIGN porque tiene su propio scope (gamification + clock + per-task UX).**
+
 ### Payment modal unify — Sprint GROUP-BILLING Fase D (2026-05-30)
 
 > Fase D del plan [GROUP-BILLING-CANCELLATION](docs/sprints/GROUP-BILLING-CANCELLATION-plan.md). Resuelve la nota del owner: los modales de pago (check-in, registrar pago, crear reserva) tenían 3 diseños distintos. NN/g H4 (Consistency) + CLAUDE.md §3 (Coherencia sistémica).
