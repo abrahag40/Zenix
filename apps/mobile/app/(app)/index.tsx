@@ -108,7 +108,29 @@ const SMALL_KPI_META: Partial<Record<KpiKey, KpiMeta>> = {
   comingSoon:       { label: 'Día limpio',        value: '🎉', tint: colors.brand[500],   sublabel: 'sin pendientes' },
 }
 
+/**
+ * Etapa B §B2/B3/B4 plan MOBILE-DASHBOARD — router por rol.
+ *
+ * SUPERVISOR/RECEPTIONIST → DashboardScreenV2 (nuevo, role-aware, /v1/dashboard/mobile)
+ * HOUSEKEEPER → DashboardScreenLegacy (preserva adaptive flow del Hub mientras
+ *   se diseña la versión final del Hub Recamarista mobile en Etapa C).
+ *
+ * Owner 2026-06-08 audit: "data del dashboard cambia dependiendo del rol".
+ * El backend ya proyecta por rol (PR #98). El frontend ramifica el render.
+ */
+import { DashboardScreenV2 } from '../../src/features/dashboard/mobile-v2/DashboardScreenV2'
+
 export default function DashboardScreen() {
+  const user = useAuthStore((s) => s.user)
+  // Router por rol — SUPERVISOR + RECEPTIONIST usan el nuevo dashboard
+  // role-aware. HOUSEKEEPER mantiene el flow legacy hasta Etapa C.
+  if (user?.role === 'SUPERVISOR' || user?.role === 'RECEPTIONIST') {
+    return <DashboardScreenV2 />
+  }
+  return <DashboardScreenLegacy />
+}
+
+function DashboardScreenLegacy() {
   const user = useAuthStore((s) => s.user)
   const firstName = user?.name?.split(' ')[0] ?? 'colega'
   const propertyName = user?.propertyName ?? 'Tu propiedad'
