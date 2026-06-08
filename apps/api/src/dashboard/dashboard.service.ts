@@ -136,12 +136,18 @@ export class DashboardService {
           room: { select: { number: true } },
         },
       }),
-      // Pending check-outs preview top 3
+      // Pending check-outs preview top 3 — BUG E2E-3 fix (2026-06-08):
+      // antes filtraba `scheduledCheckout: { lt: endOfDay }` SIN piso →
+      // capturaba zombies/overstayed (stays con checkout pasado y sin
+      // actualCheckout). Eso hacía que count=0 (departures de HOY) pero
+      // preview.length=3 con stays de hace 9+ días. Mismatch UX.
+      // Fix: bound a HOY exclusivo `[startOfDay, endOfDay)`. Los overstayed
+      // viven en su widget propio (CLAUDE.md §128) — NO mezclan con today.
       this.prisma.guestStay.findMany({
         where: {
           propertyId, organizationId, deletedAt: null,
           actualCheckin: { not: null }, actualCheckout: null,
-          scheduledCheckout: { lt: endOfDay },
+          scheduledCheckout: { gte: startOfDay, lt: endOfDay },
           cancelledAt: null, noShowAt: null,
         },
         orderBy: { scheduledCheckout: 'asc' },
@@ -151,14 +157,16 @@ export class DashboardService {
           room: { select: { number: true } },
         },
       }),
-      // Housekeeping pending count — status in (UNASSIGNED, READY, IN_PROGRESS)
+      // Housekeeping pending count — BUG E2E-5 fix (2026-06-08):
+      // antes contaba SIN filtro de propertyId → SUPERVISOR Hotel Tulum
+      // veía tasks de Hotel Cancún sumadas en su KPI. Cross-tenant leak
+      // en multi-property (mismo organizationId, distinta property).
+      // Fix: filtro vía join Unit→Room→propertyId (CleaningTask no tiene FK
+      // directa al property pero la relation está garantizada).
       this.prisma.cleaningTask.count({
         where: {
           status: { in: ['UNASSIGNED', 'READY', 'IN_PROGRESS'] },
-          // CleaningTask no tiene FK directa a property en este schema — el
-          // filtro de tenant lo da el join Unit→Room→Property. Simplificamos
-          // aceptando overestimación leve si hubiera cross-property assignments
-          // (no es el caso del piloto single-property).
+          unit: { room: { propertyId } },
         },
       }),
       // Overstayed
