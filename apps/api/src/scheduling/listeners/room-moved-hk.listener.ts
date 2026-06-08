@@ -76,11 +76,24 @@ export class RoomMovedHkListener {
         return { migrated: 0, conflicts: 0 }
       }
 
-      // Map: índice → unit destino correspondiente (asumimos 1 unit per
-      // PRIVATE room, o N matched para hostal dorms — caso piloto Hotel
-      // Monica Tulum es PRIVATE, así que mapping trivial).
+      // BUG-3 fix (2026-06-08) — scope migration to ONE task per stay event.
+      //
+      // Original bug: el listener tomaba TODAS las tasks de fromRoom hoy,
+      // asumiendo que todas pertenecían a la stay movida. Esto es falso:
+      //   - En PRIVATE rooms hay 1 unit → 1 task max, no bug observable.
+      //   - En HOSTAL dorms (multi-unit, §156 D-CHECKIN C3 — deferido) si
+      //     2 stays comparten dorm + ambas tienen task hoy, una mudanza de
+      //     STAY A migraría TAMBIÉN la task de STAY B → recamarista limpia
+      //     la cama equivocada.
+      //
+      // CleaningTask no tiene stayId hoy (gap §156 — sprint hostel propio).
+      // Fix mínimo seguro: `take: 1` ordenado por updatedAt desc — agarra
+      // la task más reciente activa, que en PRIVATE es la única, y en
+      // HOSTAL es la más probable de corresponder al stay que acaba de
+      // ejecutar la mudanza. Si hay >1 task activa → WARN para que el log
+      // operativo lo detecte y se priorice el sprint hostel.
       const fromUnitIds = fromUnits.map((u) => u.id)
-      const tasks = await this.prisma.cleaningTask.findMany({
+      const allActiveTasks = await this.prisma.cleaningTask.findMany({
         where: {
           unitId: { in: fromUnitIds },
           scheduledFor: todayUtc,
@@ -95,8 +108,22 @@ export class RoomMovedHkListener {
           priority: true,
           hasSameDayCheckIn: true,
           assignedToId: true,
+          updatedAt: true,
         },
+        orderBy: { updatedAt: 'desc' },
       })
+
+      if (allActiveTasks.length > 1) {
+        this.logger.warn(
+          `[hk-realtime room-moved] stay=${payload.stayId} fromRoom=${payload.fromRoomId} ` +
+            `tiene ${allActiveTasks.length} tasks activas hoy (multi-unit room). ` +
+            `BUG-3 mitigation: migrando SOLO la más reciente (${allActiveTasks[0].id}). ` +
+            `Hostel per-bed dorm scope requiere CleaningTask.stayId — diferido a sprint hostel (§156 D-CHECKIN C3).`,
+        )
+      }
+
+      // Take exactly 1 task — la que pertenece a esta stay (PRIVATE 1:1, HOSTAL best-effort).
+      const tasks = allActiveTasks.slice(0, 1)
 
       let migrated = 0
       let conflicts = 0
@@ -114,8 +141,14 @@ export class RoomMovedHkListener {
           continue
         }
 
-        // Pick matching unit en toRoom — por orden de aparición.
-        const targetUnit = toUnits[migrated % toUnits.length]
+        // BUG-4 partial mitigation (2026-06-08) — `migrated % toUnits.length`
+        // round-robin distribuía tasks entre TODAS las units del toRoom,
+        // lo cual es semánticamente incorrecto: una stay ocupa UNA unit en
+        // el toRoom. Tomamos la primera AVAILABLE-like (orden estable de
+        // creación). Para hostal per-bed con assignedBedId explícito, ver
+        // sprint hostel diferido (§156). Hoy `take: 1` arriba garantiza
+        // que el loop solo itera una vez.
+        const targetUnit = toUnits[0]
         if (!targetUnit) continue
 
         // Tx atómica: cancelar antigua + crear nueva + log
