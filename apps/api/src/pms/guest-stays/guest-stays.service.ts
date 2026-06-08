@@ -2909,11 +2909,22 @@ export class GuestStaysService {
       // BUG #31 fix — guard contra room PRIVATE ya ocupada por otra stay.
       // Para rooms DORMITORY multi-bed el caso es legítimo (compartido). Para
       // PRIVATE, dos stays simultáneamente checked-in es overbooking visible.
+      //
+      // BUG E2E-13 fix (2026-06-08) — excluir zombies/overstayed (§128). Sin
+      // este guard la query bloqueaba check-ins legítimos: si la stay previa
+      // (Elena) tenía actualCheckin + null actualCheckout pero scheduledCheckout
+      // ya pasó (huésped se fue, recepción olvidó marcar checkout), AvailabilityService
+      // SÍ libera la room, pero confirmCheckin la sigue viendo "ocupada". Resulta
+      // en check-in physically posible pero blocked por sistema. Mismo criterio
+      // que dashboard.service.ts E2E-9 + AvailabilityService.effectiveCheckoutCutoff.
       const roomCategory = await tx.room.findUnique({
         where: { id: stay.roomId },
         select: { category: true },
       })
       if (roomCategory?.category === 'PRIVATE') {
+        // startOfDay UTC — mismo cutoff que dashboard.service E2E-9
+        const todayStart = new Date()
+        todayStart.setUTCHours(0, 0, 0, 0)
         const otherActive = await tx.guestStay.findFirst({
           where: {
             roomId: stay.roomId,
@@ -2923,6 +2934,7 @@ export class GuestStaysService {
             actualCheckout: null,
             cancelledAt: null,
             noShowAt: null,
+            scheduledCheckout: { gte: todayStart },
             id: { not: stayId },
           },
           select: { id: true, guestName: true },
