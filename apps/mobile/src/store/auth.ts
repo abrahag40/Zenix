@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
+import { Platform } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as SecureStore from 'expo-secure-store'
 import type { AuthResponse } from '@zenix/shared'
@@ -7,6 +8,32 @@ import { api } from '../api/client'
 import { createLogger } from '../logger'
 
 const log = createLogger('auth-store')
+
+// BUG E2E-6 fix (2026-06-08) — expo-secure-store's web stub does NOT
+// implement `setValueWithKeyAsync` (the iOS Keychain / Android Keystore
+// bridge). Calling `SecureStore.setItemAsync` on web crashes the login
+// flow with `ExpoSecureStore.default.setValueWithKeyAsync is not a
+// function`. On web we fall back to localStorage (already used by
+// AsyncStorage shim for persist middleware). On native, SecureStore is
+// the secure choice.
+const IS_WEB = Platform.OS === 'web'
+
+const tokenStore = {
+  async set(key: string, value: string): Promise<void> {
+    if (IS_WEB) {
+      try { localStorage.setItem(key, value) } catch { /* iframe / private mode */ }
+      return
+    }
+    await SecureStore.setItemAsync(key, value)
+  },
+  async remove(key: string): Promise<void> {
+    if (IS_WEB) {
+      try { localStorage.removeItem(key) } catch { /* noop */ }
+      return
+    }
+    await SecureStore.deleteItemAsync(key)
+  },
+}
 
 interface AuthState {
   token: string | null
@@ -23,13 +50,13 @@ export const useAuthStore = create<AuthState>()(
       user: null,
 
       setAuth: async (data) => {
-        await SecureStore.setItemAsync('hk_token', data.accessToken)
+        await tokenStore.set('hk_token', data.accessToken)
         set({ token: data.accessToken, user: data.user })
         log.info('auth set', { userId: data.user.id, propertyId: data.user.propertyId })
       },
 
       logout: async () => {
-        await SecureStore.deleteItemAsync('hk_token')
+        await tokenStore.remove('hk_token')
         set({ token: null, user: null })
         log.info('logged out')
       },
@@ -42,7 +69,7 @@ export const useAuthStore = create<AuthState>()(
       switchProperty: async (targetPropertyId: string) => {
         log.info('switching property', { targetPropertyId })
         const data = await api.post<AuthResponse>('/auth/switch-property', { targetPropertyId })
-        await SecureStore.setItemAsync('hk_token', data.accessToken)
+        await tokenStore.set('hk_token', data.accessToken)
         set({ token: data.accessToken, user: data.user })
         log.info('property switched', { propertyId: data.user.propertyId, propertyName: data.user.propertyName })
       },
