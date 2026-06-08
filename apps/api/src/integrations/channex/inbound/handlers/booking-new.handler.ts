@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common'
+import { EventEmitter2 } from '@nestjs/event-emitter'
 import { Prisma } from '@prisma/client'
 import { ChannexBookingRevision, ChannexBookingRevisionRoom } from '../../channex.gateway'
 import { AvailabilityService } from '../../../../pms/availability/availability.service'
@@ -61,6 +62,7 @@ export class BookingNewHandler {
     private readonly notifications: NotificationsService,
     private readonly systemStaff: ChannexSystemStaffService,
     private readonly notif: ChannexNotifService,
+    private readonly events: EventEmitter2,
   ) {}
 
   async handle(revision: ChannexBookingRevision): Promise<BookingNewResult> {
@@ -295,6 +297,19 @@ export class BookingNewHandler {
       otaName: revision.ota_name ?? null,
       arrival: revision.arrival_date,
       departure: revision.departure_date,
+    })
+
+    // 8. Etapa A §A1 — emit event para escalación HK si el check-in es HOY
+    // en la timezone de la property. BookingSameDayListener escucha y
+    // upgradea CleaningTask PENDING/READY → URGENT + notif recamarista.
+    // Resuelve el caso owner 2026-06-08: "son las 10am, llega una reserva
+    // para hoy desde channex... debería ser prioritaria".
+    this.events.emit('channex.booking.same-day-arrival', {
+      stayId: stay.id,
+      roomId: stay.roomId,
+      propertyId: property.id,
+      checkInIso: stay.checkinAt.toISOString(),
+      otaName: revision.ota_name ?? null,
     })
 
     this.logger.log(

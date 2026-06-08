@@ -6,6 +6,8 @@ import { ClockService } from './clock/clock.service'
 import { AvailabilityQueryService } from './availability-query.service'
 import { MorningRosterScheduler } from './morning-roster.scheduler'
 import { StayoverScheduler } from './stayover.scheduler'
+import { BookingSameDayListener } from './listeners/booking-same-day.listener'
+import { RoomMovedHkListener } from './listeners/room-moved-hk.listener'
 import { TenantContextService } from '../common/tenant-context.service'
 import { NotificationsModule } from '../notifications/notifications.module'
 import { AssignmentModule } from '../assignment/assignment.module'
@@ -30,6 +32,9 @@ import { AssignmentModule } from '../assignment/assignment.module'
     MorningRosterScheduler,
     StayoverScheduler,
     TenantContextService,
+    // Etapa A — fix gap HK ↔ Channex (MOBILE-DASHBOARD plan §A1+§A2)
+    BookingSameDayListener,
+    RoomMovedHkListener,
   ],
   exports: [
     AvailabilityQueryService,
