@@ -6,11 +6,15 @@
     "packages/*"
   ],
   "scripts": {
+    "predev": "node scripts/kill-orphans.mjs",
     "dev": "turbo dev",
+    "dev:api": "npm --workspace @zenix/api run dev",
+    "dev:web": "npm --workspace @zenix/web run dev",
     "build": "turbo build",
     "lint": "turbo lint",
     "test": "turbo test",
-    "format": "prettier --write \"**/*.{ts,tsx,json,md}\""
+    "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
+    "kill-orphans": "node scripts/kill-orphans.mjs"
   },
   "devDependencies": {
     "eslint": "^8.57.1",

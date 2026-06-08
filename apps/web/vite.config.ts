@@ -31,6 +31,32 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:3000',
         changeOrigin: true,
+        // Custom error handler — el spam de "AggregateError [ECONNREFUSED]"
+        // explotaba la terminal cada vez que el API no estaba arriba (Sprint
+        // owner-fix 2026-06-08). Ahora muestra UN solo warning accionable
+        // por minuto, no por request. Reduce ruido + hace claro qué hacer.
+        configure: (proxy) => {
+          let lastWarnAt = 0
+          proxy.on('error', (_err, _req, res) => {
+            const now = Date.now()
+            if (now - lastWarnAt > 60_000) {
+              lastWarnAt = now
+              // eslint-disable-next-line no-console
+              console.warn(
+                '\x1b[33m[vite proxy]\x1b[0m API no responde en :3000.\n' +
+                '  → Arranca el API: `npm run dev` desde la raíz (turbo arranca api+web juntos).\n' +
+                '  → Si ya está corriendo, mata orphans: `pkill -f "nest|nodemon"` y reintenta.\n' +
+                '  (Este aviso se repetirá max 1 vez por minuto mientras siga caído.)',
+              )
+            }
+            try {
+              if (res && 'writeHead' in res && !res.headersSent) {
+                res.writeHead(503, { 'Content-Type': 'application/json' })
+                res.end(JSON.stringify({ statusCode: 503, message: 'API offline — arranca el backend (npm run dev en raíz)' }))
+              }
+            } catch { /* ignore */ }
+          })
+        },
       },
     },
   },
