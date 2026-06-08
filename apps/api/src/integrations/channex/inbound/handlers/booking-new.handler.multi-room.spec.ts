@@ -103,6 +103,7 @@ describe('BookingNewHandler — multi-room (CHECK-IN C2.2)', () => {
       raiseGroupBookingReceived: jest.fn().mockResolvedValue({ notificationId: 'n-2' }),
     }
 
+    const events = { emit: jest.fn() }
     const mod = await Test.createTestingModule({
       providers: [
         BookingNewHandler,
@@ -111,6 +112,7 @@ describe('BookingNewHandler — multi-room (CHECK-IN C2.2)', () => {
         { provide: NotificationsService, useValue: notifications },
         { provide: ChannexSystemStaffService, useValue: systemStaff },
         { provide: ChannexNotifService, useValue: channexNotif },
+        { provide: require('@nestjs/event-emitter').EventEmitter2, useValue: events },
       ],
     }).compile()
     handler = mod.get(BookingNewHandler)

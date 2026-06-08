@@ -89,6 +89,7 @@ describe('BookingNewHandler', () => {
   let notifications: { emit: jest.Mock }
   let systemStaff: { getOrCreate: jest.Mock }
   let channexNotif: { raiseConflict: jest.Mock }
+  let events: { emit: jest.Mock }
 
   beforeEach(async () => {
     prisma = makePrismaMock()
@@ -96,6 +97,7 @@ describe('BookingNewHandler', () => {
     notifications = { emit: jest.fn() }
     systemStaff = { getOrCreate: jest.fn().mockResolvedValue('staff-system-1') }
     channexNotif = { raiseConflict: jest.fn().mockResolvedValue({ notificationId: 'notif-1' }) }
+    events = { emit: jest.fn() }
 
     const mod = await Test.createTestingModule({
       providers: [
@@ -105,6 +107,7 @@ describe('BookingNewHandler', () => {
         { provide: NotificationsService, useValue: notifications },
         { provide: ChannexSystemStaffService, useValue: systemStaff },
         { provide: ChannexNotifService, useValue: channexNotif },
+        { provide: require('@nestjs/event-emitter').EventEmitter2, useValue: events },
       ],
     }).compile()
     handler = mod.get(BookingNewHandler)

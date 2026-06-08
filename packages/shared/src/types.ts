@@ -753,6 +753,8 @@ export type SseEventType =
   | 'task:verified'    // Sprint 8K — supervisor approved cleaning
   | 'task:unassigned'
   | 'task:cancelled'
+  | 'task:upgraded'    // Etapa A §A1 — OTA same-day arrival escalada a URGENT
+  | 'task:moved'       // Etapa A §A2 — HK task migrada por room.moved (fromTaskId → toTaskId)
   | 'maintenance:reported'
   | 'discrepancy:reported'
   | 'room:ready'
