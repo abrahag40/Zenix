@@ -470,6 +470,11 @@ export class BookingNewHandler {
     // 3. Crear group + N stays/journeys/segments en MISMA tx
     let groupId: string
     let stayIds: string[] = []
+    // BUG-11 fix (2026-06-08) — capturar metadata per child para emitir
+    // `channex.booking.same-day-arrival` por cada uno (en lugar de solo
+    // single-stay path). Sin esto, una reserva multi-room que cae HOY
+    // no escala las CleaningTasks de las rooms hijas.
+    let createdChildren: Array<{ id: string; roomId: string; checkinAt: Date; isConflict: boolean }> = []
     let hasConflicts = false
     try {
       const txResult = await this.prisma.$transaction(async (tx) => {
@@ -491,6 +496,7 @@ export class BookingNewHandler {
         })
 
         const createdStayIds: string[] = []
+        const childrenMeta: Array<{ id: string; roomId: string; checkinAt: Date; isConflict: boolean }> = []
         for (let i = 0; i < resolutions.length; i++) {
           const res = resolutions[i]
           const isConflict = res.conflict !== null
@@ -548,12 +554,19 @@ export class BookingNewHandler {
           })
 
           createdStayIds.push(created.id)
+          childrenMeta.push({
+            id: created.id,
+            roomId: created.roomId,
+            checkinAt: created.checkinAt,
+            isConflict,
+          })
         }
 
-        return { groupId: group.id, stayIds: createdStayIds }
+        return { groupId: group.id, stayIds: createdStayIds, childrenMeta }
       })
       groupId = txResult.groupId
       stayIds = txResult.stayIds
+      createdChildren = txResult.childrenMeta
     } catch (err) {
       // Race: webhook duplicado entre 1a (findUnique) y create.
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
@@ -600,6 +613,22 @@ export class BookingNewHandler {
       this.logger.warn(
         `[Channex bookingNew] group notif failed: ${err instanceof Error ? err.message : String(err)}`,
       )
+    }
+
+    // BUG-11 fix (2026-06-08) — same-day-arrival emit per child stay del
+    // group. Solo emitimos por non-conflict children (los conflict van a
+    // placeholder room sin task real). Idempotente — el listener detecta
+    // task ya URGENT y no doble-escala. Mismo pipeline que single-stay
+    // path (line ~307).
+    for (const child of createdChildren) {
+      if (child.isConflict) continue
+      this.events.emit('channex.booking.same-day-arrival', {
+        stayId: child.id,
+        roomId: child.roomId,
+        propertyId: property.id,
+        checkInIso: child.checkinAt.toISOString(),
+        otaName: revision.ota_name ?? null,
+      })
     }
 
     this.logger.log(
