@@ -100,6 +100,8 @@ describe('BookingModifyHandler', () => {
       handle: jest.fn().mockResolvedValue({ kind: 'created', stayId: 'stay-recovered', roomId: 'room-a1' }),
     }
 
+    const events = { emit: jest.fn() }
+
     const mod = await Test.createTestingModule({
       providers: [
         BookingModifyHandler,
@@ -108,6 +110,8 @@ describe('BookingModifyHandler', () => {
         { provide: NotificationsService, useValue: notifications },
         { provide: ChannexSystemStaffService, useValue: systemStaff },
         { provide: BookingNewHandler, useValue: bookingNew },
+        // BUG-9 (2026-06-08) — EventEmitter2 injected for same-day-arrival emit.
+        { provide: require('@nestjs/event-emitter').EventEmitter2, useValue: events },
       ],
     }).compile()
     handler = mod.get(BookingModifyHandler)
