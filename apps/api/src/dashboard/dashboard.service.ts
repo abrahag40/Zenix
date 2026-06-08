@@ -68,12 +68,24 @@ export class DashboardService {
       this.prisma.room.count({
         where: { propertyId, organizationId, deletedAt: null, status: { not: 'OUT_OF_SERVICE' } },
       }),
-      // In-house = checkin done + checkout pending + no cancel/no-show
+      // In-house = checkin done + checkout pending + no cancel/no-show.
+      // BUG E2E-9 fix (2026-06-08) — antes contaba SIN excluir zombies. Un
+      // stay overstayed (CLAUDE.md §128) tiene `actualCheckin!=null` +
+      // `actualCheckout=null` + `scheduledCheckout<startOfDay(today)` —
+      // operacionalmente el huésped se fue, pero recepción no marcó el
+      // checkout. AvailabilityService.check() los EXCLUYE (libera inventario),
+      // pero el dashboard los CONTABA como in-house → manager veía 20
+      // ocupadas mientras AvailabilityService consideraba 8 zombies libres,
+      // posibilitando doble-asignación visual + ocupación KPI inflada.
+      // Fix: aplicar mismo criterio §128 → in-house solo cuenta stays cuyo
+      // scheduledCheckout aún NO ha pasado hoy local. El widget overstayed
+      // (CLAUDE.md §128 OverstayedWidget) reporta los zombies aparte.
       this.prisma.guestStay.count({
         where: {
           propertyId, organizationId, deletedAt: null,
           actualCheckin: { not: null }, actualCheckout: null,
           cancelledAt: null, noShowAt: null,
+          scheduledCheckout: { gte: startOfDay },
         },
       }),
       // Arrivals today (checkinAt in [today, tomorrow))

@@ -60,12 +60,17 @@ export class MobileDashboardService {
       this.prisma.room.count({
         where: { propertyId, organizationId, deletedAt: null, status: { not: 'OUT_OF_SERVICE' } },
       }),
-      // Ocupadas = stay con actualCheckin + sin checkout aún
+      // Ocupadas = stay con actualCheckin + sin checkout aún.
+      // BUG E2E-9 fix paralelo (2026-06-08) — excluir zombies/overstayed
+      // (§128). Sin esto, mobile dashboard también ve el KPI inflado por
+      // stays cuyo scheduledCheckout ya pasó hoy. Detalle del fix completo
+      // en dashboard.service.ts:71.
       this.prisma.guestStay.count({
         where: {
           propertyId, organizationId, deletedAt: null,
           actualCheckin: { not: null }, actualCheckout: null,
           cancelledAt: null, noShowAt: null,
+          scheduledCheckout: { gte: startOfDay },
         },
       }),
       // Llegadas hoy pendientes (checkin programado HOY, aún no entrado)
