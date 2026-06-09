@@ -1,5 +1,7 @@
 # Sprint QA-UI-E2E — plan de trabajo
 
+> ✅ **SPRINT CERRADO 2026-06-09** — mergeado a `main` vía PR #100 (commit `17bd610`). 11 bugs resueltos (QA-01..QA-16) + modales sin scroll + remoción `/rooms`. Ver "Resolución — pase 2026-06-09" al final. Siguiente: `release/v1.0.0` (finalización + tag).
+
 > Arrancado 2026-06-09. Modo **QA UI-first**: 3 superficies sincronizadas, verificar el deber ser **y romperlo** (edge cases, doble-submit, inputs inválidos, races) antes de producción. Foco en **UI** (diálogos, drag&drop, clicks, sync visual web↔mobile), no en código/backend.
 
 ## Superficies
