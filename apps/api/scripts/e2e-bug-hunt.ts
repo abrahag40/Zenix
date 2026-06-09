@@ -27,6 +27,10 @@ const notifications = {
   addClient: () => {},
 } as any
 
+// E2E-21 — RoomMovedHkListener ahora reasigna por cobertura (autoAssign) + push.
+const assignment = { autoAssign: async () => ({ assigned: false, staffId: null, rule: null }) } as any
+const push = { sendToStaff: async () => undefined } as any
+
 interface Finding {
   id: string
   description: string
@@ -182,7 +186,7 @@ async function bug3_multiStayPollution(): Promise<void> {
   })
 
   const staff = await prisma.staff.findFirst({ where: { propertyId: prop.id } })
-  const listener = new RoomMovedHkListener(prisma as any, notifications)
+  const listener = new RoomMovedHkListener(prisma as any, notifications, assignment, push)
   sseEmits.length = 0
   const result = await listener.onRoomMoved({
     stayId: 'bug-hunt-stay-A',  // Solo migramos stay-A
@@ -223,7 +227,7 @@ async function bug4_hostelDormUnits(): Promise<void> {
   // del dorm conservaban el mismo bed_index, todos terminan en el wrong bed.
   //
   // Esto es un bug DE DISEÑO más que de implementación, pero documentamos.
-  const listener = new RoomMovedHkListener(prisma as any, notifications)
+  const listener = new RoomMovedHkListener(prisma as any, notifications, assignment, push)
   const src = listener['onRoomMoved'].toString()
   if (/migrated\s*%\s*toUnits\.length/.test(src)) {
     report({

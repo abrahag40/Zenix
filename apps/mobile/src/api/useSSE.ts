@@ -48,6 +48,16 @@ const ALL_SSE_TYPES: SseEventType[] = [
   'task:extension-confirmed', 'task:deferred', 'task:retry-scheduled',
   'task:blocked', 'task:rescheduled', 'task:priority-overridden',
   'task:deep-clean-flagged', 'task:hold-placed', 'task:hold-released',
+  // BUG E2E-22 fix (2026-06-08) — faltaban en el gate del EventSource mobile
+  // (igual que E2E-16/19 en web). Sin estos, el mobile NUNCA recibía la
+  // escalada same-day a URGENT (§235), la migración de task por room-move
+  // (§236) ni las reservas OTA de Channex en tiempo real → el Hub y el
+  // dashboard solo se actualizaban con pull-to-refresh.
+  'task:upgraded', 'task:moved', 'task:paused_same_day_arrival',
+  'channex:stay:created', 'channex:stay:modified',
+  'channex:stay:cancelled', 'channex:stay:conflict',
+  'channex:group:created', 'channex:group:modified', 'channex:group:cancelled',
+  'channex:drift-detected',
   'maintenance:reported', 'discrepancy:reported',
   // Sprint Mx-1 — eventos de ticket de mantenimiento. Sin esto el detail
   // mobile no se refresca tras start/resolve/verify hasta pull-to-refresh
@@ -66,7 +76,7 @@ const ALL_SSE_TYPES: SseEventType[] = [
   'block:created', 'block:approved', 'block:rejected',
   'block:activated', 'block:expired', 'block:cancelled', 'block:extended',
   'checkout:early',
-  'stay:no_show', 'stay:no_show_reverted', 'arrival:at_risk',
+  'stay:no_show', 'stay:no_show_reverted', 'stay:cancelled', 'stay:restored', 'arrival:at_risk',
   'soft:lock:acquired', 'soft:lock:released',
   'notification:new', 'checkin:confirmed',
   'roster:published', 'shift:absence', 'shift:clock-in', 'shift:clock-out',

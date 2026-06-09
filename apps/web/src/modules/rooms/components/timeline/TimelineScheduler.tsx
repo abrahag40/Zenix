@@ -168,6 +168,13 @@ export function TimelineScheduler() {
     [groups],
   )
 
+  // QA-05 — lista plana de habitaciones para el selector del CheckInDialog
+  // cuando se abre sin habitación preseleccionada (Walk-in / Nueva reserva).
+  const allRooms = useMemo(
+    () => groups.flatMap((g) => g.rooms.map((r) => ({ id: r.id, number: r.number, groupName: g.name }))),
+    [groups],
+  )
+
   // Handle scroll sync — SwiftUI-style fluidity pattern.
   // 1. Capturar scrollLeft en ref (no state) → 0 cost.
   // 2. Aplicar translate3d a 3 inner divs via DOM directo → bypass React,
@@ -1252,6 +1259,7 @@ export function TimelineScheduler() {
         open={checkInDialog.open}
         initialRoomId={checkInDialog.roomId}
         roomNumber={checkInDialog.roomNumber}
+        rooms={allRooms}
         initialCheckIn={checkInDialog.checkIn}
         initialCheckInNow={checkInDialog.walkIn ?? false}
         propertyId={PROPERTY_ID}

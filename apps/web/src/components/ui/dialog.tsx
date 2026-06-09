@@ -61,7 +61,13 @@ const DialogContent = React.forwardRef<
         ref={ref}
         data-slot="dialog-content"
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 outline-none sm:max-w-sm",
+          // QA-13 fix (2026-06-09) — default `max-h-[90vh] overflow-y-auto`:
+          // ningún diálogo puede crecer fuera del viewport (antes no había cap
+          // → modales largos quedaban con su footer/acciones off-screen e
+          // inalcanzables en laptops). Los modales con footer pinneado (ej.
+          // CreateTicketDialog) hacen override con `overflow-hidden flex flex-col`
+          // + body scrollable interno (tailwind-merge: la última clase gana).
+          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 outline-none sm:max-w-sm max-h-[90vh] overflow-y-auto",
           className
         )}
         {...props}

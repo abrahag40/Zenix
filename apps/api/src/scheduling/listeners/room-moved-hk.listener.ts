@@ -3,6 +3,8 @@ import { OnEvent } from '@nestjs/event-emitter'
 import { Priority, CleaningStatus, CleaningCancelReason } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { NotificationsService } from '../../notifications/notifications.service'
+import { AssignmentService } from '../../assignment/assignment.service'
+import { PushService } from '../../notifications/push.service'
 import { startOfLocalDayUtc } from './hk-realtime.helpers'
 
 /**
@@ -45,6 +47,8 @@ export class RoomMovedHkListener {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
+    private readonly assignment: AssignmentService,
+    private readonly push: PushService,
   ) {}
 
   @OnEvent('room.moved', { async: true })
@@ -181,7 +185,10 @@ export class RoomMovedHkListener {
               priority: oldTask.priority,
               hasSameDayCheckIn: oldTask.hasSameDayCheckIn,
               scheduledFor: todayUtc,
-              assignedToId: oldTask.assignedToId,
+              // E2E-21 fix (2026-06-08) — NO heredar la recamarista de la zona
+              // origen. La tarea nace sin assignee y autoAssign() (abajo, fuera
+              // de la tx) elige el primary del NUEVO cuarto vía StaffCoverage.
+              assignedToId: null,
               carryoverFromTaskId: oldTask.id,
             },
           })
@@ -197,14 +204,54 @@ export class RoomMovedHkListener {
           return newTask
         })
 
-        // SSE refresh — Hub Recamarista actualiza lista
+        // E2E-21 fix (2026-06-08) — reasignar por COBERTURA del NUEVO cuarto.
+        // Antes la tarea migrada heredaba la recamarista de la zona ORIGEN →
+        // tras mover de piso 1 (María) a piso 3 (Pedro), quedaba con María
+        // (recamarista equivocada) y la correcta (Pedro) nunca se enteraba.
+        // autoAssign() elige el primary del toRoom via StaffCoverage + emite
+        // task:auto-assigned (§53 D10). Fuera de la tx (lee la task ya creada).
+        let newAssigneeId: string | null = null
+        try {
+          const decision = await this.assignment.autoAssign(result.id)
+          newAssigneeId = decision.staffId ?? null
+        } catch (e) {
+          this.logger.warn(
+            `[hk-realtime room-moved] autoAssign falló task=${result.id}: ` +
+              `${e instanceof Error ? e.message : e}`,
+          )
+        }
+
+        // Push a la NUEVA recamarista cuando la tarea es accionable (READY).
+        // autoAssign solo empuja en UNASSIGNED→READY; la migrada nace READY/
+        // PENDING, así que el push del room-move lo mandamos aquí explícitamente
+        // (requisito owner: "asignarse a Y recamarista y notificarle por push").
+        if (newAssigneeId && result.status === CleaningStatus.READY) {
+          const toRoomNumber = await this.prisma.room
+            .findUnique({ where: { id: payload.toRoomId }, select: { number: true } })
+            .then((r) => r?.number ?? '?')
+            .catch(() => '?')
+          void this.push
+            .sendToStaff(
+              newAssigneeId,
+              '🔄 Tarea reasignada',
+              `Hab. ${toRoomNumber} — Lista para limpiar (cambio de habitación)`,
+              { type: 'task:moved', taskId: result.id },
+            )
+            .catch((e) =>
+              this.logger.warn(
+                `[hk-realtime room-moved push] non-fatal: ${e instanceof Error ? e.message : e}`,
+              ),
+            )
+        }
+
+        // SSE refresh — Hub Recamarista actualiza lista (con el NUEVO assignee)
         this.notifications.emit(payload.propertyId, 'task:moved', {
           fromTaskId: oldTask.id,
           toTaskId: result.id,
           fromRoomId: payload.fromRoomId,
           toRoomId: payload.toRoomId,
           stayId: payload.stayId,
-          assignedToId: oldTask.assignedToId,
+          assignedToId: newAssigneeId,
         })
 
         migrated++

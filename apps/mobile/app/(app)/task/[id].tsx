@@ -69,6 +69,7 @@ import Animated, {
   withSequence,
   interpolateColor,
 } from 'react-native-reanimated'
+import { confirmAsync } from '../../../src/lib/confirm'
 import { ScreenHeader } from '../../../src/features/navigation/ScreenHeader'
 import { TaskHero } from '../../../src/features/housekeeping/components/TaskHero'
 import {
@@ -256,10 +257,9 @@ export default function TaskDetailScreen() {
     const msg = notes.length > 0
       ? `Has agregado ${notes.length} nota(s). ¿Confirmar habitación como limpia?`
       : '¿Confirmar habitación como limpia?'
-    Alert.alert('Finalizar limpieza', msg, [
-      { text: 'Cancelar', style: 'cancel' },
-      { text: 'Confirmar', onPress: doEnd },
-    ])
+    // QA-12 — confirmAsync funciona en web (Alert.alert con botones es no-op en
+    // Expo web → "Finalizar" nunca completaba la tarea).
+    if (await confirmAsync('Finalizar limpieza', msg)) await doEnd()
   }
 
   async function doEnd() {
@@ -273,7 +273,13 @@ export default function TaskDetailScreen() {
       const summary = elapsedMin
         ? `Hab. ${task?.unit?.room?.number ?? ''} limpiada en ${elapsedMin} min`
         : 'Habitación marcada como limpia'
-      Alert.alert('✅ Listo', summary, [{ text: 'Continuar', onPress: () => router.replace('/(app)/trabajo') }])
+      // QA-12 — en web el callback "Continuar" del Alert no dispara → navegamos
+      // directo. En nativo mantenemos el Alert de confirmación con su CTA.
+      if (Platform.OS === 'web') {
+        router.replace('/(app)/trabajo')
+      } else {
+        Alert.alert('✅ Listo', summary, [{ text: 'Continuar', onPress: () => router.replace('/(app)/trabajo') }])
+      }
     } catch (err) {
       Alert.alert('Error', err instanceof Error ? err.message : 'No se pudo finalizar')
     } finally {

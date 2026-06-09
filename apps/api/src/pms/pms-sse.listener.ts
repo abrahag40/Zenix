@@ -169,4 +169,38 @@ export class PmsSseListener {
       actorId: payload.actorId,
     })
   }
+
+  // QA-08 (2026-06-09) — cancel/restore MANUAL (no-OTA) debe propagar por SSE
+  // para que el dashboard mobile + calendarios de otros clientes se refresquen
+  // en tiempo real (antes solo el cliente que canceló veía el cambio; el resto
+  // esperaba el poll de 60s). Las cancelaciones OTA ya emiten channex:stay:*.
+  @OnEvent('stay.cancelled')
+  onStayCancelled(payload: {
+    stayId: string
+    propertyId: string
+    roomId: string
+    guestName?: string
+    initiator?: string
+  }) {
+    this.notifications.emit(payload.propertyId, 'stay:cancelled', {
+      stayId:    payload.stayId,
+      roomId:    payload.roomId,
+      guestName: payload.guestName,
+      initiator: payload.initiator,
+    })
+  }
+
+  @OnEvent('stay.restored')
+  onStayRestored(payload: {
+    stayId: string
+    propertyId: string
+    roomId: string
+    guestName?: string
+  }) {
+    this.notifications.emit(payload.propertyId, 'stay:restored', {
+      stayId:    payload.stayId,
+      roomId:    payload.roomId,
+      guestName: payload.guestName,
+    })
+  }
 }

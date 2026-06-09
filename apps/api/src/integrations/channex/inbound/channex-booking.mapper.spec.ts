@@ -204,6 +204,33 @@ describe('ChannexBookingMapper', () => {
       expect(result.guestName).toBe('Carlos Lopez')
     })
 
+    it('OBS-1 — room.guest con name pero SIN surname NO concatena el surname del customer', () => {
+      const result = ChannexBookingMapper.toGuestStayCreate({
+        revision: makeRevision({
+          // customer trae surname "Hunter"; el room-guest trae el nombre
+          // completo en `name` sin surname → no debe quedar "Bug Hunter Hunter".
+          customer: { name: 'Bug', surname: 'Hunter', mail: 'x@y.com' },
+          rooms: [
+            {
+              amount: '150.00',
+              checkin_date: '2026-06-01',
+              checkout_date: '2026-06-02',
+              rate_plan_id: 'rate-bar',
+              room_type_id: 'rt-standard',
+              occupancy: { adults: 2, children: 0, infants: 0 },
+              guests: [{ name: 'Bug Hunter' }],
+            },
+          ],
+        }),
+        propertyId: 'prop-1',
+        organizationId: 'org-1',
+        propertyTimezone: 'America/Cancun',
+        roomId: 'room-a1',
+        channexConflict: false,
+      })
+      expect(result.guestName).toBe('Bug Hunter')
+    })
+
     it('sin nombre en ningún lugar → fallback "Guest <ota_code>"', () => {
       const result = ChannexBookingMapper.toGuestStayCreate({
         revision: makeRevision({

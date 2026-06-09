@@ -28,6 +28,10 @@ const notifications = {
   addClient: () => {},
 } as any
 
+// E2E-21 — RoomMovedHkListener ahora reasigna por cobertura (autoAssign) + push.
+const assignment = { autoAssign: async () => ({ assigned: false, staffId: null, rule: null }) } as any
+const push = { sendToStaff: async () => undefined } as any
+
 let passed = 0
 let total = 0
 function check(name: string, cond: boolean, detail = ''): void {
@@ -156,7 +160,7 @@ async function caso2(): Promise<void> {
   })
 
   // Disparar listener
-  const listener = new RoomMovedHkListener(prisma as any, notifications)
+  const listener = new RoomMovedHkListener(prisma as any, notifications, assignment, push)
   sseEmits.length = 0
   // Encontrar un staff válido para el actor (FK en taskLog)
   const realStaff = await prisma.staff.findFirst({ where: { propertyId: prop.id } })
@@ -235,7 +239,7 @@ async function caso3(): Promise<void> {
     },
   })
 
-  const listener = new RoomMovedHkListener(prisma as any, notifications)
+  const listener = new RoomMovedHkListener(prisma as any, notifications, assignment, push)
   sseEmits.length = 0
   const result = await listener.onRoomMoved({
     stayId: 'e2e-stay-3',

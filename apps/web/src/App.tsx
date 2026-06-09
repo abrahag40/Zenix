@@ -11,7 +11,9 @@ import { LoginPage } from './pages/LoginPage'
 import { SetupPage } from './pages/SetupPage'
 import { OnboardingCardCapture } from './pages/OnboardingCardCapture'
 import { DashboardPage } from './pages/DashboardPage'
-import { RoomsPage } from './pages/RoomsPage'
+// RoomsPage (board "Estado de habitaciones" en /pages/RoomsPage) RETIRADO
+// 2026-06-09 — interfaz deprecada, reemplazada por Kanban (HK) + timeline /pms.
+// La ruta /rooms ahora redirige a /kanban (ver más abajo).
 import { RoomsPage as PmsPage } from './modules/rooms/pages/RoomsPage'
 // OperationalOverridesPage import retirado (Sprint 9 D15) — la página existe
 // en /pages/ pero ya no se enruta. Las acciones se migraron a KanbanPage.
@@ -117,7 +119,8 @@ export default function App() {
               1-2 semanas por deep-links externos. Eliminar después. */}
           <Route path="/overrides"       element={<Navigate to="/kanban" replace />} />
           <Route path="/planning"        element={<Navigate to="/kanban" replace />} />
-          <Route path="/rooms"           element={<ProtectedLayout><RoomsPage /></ProtectedLayout>} />
+          {/* /rooms (board "Estado de habitaciones") deprecado 2026-06-09 → Kanban */}
+          <Route path="/rooms"           element={<Navigate to="/kanban" replace />} />
           <Route path="/pms"             element={<PmsLayout><PmsPage /></PmsLayout>} />
           <Route path="/kanban"          element={<ProtectedLayout><KanbanPage /></ProtectedLayout>} />
           <Route path="/checkouts"       element={<ProtectedLayout><CheckoutsPage /></ProtectedLayout>} />

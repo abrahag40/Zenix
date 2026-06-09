@@ -237,7 +237,12 @@ export function CreateTicketDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o: boolean) => !o && onClose()}>
-      <DialogContent showCloseButton={false} className="sm:max-w-md p-0 gap-0 overflow-hidden">
+      {/* QA-13 fix (2026-06-09) — el modal crecía sin límite (sin max-h) y al
+          seleccionar "Crítico" (warning grande) el footer Siguiente/Crear
+          quedaba bajo el fold + overflow-hidden lo recortaba → wizard atascado
+          en laptops/pantallas cortas. Ahora: cap a 90vh + flex-col con body
+          scrollable interno → header y footer SIEMPRE visibles. */}
+      <DialogContent showCloseButton={false} className="sm:max-w-md p-0 gap-0 overflow-hidden max-h-[90vh] flex flex-col">
         <DialogTitle className="sr-only">Nuevo ticket de mantenimiento</DialogTitle>
         <DialogDescription className="sr-only">
           Wizard de 3 pasos para levantar un ticket
@@ -259,8 +264,9 @@ export function CreateTicketDialog({
           </button>
         </header>
 
-        {/* Body */}
-        <div className="px-5 py-4 min-h-[300px]">
+        {/* Body — flex-1 + overflow-y-auto: scrollea internamente cuando el
+            contenido excede la altura; header/footer quedan pinneados (QA-13). */}
+        <div className="px-5 py-4 min-h-[300px] flex-1 overflow-y-auto">
           {step === 1 && (
             <Step1
               locationKind={locationKind}

@@ -1,6 +1,8 @@
 import { Test } from '@nestjs/testing'
 import { PrismaService } from '../../prisma/prisma.service'
 import { NotificationsService } from '../../notifications/notifications.service'
+import { AssignmentService } from '../../assignment/assignment.service'
+import { PushService } from '../../notifications/push.service'
 import { RoomMovedHkListener } from './room-moved-hk.listener'
 
 /**
@@ -28,20 +30,29 @@ describe('RoomMovedHkListener', () => {
       create: jest.fn(),
     },
     taskLog: { create: jest.fn() },
+    room: { findUnique: jest.fn() },
     $transaction: jest.fn((fn) => fn(prismaMock)),
   }
   const notificationsMock = { emit: jest.fn() }
+  // E2E-21 — autoAssign reasigna por cobertura del nuevo cuarto; push notifica.
+  const assignmentMock = { autoAssign: jest.fn() }
+  const pushMock = { sendToStaff: jest.fn() }
 
   beforeEach(async () => {
     jest.clearAllMocks()
     prismaMock.$transaction.mockImplementation((fn: any) => fn(prismaMock))
     prismaMock.propertySettings.findUnique.mockResolvedValue({ timezone: 'America/Cancun' })
+    prismaMock.room.findUnique.mockResolvedValue({ number: 'A2' })
+    assignmentMock.autoAssign.mockResolvedValue({ assigned: true, staffId: 'staff-toRoom', rule: 'COVERAGE_PRIMARY' })
+    pushMock.sendToStaff.mockResolvedValue(undefined)
 
     const module = await Test.createTestingModule({
       providers: [
         RoomMovedHkListener,
         { provide: PrismaService, useValue: prismaMock },
         { provide: NotificationsService, useValue: notificationsMock },
+        { provide: AssignmentService, useValue: assignmentMock },
+        { provide: PushService, useValue: pushMock },
       ],
     }).compile()
     listener = module.get(RoomMovedHkListener)
@@ -83,16 +94,19 @@ describe('RoomMovedHkListener', () => {
       }),
     })
     // Nueva creada en toRoom unit
+    // E2E-21 — la tarea migrada NO hereda assignee; autoAssign lo decide.
     expect(prismaMock.cleaningTask.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         unitId: 'unit-to',
         status: 'PENDING',
         priority: 'MEDIUM',
         hasSameDayCheckIn: true,
-        assignedToId: 'staff-1',
+        assignedToId: null,
         carryoverFromTaskId: 'task-old',
       }),
     })
+    // autoAssign reasigna por cobertura del nuevo cuarto
+    expect(assignmentMock.autoAssign).toHaveBeenCalledWith('task-new')
     // SSE
     expect(notificationsMock.emit).toHaveBeenCalledWith(
       'prop-1',
@@ -117,7 +131,7 @@ describe('RoomMovedHkListener', () => {
         assignedToId: 'staff-2',
       },
     ])
-    prismaMock.cleaningTask.create.mockResolvedValue({ id: 'task-ready-new' })
+    prismaMock.cleaningTask.create.mockResolvedValue({ id: 'task-ready-new', status: 'READY' })
 
     const result = await listener.onRoomMoved({
       stayId: 'stay-2',
@@ -127,8 +141,16 @@ describe('RoomMovedHkListener', () => {
     })
     expect(result.migrated).toBe(1)
     expect(prismaMock.cleaningTask.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ status: 'READY', priority: 'URGENT' }),
+      data: expect.objectContaining({ status: 'READY', priority: 'URGENT', assignedToId: null }),
     })
+    // E2E-21 — READY accionable → reasigna por cobertura + push a la nueva recamarista
+    expect(assignmentMock.autoAssign).toHaveBeenCalledWith('task-ready-new')
+    expect(pushMock.sendToStaff).toHaveBeenCalledWith(
+      'staff-toRoom',
+      expect.stringContaining('reasignada'),
+      expect.stringContaining('A2'),
+      expect.objectContaining({ type: 'task:moved', taskId: 'task-ready-new' }),
+    )
   })
 
   it('IN_PROGRESS → skip + conflict count (defensive — §54 D11 ya bloquea aguas arriba)', async () => {

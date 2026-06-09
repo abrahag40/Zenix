@@ -775,6 +775,11 @@ export type SseEventType =
   // No-show events
   | 'stay:no_show'
   | 'stay:no_show_reverted'
+  // Cancel / restore lifecycle (QA-08 2026-06-09) — un cancel/restore MANUAL
+  // (no-OTA) debe refrescar el dashboard mobile + calendarios de otros clientes
+  // en tiempo real, no esperar al poll de 60s.
+  | 'stay:cancelled'
+  | 'stay:restored'
   // Pre-arrival warning (potential no-show)
   | 'arrival:at_risk'
   // Soft-lock advisory (intra-Zenix overbooking UX — no hard block)
