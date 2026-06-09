@@ -37,12 +37,30 @@ type Unsubscribe = () => void
 const ALL_SSE_TYPES: SseEventType[] = [
   'task:planned', 'task:ready', 'task:started', 'task:done',
   'task:unassigned', 'task:cancelled',
+  // BUG E2E-16 fix (2026-06-08) — §237 agregó estos al union SseEventType y el
+  // mobile los maneja (§242), pero NO estaban en este array runtime → el
+  // EventSource del navegador no registraba addEventListener para ellos → el
+  // Kanban recibía el stream pero ignoraba la escalada same-day a URGENT (§235)
+  // y la migración de task por room-move (§236). Requería reload manual.
+  'task:upgraded', 'task:moved', 'task:paused_same_day_arrival',
+  // BUG E2E-19 fix (2026-06-08) — el array estaba incompleto vs lo que los
+  // subscribers (useRoomSSE del calendario) esperan. Sin estos, el EventSource
+  // no registra addEventListener → el calendario NO recibe en tiempo real las
+  // reservas OTA nuevas/modificadas/canceladas/en-conflicto de Channex (el
+  // flagship en la superficie principal) ni las animaciones de estado de
+  // limpieza (paused/resumed/verified/deferred/retry). Requería reload manual.
+  'task:paused', 'task:resumed', 'task:verified', 'task:deferred',
+  'task:retry-scheduled',
+  'channex:stay:created', 'channex:stay:modified',
+  'channex:stay:cancelled', 'channex:stay:conflict',
+  'channex:group:created', 'channex:group:modified', 'channex:group:cancelled',
+  'channex:drift-detected',
   'maintenance:reported', 'discrepancy:reported',
   'room:ready', 'checkout:confirmed', 'checkin:completed', 'room:moved',
   'block:created', 'block:approved', 'block:rejected',
   'block:activated', 'block:expired', 'block:cancelled', 'block:extended',
   'checkout:early',
-  'stay:no_show', 'stay:no_show_reverted',
+  'stay:no_show', 'stay:no_show_reverted', 'stay:cancelled', 'stay:restored',
   'arrival:at_risk',
   'soft:lock:acquired', 'soft:lock:released',
   'notification:new',

@@ -14,7 +14,9 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.zenix.pms",
       "infoPlist": {
-        "UIBackgroundModes": ["remote-notification"]
+        "UIBackgroundModes": [
+          "remote-notification"
+        ]
       }
     },
     "android": {
@@ -49,6 +51,16 @@
       "eas": {
         "projectId": ""
       }
+    },
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
+    "web": {
+      "output": "single",
+      "favicon": "./assets/icon.png",
+      "bundler": "metro"
     }
   }
 }

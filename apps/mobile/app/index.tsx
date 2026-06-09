@@ -46,7 +46,15 @@ export default function RootIndex() {
     // One frame is enough for zustand persist to populate from AsyncStorage.
     // Using requestAnimationFrame keeps the splash → loader transition smooth.
     const id = requestAnimationFrame(() => setHydrated(true))
-    return () => cancelAnimationFrame(id)
+    // QA-01 fix (2026-06-09) — rAF NO se dispara en pestañas en segundo plano
+    // (Chrome pausa rAF en tabs inactivas). Si la app carga en un tab no-activo,
+    // quedaba colgada en "Cargando Zenix" para siempre. setTimeout SÍ corre en
+    // background (throttled) → fallback que garantiza que la hidratación avance.
+    const fallback = setTimeout(() => setHydrated(true), 60)
+    return () => {
+      cancelAnimationFrame(id)
+      clearTimeout(fallback)
+    }
   }, [])
 
   if (!hydrated) {

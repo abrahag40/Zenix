@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { Platform } from 'react-native'
 import { Stack, useRouter, useSegments } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
@@ -13,17 +14,26 @@ import { colors } from '../src/design/colors'
 import { ErrorBoundary } from '../src/features/errors/ErrorBoundary'
 import { installGlobalErrorHandler } from '../src/features/errors/globalErrorHandler'
 
+// Web target only supports a subset of the native runtime. We gate
+// platform-only side effects (ErrorUtils, expo-notifications, expo-audio,
+// expo-background-fetch, NetInfo) behind Platform.OS !== 'web' so the
+// browser bundle can mount the navigation tree for visual smoke-tests.
+// Production target stays mobile-native; this is a dev-time convenience.
+const IS_WEB = Platform.OS === 'web'
+
 // Install once, at module-eval time. Idempotent — installGlobalErrorHandler
-// guards against double-install.
-installGlobalErrorHandler({
-  onError: (err, source) => {
-    // TODO(sprint-9): forward to Sentry/Bugsnag here.
-    if (__DEV__) {
-      const msg = err instanceof Error ? err.message : String(err)
-      console.warn(`[telemetry stub] ${source}: ${msg}`)
-    }
-  },
-})
+// guards against double-install. ErrorUtils is RN-only → skip on web.
+if (!IS_WEB) {
+  installGlobalErrorHandler({
+    onError: (err, source) => {
+      // TODO(sprint-9): forward to Sentry/Bugsnag here.
+      if (__DEV__) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.warn(`[telemetry stub] ${source}: ${msg}`)
+      }
+    },
+  })
+}
 
 /**
  * Root layout — SwiftUI-aligned NavigationStack.
@@ -108,6 +118,9 @@ export default function RootLayout() {
   // a push-token failure can never break the auth flow.
   useEffect(() => {
     if (!token) return
+    // Native-only side effects (expo-notifications + NetInfo sync queue).
+    // Web bundle stays minimal so the dashboard mounts in the browser.
+    if (IS_WEB) return undefined
     // Request local notification permissions first — needed for alarm
     // notifications (scheduleNotificationAsync) even in Expo Go where
     // push token registration is skipped.

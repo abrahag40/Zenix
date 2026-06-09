@@ -130,7 +130,21 @@ export class ApiError extends Error {
 }
 
 async function getToken(): Promise<string | null> {
+  // BUG E2E-15 fix (2026-06-08) — the E2E-6 fix made the auth store WRITE the
+  // token to localStorage on web (expo-secure-store's web stub crashes on
+  // setItemAsync). But this READ path still used SecureStore.getItemAsync,
+  // which on web does NOT see the localStorage-written token → returns null →
+  // no Authorization header → 401 on EVERY authenticated request. The whole
+  // logged-in mobile-web surface was broken. Mirror auth.ts's platform branch:
+  // read from localStorage on web, SecureStore on native.
   try {
+    if (Platform.OS === 'web') {
+      try {
+        return localStorage.getItem('hk_token')
+      } catch {
+        return null
+      }
+    }
     return await SecureStore.getItemAsync('hk_token')
   } catch {
     return null

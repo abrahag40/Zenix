@@ -75,10 +75,20 @@ const MOBILE_DASHBOARD_TRIGGERS: SseEventType[] = [
   'block:cancelled',
   'stay:no_show',
   'stay:no_show_reverted',
+  'stay:cancelled',   // QA-08 — cancel manual no-OTA refresca dashboard
+  'stay:restored',    // QA-08 — restore manual refresca dashboard
   'checkin:confirmed',
   'checkout:early',
   'checkout:confirmed',
   'room:moved',
+  // BUG E2E-18 fix (2026-06-08) — una reserva OTA nueva/cancelada de Channex
+  // debe refrescar las llegadas/salidas del recepcionista + el donut del
+  // supervisor en tiempo real (antes solo aparecía tras el poll de 60s).
+  'channex:stay:created',
+  'channex:stay:modified',
+  'channex:stay:cancelled',
+  'channex:group:created',
+  'channex:group:cancelled',
 ]
 
 export function useMobileDashboard() {

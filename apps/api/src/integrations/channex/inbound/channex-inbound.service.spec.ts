@@ -14,7 +14,10 @@ import { PrismaService } from '../../../prisma/prisma.service'
 type Mock = jest.Mock
 
 function makePrismaMock() {
-  const channexWebhookLog = { create: jest.fn().mockResolvedValue({ id: 'log-1' }) }
+  const channexWebhookLog = {
+    create: jest.fn().mockResolvedValue({ id: 'log-1' }),
+    update: jest.fn().mockResolvedValue({ id: 'log-1' }),
+  }
   const channexOutbox = {
     findFirst: jest.fn().mockResolvedValue(null),
     create: jest.fn().mockResolvedValue({ id: 'outbox-1' }),
@@ -87,6 +90,13 @@ describe('ChannexInboundService', () => {
       expect(result.outboxId).toBeNull()
       expect(prisma.channexWebhookLog.create).toHaveBeenCalled()
       expect(prisma.channexOutbox.create).not.toHaveBeenCalled()
+      // BUG E2E-14 — el log dedup NO debe quedar 'pending' forever
+      expect(prisma.channexWebhookLog.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'log-1' },
+          data: expect.objectContaining({ result: 'deduplicated' }),
+        }),
+      )
     })
 
     it('cuando revisionId es null, encola igual (bare event send_data:false)', async () => {

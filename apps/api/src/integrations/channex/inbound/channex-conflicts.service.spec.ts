@@ -66,6 +66,12 @@ function makePrismaMock() {
     room: {
       findFirst: jest.fn(),
     },
+    // BUG-10 (2026-06-08) — moveRoom ahora consulta timezone para decidir
+    // si emite `channex.booking.same-day-arrival`. Mock por defecto retorna
+    // sin timezone (skip emit). Tests específicos sobrescriben con mockResolvedValueOnce.
+    propertySettings: {
+      findUnique: jest.fn().mockResolvedValue(null),
+    },
     $transaction: jest.fn(async (fn: (t: unknown) => Promise<unknown>) => fn(tx)),
   }
 }
@@ -88,6 +94,8 @@ describe('ChannexConflictsService', () => {
     gateway = { cancelBookingAtChannex: jest.fn() }
     notifications = { emit: jest.fn() }
 
+    const events = { emit: jest.fn() }
+
     const mod = await Test.createTestingModule({
       providers: [
         ChannexConflictsService,
@@ -96,6 +104,8 @@ describe('ChannexConflictsService', () => {
         { provide: AvailabilityService, useValue: availability },
         { provide: ChannexGateway, useValue: gateway },
         { provide: NotificationsService, useValue: notifications },
+        // BUG-10 (2026-06-08) — EventEmitter2 para room.moved + same-day-arrival
+        { provide: require('@nestjs/event-emitter').EventEmitter2, useValue: events },
       ],
     }).compile()
     svc = mod.get(ChannexConflictsService)

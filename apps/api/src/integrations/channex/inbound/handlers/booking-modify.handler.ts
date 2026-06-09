@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common'
+import { EventEmitter2 } from '@nestjs/event-emitter'
 import { Prisma } from '@prisma/client'
 import { ChannexBookingRevision } from '../../channex.gateway'
 import { AvailabilityService } from '../../../../pms/availability/availability.service'
@@ -7,6 +8,7 @@ import { PrismaService } from '../../../../prisma/prisma.service'
 import { ChannexBookingMapper } from '../channex-booking.mapper'
 import { ChannexSystemStaffService } from '../channex-system-staff.service'
 import { BookingNewHandler } from './booking-new.handler'
+import { isSameDayInTimezone } from '../../../../scheduling/listeners/hk-realtime.helpers'
 
 export type BookingModifyResult =
   | { kind: 'updated'; stayId: string; restrictedToSafeFields: boolean }
@@ -56,7 +58,38 @@ export class BookingModifyHandler {
     private readonly notifications: NotificationsService,
     private readonly systemStaff: ChannexSystemStaffService,
     private readonly bookingNew: BookingNewHandler,
+    private readonly events: EventEmitter2,
   ) {}
+
+  /**
+   * BUG-9 fix (2026-06-08) — emit `channex.booking.same-day-arrival` when a
+   * modify newly places the check-in TODAY in the property's local timezone.
+   *
+   * Caso real: OTA envía un `booking_modify` cambiando arrival_date a HOY
+   * (huésped adelantó). Sin este emit, `BookingSameDayListener` NO escala
+   * la CleaningTask de la room → recamarista no se entera del arrival nuevo.
+   *
+   * Idempotente — el listener detecta si la task ya está URGENT y no doble-
+   * escala. Helper compartido por handle() + handleGroupModify() per-child.
+   */
+  private async maybeEmitSameDayArrival(
+    stayId: string,
+    roomId: string,
+    propertyId: string,
+    newCheckinAt: Date | string,
+    otaName: string | null,
+    timezone: string,
+  ): Promise<void> {
+    const checkInIso = typeof newCheckinAt === 'string' ? newCheckinAt : newCheckinAt.toISOString()
+    if (!isSameDayInTimezone(checkInIso, timezone)) return
+    this.events.emit('channex.booking.same-day-arrival', {
+      stayId,
+      roomId,
+      propertyId,
+      checkInIso,
+      otaName,
+    })
+  }
 
   async handle(revision: ChannexBookingRevision): Promise<BookingModifyResult> {
     // Sprint CHECK-IN C2.2 (2026-05-29) — multi-room lookup §153-§154.
@@ -268,6 +301,19 @@ export class BookingModifyHandler {
       datesChanged: dateChanged,
       otaName: revision.ota_name ?? null,
     })
+
+    // BUG-9 fix (2026-06-08) — same-day arrival emit cuando un modify
+    // re-fechó el check-in a HOY local. Sin esto, HK no escala URGENT.
+    if (dateChanged) {
+      await this.maybeEmitSameDayArrival(
+        existing.id,
+        existing.roomId,
+        existing.propertyId,
+        desired.checkinAt,
+        revision.ota_name ?? null,
+        timezone,
+      )
+    }
 
     this.logger.log(
       `[Channex modify] updated stay=${existing.id} datesChanged=${dateChanged} pmsCollected=${pmsHasCollected}`,

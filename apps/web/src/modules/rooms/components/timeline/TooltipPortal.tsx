@@ -57,10 +57,14 @@ export function TooltipPortal({
 
   // isArrivalDay guards are the source of truth — robust against date-string UTC vs local drift
   const isArrivalDay = startOfDay(stay.checkIn).getTime() === startOfDay(new Date()).getTime()
-  const canConfirmCheckin = !stay.actualCheckin && !isConfirmedNoShow && isArrivalDay
+  // QA-15b (2026-06-09) — guard de estado terminal: una estancia que ya salió
+  // (`actualCheckout` set) NO debe ofrecer check-in/no-show en el tooltip rápido,
+  // aunque su día de llegada sea hoy y `actualCheckin` esté null (estado
+  // inconsistente vía import OTA/Channex). Espejo del fix en BookingDetailSheet.
+  const canConfirmCheckin = !stay.actualCheckin && !stay.actualCheckout && !isConfirmedNoShow && isArrivalDay
 
   const hasCheckin = canConfirmCheckin && !!onStartCheckin
-  const hasNoShow  = !stay.actualCheckin && (isPotentialNoShow || isUnconfirmed || isArrivalDay) && !isConfirmedNoShow && !!onNoShow
+  const hasNoShow  = !stay.actualCheckin && !stay.actualCheckout && (isPotentialNoShow || isUnconfirmed || isArrivalDay) && !isConfirmedNoShow && !!onNoShow
   const hasRevert  = canRevert && !!onRevertNoShow
 
   const style: React.CSSProperties = {

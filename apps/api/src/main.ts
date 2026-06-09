@@ -68,6 +68,17 @@ async function bootstrap() {
       threshold: 1024,
       filter: (req, res) => {
         if (req.headers['x-no-compression']) return false
+        // BUG E2E-17 fix (2026-06-08) — el middleware `compression` bufferea el
+        // stream gzip y NO lo envía hasta llenar el buffer o `res.flush()`. Para
+        // SSE (`text/event-stream`, que `compression.filter` considera
+        // comprimible por el patrón `^text\/`) esto significa que cada evento
+        // queda atrapado en el buffer → el navegador NUNCA recibe eventos en
+        // tiempo real → Kanban/Hub/dashboard solo se actualizan al recargar.
+        // El COMPRESSION-CORE sprint rompió TODO el realtime SSE sin querer.
+        // EventSource no puede enviar headers custom (x-no-compression), así que
+        // excluimos el endpoint SSE por path. X-Accel-Buffering:no del controller
+        // solo afecta a nginx, no a este middleware.
+        if (req.path === '/api/events') return false
         return compression.filter(req, res)
       },
     }),

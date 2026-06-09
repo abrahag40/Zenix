@@ -755,6 +755,7 @@ export type SseEventType =
   | 'task:cancelled'
   | 'task:upgraded'    // Etapa A §A1 — OTA same-day arrival escalada a URGENT
   | 'task:moved'       // Etapa A §A2 — HK task migrada por room.moved (fromTaskId → toTaskId)
+  | 'task:paused_same_day_arrival' // BUG-2 fix — PAUSED + same-day arrival → notif SUPERVISOR
   | 'maintenance:reported'
   | 'discrepancy:reported'
   | 'room:ready'
@@ -774,6 +775,11 @@ export type SseEventType =
   // No-show events
   | 'stay:no_show'
   | 'stay:no_show_reverted'
+  // Cancel / restore lifecycle (QA-08 2026-06-09) — un cancel/restore MANUAL
+  // (no-OTA) debe refrescar el dashboard mobile + calendarios de otros clientes
+  // en tiempo real, no esperar al poll de 60s.
+  | 'stay:cancelled'
+  | 'stay:restored'
   // Pre-arrival warning (potential no-show)
   | 'arrival:at_risk'
   // Soft-lock advisory (intra-Zenix overbooking UX — no hard block)

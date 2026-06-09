@@ -255,9 +255,22 @@ export class ChannexBookingMapper {
     // Prefer the room-level guest when present (more specific for multi-room
     // bookings under a single customer account). CHECK-IN C2.2 — `roomIndex`
     // permite targetear un room específico del array.
+    // OBS-1 fix (2026-06-08) — la fuente del nombre se elige ATÓMICAMENTE.
+    // Antes `rawFirst` y `rawLast` caían al customer de forma independiente:
+    // si el room-guest traía `name` pero no `surname`, mezclaba el name del
+    // room-guest con el surname del customer → nombre duplicado/incorrecto
+    // ("Bug Hunter" + customer surname "Hunter" = "Bug Hunter Hunter"). Ahora:
+    // si el room-guest existe (name y/o surname), se usa SOLO su name+surname
+    // (sin mezclar con el customer); si no hay room-guest, fallback al customer
+    // completo.
     const targetRoomGuest = revision.rooms?.[roomIndex]?.guests?.[0]
-    const rawFirst = targetRoomGuest?.name ?? revision.customer?.name ?? ''
-    const rawLast  = targetRoomGuest?.surname ?? revision.customer?.surname ?? ''
+    const hasRoomGuest = !!(targetRoomGuest?.name || targetRoomGuest?.surname)
+    const rawFirst = hasRoomGuest
+      ? targetRoomGuest?.name ?? ''
+      : revision.customer?.name ?? ''
+    const rawLast = hasRoomGuest
+      ? targetRoomGuest?.surname ?? ''
+      : revision.customer?.surname ?? ''
     return {
       firstName: titleCase(rawFirst),
       lastName:  titleCase(rawLast),

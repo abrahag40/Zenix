@@ -96,6 +96,12 @@ export function ForecastHeatmap({ propertyId, isSupervisor }: { propertyId: stri
   const avg = data.series.length > 0
     ? data.series.reduce((a, r) => a + r.occupancyPercent, 0) / data.series.length
     : 0
+  // QA-14 (2026-06-09) — distinguir "sin datos a futuro todavía" de "demanda
+  // floja real". Sin forward snapshots (todas las noches con roomsOnBooks=0) NO
+  // es demanda baja: es ausencia de captura. Mostrarlo honestamente (como hace
+  // la PickupSection) en vez de rotular "Demanda floja · 0%" que un supervisor
+  // puede leer como demanda real baja. Mismo principio que D-MOB-7.
+  const hasForwardData = withData.length > 0
 
   return (
     <section className="zx-card" style={{ padding: 22, display: 'flex', flexDirection: 'column', gap: 18, position: 'relative' }}>
@@ -105,11 +111,13 @@ export function ForecastHeatmap({ propertyId, isSupervisor }: { propertyId: stri
             <CalendarRange size={11} style={{ color: 'var(--zx-accent)' }} /> Forecast · próximas 4 semanas
           </span>
           <h2 className="zx-card-h" style={{ marginTop: 6 }}>
-            {avg >= 75 ? 'Demanda sólida' : avg >= 50 ? 'Demanda mediana' : 'Demanda floja'} en las próximas semanas
+            {!hasForwardData
+              ? 'Sin reservas a futuro todavía'
+              : `${avg >= 75 ? 'Demanda sólida' : avg >= 50 ? 'Demanda mediana' : 'Demanda floja'} en las próximas semanas`}
           </h2>
         </div>
         <div style={{ display: 'flex', gap: 18, fontSize: 12 }}>
-          <Stat label="Ocup. promedio" value={`${avg.toFixed(0)}%`} accent="var(--zx-accent)" />
+          <Stat label="Ocup. promedio" value={hasForwardData ? `${avg.toFixed(0)}%` : '—'} accent="var(--zx-accent)" />
           {peak && <Stat label="Pico" value={`${peak.occupancyPercent.toFixed(0)}%`} sub={formatDayMonth(new Date(peak.stayDate))} accent="oklch(0.55 0.15 152)" />}
         </div>
       </header>

@@ -275,8 +275,16 @@ export function ConfirmCheckinDialog({
   // recompute en cada keystroke (modal se sentía lento al teclear).
   // Reglas: deps mínimas precisas; evitar recompute si solo cambió ej.
   // documentType pero no payments.
+  // QA-16 (2026-06-09) — la moneda de DISPLAY de los montos adeudados debe ser
+  // la del folio (`balanceProjection.currency`), porque los importes (balance,
+  // total) están denominados en ESA moneda. Antes priorizábamos
+  // `ctx.propertyCurrency` (= LegalEntity.baseCurrency, p.ej. MXN) y se etiquetaba
+  // un monto en USD como MXN sin convertir → "USD 210" se mostraba "$210 MXN"
+  // (≈18× menos). La estrategia "property currency primaria + secundaria
+  // convertida" (§110c) requiere FX rate; cuando NO hay rate, lo correcto es
+  // mostrar la moneda real del folio. Caso normal (folio == property) sin cambio.
   const propertyCurrency = useMemo(
-    () => ctx?.propertyCurrency ?? ctx?.balanceProjection.currency ?? stay.currency,
+    () => ctx?.balanceProjection.currency ?? stay.currency ?? ctx?.propertyCurrency,
     [ctx?.propertyCurrency, ctx?.balanceProjection.currency, stay.currency],
   )
   const balance       = ctx?.balanceProjection.balance ?? 0
@@ -1494,7 +1502,11 @@ const BalanceBadge = memo(function BalanceBadge({
           'text-[20px] font-bold tabular-nums leading-none tracking-tight',
           amountColor,
         )}>
-          {formatMoney(amount, propertyCurrency).replace(/\s?[A-Z]{3}$/, '')}
+          {/* QA-16 — el código de moneda se muestra aparte (span de abajo), así
+              que lo quitamos del número formateado tanto si va al FINAL ($210 MXN)
+              como al INICIO (USD 210.00, que es como es-MX formatea monedas
+              extranjeras). Sin el strip del prefijo se veía "USD 210.00 USD". */}
+          {formatMoney(amount, propertyCurrency).replace(/^[A-Z]{3}\s?/, '').replace(/\s?[A-Z]{3}$/, '')}
         </span>
         <span className="text-[11px] font-semibold tabular-nums leading-none text-slate-400">
           {propertyCurrency}

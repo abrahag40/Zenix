@@ -1,10 +1,12 @@
 import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common'
+import { EventEmitter2 } from '@nestjs/event-emitter'
 import { Prisma } from '@prisma/client'
 import { AvailabilityService } from '../../../pms/availability/availability.service'
 import { PrismaService } from '../../../prisma/prisma.service'
 import { TenantContextService } from '../../../common/tenant-context.service'
 import { ChannexGateway, ChannexHttpError } from '../channex.gateway'
 import { NotificationsService } from '../../../notifications/notifications.service'
+import { isSameDayInTimezone } from '../../../scheduling/listeners/hk-realtime.helpers'
 
 /**
  * ChannexConflictsService — D-CHX5 resolution surface.
@@ -32,6 +34,7 @@ export class ChannexConflictsService {
     private readonly availability: AvailabilityService,
     private readonly gateway: ChannexGateway,
     private readonly notifications: NotificationsService,
+    private readonly events: EventEmitter2,
   ) {}
 
   /**
@@ -166,6 +169,39 @@ export class ChannexConflictsService {
       stayId: stay.id,
       changes: ['roomId', 'channexConflict'],
     })
+
+    // BUG-10 fix (2026-06-08) — emit `room.moved` para que
+    // `RoomMovedHkListener` migre las CleaningTasks de fromRoom → toRoom.
+    // El path normal `GuestStaysService.moveRoom` lo emite; aquí estábamos
+    // saltándolo porque hacemos UPDATE directo sobre `stay.roomId`.
+    // Resultado pre-fix: recamarista limpiaba la room antigua (donde
+    // estaba el conflict) en lugar de la nueva. Idempotente — listener
+    // tolera double-fire vía `take: 1` ordenado.
+    this.events.emit('room.moved', {
+      stayId: stay.id,
+      fromRoomId: stay.roomId,
+      toRoomId: newRoomId,
+      propertyId: stay.propertyId,
+      orgId: stay.organizationId,
+      actorId,
+    })
+
+    // Si el stay arranca HOY (local timezone de la property), también
+    // escalamos URGENT la task de la nueva room — paridad con flow normal.
+    const propSettings = await this.prisma.propertySettings.findUnique({
+      where: { propertyId: stay.propertyId },
+      select: { timezone: true },
+    })
+    const timezone = propSettings?.timezone ?? 'UTC'
+    if (isSameDayInTimezone(stay.checkinAt.toISOString(), timezone)) {
+      this.events.emit('channex.booking.same-day-arrival', {
+        stayId: stay.id,
+        roomId: newRoomId,
+        propertyId: stay.propertyId,
+        checkInIso: stay.checkinAt.toISOString(),
+        otaName: stay.channexOtaName ?? null,
+      })
+    }
 
     this.logger.log(
       `[Channex conflict] MOVE_ROOM stay=${stay.id} ${stay.room.number} → ${newRoom.number} actor=${actorId}`,

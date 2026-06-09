@@ -60,12 +60,17 @@ export class MobileDashboardService {
       this.prisma.room.count({
         where: { propertyId, organizationId, deletedAt: null, status: { not: 'OUT_OF_SERVICE' } },
       }),
-      // Ocupadas = stay con actualCheckin + sin checkout aún
+      // Ocupadas = stay con actualCheckin + sin checkout aún.
+      // BUG E2E-9 fix paralelo (2026-06-08) — excluir zombies/overstayed
+      // (§128). Sin esto, mobile dashboard también ve el KPI inflado por
+      // stays cuyo scheduledCheckout ya pasó hoy. Detalle del fix completo
+      // en dashboard.service.ts:71.
       this.prisma.guestStay.count({
         where: {
           propertyId, organizationId, deletedAt: null,
           actualCheckin: { not: null }, actualCheckout: null,
           cancelledAt: null, noShowAt: null,
+          scheduledCheckout: { gte: startOfDay },
         },
       }),
       // Llegadas hoy pendientes (checkin programado HOY, aún no entrado)
@@ -205,12 +210,19 @@ export class MobileDashboardService {
       count: number
       deeplink: string
     }> = []
+    // BUG-7 fix (2026-06-08) — deeplink scheme `mobile://<kind>` para que el
+    // mobile client mapee a su propia router (Expo Router `/(app)/...`).
+    // Antes contenía paths web (`/reports/overstayed`, `/maintenance`,
+    // `/calendar`) que no existen en mobile (rutas mobile: `/(app)/maintenance/history`,
+    // `/(app)/reservas-calendario`, etc.). El web client puede consumir el
+    // mismo payload y mapear por `kind` igual; conserva contrato sin filtrar
+    // por plataforma server-side.
     if (overstayedCount > 0) {
       attentionItems.push({
         kind: 'overstayed',
         title: 'Salidas vencidas sin checkout',
         count: overstayedCount,
-        deeplink: '/reports/overstayed',
+        deeplink: 'mobile://overstayed',
       })
     }
     if (maintenanceCritical > 0) {
@@ -218,7 +230,7 @@ export class MobileDashboardService {
         kind: 'maintenance_critical',
         title: 'Tickets de mantenimiento críticos',
         count: maintenanceCritical,
-        deeplink: '/maintenance',
+        deeplink: 'mobile://maintenance',
       })
     }
     if (unpaidArrivals.length > 0 && unpaidBalance > 0) {
@@ -226,7 +238,7 @@ export class MobileDashboardService {
         kind: 'unpaid_arrival',
         title: 'Llegadas con saldo pendiente',
         count: unpaidArrivals.length,
-        deeplink: '/calendar',
+        deeplink: 'mobile://calendar',
       })
     }
 

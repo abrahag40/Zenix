@@ -78,8 +78,12 @@ const step1Schema = z.object({
   .max(80)
   .regex(nameRegex, 'Solo letras'),
 
-  /** Sexo del huésped — Sprint 2026-05-20 — opcional, BI analytics futuras. */
-  guestSex: z.enum(['M', 'F', 'O', 'N']).optional(),
+  /** Sexo del huésped — Sprint 2026-05-20 — opcional, BI analytics futuras.
+   * QA-04 fix (2026-06-09): el <select> default emite '' (opción "—"), y
+   * `.optional()` solo acepta undefined, NO ''. Resultado: el wizard Walk-in
+   * fallaba la validación del Paso 1 en SILENCIO (sin error visible) y nunca
+   * avanzaba — bloqueando TODO el flujo walk-in. Normalizamos '' → undefined. */
+  guestSex: z.preprocess((v) => (v === '' ? undefined : v), z.enum(['M', 'F', 'O', 'N']).optional()),
 
   documentType: z.string().optional(),
   documentPhoto: z.string().optional(),
@@ -173,15 +177,26 @@ interface CheckInDialogProps {
   initialCheckInNow?: boolean
   onConfirm: (data: NewStayData) => void
   propertyId?: string
+  /** QA-05 (2026-06-09) — lista de habitaciones para el selector cuando el
+   *  diálogo se abre SIN `initialRoomId` (botones "Walk-in" / "Nueva reserva"
+   *  del top bar). Sin esto el header decía "Hab. —" y el confirm fallaba con
+   *  "Habitación no encontrada". El path por celda vacía sí pasa initialRoomId. */
+  rooms?: Array<{ id: string; number: string; groupName?: string }>
 }
 
 // ── COMPONENTE ────────────────────────────────────────────────
 export function CheckInDialog({
-  open, onClose, initialRoomId, roomNumber, initialCheckIn, initialCheckInNow, onConfirm, propertyId
+  open, onClose, initialRoomId, roomNumber, initialCheckIn, initialCheckInNow, onConfirm, propertyId, rooms
 }: CheckInDialogProps) {
+  // QA-05 — cuando no viene initialRoomId, el usuario elige la habitación en el
+  // selector (Paso 2). `roomId` es la habitación efectiva en todo el flujo.
+  const [selectedRoomId, setSelectedRoomId] = useState(initialRoomId ?? '')
+  const roomId = initialRoomId ?? selectedRoomId
+  const resolvedRoomNumber =
+    roomNumber ?? rooms?.find(r => r.id === roomId)?.number ?? (roomId ? roomId.slice(0, 8) : undefined)
   // Advisory soft-lock: acquired while this dialog is open, released on close.
   // Other receptionists viewing the same calendar see a 🔒 badge on this room.
-  useSoftLock(open && initialRoomId ? initialRoomId : null, propertyId ?? null)
+  useSoftLock(open && roomId ? roomId : null, propertyId ?? null)
   const [step, setStep] = useState(1)
   const [showCancelAlert, setShowCancelAlert] = useState(false)
   // CHECK-IN C1.5 walk-in fast-path inline (2026-05-29).
@@ -252,6 +267,7 @@ export function CheckInDialog({
     setAvailStatus('idle')
     setAvailConflicts([])
     setCheckInNow(false)
+    setSelectedRoomId(initialRoomId ?? '')
   }, [open]) // eslint-disable-line
 
   // Detectar si hay datos para la alerta de cierre
@@ -298,11 +314,18 @@ export function CheckInDialog({
     const step2 = step2Schema.parse(f2.getValues())
     // CHECK-IN C1.5: solo passable si el checkIn es hoy. El TimelineScheduler
     // abrirá ConfirmCheckinDialog automáticamente cuando llegue checkInNow=true.
-    const isToday = step2.checkIn && isSameDay(new Date(step2.checkIn), new Date())
+    const now = new Date()
+    const isToday = step2.checkIn && isSameDay(new Date(step2.checkIn), now)
+    // QA-06 (2026-06-09) — un walk-in que llega HOY debe llevar la hora ACTUAL
+    // como check-in, no medianoche. El date-picker es date-only (→ 00:00), así
+    // que la ETA en "Llegadas" mostraba "00:00". Para llegadas de hoy usamos
+    // `now` (hora real); reservas a fecha futura conservan la fecha elegida.
+    const effectiveCheckIn = isToday ? now : step2.checkIn
     onConfirm({
       ...step1,
       ...step2,
-      roomId: initialRoomId ?? '',
+      checkIn: effectiveCheckIn,
+      roomId,
       checkInNow: isToday ? checkInNow : false,
     })
     onClose()
@@ -333,7 +356,7 @@ export function CheckInDialog({
   // ── AVAILABILITY CHECK — debounced, triggers when dates change on Step 2 ──
   useEffect(() => {
     // Only run when the user is on Step 2 and a roomId is known
-    if (step !== 2 || !initialRoomId) return
+    if (step !== 2 || !roomId) return
 
     const ciDate = checkIn  ? new Date(checkIn)  : null
     const coDate = checkOut ? new Date(checkOut) : null
@@ -348,7 +371,7 @@ export function CheckInDialog({
     // 400 ms debounce — avoids hammering the API on each date picker keystroke
     const timer = setTimeout(async () => {
       try {
-        const result = await guestStaysApi.checkAvailability(initialRoomId, ciDate, coDate)
+        const result = await guestStaysApi.checkAvailability(roomId, ciDate, coDate)
         setAvailStatus(result.available ? 'available' : 'conflict')
         setAvailConflicts(result.conflicts)
       } catch {
@@ -360,7 +383,7 @@ export function CheckInDialog({
     }, 400)
 
     return () => clearTimeout(timer)
-  }, [step, initialRoomId, checkIn, checkOut]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [step, roomId, checkIn, checkOut]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <>
@@ -373,17 +396,22 @@ export function CheckInDialog({
           // suficiente respiro horizontal para grid 2-col sin perder densidad
           // visual del wizard. Pre-fillea menos (no hay reserva previa) →
           // 672px es óptimo vs 768px que sobraría espacio.
-          className="sm:max-w-2xl p-0 gap-0 overflow-hidden
+          // QA (2026-06-09) — "sin scroll": layout flex-col acotado al viewport.
+          // `flex flex-col` (gana sobre el `grid` base) + `max-h-[90vh]` (base) +
+          // header/footer `shrink-0` + body `flex-1 min-h-0`. El body usa TODO el
+          // espacio disponible y solo scrollea si el contenido excede 90vh (antes
+          // tenía un cap duro `max-h-[65vh]` que forzaba scroll aun habiendo lugar).
+          className="sm:max-w-2xl p-0 gap-0 overflow-hidden flex flex-col
                      shadow-[0_25px_50px_-12px_rgba(0,0,0,0.35)]
                      bg-[#FAFAFA]"
           onInteractOutside={e => { e.preventDefault(); handleCloseAttempt() }}
           onEscapeKeyDown={e => { e.preventDefault(); handleCloseAttempt() }}
         >
           {/* HEADER */}
-          <DialogHeader className="px-6 pt-5 pb-4 border-b border-slate-100 bg-white">
+          <DialogHeader className="px-6 pt-5 pb-4 border-b border-slate-100 bg-white shrink-0">
             <DialogTitle className="text-base font-bold text-slate-800">
               Nueva Reserva — Hab.&nbsp;
-              {roomNumber ?? initialRoomId?.slice(0, 8) ?? '—'}
+              {resolvedRoomNumber ?? '—'}
             </DialogTitle>
             <div className="flex items-center gap-0 mt-4">
               {STEPS.map((s, i) => {
@@ -412,7 +440,7 @@ export function CheckInDialog({
           </DialogHeader>
 
           {/* CONTENT */}
-          <div className="px-6 py-5 overflow-y-auto max-h-[65vh] space-y-4">
+          <div className="px-6 py-5 overflow-y-auto flex-1 min-h-0 space-y-4">
 
             {/* ══ STEP 1 ══════════════════════════════════════════════ */}
             {step === 1 && (
@@ -569,6 +597,36 @@ export function CheckInDialog({
             {/* ══ STEP 2 ══════════════════════════════════════════════ */}
             {step === 2 && (
               <>
+                {/* QA-05 — selector de habitación cuando el diálogo se abrió sin
+                    una habitación preseleccionada (botones Walk-in / Nueva
+                    reserva del top bar). Con celda vacía no se muestra (ya hay
+                    habitación). Cambiar de habitación re-dispara el chequeo de
+                    disponibilidad (effect depende de roomId). */}
+                {!initialRoomId && (
+                  <div className="space-y-1">
+                    <Label className="text-xs font-semibold text-slate-600">
+                      Habitación <span className="text-red-500">*</span>
+                    </Label>
+                    <Select value={selectedRoomId} onValueChange={setSelectedRoomId}>
+                      <SelectTrigger className="h-9 text-sm bg-white">
+                        <SelectValue placeholder="Selecciona una habitación…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(rooms ?? []).map(r => (
+                          <SelectItem key={r.id} value={r.id}>
+                            Hab. {r.number}{r.groupName ? ` · ${r.groupName}` : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {!selectedRoomId && (
+                      <p className="text-[11px] text-slate-400">
+                        Elige la habitación para verificar disponibilidad.
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 {/* Fechas */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
@@ -948,7 +1006,7 @@ export function CheckInDialog({
           </div>
 
           {/* FOOTER */}
-          <div className="px-6 py-3.5 border-t border-slate-100 bg-white
+          <div className="px-6 py-3.5 border-t border-slate-100 bg-white shrink-0
                           flex items-center justify-between">
             <Button variant="ghost" size="sm"
                     onClick={() => step > 1 ? setStep(s => s-1) : handleCloseAttempt()}
@@ -967,6 +1025,7 @@ export function CheckInDialog({
             {step < 3 ? (
               <Button size="sm" onClick={handleNext}
                       disabled={step === 2 && (
+                        !roomId ||
                         availStatus === 'checking' ||
                         (availStatus === 'conflict' && availConflicts.some(c => c.severity === 'HARD'))
                       )}

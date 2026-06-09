@@ -65,6 +65,18 @@ export class ChannexInboundService {
             `[Channex inbound] dedup revision=${args.channexRevisionId} ` +
               `existing outbox=${existing.id} status=${existing.status}`,
           )
+          // BUG E2E-14 fix (2026-06-08) — antes el WebhookLog quedaba con
+          // result='pending' para siempre cuando dedup rechazaba la delivery.
+          // Operador veía 24 webhooks "pending" desde hace 4 días pensando
+          // backlog, cuando en realidad eran retries del mismo booking ya
+          // procesado. Marcar 'deduplicated' refleja la verdad operativa.
+          await tx.channexWebhookLog.update({
+            where: { id: log.id },
+            data: {
+              result: 'deduplicated',
+              processedAt: new Date(),
+            },
+          })
           return { logId: log.id, outboxId: null }
         }
       }

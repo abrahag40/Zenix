@@ -41,7 +41,7 @@ import {
   Split as SplitIcon,
 } from 'lucide-react'
 
-import { format, differenceInDays, differenceInHours, formatDistanceToNowStrict, startOfDay } from 'date-fns'
+import { format, differenceInCalendarDays, differenceInHours, formatDistanceToNowStrict, startOfDay } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { cn } from '@/lib/utils'
 
@@ -1009,8 +1009,14 @@ export function BookingDetailSheet({
   // ARRIVING (future check-in) is excluded: you cannot no-show someone before their arrival day.
   const isArrivalDay = startOfDay(new Date(stay.checkIn)).getTime() === startOfDay(new Date()).getTime()
   const isUnconfirmed    = status === 'UNCONFIRMED'
-  const canNoShow          = !isNoShow && isArrivalDay && !stay.actualCheckin
-  const canConfirmCheckin  = !stay.actualCheckin && !isNoShow && isArrivalDay
+  // QA-15 (2026-06-09) — guard de estado terminal: una estancia que ya salió
+  // (`actualCheckout` set, badge "Salió") NUNCA debe ofrecer "Confirmar check-in"
+  // ni "No-show", aunque su día de llegada coincida con hoy y `actualCheckin` sea
+  // null (estado inconsistente que puede llegar vía import OTA/Channex). Mismo
+  // principio que el fix de ReservationDetailPage para canceladas. `canCancel`
+  // ya excluía `actualCheckout` — alineamos las otras dos CTAs de entrada.
+  const canNoShow          = !isNoShow && isArrivalDay && !stay.actualCheckin && !stay.actualCheckout
+  const canConfirmCheckin  = !stay.actualCheckin && !isNoShow && isArrivalDay && !stay.actualCheckout
   // Allow early checkout if IN_HOUSE and either it's not arrival day, OR the guest
   // already confirmed check-in (actualCheckin set) — covers arrival-day check-ins.
   const canEarlyCheckout   = !isNoShow && status === 'IN_HOUSE' && (!isArrivalDay || !!stay.actualCheckin)
@@ -1032,9 +1038,14 @@ export function BookingDetailSheet({
     : isSplit    ? { label: 'División',    bg: 'rgba(139,92,246,0.14)', fg: '#6D28D9', border: 'rgba(139,92,246,0.30)' }
     : null
 
-  const nights = differenceInDays(
-    new Date(stay.checkOut),
-    new Date(stay.checkIn)
+  // QA-03/QA-10 (2026-06-09) — noches por DÍA-CALENDARIO, no por períodos de
+  // 24h. `differenceInDays` daba 2 para una estadía de 3 noches (ej. 9 jun 15:00
+  // → 12 jun 11:00 = 2d 20h) y discrepaba con el tooltip del calendario y con la
+  // facturación (totalAmount = rate × noches-calendario). startOfDay normaliza
+  // para ignorar las horas de check-in/out.
+  const nights = differenceInCalendarDays(
+    startOfDay(new Date(stay.checkOut)),
+    startOfDay(new Date(stay.checkIn))
   )
 
   const nightlyRate =
