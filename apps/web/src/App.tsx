@@ -9,6 +9,7 @@ import { Sidebar } from './components/Sidebar'
 import { PacStatusBanner } from './components/PacStatusBanner'
 import { LoginPage } from './pages/LoginPage'
 import { SetupPage } from './pages/SetupPage'
+import { PrecheckinPage } from './pages/PrecheckinPage'
 import { OnboardingCardCapture } from './pages/OnboardingCardCapture'
 import { DashboardPage } from './pages/DashboardPage'
 // RoomsPage (board "Estado de habitaciones" en /pages/RoomsPage) RETIRADO
@@ -110,6 +111,8 @@ export default function App() {
           {/* Day 17 — Org Owner activation. Public route. Token validation
               en backend (single-use, 72h TTL, SHA256 hashed at-rest). */}
           <Route path="/setup/:token" element={<SetupPage />} />
+          {/* AUTO-CHECKIN — mini web-app pública del huésped (pre-arrival) */}
+          <Route path="/precheckin/:token" element={<PrecheckinPage />} />
           {/* Netflix-style trial — card capture post-password (Day 2) */}
           <Route path="/onboarding/card" element={<OnboardingCardCapture />} />
           <Route path="/dashboard"       element={<ProtectedLayout><DashboardPage /></ProtectedLayout>} />

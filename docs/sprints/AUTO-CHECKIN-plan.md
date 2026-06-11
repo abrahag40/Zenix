@@ -170,7 +170,7 @@ ser PII sensible (pasaporte):
 |------|---------|-------------------|--------|
 | **1a — Backend core** | Token opaco SHA256 (anti-IDOR) + endpoints públicos `GET/POST /v1/precheckin/:token` + write-back con `guestVerifiedFields` + foto vía `UploadsService` scope `precheckin` (orgId del token, sin TenantContext) | migración `20260616000000_auto_checkin_precheckin`; `PrecheckinService`/`Controller`/`Module`; UploadsService scope+orgId override; **11/11 tests**; typecheck API verde | ✅ **HECHO** (2026-06-11) |
 | **1b — Email + trigger** | `PrecheckinEmailService` (Resend HTML, fail-soft) + `PrecheckinScheduler` `@Cron` 2 pases idempotentes (invitación 3d antes + recordatorio 24h); precedencia `BookingModifyHandler` §136 no pisa `guestVerifiedFields` | migración `20260617000000`; email+scheduler+modify guard; **16/16 tests** | ✅ **HECHO** (2026-06-11) |
-| **2 — Web-app huésped** | Ruta pública `/precheckin/:token` (form pre-llenado de Channex + cámara móvil `capture` + compresión + aviso privacidad LFPDPPP + estados), mobile-first | página React + hook | ⏳ siguiente |
+| **2 — Web-app huésped** | Ruta pública `/precheckin/:token` (form pre-llenado de Channex + cámara móvil `capture` + compresión + aviso privacidad LFPDPPP + consentimiento + estados), mobile-first | `PrecheckinPage.tsx` + ruta; typecheck web verde | ✅ **código** (render e2e → Fase 4) |
 | **3 — Integración recepción + storage** | `ConfirmCheckinDialog`/sheet reflejan "identidad pre-cargada" + foto **auth-gated**; retención ~30d post-checkout (configurable) | UI recepción + retención | ⏳ |
 | **4 — QA e2e + navegador móvil** | Verificación end-to-end en navegador móvil real + bitácora | reporte QA | ⏳ |
 
@@ -179,6 +179,15 @@ versionado, NOM-151/Mifiel, chargeback evidence package. El MVP deja el cimiento
 (token kiosk + consent log + foto) que SIGN-DLC extiende.
 
 ### Bitácora de avance
+- **2026-06-11 — Fase 2 código completo.** `PrecheckinPage.tsx` (ruta pública
+  `/precheckin/:token` en App.tsx): state machine loading/ready/expired/notfound/
+  submitted; form pre-llenado con `GET /v1/precheckin/:token` (nombre/apellido/
+  email/teléfono/nacionalidad/tipo-doc); captura de foto vía `<input
+  capture="environment">` + compresión client-side (canvas ~1600px / JPEG 0.8);
+  aviso de privacidad LFPDPPP + checkbox de consentimiento obligatorio; submit
+  `POST /v1/precheckin/:token`. Mobile-first, emerald-branded, reusa el `api`
+  client (mismo patrón que SetupPage). Typecheck web verde. **Render e2e en
+  navegador móvil real diferido a Fase 4** (servidores dev abajo en esta sesión).
 - **2026-06-11 — Fase 1b cerrada.** `PrecheckinEmailService` (Resend REST, HTML
   emerald + plain-text, fail-soft 3-niveles no-key/api-error/network).
   `PrecheckinScheduler` `@Cron('0 * * * *')`: pase invitación (≤3d antes) + pase
