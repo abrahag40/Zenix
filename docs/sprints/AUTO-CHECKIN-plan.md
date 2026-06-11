@@ -180,6 +180,11 @@ versionado, NOM-151/Mifiel, chargeback evidence package. El MVP deja el cimiento
 (token kiosk + consent log + foto) que SIGN-DLC extiende.
 
 ### Bitácora de avance
+- **2026-06-11 — Hardening mobile-first (QA UI/UX).** Verificado en navegador a
+  375px (iPhone SE): inputs 14px→**16px** (evita auto-zoom iOS al enfocar,
+  confirmado computed-style), altura 40→**44px** (target táctil HIG/WCAG),
+  checkbox 16→20px, CTA `text-base`/`py-3.5`. Sin overflow horizontal; nombres
+  unicode (Søren) OK; layout 2-col entra limpio. Viewport meta ya presente.
 - **2026-06-11 — Ciclo de vida del link (single-use + purga).** Pedido owner: el
   link debe morir al cargar datos (o el día después del check-in si no se abrió),
   y la re-entrada debe mostrar "ya se realizó".
