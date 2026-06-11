@@ -247,7 +247,7 @@ export function PrecheckinPage() {
 
               {/* Privacy + consent */}
               <label className="flex items-start gap-2.5 pt-1">
-                <input type="checkbox" className="mt-0.5 h-4 w-4 rounded border-slate-300 text-emerald-600" checked={consent} onChange={e => setConsent(e.target.checked)} />
+                <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0 rounded border-slate-300 text-emerald-600" checked={consent} onChange={e => setConsent(e.target.checked)} />
                 <span className="text-[12px] text-slate-500 leading-snug">
                   Acepto que mis datos e identificación se usen únicamente para gestionar mi hospedaje, conforme al aviso de privacidad (LFPDPPP). Mis datos no se comparten con terceros con fines comerciales.
                 </span>
@@ -256,7 +256,7 @@ export function PrecheckinPage() {
               {submitError && <p className="text-sm text-rose-600">{submitError}</p>}
 
               <button onClick={onSubmit} disabled={submitting || !consent}
-                className="w-full bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-sm rounded-xl py-3 active:bg-emerald-700">
+                className="w-full bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-base rounded-xl py-3.5 active:bg-emerald-700">
                 {submitting ? 'Enviando…' : 'Enviar mi pre-check-in'}
               </button>
               <p className="text-center text-[11px] text-slate-400">Zenix nunca te pedirá tu contraseña ni datos de pago por este medio.</p>
@@ -268,7 +268,9 @@ export function PrecheckinPage() {
   )
 }
 
-const inputCls = 'w-full h-10 rounded-lg border border-slate-300 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500'
+// Mobile-first: text-base = 16px → evita el auto-zoom de iOS Safari al enfocar
+// un input (<16px lo dispara). h-11 (44px) = target táctil Apple HIG / WCAG 2.5.5.
+const inputCls = 'w-full h-11 rounded-lg border border-slate-300 px-3 text-base focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500'
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
