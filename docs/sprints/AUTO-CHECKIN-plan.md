@@ -169,8 +169,8 @@ ser PII sensible (pasaporte):
 | Fase | Detalle | Entregables clave | Estado |
 |------|---------|-------------------|--------|
 | **1a — Backend core** | Token opaco SHA256 (anti-IDOR) + endpoints públicos `GET/POST /v1/precheckin/:token` + write-back con `guestVerifiedFields` + foto vía `UploadsService` scope `precheckin` (orgId del token, sin TenantContext) | migración `20260616000000_auto_checkin_precheckin`; `PrecheckinService`/`Controller`/`Module`; UploadsService scope+orgId override; **11/11 tests**; typecheck API verde | ✅ **HECHO** (2026-06-11) |
-| **1b — Email + trigger** | `PrecheckinEmailService` (Resend HTML, fail-soft) + scheduler pre-arrival (patrón §41) genera token + envía X días antes + `precheckinSentAt` + recordatorio; precedencia `BookingModifyHandler` §136 no pisa `guestVerifiedFields` | email service + scheduler + handler tweak + tests | ⏳ siguiente |
-| **2 — Web-app huésped** | Ruta pública `/precheckin/:token` (form pre-llenado de Channex + cámara móvil `capture` + compresión + aviso privacidad LFPDPPP + estados), mobile-first | página React + hook | ⏳ |
+| **1b — Email + trigger** | `PrecheckinEmailService` (Resend HTML, fail-soft) + `PrecheckinScheduler` `@Cron` 2 pases idempotentes (invitación 3d antes + recordatorio 24h); precedencia `BookingModifyHandler` §136 no pisa `guestVerifiedFields` | migración `20260617000000`; email+scheduler+modify guard; **16/16 tests** | ✅ **HECHO** (2026-06-11) |
+| **2 — Web-app huésped** | Ruta pública `/precheckin/:token` (form pre-llenado de Channex + cámara móvil `capture` + compresión + aviso privacidad LFPDPPP + estados), mobile-first | página React + hook | ⏳ siguiente |
 | **3 — Integración recepción + storage** | `ConfirmCheckinDialog`/sheet reflejan "identidad pre-cargada" + foto **auth-gated**; retención ~30d post-checkout (configurable) | UI recepción + retención | ⏳ |
 | **4 — QA e2e + navegador móvil** | Verificación end-to-end en navegador móvil real + bitácora | reporte QA | ⏳ |
 
@@ -179,6 +179,15 @@ versionado, NOM-151/Mifiel, chargeback evidence package. El MVP deja el cimiento
 (token kiosk + consent log + foto) que SIGN-DLC extiende.
 
 ### Bitácora de avance
+- **2026-06-11 — Fase 1b cerrada.** `PrecheckinEmailService` (Resend REST, HTML
+  emerald + plain-text, fail-soft 3-niveles no-key/api-error/network).
+  `PrecheckinScheduler` `@Cron('0 * * * *')`: pase invitación (≤3d antes) + pase
+  recordatorio (≤24h, sin completar) — idempotentes vía `precheckinSentAt` /
+  `precheckinReminderSentAt` (migración `20260617000000`); marca solo en éxito o
+  `no-key` (transitorios reintentan); TTL del token cubre hasta la llegada+24h.
+  Precedencia §D-AC6: `BookingModifyHandler` excluye `guestVerifiedFields` del
+  patch (la corrección del huésped gana sobre la OTA). Defaults owner: 3d + 24h.
+  16/16 tests nuevos/tocados (6 scheduler + 2 email + 8 modify). Typecheck verde.
 - **2026-06-11 — Fase 1a cerrada.** Schema + migración aplicada (5 columnas
   `precheckin*` + `guestVerifiedFields`). `PrecheckinService` (generateToken /
   getContext / submit) con guards 404/410/400 + proyección pública sin IDs/folio

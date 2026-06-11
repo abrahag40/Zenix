@@ -1714,6 +1714,7 @@ model GuestStay {
   precheckinTokenExpiresAt DateTime? @map("precheckin_token_expires_at")
   precheckinSentAt         DateTime? @map("precheckin_sent_at")       // email enviado
   precheckinSubmittedAt    DateTime? @map("precheckin_submitted_at")  // huésped completó
+  precheckinReminderSentAt DateTime? @map("precheckin_reminder_sent_at") // recordatorio 24h
   // Campos que el huésped confirmó/corrigió en el pre-checkin. El BookingModify
   // de Channex (§136) NO debe sobrescribir estos (la corrección del huésped gana).
   guestVerifiedFields      String[]  @default([]) @map("guest_verified_fields")
