@@ -50,8 +50,11 @@ const UPLOAD_ROOT = join(process.cwd(), 'uploads')
 const MAX_LONG_EDGE_PX = 1920
 const JPEG_QUALITY = 85
 
-export type UploadScope = 'maintenance' | 'readiness' | 'avatar'
-const VALID_SCOPES: ReadonlySet<UploadScope> = new Set(['maintenance', 'readiness', 'avatar'])
+// 'precheckin' (AUTO-CHECKIN 2026-06-11) — foto de ID que el huésped sube en la
+// mini web-app pre-arrival. ⚠️ PII sensible (pasaporte): su retrieval es
+// AUTH-GATED (staff-only), NUNCA se sirve por el GET público de uploads.
+export type UploadScope = 'maintenance' | 'readiness' | 'avatar' | 'precheckin'
+const VALID_SCOPES: ReadonlySet<UploadScope> = new Set(['maintenance', 'readiness', 'avatar', 'precheckin'])
 
 export interface UploadedFileResult {
   /** UUID que sirve también como nombre de archivo en disco. */
@@ -78,7 +81,7 @@ export class UploadsService {
    * Sprint Mx-1B-W2 audit T-25 it.4: el path base64 es la ruta confiable para
    * clientes RN; multipart se queda como fallback compatible con curl/web.
    */
-  async processBase64(base64Data: string, scopeRaw: string): Promise<UploadedFileResult> {
+  async processBase64(base64Data: string, scopeRaw: string, orgIdOverride?: string): Promise<UploadedFileResult> {
     this.logger.log(
       `[upload] processBase64: scope=${scopeRaw} base64Length=${base64Data.length} ` +
         `first16=${base64Data.slice(0, 16)}`,
@@ -107,14 +110,14 @@ export class UploadsService {
       originalname: 'photo.jpg',
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any
-    return this.processImage(synthetic, scopeRaw)
+    return this.processImage(synthetic, scopeRaw, orgIdOverride)
   }
 
   /**
    * Procesa un buffer en memoria proveniente de Multer y lo persiste como JPEG
    * optimizado. Lanza BadRequestException si el archivo no es imagen válida.
    */
-  async processImage(file: Express.Multer.File, scopeRaw: string): Promise<UploadedFileResult> {
+  async processImage(file: Express.Multer.File, scopeRaw: string, orgIdOverride?: string): Promise<UploadedFileResult> {
     if (!file) throw new BadRequestException('Archivo requerido')
     if (!file.buffer || file.size === 0) throw new BadRequestException('Archivo vacío')
     this.logger.log(
@@ -123,7 +126,10 @@ export class UploadsService {
     )
 
     const scope = this.validateScope(scopeRaw)
-    const organizationId = this.tenant.getOrganizationId()
+    // AUTO-CHECKIN: el upload público del huésped (pre-checkin) NO tiene
+    // TenantContext (request token-gated, sin JWT). El caller resuelve el orgId
+    // desde el token de la reserva y lo pasa explícito. Sin override → tenant.
+    const organizationId = orgIdOverride ?? this.tenant.getOrganizationId()
 
     // Sharp valida internamente que el buffer sea imagen real (magic bytes).
     // `failOn: 'truncated'` (no 'error') tolera imágenes con metadata warnings

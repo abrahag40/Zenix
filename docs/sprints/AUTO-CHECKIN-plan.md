@@ -161,24 +161,30 @@ ser PII sensible (pasaporte):
 - El check-in en recepción (`ConfirmCheckinDialog`) detecta `identityCaptured` →
   salta la sección de identidad → recepción solo confirma llegada + pago.
 
-## 4. Propuesta de plan (fases)
+## 4. Plan de trabajo + seguimiento (se actualiza al cerrar cada fase)
 
-**AUTO-CHECKIN MVP (estimado ~2-3 sem, mayormente ensamblaje):**
-- **Fase 1 — Backend (4-5d):** schema `precheckinToken*` + `guestVerifiedFields` +
-  endpoints públicos `GET /precheckin/:token` (datos pre-cargados, token-gated,
-  rate-limited) + `POST /precheckin/:token` (datos + foto, write-back + audit +
-  `identityCaptured=true`). Trigger email (scheduler pre-arrival). Resend template.
-  Precedencia §136 vs guest-verified (D-AC6).
-- **Fase 2 — Web-app huésped (4-6d):** ruta `/precheckin/:token`, form pre-llenado
-  con datos de Channex, cámara móvil (D-AC3) + compresión, aviso de privacidad,
-  estados (ready/expired/submitted/error), responsive mobile-first.
-- **Fase 3 — Integración recepción + storage (2-3d):** el sheet/ConfirmCheckin
-  refleja "identidad pre-cargada por el huésped" + foto visible; storage (D-AC4).
-- **Fase 4 — QA e2e + verificación navegador móvil (1-2d).**
+> **AUTO-CHECKIN MVP** (~2-3 sem, 70% ensamblaje). Esta tabla es la fuente de
+> verdad del avance; se reporta al cerrar cada fase y se espeja en CLAUDE.md.
+
+| Fase | Detalle | Entregables clave | Estado |
+|------|---------|-------------------|--------|
+| **1a — Backend core** | Token opaco SHA256 (anti-IDOR) + endpoints públicos `GET/POST /v1/precheckin/:token` + write-back con `guestVerifiedFields` + foto vía `UploadsService` scope `precheckin` (orgId del token, sin TenantContext) | migración `20260616000000_auto_checkin_precheckin`; `PrecheckinService`/`Controller`/`Module`; UploadsService scope+orgId override; **11/11 tests**; typecheck API verde | ✅ **HECHO** (2026-06-11) |
+| **1b — Email + trigger** | `PrecheckinEmailService` (Resend HTML, fail-soft) + scheduler pre-arrival (patrón §41) genera token + envía X días antes + `precheckinSentAt` + recordatorio; precedencia `BookingModifyHandler` §136 no pisa `guestVerifiedFields` | email service + scheduler + handler tweak + tests | ⏳ siguiente |
+| **2 — Web-app huésped** | Ruta pública `/precheckin/:token` (form pre-llenado de Channex + cámara móvil `capture` + compresión + aviso privacidad LFPDPPP + estados), mobile-first | página React + hook | ⏳ |
+| **3 — Integración recepción + storage** | `ConfirmCheckinDialog`/sheet reflejan "identidad pre-cargada" + foto **auth-gated**; retención ~30d post-checkout (configurable) | UI recepción + retención | ⏳ |
+| **4 — QA e2e + navegador móvil** | Verificación end-to-end en navegador móvil real + bitácora | reporte QA | ⏳ |
 
 **Diferido a SIGN-DLC v1.1.0 (NO en este MVP):** e-signature canvas, T&C
 versionado, NOM-151/Mifiel, chargeback evidence package. El MVP deja el cimiento
 (token kiosk + consent log + foto) que SIGN-DLC extiende.
+
+### Bitácora de avance
+- **2026-06-11 — Fase 1a cerrada.** Schema + migración aplicada (5 columnas
+  `precheckin*` + `guestVerifiedFields`). `PrecheckinService` (generateToken /
+  getContext / submit) con guards 404/410/400 + proyección pública sin IDs/folio
+  (anti-fuga verificada en test). `PrecheckinController` público (`@Public`).
+  `UploadsService` extendido (scope `precheckin` + `orgIdOverride`). 11/11 unit
+  tests verdes; typecheck API verde.
 
 ## 5. Secuenciación v1.0.0 — ✅ Opción C elegida (owner 2026-06-11)
 

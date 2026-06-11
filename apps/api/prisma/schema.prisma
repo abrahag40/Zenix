@@ -1705,6 +1705,19 @@ model GuestStay {
   groupRoomIndex     Int?              @map("group_room_index")
   reservationGroup   ReservationGroup? @relation(fields: [reservationGroupId], references: [id], onDelete: SetNull)
 
+  // Sprint AUTO-CHECKIN (2026-06-11) — pre-arrival identity capture. El huésped
+  // recibe un email con link token-gated (`/precheckin/:token`) para corregir sus
+  // datos (pre-cargados de Channex) + subir foto de ID antes de llegar. Carga
+  // OPCIONAL; agiliza (no elimina) el check-in en recepción. El token raw NUNCA
+  // se persiste — solo su SHA256 (patrón setupTokenHash §179, anti-IDOR).
+  precheckinTokenHash      String?   @unique @map("precheckin_token_hash")
+  precheckinTokenExpiresAt DateTime? @map("precheckin_token_expires_at")
+  precheckinSentAt         DateTime? @map("precheckin_sent_at")       // email enviado
+  precheckinSubmittedAt    DateTime? @map("precheckin_submitted_at")  // huésped completó
+  // Campos que el huésped confirmó/corrigió en el pre-checkin. El BookingModify
+  // de Channex (§136) NO debe sobrescribir estos (la corrección del huésped gana).
+  guestVerifiedFields      String[]  @default([]) @map("guest_verified_fields")
+
   organization       Organization        @relation(fields: [organizationId], references: [id])
   room               Room                @relation(fields: [roomId], references: [id])
   stayJourney        StayJourney?
