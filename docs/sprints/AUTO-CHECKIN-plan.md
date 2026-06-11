@@ -180,6 +180,29 @@ versionado, NOM-151/Mifiel, chargeback evidence package. El MVP deja el cimiento
 (token kiosk + consent log + foto) que SIGN-DLC extiende.
 
 ### Bitácora de avance
+- **2026-06-11 — Bug-hunt e2e en Chrome (con capturas).** 2 bugs + rediseño:
+  - **BH-1 🟠 (aislamiento/privacidad):** las rutas PÚBLICAS (`/precheckin`,
+    `/setup`, `/onboarding`, `/login`) montaban la maquinaria de staff —
+    `NotificationAlertsMount` abría un SSE `/api/events` (con el token de staff
+    persistido en el navegador) + el huésped descargaba TODO el bundle operativo
+    (~100+ módulos: Dashboard/Kanban/Nova/Timeline…). **Fix doble:** (a)
+    `ConditionalAlertsMount` no monta el SSE/notifs en rutas públicas; (b)
+    **code-split** (React.lazy + Suspense) de todas las páginas de staff →
+    verificado en navegador: `/precheckin` carga **0 módulos de staff** (solo
+    `PrecheckinPage.tsx`; total bajó de 100+ a 46). El endpoint backend ya estaba
+    aislado (`@Public`, solo `PrecheckinService`, proyección mínima). `/pms` sigue
+    OK (lazy on-demand, sin regresión).
+  - **BH-2 🟢 (UX):** un token corto/truncado (<32 chars → backend 400) mostraba
+    "Tu link expiró" en vez de "inválido". **Fix:** mapeo 410→expirado, resto
+    (404/400/red)→inválido. Verificado con captura.
+  - **Rediseño (pedido owner):** las tarjetas de estado genéricas (emoji) →
+    `StatusScreen` profesional (icono SVG en anillo con halo, jerarquía,
+    eyebrow de propiedad, pill "Nos vemos pronto en {hotel}", firma "Pre-check-in
+    seguro · Zenix") + `LoadingScreen` con spinner branded. Capturas: happy path
+    pre-llenado, "¡Pre-check-in completo!", "link inválido", "link expiró".
+  - **Salvedad Fase 4 RESUELTA:** la pantalla de éxito "¡Listo!" del huésped SÍ
+    funciona (el cuelgue anterior era la pestaña congelada de CDP, no un bug);
+    verificada en pestaña limpia con captura. Typecheck web verde.
 - **2026-06-11 — Fase 4 (QA e2e en Chrome DESDE 0).** Stack levantado (API 3000 +
   web 5173). Seed: booking tipo-Channex (Hans Müller, hostelworld, OTA_COLLECT,
   llega +2d) + token de precheckin. Verificado:

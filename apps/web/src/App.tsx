@@ -1,4 +1,5 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { lazy, Suspense } from 'react'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 // Sprint CHANNEX-UX-E2-E3 — single toast lib (Sonner bottom-right richColors).
 // Previously dual stack (react-hot-toast top-right + sonner bottom-right)
@@ -11,41 +12,37 @@ import { LoginPage } from './pages/LoginPage'
 import { SetupPage } from './pages/SetupPage'
 import { PrecheckinPage } from './pages/PrecheckinPage'
 import { OnboardingCardCapture } from './pages/OnboardingCardCapture'
-import { DashboardPage } from './pages/DashboardPage'
-// RoomsPage (board "Estado de habitaciones" en /pages/RoomsPage) RETIRADO
-// 2026-06-09 — interfaz deprecada, reemplazada por Kanban (HK) + timeline /pms.
-// La ruta /rooms ahora redirige a /kanban (ver más abajo).
-import { RoomsPage as PmsPage } from './modules/rooms/pages/RoomsPage'
-// OperationalOverridesPage import retirado (Sprint 9 D15) — la página existe
-// en /pages/ pero ya no se enruta. Las acciones se migraron a KanbanPage.
-import { KanbanPage } from './pages/KanbanPage'
-import { CheckoutsPage } from './pages/CheckoutsPage'
-import { ReportsPage } from './pages/ReportsPage'
-import { SettingsPage } from './pages/SettingsPage'
-import { DiscrepanciesPage } from './pages/DiscrepanciesPage'
-import ChannexConflictsPage from './pages/ChannexConflictsPage'
-import ChannexAdminPage from './pages/ChannexAdminPage'
-import { BlocksPage } from './pages/BlocksPage'
-import { MaintenancePage } from './pages/MaintenancePage'
-import { ReservationDetailPage } from './pages/ReservationDetailPage'
 import { GlobalMaintenanceDrawer } from './components/GlobalMaintenanceDrawer'
 import { useNotificationAlerts } from './hooks/useNotificationAlerts'
-// Sprint NOVA-CHANNEX-COMMAND-CENTER Day 9 — Nova shell + landing
-import { NovaClientsPage } from './nova/pages/NovaClientsPage'
-import { NovaDashboardPage } from './nova/pages/NovaDashboardPage'
-import { NovaSettingsPage } from './nova/pages/NovaSettingsPage'
-// Day 10 — Channex Command Center
-import { NovaChannexPage } from './nova/pages/NovaChannexPage'
-// Day 13 — Audit log page
-import { NovaAuditLogPage } from './nova/pages/NovaAuditLogPage'
-// Day 14 — Wizard Zenix Activate
-import { NovaWizardPage } from './nova/pages/NovaWizardPage'
-// Sprint BILLING-DISCOUNT-CODES Day 2-3 — Billing landing + codes CRUD
-import { NovaBillingPage } from './nova/pages/NovaBillingPage'
-import { NovaBillingCodesPage } from './nova/pages/NovaBillingCodesPage'
-import { NovaBillingChannexPage } from './nova/pages/NovaBillingChannexPage'
-import { NovaBillingApprovalsPage } from './nova/pages/NovaBillingApprovalsPage'
-import { NovaBillingClientPage } from './nova/pages/NovaBillingClientPage'
+
+// AUTO-CHECKIN aislamiento (2026-06-11) — las páginas de STAFF se cargan
+// lazy (code-split). Una ruta PÚBLICA del huésped (/precheckin) NO debe
+// descargar el bundle operativo interno. Las páginas públicas (Login/Setup/
+// Precheckin/Onboarding) quedan eager arriba. Named exports → {default: m.X};
+// default exports (Channex*) → directo.
+const DashboardPage = lazy(() => import('./pages/DashboardPage').then(m => ({ default: m.DashboardPage })))
+const PmsPage = lazy(() => import('./modules/rooms/pages/RoomsPage').then(m => ({ default: m.RoomsPage })))
+const KanbanPage = lazy(() => import('./pages/KanbanPage').then(m => ({ default: m.KanbanPage })))
+const CheckoutsPage = lazy(() => import('./pages/CheckoutsPage').then(m => ({ default: m.CheckoutsPage })))
+const ReportsPage = lazy(() => import('./pages/ReportsPage').then(m => ({ default: m.ReportsPage })))
+const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })))
+const DiscrepanciesPage = lazy(() => import('./pages/DiscrepanciesPage').then(m => ({ default: m.DiscrepanciesPage })))
+const ChannexConflictsPage = lazy(() => import('./pages/ChannexConflictsPage'))
+const ChannexAdminPage = lazy(() => import('./pages/ChannexAdminPage'))
+const BlocksPage = lazy(() => import('./pages/BlocksPage').then(m => ({ default: m.BlocksPage })))
+const MaintenancePage = lazy(() => import('./pages/MaintenancePage').then(m => ({ default: m.MaintenancePage })))
+const ReservationDetailPage = lazy(() => import('./pages/ReservationDetailPage').then(m => ({ default: m.ReservationDetailPage })))
+const NovaClientsPage = lazy(() => import('./nova/pages/NovaClientsPage').then(m => ({ default: m.NovaClientsPage })))
+const NovaDashboardPage = lazy(() => import('./nova/pages/NovaDashboardPage').then(m => ({ default: m.NovaDashboardPage })))
+const NovaSettingsPage = lazy(() => import('./nova/pages/NovaSettingsPage').then(m => ({ default: m.NovaSettingsPage })))
+const NovaChannexPage = lazy(() => import('./nova/pages/NovaChannexPage').then(m => ({ default: m.NovaChannexPage })))
+const NovaAuditLogPage = lazy(() => import('./nova/pages/NovaAuditLogPage').then(m => ({ default: m.NovaAuditLogPage })))
+const NovaWizardPage = lazy(() => import('./nova/pages/NovaWizardPage').then(m => ({ default: m.NovaWizardPage })))
+const NovaBillingPage = lazy(() => import('./nova/pages/NovaBillingPage').then(m => ({ default: m.NovaBillingPage })))
+const NovaBillingCodesPage = lazy(() => import('./nova/pages/NovaBillingCodesPage').then(m => ({ default: m.NovaBillingCodesPage })))
+const NovaBillingChannexPage = lazy(() => import('./nova/pages/NovaBillingChannexPage').then(m => ({ default: m.NovaBillingChannexPage })))
+const NovaBillingApprovalsPage = lazy(() => import('./nova/pages/NovaBillingApprovalsPage').then(m => ({ default: m.NovaBillingApprovalsPage })))
+const NovaBillingClientPage = lazy(() => import('./nova/pages/NovaBillingClientPage').then(m => ({ default: m.NovaBillingClientPage })))
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -101,11 +98,24 @@ function NotificationAlertsMount() {
   return null
 }
 
+// AUTO-CHECKIN bug-hunt (2026-06-11) — las rutas PÚBLICAS (huésped/onboarding)
+// NO deben montar la maquinaria de staff (SSE /api/events + sonidos/banners de
+// notificaciones). Un huésped abriendo /precheckin en su móvil recibía un stream
+// de notificaciones de staff (y, en un navegador con token de staff persistido,
+// el SSE autenticado quedaba abierto). Gateamos por prefijo de ruta.
+const PUBLIC_ROUTE_PREFIXES = ['/login', '/setup', '/precheckin', '/onboarding']
+function ConditionalAlertsMount() {
+  const { pathname } = useLocation()
+  const isPublic = PUBLIC_ROUTE_PREFIXES.some((p) => pathname.startsWith(p))
+  return isPublic ? null : <NotificationAlertsMount />
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <NotificationAlertsMount />
+        <ConditionalAlertsMount />
+        <Suspense fallback={<div className="min-h-screen bg-gray-50" />}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           {/* Day 17 — Org Owner activation. Public route. Token validation
@@ -152,6 +162,7 @@ export default function App() {
           <Route path="/nova/settings"   element={<NovaSettingsPage />} />
           <Route path="*"                element={<Navigate to="/dashboard" replace />} />
         </Routes>
+        </Suspense>
       </BrowserRouter>
       <SonnerToaster
         position="bottom-right"

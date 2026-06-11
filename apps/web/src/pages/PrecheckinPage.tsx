@@ -16,6 +16,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
+import { cn } from '@/lib/utils'
 
 interface PrecheckinContext {
   guestFirstName: string | null
@@ -95,6 +96,7 @@ export function PrecheckinPage() {
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [photoError, setPhotoError] = useState<string | null>(null)
+  const [propertyName, setPropertyName] = useState<string | null>(null)
 
   useEffect(() => {
     let active = true
@@ -108,12 +110,18 @@ export function PrecheckinPage() {
         setPhone(ctx.guestPhone ?? '')
         setNationality(ctx.nationality ?? '')
         setDocType(ctx.documentType ?? '')
+        setPropertyName(ctx.propertyName)
         setState(ctx.alreadySubmitted ? { kind: 'submitted', photoCaptured: ctx.photoCaptured } : { kind: 'ready', ctx })
       } catch (err) {
         if (!active) return
-        if (err instanceof ApiError && err.status === 410) setState({ kind: 'expired', message: err.message })
-        else if (err instanceof ApiError && err.status === 404) setState({ kind: 'notfound' })
-        else setState({ kind: 'expired', message: 'No pudimos cargar tu pre-check-in. Intenta más tarde.' })
+        // Mapeo de estados: 410 = expirado/cancelado/checkout (link válido pero
+        // ya no usable) → "expirado". 404 (no existe) y 400 (token corto/
+        // truncado) → "inválido". Cualquier otro (red/500) → "inválido" con copy
+        // de reintento. Bug-hunt 2026-06-11: antes un token <32 char (400) caía
+        // en el else y mostraba "expirado" en vez de "inválido".
+        const status = err instanceof ApiError ? err.status : 0
+        if (status === 410) setState({ kind: 'expired', message: '' })
+        else setState({ kind: 'notfound' })
       }
     })()
     return () => { active = false }
@@ -161,24 +169,27 @@ export function PrecheckinPage() {
   return (
     <div className="min-h-screen bg-slate-100 flex justify-center px-4 py-6">
       <div className="w-full max-w-md">
-        {state.kind === 'loading' && (
-          <div className="bg-white rounded-2xl shadow p-8 text-center text-slate-500 mt-16">Cargando…</div>
-        )}
+        {state.kind === 'loading' && <LoadingScreen />}
 
         {state.kind === 'notfound' && (
-          <StatusCard tone="warn" title="Link inválido"
-            body="Este link de pre-check-in no es válido. Si crees que es un error, contacta a tu hotel." />
+          <StatusScreen tone="warn" propertyName={propertyName}
+            title="Este link no es válido"
+            body="No pudimos reconocer tu link de pre-check-in. Es posible que esté incompleto — vuelve a abrirlo desde tu correo, o escríbele a tu hotel." />
         )}
 
         {state.kind === 'expired' && (
-          <StatusCard tone="warn" title="Link expirado" body={state.message} />
+          <StatusScreen tone="warn" propertyName={propertyName}
+            title="Tu link expiró"
+            body="Por seguridad, los links de pre-check-in caducan. Pídele uno nuevo a tu hotel y lo completas en un minuto." />
         )}
 
         {state.kind === 'submitted' && (
-          <StatusCard tone="ok" title="¡Listo! 🎉"
+          <StatusScreen tone="ok" propertyName={propertyName}
+            title="¡Pre-check-in completo!"
             body={state.photoCaptured
-              ? 'Recibimos tus datos y tu identificación. Tu check-in será mucho más rápido. ¡Te esperamos!'
-              : 'Recibimos tus datos. Puedes subir tu identificación al llegar a recepción. ¡Te esperamos!'} />
+              ? 'Tu identidad y tu documento quedaron registrados. Tu llegada será mucho más rápida — solo pasa a recepción por tu llave.'
+              : 'Tus datos quedaron registrados. Recuerda traer tu identificación para mostrarla al llegar a recepción.'}
+            sub={propertyName ? `Nos vemos pronto en ${propertyName}` : 'Nos vemos pronto'} />
         )}
 
         {state.kind === 'ready' && (
@@ -268,14 +279,75 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
-function StatusCard({ tone, title, body }: { tone: 'ok' | 'warn'; title: string; body: string }) {
+/** Spinner branded mientras carga el contexto (no el "Cargando…" plano). */
+function LoadingScreen() {
+  return (
+    <div className="min-h-[70vh] flex flex-col items-center justify-center gap-4">
+      <div className="h-10 w-10 rounded-full border-[3px] border-emerald-200 border-t-emerald-600 animate-spin" />
+      <p className="text-sm text-slate-400">Preparando tu pre-check-in…</p>
+    </div>
+  )
+}
+
+/**
+ * Pantalla de estado profesional (éxito / aviso) — reemplaza las tarjetas
+ * genéricas con emoji. Icono SVG en anillo con halo, jerarquía tipográfica,
+ * eyebrow con la propiedad, microcopy de apoyo y firma de marca.
+ */
+function StatusScreen({
+  tone, title, body, sub, propertyName,
+}: { tone: 'ok' | 'warn'; title: string; body: string; sub?: string; propertyName?: string | null }) {
   const ok = tone === 'ok'
   return (
-    <div className="bg-white rounded-2xl shadow p-8 text-center mt-12">
-      <div className={`text-4xl mb-3`}>{ok ? '✅' : '⚠️'}</div>
-      <h1 className={`text-lg font-extrabold ${ok ? 'text-emerald-700' : 'text-amber-700'}`}>{title}</h1>
-      <p className="text-sm text-slate-600 mt-2 leading-snug">{body}</p>
+    <div className="min-h-[80vh] flex flex-col items-center justify-center text-center px-3">
+      {propertyName && (
+        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400 mb-7">{propertyName}</div>
+      )}
+      <div className="relative mb-7">
+        <div className={cn('absolute inset-0 rounded-full blur-2xl opacity-40', ok ? 'bg-emerald-400' : 'bg-amber-300')} />
+        <div className={cn(
+          'relative h-[88px] w-[88px] rounded-full flex items-center justify-center shadow-xl ring-8',
+          ok ? 'bg-gradient-to-br from-emerald-500 to-emerald-600 ring-emerald-500/10'
+             : 'bg-gradient-to-br from-amber-400 to-amber-500 ring-amber-400/10',
+        )}>
+          {ok ? <CheckIcon /> : <AlertIcon />}
+        </div>
+      </div>
+      <h1 className="text-[23px] font-extrabold tracking-tight text-slate-800 max-w-[300px]">{title}</h1>
+      <p className="text-[15px] text-slate-500 mt-3 max-w-[320px] leading-relaxed">{body}</p>
+      {sub && (
+        <div className="mt-6 inline-flex items-center gap-2 rounded-full bg-white shadow-sm ring-1 ring-slate-200/70 px-4 py-2 text-[12.5px] font-semibold text-slate-600">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          {sub}
+        </div>
+      )}
+      <div className="mt-12 flex items-center gap-1.5 text-[10.5px] font-medium uppercase tracking-[0.14em] text-slate-300">
+        <ShieldIcon /> Pre-check-in seguro · Zenix
+      </div>
     </div>
+  )
+}
+
+function CheckIcon() {
+  return (
+    <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  )
+}
+function AlertIcon() {
+  return (
+    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 9v4" /><path d="M12 17h.01" />
+      <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+    </svg>
+  )
+}
+function ShieldIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
+    </svg>
   )
 }
 
