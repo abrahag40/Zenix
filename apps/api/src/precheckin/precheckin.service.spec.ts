@@ -109,6 +109,14 @@ describe('PrecheckinService', () => {
   })
 
   describe('submit', () => {
+    it('single-use: re-submit tras completar → 409 (el link "expira" al cargar datos)', async () => {
+      prisma.guestStay.findUnique.mockResolvedValue(makeStay({ precheckinSubmittedAt: new Date() }))
+      await expect(
+        service.submit(RAW, { guestPhone: '+1', consentAccepted: true } as any),
+      ).rejects.toMatchObject({ status: 409 })
+      expect(prisma.guestStay.update).not.toHaveBeenCalled()
+    })
+
     it('sin consentimiento → 400 (LFPDPPP)', async () => {
       prisma.guestStay.findUnique.mockResolvedValue(makeStay())
       await expect(

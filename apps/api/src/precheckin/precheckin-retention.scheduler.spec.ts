@@ -7,7 +7,11 @@ describe('PrecheckinRetentionScheduler', () => {
 
   beforeEach(() => {
     prisma = {
-      guestStay: { findMany: jest.fn().mockResolvedValue([]), update: jest.fn().mockResolvedValue({}) },
+      guestStay: {
+        findMany: jest.fn().mockResolvedValue([]),
+        update: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
       guestStayLog: { create: jest.fn().mockResolvedValue({}) },
       $transaction: jest.fn((arr: Promise<unknown>[]) => Promise.all(arr)),
     }
@@ -40,6 +44,15 @@ describe('PrecheckinRetentionScheduler', () => {
     await scheduler.run()
     expect(uploads.deleteByUrl).not.toHaveBeenCalled()
     expect(prisma.guestStay.update).not.toHaveBeenCalled()
+  })
+
+  it('purgeExpiredTokens: anula el token de stays con check-in pasado (memoria)', async () => {
+    await scheduler.purgeExpiredTokens()
+    const call = prisma.guestStay.updateMany.mock.calls[0][0]
+    expect(call.where.precheckinTokenHash).toEqual({ not: null })
+    expect(call.where.checkinAt.lt).toBeInstanceOf(Date)
+    // solo anula el token; conserva el rastro (submittedAt/verifiedFields)
+    expect(call.data).toEqual({ precheckinTokenHash: null, precheckinTokenExpiresAt: null })
   })
 
   it('un fallo de borrado no aborta el batch', async () => {

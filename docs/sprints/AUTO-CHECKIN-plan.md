@@ -180,6 +180,21 @@ versionado, NOM-151/Mifiel, chargeback evidence package. El MVP deja el cimiento
 (token kiosk + consent log + foto) que SIGN-DLC extiende.
 
 ### Bitácora de avance
+- **2026-06-11 — Ciclo de vida del link (single-use + purga).** Pedido owner: el
+  link debe morir al cargar datos (o el día después del check-in si no se abrió),
+  y la re-entrada debe mostrar "ya se realizó".
+  - **Single-use (write):** `submit` rechaza con 409 si `precheckinSubmittedAt`
+    ya existe → el link no permite un segundo envío ("expira al cargar datos").
+  - **Re-entrada amable:** el GET devuelve `alreadySubmitted` → la página muestra
+    la pantalla "¡Pre-check-in completo!" (ya existía + verificada con captura).
+  - **Purga de memoria:** `PrecheckinRetentionScheduler.purgeExpiredTokens`
+    (`@Cron` diario) anula `precheckinTokenHash`/`ExpiresAt` para stays con
+    `checkinAt < hoy 00:00` → el token "muere al día siguiente del check-in"
+    (cubre enviados y no-abiertos); conserva el rastro (`precheckinSubmittedAt`/
+    `guestVerifiedFields`). Aclaración técnica: el token es un campo hasheado en
+    la reserva (no un objeto aparte); se conserva hasta post-check-in solo para
+    poder mostrar la re-entrada amable, luego se purga. 27/27 tests precheckin
+    verdes (+ single-use guard + token-purge). Typecheck API verde.
 - **2026-06-11 — Bug-hunt e2e en Chrome (con capturas).** 2 bugs + rediseño:
   - **BH-1 🟠 (aislamiento/privacidad):** las rutas PÚBLICAS (`/precheckin`,
     `/setup`, `/onboarding`, `/login`) montaban la maquinaria de staff —

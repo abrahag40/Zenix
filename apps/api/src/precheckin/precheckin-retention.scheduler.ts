@@ -32,6 +32,32 @@ export class PrecheckinRetentionScheduler {
 
   @Cron('0 5 * * *') // diario 05:00 (off-peak, como otros schedulers)
   async run() {
+    await this.purgeExpiredTokens()
+    await this.purgePhotos()
+  }
+
+  /**
+   * Purga el token de pre-checkin (libera el campo en la reserva) cuando el link
+   * ya no se necesita: el DÍA DESPUÉS del check-in. Cubre ambos casos del owner:
+   * (a) el huésped cargó datos (link ya read-only/single-use) y (b) nunca lo
+   * abrió. Antes de ese punto el token se conserva para poder mostrar la pantalla
+   * "ya completaste" al re-entrar. `precheckinSubmittedAt`/`guestVerifiedFields`
+   * (el rastro) se conservan; solo se anula el token (hash + expiry).
+   */
+  async purgeExpiredTokens() {
+    const now = new Date()
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const res = await this.prisma.guestStay.updateMany({
+      where: {
+        precheckinTokenHash: { not: null },
+        checkinAt: { lt: startOfToday }, // check-in fue ayer o antes → muere hoy
+      },
+      data: { precheckinTokenHash: null, precheckinTokenExpiresAt: null },
+    })
+    if (res.count) this.logger.log(`[precheckin-retention] tokens purgados: ${res.count} (post-checkin)`)
+  }
+
+  async purgePhotos() {
     const cutoff = new Date(Date.now() - RETENTION_DAYS * MS_DAY)
     const stays = await this.prisma.guestStay.findMany({
       where: {

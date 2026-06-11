@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   GoneException,
   Injectable,
   Logger,
@@ -70,6 +71,13 @@ export class PrecheckinService {
   /** POST público — el huésped confirma/corrige datos + sube foto de ID. */
   async submit(rawToken: string, dto: SubmitPrecheckinDto) {
     const stay = await this.lookup(rawToken)
+
+    // Single-use: el link "expira" al cargar los datos. Un segundo submit se
+    // rechaza (el huésped que re-entra ve la pantalla "ya completaste" porque el
+    // GET devuelve alreadySubmitted). Defensa server-side ante re-POST directo.
+    if (stay.precheckinSubmittedAt) {
+      throw new ConflictException('Este pre-check-in ya fue completado. No es necesario hacerlo de nuevo.')
+    }
 
     if (!dto.consentAccepted) {
       throw new BadRequestException(
