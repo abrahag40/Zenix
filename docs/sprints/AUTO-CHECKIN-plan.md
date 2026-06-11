@@ -171,14 +171,27 @@ ser PII sensible (pasaporte):
 | **1a — Backend core** | Token opaco SHA256 (anti-IDOR) + endpoints públicos `GET/POST /v1/precheckin/:token` + write-back con `guestVerifiedFields` + foto vía `UploadsService` scope `precheckin` (orgId del token, sin TenantContext) | migración `20260616000000_auto_checkin_precheckin`; `PrecheckinService`/`Controller`/`Module`; UploadsService scope+orgId override; **11/11 tests**; typecheck API verde | ✅ **HECHO** (2026-06-11) |
 | **1b — Email + trigger** | `PrecheckinEmailService` (Resend HTML, fail-soft) + `PrecheckinScheduler` `@Cron` 2 pases idempotentes (invitación 3d antes + recordatorio 24h); precedencia `BookingModifyHandler` §136 no pisa `guestVerifiedFields` | migración `20260617000000`; email+scheduler+modify guard; **16/16 tests** | ✅ **HECHO** (2026-06-11) |
 | **2 — Web-app huésped** | Ruta pública `/precheckin/:token` (form pre-llenado de Channex + cámara móvil `capture` + compresión + aviso privacidad LFPDPPP + consentimiento + estados), mobile-first | `PrecheckinPage.tsx` + ruta; typecheck web verde | ✅ **código** (render e2e → Fase 4) |
-| **3 — Integración recepción + storage** | `ConfirmCheckinDialog`/sheet reflejan "identidad pre-cargada" + foto **auth-gated**; retención ~30d post-checkout (configurable) | UI recepción + retención | ⏳ |
-| **4 — QA e2e + navegador móvil** | Verificación end-to-end en navegador móvil real + bitácora | reporte QA | ⏳ |
+| **3 — Integración recepción + storage** | Seguridad D-AC4 (scope precheckin fuera del GET público) + foto auth-gated (context→data-URI) + badge recepción "identidad pre-cargada" + retención scheduler ~30d | uploads guard+helpers; context+badge; retention; **43/43 tests** | ✅ **HECHO** (2026-06-11) |
+| **4 — QA e2e + navegador móvil** | **Verificación en Chrome DESDE 0**: stack arriba → seed booking → email/scheduler → `/precheckin/:token` en móvil (form pre-llenado + foto + submit) → "identidad pre-cargada" en recepción → foto NO pública. 3 superficies + bitácora | reporte QA e2e | ⏳ siguiente |
 
 **Diferido a SIGN-DLC v1.1.0 (NO en este MVP):** e-signature canvas, T&C
 versionado, NOM-151/Mifiel, chargeback evidence package. El MVP deja el cimiento
 (token kiosk + consent log + foto) que SIGN-DLC extiende.
 
 ### Bitácora de avance
+- **2026-06-11 — Fase 3 cerrada.** (a) Seguridad D-AC4: el GET público de
+  uploads rechaza el scope `precheckin` (404 — no revela existencia). (b) Foto
+  auth-gated: `UploadsService.readAsDataUri`/`deleteByUrl` + `getCheckinContext`
+  resuelve la foto de disco a data-URI server-side (solo staff la ve;
+  `UploadsService` inyectado `@Optional` para no romper specs legacy). (c) Badge
+  recepción: `ConfirmCheckinDialog` muestra banner sky "Identidad pre-cargada por
+  el huésped" + nº de campos verificados; el context expone `precheckinSubmittedAt`
+  + `guestVerifiedFields`. (d) `PrecheckinRetentionScheduler` `@Cron('0 5 * * *')`
+  purga la foto + anula `documentPhotoUrl` >30d post-checkout (conserva el rastro).
+  43/43 tests (4 retention + 3 uploads helpers + 17 checkin regression + 19
+  precheckin previos). Typecheck API+web verde. **Verificación e2e en Chrome
+  desde 0 → Fase 4** (pedido del owner: documentado como parte del testing e2e
+  al finalizar el desarrollo).
 - **2026-06-11 — Fase 2 código completo.** `PrecheckinPage.tsx` (ruta pública
   `/precheckin/:token` en App.tsx): state machine loading/ready/expired/notfound/
   submitted; form pre-llenado con `GET /v1/precheckin/:token` (nombre/apellido/
