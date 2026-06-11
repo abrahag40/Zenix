@@ -1,13 +1,19 @@
 # Sprint AUTO-CHECKIN — Pre-arrival identity capture (PROPUESTA)
 
-> **Status:** PROPUESTA / pendiente aprobación owner · arrancado análisis 2026-06-11
+> **Status:** ✅ **APROBADO 2026-06-11 (Opción C)** · branch `feat/auto-checkin` · scope v1.0.0
 > **Origen:** directiva owner — incluir auto-checkin en v1.0.0. Idea: al recibir
 > un booking de Channex (email + tel), Zenix manda un email lindo con un link a
 > una mini web-app donde el huésped corrige sus datos (pre-cargados de la OTA) +
 > toma foto de su pasaporte desde el móvil → se carga a la reserva → agiliza el
 > check-in en recepción.
-> **⚠️ Esta es una propuesta con opciones, NO un plan cerrado. El owner elige
-> secuenciación/scope antes de implementar.**
+>
+> **Decisiones bloqueadas con el owner (2026-06-11):**
+> - **Secuenciación = Opción C** — AUTO-CHECKIN entra a v1.0.0; BOOKING-ENGINE → v1.1.0.
+> - **El link NUNCA expone el ID interno** — el ID solo viaja en el JSON server-side; el huésped jamás ve data interna. (token opaco en la URL, D-AC1).
+> - **El check-in oficial en recepción NO se elimina** — esto OPTIMIZA (pre-carga identidad); recepción sigue confirmando llegada + pago + llave.
+> - **Pagos = SIEMPRE en recepción.** El auto-checkin NO procesa pago (ni guest payment). Solo identidad.
+> - **La carga del huésped es OPCIONAL** — no se le obliga; si no carga, el check-in es el normal en recepción. La UI/flujo asume "best-effort".
+> - **Sin e-signature / T&C / NOM-151** en este MVP → eso es SIGN-DLC v1.1.0 (este es su cimiento).
 
 ---
 
@@ -94,19 +100,40 @@ manejo de almacenamiento de la foto.
 - Opción B: `getUserMedia` live preview con botón de captura. Más control/UX, más
   código + permisos. Diferir a v1.0.x si el hotel lo pide.
 
-### D-AC4 — Almacenamiento de la foto (PUNTO CRÍTICO — privacidad)
-- La foto de pasaporte es PII sensible. Hoy recepción usa data-URI base64 en BD
-  (§110e, migración S3 en v1.0.4 IMG). Para uploads guest-facing a escala, base64
-  en BD es riesgoso (blobs grandes).
-- **Opción A (recomendada):** presigned upload a S3/R2 (adelanta parte de v1.0.4
-  IMG). + **política de retención**: borrar/anonimizar la foto N días post-checkout
-  (Visa chargeback window 120d vs minimización LFPDPPP/GDPR — definir con el owner;
-  default sugerido: conservar hasta checkout+30d, luego purgar la imagen y dejar
-  solo el flag "verificada").
-- Opción B: data-URI base64 interino (consistente con recepción) + límite de
-  tamaño estricto + cifrado. Más rápido de shippear, deuda explícita.
-- **Debate:** Opción A es lo correcto pero acopla S3. Si v1.0.0 no quiere S3 aún,
-  Opción B con TODO numerado. Recomiendo A si el owner acepta adelantar S3.
+### D-AC4 — Almacenamiento de la foto (PUNTO CRÍTICO — privacidad) ✅ DECIDIDO
+**Hallazgo (2026-06-11): ya existe `apps/api/src/uploads/UploadsService`** (Sprint
+Mx-1B) que procesa imágenes con Sharp: valida MIME real (no solo Content-Type),
+resize a 1920px, recodifica JPEG q85, **strip de EXIF/GPS** (privacidad — NIST SP
+800-122 + GDPR), nombra con UUID v4 no-adivinable, límite 5MB, path-traversal-safe.
+Su interfaz de retorno `{ id, url }` **ya está diseñada para migrar a S3/R2 sin
+tocar callers** (la migración es el step Mx-1C / v1.0.4 IMG). R2 ya está en el
+stack de infra (§73 / docs/vision/12).
+
+Comparativa:
+| Opción | Pros | Cons |
+|---|---|---|
+| **1 — Reusar `UploadsService` + nuevo scope `precheckin`** ✅ | reusa procesamiento probado (Sharp, EXIF strip, MIME, UUID, 5MB); interfaz S3-ready ya abstraída; mínimo código nuevo; consistente con recepción | requiere variante public-path (orgId explícito, sin TenantContext) + **retrieval auth-gated** |
+| 2 — base64 data-URI en BD | cero infra de archivos | blobs grandes en Postgres, infla backups; `UploadsService` ya es superior |
+| 3 — R2 directo ahora | storage productivo desde día 1 | hace el migration Mx-1C dentro de auto-checkin; más scope del necesario |
+
+**DECISIÓN = Opción 1.** Reusar `UploadsService` con un nuevo `UploadScope = 'precheckin'`.
+Disco local ahora (igual que recepción); el swap a R2 es el step Mx-1C ya planeado
+(misma interfaz `{id,url}`, sin refactor). Dos refinamientos **no-negociables** por
+ser PII sensible (pasaporte):
+- **(a) Retrieval AUTH-GATED.** El GET público actual `/api/uploads/:org/:scope/:file`
+  sirve fotos de mantenimiento (bajo riesgo). La foto de pasaporte **NO** se sirve
+  por ahí — solo visible para staff autenticado (embebida en el checkin-context
+  auth'd, o endpoint de retrieval con guard). El huésped la SUBE (token-gated) pero
+  solo recepción la VE.
+- **(b) Path de upload público.** El guest sube vía el endpoint token-gated
+  `POST /precheckin/:token` → backend valida token → llama `UploadsService` pasando
+  el `organizationId` **resuelto del token** (no de `TenantContextService`, que no
+  existe en request público). Variante `processPublic(buffer, orgId, scope)`.
+- **Retención:** purgar la imagen N días post-checkout (default sugerido 30d,
+  configurable), conservando el flag `identityVerifiedAt` + tipo de documento.
+  Tensión Visa chargeback 120d vs minimización LFPDPPP — el owner/legal fija N.
+  *(Cifrado-at-rest del blob: hardening para la fase R2; en disco single-instance
+  el control es UUID no-adivinable + retrieval auth-gated + EXIF strip + retención.)*
 
 ### D-AC5 — Timing del email
 - **Opción A (recomendada):** envío **X días antes de la llegada** (config
@@ -153,17 +180,16 @@ manejo de almacenamiento de la foto.
 versionado, NOM-151/Mifiel, chargeback evidence package. El MVP deja el cimiento
 (token kiosk + consent log + foto) que SIGN-DLC extiende.
 
-## 5. Recomendación de secuenciación v1.0.0 (3 opciones — owner decide)
+## 5. Secuenciación v1.0.0 — ✅ Opción C elegida (owner 2026-06-11)
 
 | Opción | Qué entra a v1.0.0 | Tag v1.0.0 | Trade-off |
 |---|---|---|---|
-| **A — Ship & iterate (recom.)** | Tag PMS core YA. AUTO-CHECKIN = v1.0.1 (fast-follow, alto ROI, chico). BOOKING-ENGINE = v1.1.0 (grande, depende de pago guest). | inmediato | Piloto arranca ya; features llegan como updates. Menor riesgo. |
-| **B — v1.0.0 expandido** | AUTO-CHECKIN + BOOKING-ENGINE adentro. Tag al cerrar ambos. | +~2-3 meses | Un solo lanzamiento "completo"; piloto espera. Mayor riesgo de slip. |
-| **C — Híbrido** | AUTO-CHECKIN adentro de v1.0.0 (chico, agiliza recepción del piloto). BOOKING-ENGINE = v1.1.0. | +~3 sem | Balance: el piloto estrena auto-checkin; el booking engine (que necesita pago guest) no bloquea. |
+| A — Ship & iterate | Tag PMS core YA. AUTO-CHECKIN = v1.0.1. BOOKING-ENGINE = v1.1.0. | inmediato | Piloto arranca ya; menor riesgo |
+| B — v1.0.0 expandido | AUTO-CHECKIN + BOOKING-ENGINE adentro. | +~2-3 meses | Mayor riesgo de slip |
+| **C — Híbrido ✅ ELEGIDA** | **AUTO-CHECKIN adentro de v1.0.0**; BOOKING-ENGINE = v1.1.0. | +~3 sem | Balance: el piloto estrena auto-checkin; el booking engine no bloquea |
 
-**Mi recomendación: C** (o A si el piloto necesita arrancar ya). Razón: el
-BOOKING-ENGINE depende de **procesar el pago del huésped** (flujo Stripe distinto
-al de subscription billing — Payment Intents guest→hotel, payouts, PCI), que es
-territorio PAY-CORE (v1.0.1). Meterlo "en v1.0.0" arrastra PAY-CORE adentro y
-duplica el tamaño del release. AUTO-CHECKIN no tiene esa dependencia y da valor
-operativo inmediato al piloto.
+**Decisión: C.** El BOOKING-ENGINE depende de **procesar el pago del huésped**
+(Payment Intents Stripe guest→hotel + payouts + PCI) = territorio PAY-CORE (v1.0.1);
+meterlo en v1.0.0 arrastraría PAY-CORE adentro y duplicaría el release. AUTO-CHECKIN
+no tiene esa dependencia, es chico (~2-3 sem, mayormente ensamblaje) y da valor
+operativo inmediato al piloto → entra a v1.0.0. **Tag v1.0.0 = al cerrar AUTO-CHECKIN.**
