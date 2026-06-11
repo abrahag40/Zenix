@@ -84,6 +84,10 @@ export interface CheckinContext {
     warnings: string[]
   }
   identityCaptured: boolean
+  // AUTO-CHECKIN §D-AC6 — el huésped hizo su pre-checkin (datos + foto) antes
+  // de llegar. `guestVerifiedFields` = campos que confirmó/corrigió.
+  precheckinSubmittedAt: string | null
+  guestVerifiedFields: string[]
   paymentLogs: Array<{
     id: string
     method: string

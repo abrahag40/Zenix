@@ -138,6 +138,13 @@ export class UploadsController {
     if (!filename.endsWith('.jpg')) {
       throw new NotFoundException('Recurso no encontrado')
     }
+    // AUTO-CHECKIN §D-AC4 — el scope `precheckin` (foto de pasaporte del huésped)
+    // es PII sensible y NO se sirve por este GET público. Se entrega solo a staff
+    // autenticado (vía checkin-context, que lo resuelve a data-URI server-side).
+    // 404 (no 403) para no revelar la existencia del recurso.
+    if (scope === 'precheckin') {
+      throw new NotFoundException('Recurso no encontrado')
+    }
 
     const root = UploadsService.rootDir()
     const target = normalize(join(root, organizationId, scope, filename))

@@ -670,6 +670,20 @@ export function ConfirmCheckinDialog({
                       )}
                     </div>
 
+                    {/* AUTO-CHECKIN §D-AC6 — el huésped pre-cargó su identidad
+                        desde su móvil antes de llegar. Recepción solo verifica. */}
+                    {ctx?.precheckinSubmittedAt && (
+                      <div className="mb-2 flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2">
+                        <Check className="h-3.5 w-3.5 text-sky-600 mt-0.5 shrink-0" />
+                        <p className="text-[11px] text-sky-800 leading-snug">
+                          <span className="font-semibold">Identidad pre-cargada por el huésped</span>
+                          {ctx.guestVerifiedFields?.length
+                            ? ` — confirmó/corrigió: ${ctx.guestVerifiedFields.length} dato(s). Verifica que la foto coincida con la persona.`
+                            : ' — verifica que la foto coincida con la persona.'}
+                        </p>
+                      </div>
+                    )}
+
                     <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
                       {/* CHECK-IN C1.12 — Nombre + Apellido pre-cargados.
                           Vienen de ctx.stay.guestFirstName/guestLastName (BI)

@@ -5,8 +5,10 @@ import {
   Logger,
   NotFoundException,
   ConflictException,
+  Optional,
 } from '@nestjs/common'
 import { EventEmitter2 } from '@nestjs/event-emitter'
+import { UploadsService } from '../../uploads/uploads.service'
 import { randomUUID } from 'crypto'
 import { PrismaService } from '../../prisma/prisma.service'
 import {
@@ -179,6 +181,10 @@ export class GuestStaysService {
     // Inject opcional: si AuditModule no está cargado (tests legacy), los
     // métodos siguen funcionando — el helper hace fail-soft.
     private readonly audit: AuditOutboxService,
+    // AUTO-CHECKIN §D-AC4 — resolver la foto de pre-checkin (disco) a data-URI
+    // server-side para mostrarla a recepción sin exponer el GET público.
+    // @Optional: specs legacy construyen el service posicionalmente sin esto.
+    @Optional() private readonly uploads?: UploadsService,
   ) {}
 
   /** Generates a globally unique human-readable booking reference.
@@ -2553,6 +2559,16 @@ export class GuestStaysService {
     })
     if (!stay) throw new NotFoundException('Estadía no encontrada')
 
+    // AUTO-CHECKIN §D-AC4 — si la foto vive en disco (scope precheckin, subida
+    // por el huésped), la resolvemos a data-URI aquí (endpoint auth-gated) para
+    // que recepción la vea sin exponer el archivo por el GET público. Las fotos
+    // capturadas en recepción ya son data-URI → pasan tal cual. Si el archivo
+    // fue purgado por retención, queda null.
+    const resolvedPhotoUrl =
+      stay.documentPhotoUrl && stay.documentPhotoUrl.startsWith('/api/uploads/')
+        ? (this.uploads ? await this.uploads.readAsDataUri(stay.documentPhotoUrl) : null)
+        : stay.documentPhotoUrl
+
     // Sprint CHECK-IN-α — property currency primary (5/5 PMS analizados).
     // Fallback a stay.currency si LegalEntity aún no asignada (v1.0.5 transición).
     const propertyCurrency = stay.room.property.legalEntity?.baseCurrency ?? stay.currency
@@ -2597,7 +2613,7 @@ export class GuestStaysService {
         guestPhone:         stay.guestPhone,
         documentType:       stay.documentType,
         documentNumber:     stay.documentNumber,
-        documentPhotoUrl:   stay.documentPhotoUrl,
+        documentPhotoUrl:   resolvedPhotoUrl,
         nationality:        stay.nationality,
         // Sprint CHECK-IN C1 (2026-05-29) — exponer guestSex opcional.
         // Diferenciador LATAM hostal: Mews fue criticado por NO agregar
@@ -2635,6 +2651,10 @@ export class GuestStaysService {
       },
       // identityCaptured ahora considera foto OR número (foto preferida).
       identityCaptured: !!(stay.documentPhotoUrl || (stay.documentType && stay.documentNumber)),
+      // AUTO-CHECKIN §D-AC6 — recepción ve que el huésped hizo su pre-checkin +
+      // qué campos confirmó/corrigió (para mostrar el badge "pre-cargado").
+      precheckinSubmittedAt: stay.precheckinSubmittedAt?.toISOString() ?? null,
+      guestVerifiedFields: stay.guestVerifiedFields ?? [],
       paymentLogs: stay.paymentLogs.map((p) => ({
         id:        p.id,
         method:    p.method,

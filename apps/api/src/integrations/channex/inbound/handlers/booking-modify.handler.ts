@@ -119,6 +119,7 @@ export class BookingModifyHandler {
         actualCheckout: true,
         checkinAt: true,
         scheduledCheckout: true,
+        guestVerifiedFields: true, // §D-AC6 — precedencia pre-checkin sobre OTA
       },
     })
 
@@ -186,6 +187,20 @@ export class BookingModifyHandler {
       channexConflict: false,
     })
 
+    // AUTO-CHECKIN §D-AC6 — precedencia: si el huésped corrigió un dato en su
+    // pre-check-in (`guestVerifiedFields`), el modify de la OTA NO lo pisa (la
+    // OTA puede tener el dato viejo, p.ej. el huésped cambió de teléfono). Se
+    // construye un patch que omite SOLO los campos guest-verified.
+    const verified = existing.guestVerifiedFields ?? []
+    const guestPatch = {
+      ...(verified.includes('guestFirstName') || verified.includes('guestLastName')
+        ? {}
+        : { guestName: desired.guestName }),
+      ...(verified.includes('guestEmail') ? {} : { guestEmail: desired.guestEmail }),
+      ...(verified.includes('guestPhone') ? {} : { guestPhone: desired.guestPhone }),
+      ...(verified.includes('nationality') ? {} : { nationality: desired.nationality }),
+    }
+
     // 6. Checked-in path → SAFE FIELDS ONLY
     if (existing.actualCheckin) {
       const datesChanged =
@@ -196,10 +211,7 @@ export class BookingModifyHandler {
       await this.prisma.guestStay.update({
         where: { id: existing.id },
         data: {
-          guestName: desired.guestName,
-          guestEmail: desired.guestEmail,
-          guestPhone: desired.guestPhone,
-          nationality: desired.nationality,
+          ...guestPatch, // guest-verified fields excluidos (§D-AC6)
           notes: desired.notes,
           channexLastSyncAt: incomingTs ?? new Date(),
           channexOtaName: desired.channexOtaName,
@@ -269,10 +281,7 @@ export class BookingModifyHandler {
     await this.prisma.guestStay.update({
       where: { id: existing.id },
       data: {
-        guestName: desired.guestName,
-        guestEmail: desired.guestEmail,
-        guestPhone: desired.guestPhone,
-        nationality: desired.nationality,
+        ...guestPatch, // guest-verified fields excluidos (§D-AC6)
         paxCount: desired.paxCount,
         checkinAt: desired.checkinAt,
         scheduledCheckout: desired.scheduledCheckout,

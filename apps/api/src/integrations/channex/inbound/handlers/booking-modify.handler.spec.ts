@@ -204,6 +204,32 @@ describe('BookingModifyHandler', () => {
     )
   })
 
+  it('AUTO-CHECKIN §D-AC6: el modify NO pisa campos guest-verified (pre-checkin gana)', async () => {
+    // El huésped corrigió su teléfono y email en el pre-checkin → la OTA tiene
+    // el dato viejo; el modify de Channex no debe sobrescribirlos.
+    prisma.guestStay.findUnique.mockResolvedValue(
+      makeExistingStay({
+        actualCheckin: new Date('2026-06-01T22:00:00Z'),
+        guestVerifiedFields: ['guestPhone', 'guestEmail'],
+      }),
+    )
+    prisma.property.findUnique.mockResolvedValue({
+      id: 'prop-1',
+      organizationId: 'org-1',
+      settings: { timezone: 'America/Cancun' },
+    })
+
+    await handler.handle(makeRevision())
+
+    const update = prisma.guestStay.update.mock.calls[0][0]
+    // guest-verified → excluidos del patch
+    expect(update.data).not.toHaveProperty('guestPhone')
+    expect(update.data).not.toHaveProperty('guestEmail')
+    // no-verificados → sí se actualizan
+    expect(update.data.guestName).toBe('Maria Garcia')
+    expect(update.data).toHaveProperty('nationality')
+  })
+
   it('ARRIVING + date change con conflict → channexConflict=true + review notif', async () => {
     prisma.guestStay.findUnique.mockResolvedValueOnce(makeExistingStay())
     prisma.property.findUnique.mockResolvedValue({

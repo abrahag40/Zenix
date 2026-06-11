@@ -11,9 +11,10 @@ import { NotificationsModule } from '../../notifications/notifications.module'
 import { ChannexModule } from '../../integrations/channex/channex.module'
 import { NotificationCenterModule } from '../../notification-center/notification-center.module'
 import { AssignmentModule } from '../../assignment/assignment.module'
+import { UploadsModule } from '../../uploads/uploads.module'
 
 @Module({
-  imports: [StayJourneysModule, NotificationsModule, ChannexModule, NotificationCenterModule, AssignmentModule],
+  imports: [StayJourneysModule, NotificationsModule, ChannexModule, NotificationCenterModule, AssignmentModule, UploadsModule],
   controllers: [GuestStaysController],
   providers: [
     GuestStaysService,

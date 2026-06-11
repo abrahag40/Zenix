@@ -56,6 +56,7 @@ import { AssignmentModule } from './assignment/assignment.module'
 import { StaffPreferencesModule } from './staff-preferences/staff-preferences.module'
 import { FeatureFlagsModule } from './feature-flags/feature-flags.module'
 import { UploadsModule } from './uploads/uploads.module'
+import { PrecheckinModule } from './precheckin/precheckin.module'
 import { BillingModule } from './billing/billing.module'
 import { TenantContextMiddleware } from './common/tenant-context.middleware'
 import { TenantContextService } from './common/tenant-context.service'
@@ -128,6 +129,7 @@ import { PropertyScopeGuard } from './common/guards/property-scope.guard'
     // Server-side feature toggles (testing envs + future feature flags)
     FeatureFlagsModule,
     UploadsModule, // Mx-1B-W2 — image upload + static serve (foundation for Mx-1C)
+    PrecheckinModule, // AUTO-CHECKIN — pre-arrival identity capture (Fase 1)
     BillingModule, // Sprint BILLING-CORE (v1.1.0) — Stripe subscription billing + discount codes + retention + dunning
   ],
   providers: [

@@ -50,8 +50,11 @@ const UPLOAD_ROOT = join(process.cwd(), 'uploads')
 const MAX_LONG_EDGE_PX = 1920
 const JPEG_QUALITY = 85
 
-export type UploadScope = 'maintenance' | 'readiness' | 'avatar'
-const VALID_SCOPES: ReadonlySet<UploadScope> = new Set(['maintenance', 'readiness', 'avatar'])
+// 'precheckin' (AUTO-CHECKIN 2026-06-11) — foto de ID que el huésped sube en la
+// mini web-app pre-arrival. ⚠️ PII sensible (pasaporte): su retrieval es
+// AUTH-GATED (staff-only), NUNCA se sirve por el GET público de uploads.
+export type UploadScope = 'maintenance' | 'readiness' | 'avatar' | 'precheckin'
+const VALID_SCOPES: ReadonlySet<UploadScope> = new Set(['maintenance', 'readiness', 'avatar', 'precheckin'])
 
 export interface UploadedFileResult {
   /** UUID que sirve también como nombre de archivo en disco. */
@@ -78,7 +81,7 @@ export class UploadsService {
    * Sprint Mx-1B-W2 audit T-25 it.4: el path base64 es la ruta confiable para
    * clientes RN; multipart se queda como fallback compatible con curl/web.
    */
-  async processBase64(base64Data: string, scopeRaw: string): Promise<UploadedFileResult> {
+  async processBase64(base64Data: string, scopeRaw: string, orgIdOverride?: string): Promise<UploadedFileResult> {
     this.logger.log(
       `[upload] processBase64: scope=${scopeRaw} base64Length=${base64Data.length} ` +
         `first16=${base64Data.slice(0, 16)}`,
@@ -107,14 +110,14 @@ export class UploadsService {
       originalname: 'photo.jpg',
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any
-    return this.processImage(synthetic, scopeRaw)
+    return this.processImage(synthetic, scopeRaw, orgIdOverride)
   }
 
   /**
    * Procesa un buffer en memoria proveniente de Multer y lo persiste como JPEG
    * optimizado. Lanza BadRequestException si el archivo no es imagen válida.
    */
-  async processImage(file: Express.Multer.File, scopeRaw: string): Promise<UploadedFileResult> {
+  async processImage(file: Express.Multer.File, scopeRaw: string, orgIdOverride?: string): Promise<UploadedFileResult> {
     if (!file) throw new BadRequestException('Archivo requerido')
     if (!file.buffer || file.size === 0) throw new BadRequestException('Archivo vacío')
     this.logger.log(
@@ -123,7 +126,10 @@ export class UploadsService {
     )
 
     const scope = this.validateScope(scopeRaw)
-    const organizationId = this.tenant.getOrganizationId()
+    // AUTO-CHECKIN: el upload público del huésped (pre-checkin) NO tiene
+    // TenantContext (request token-gated, sin JWT). El caller resuelve el orgId
+    // desde el token de la reserva y lo pasa explícito. Sin override → tenant.
+    const organizationId = orgIdOverride ?? this.tenant.getOrganizationId()
 
     // Sharp valida internamente que el buffer sea imagen real (magic bytes).
     // `failOn: 'truncated'` (no 'error') tolera imágenes con metadata warnings
@@ -218,5 +224,53 @@ export class UploadsService {
   /** Path root absoluto — usado por el ServeStaticModule. */
   static rootDir(): string {
     return UPLOAD_ROOT
+  }
+
+  /**
+   * Parsea un public URL `/api/uploads/{org}/{scope}/{file}` → path absoluto
+   * seguro en disco, o null si no es un upload válido. Mismas guardas de
+   * path-traversal que el serve público.
+   */
+  private resolveStoredPath(publicUrl: string): string | null {
+    const m = /^\/api\/uploads\/([^/]+)\/([^/]+)\/([^/]+)$/.exec(publicUrl || '')
+    if (!m) return null
+    const [, org, scope, file] = m
+    for (const seg of [org, scope, file]) {
+      if (!/^[a-zA-Z0-9._-]+$/.test(seg) || seg.includes('..') || seg.includes('\0')) return null
+    }
+    if (!file.endsWith('.jpg')) return null
+    const target = join(UPLOAD_ROOT, org, scope, file)
+    if (!target.startsWith(UPLOAD_ROOT)) return null
+    return target
+  }
+
+  /**
+   * AUTO-CHECKIN §D-AC4 — lee una foto almacenada y la devuelve como data-URI.
+   * Lo usa `getCheckinContext` (auth-gated) para mostrar la foto del huésped a
+   * recepción SIN exponer el archivo por el GET público. Si el `documentPhotoUrl`
+   * ya es un data-URI (foto capturada en recepción), el caller la usa tal cual.
+   * Devuelve null si el archivo no existe o el URL no es un upload.
+   */
+  async readAsDataUri(publicUrl: string): Promise<string | null> {
+    const target = this.resolveStoredPath(publicUrl)
+    if (!target) return null
+    try {
+      const buf = await fs.readFile(target)
+      return `data:image/jpeg;base64,${buf.toString('base64')}`
+    } catch {
+      return null
+    }
+  }
+
+  /** Borra un archivo almacenado por su public URL (retención §D-AC4). */
+  async deleteByUrl(publicUrl: string): Promise<boolean> {
+    const target = this.resolveStoredPath(publicUrl)
+    if (!target) return false
+    try {
+      await fs.unlink(target)
+      return true
+    } catch {
+      return false
+    }
   }
 }
