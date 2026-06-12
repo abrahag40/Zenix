@@ -54,6 +54,18 @@ export class WizardHealthService {
 
   async checkChannex(dto: HealthCheckChannexDto): Promise<HealthCheckResponse> {
     const start = Date.now()
+    // v0.1.0: sin CHANNEX_API_KEY el Channel Manager (OTAs) queda inactivo — eso
+    // NO es un error que bloquee la activación, es un warning overridable (el
+    // cliente activa el PMS ahora y conecta Channex en v0.2.0). Patrón de Stripe.
+    if (!process.env.CHANNEX_API_KEY) {
+      return {
+        status: 'warning',
+        message:
+          'CHANNEX_API_KEY no configurado — el Channel Manager (OTAs) queda inactivo. El cliente puede activar el PMS ahora; se conecta Channex después (v0.2.0).',
+        latencyMs: 0,
+        detail: { configured: false },
+      }
+    }
     try {
       const properties = await this.channex.listProperties()
       const latencyMs = Date.now() - start

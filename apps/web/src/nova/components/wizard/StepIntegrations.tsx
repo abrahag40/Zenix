@@ -121,7 +121,7 @@ async function runCheckReal(
       status: res.status as CheckStatus,
       message: res.message,
       latencyMs: res.latencyMs,
-      allowOverride: id === 'pac' && res.status === 'warning',
+      allowOverride: res.status === 'warning', // cualquier integración no configurada (Channex/PAC/etc.) es overridable
     }
   } catch (err) {
     const message =
@@ -141,7 +141,7 @@ async function runCheckReal(
 export function StepIntegrations() {
   const state = useWizardStore()
   const [checks, setChecks] = useState<HealthCheck[]>(INITIAL_CHECKS)
-  const [pacOverride, setPacOverride] = useState(false)
+  const [override, setOverride] = useState(false)
 
   const ctx = {
     pacAdapter: state.legalEntityPacAdapter,
@@ -166,8 +166,11 @@ export function StepIntegrations() {
   const allTested = checks.every((c) => c.status !== 'idle' && c.status !== 'running')
   const allPassed = checks.every((c) => c.status === 'success')
   const hasError = checks.some((c) => c.status === 'error')
-  const pacWarning = checks.find((c) => c.id === 'pac' && c.status === 'warning')
-  const canProceed = allTested && !hasError && (allPassed || (pacWarning && pacOverride))
+  // Warnings = integraciones no configuradas (Channex/PAC/etc.) — overridables.
+  // El cliente activa el PMS ahora y conecta esas integraciones en versiones futuras.
+  const warnings = checks.filter((c) => c.status === 'warning')
+  const hasWarnings = warnings.length > 0
+  const canProceed = allTested && !hasError && (allPassed || (hasWarnings && override))
 
   // expone a la WizardLayout via nextDisabled
   // (validation también pasa por canCompleteStep que dice ok=true, pero acá
@@ -178,7 +181,7 @@ export function StepIntegrations() {
       title="Integraciones — health checks"
       description="Verificamos en vivo que las 4 integraciones críticas funcionen con las credenciales del cliente. Cualquier error bloquea activación. El PAC sandbox warning permite activar con confirm explícito (típico cuando el cliente aún no contrata PAC)."
       nextDisabled={!canProceed}
-      nextLabel={allPassed ? 'Siguiente' : pacWarning && pacOverride ? 'Continuar sin facturación electrónica' : 'Re-ejecutar verificaciones'}
+      nextLabel={allPassed ? 'Siguiente' : hasWarnings && override ? 'Activar con integraciones pendientes' : 'Re-ejecutar verificaciones'}
     >
       <div className="space-y-4">
         {/* Run all button */}
@@ -218,8 +221,8 @@ export function StepIntegrations() {
           ))}
         </Surface>
 
-        {/* PAC override */}
-        {pacWarning && (
+        {/* Override de integraciones no configuradas (warnings) */}
+        {hasWarnings && (
           <Surface variant="raised" radius="lg" padding="lg" tone="warning">
             <div className="flex items-start gap-3">
               <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-amber-100 text-amber-700 flex-shrink-0">
@@ -227,28 +230,31 @@ export function StepIntegrations() {
               </div>
               <div className="flex-1 min-w-0">
                 <Subhead className="font-semibold text-slate-900">
-                  Activar sin facturación electrónica
+                  Activar con integraciones pendientes
                 </Subhead>
                 <Caption tone="secondary" className="block mt-1 leading-relaxed">
-                  El cliente puede operar Zenix sin emitir facturas (CFDI) al inicio. Las
-                  reservas que requieran factura quedarán <strong>en espera</strong> hasta que
-                  el cliente contrate un proveedor de facturación electrónica y configure las
-                  credenciales en su workspace.{' '}
-                  <span className="font-semibold">Recomendación:</span> contratar el servicio
-                  dentro de los primeros 30 días para evitar acumular folios pendientes.
+                  Estas integraciones no están configuradas y quedarán{' '}
+                  <strong>inactivas</strong>:{' '}
+                  <strong>{warnings.map((w) => w.label).join(' · ')}</strong>. El cliente puede
+                  operar el PMS desde ya (calendario, recepción, check-in, housekeeping,
+                  reportes). Cada integración se conecta después sin re-activar: el Channel
+                  Manager (OTAs) en una versión próxima y la facturación electrónica (CFDI)
+                  cuando el cliente contrate su proveedor.{' '}
+                  <span className="font-semibold">Recomendación:</span> conectar facturación
+                  dentro de los primeros 30 días para no acumular folios pendientes.
                 </Caption>
 
                 <label className="mt-3 flex items-start gap-2 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={pacOverride}
-                    onChange={(e) => setPacOverride(e.target.checked)}
+                    checked={override}
+                    onChange={(e) => setOverride(e.target.checked)}
                     className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500/30"
                   />
                   <Caption tone="secondary" className="text-[12px] text-slate-900">
-                    Acepto activar a {state.organizationName || 'el cliente'} sin facturación
-                    electrónica configurada. El cliente entiende que no podrá emitir CFDI hasta
-                    que contrate y configure su proveedor (Facturama o SW Sapien).
+                    Acepto activar a {state.organizationName || 'el cliente'} con esas
+                    integraciones pendientes. El cliente entiende que esas funciones quedan
+                    inactivas hasta configurarlas en su workspace.
                   </Caption>
                 </label>
               </div>
