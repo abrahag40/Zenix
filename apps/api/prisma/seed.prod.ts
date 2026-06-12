@@ -39,10 +39,14 @@ const BASE_RATE = parseInt(process.env.BASE_RATE ?? '1200', 10)
 // Ejemplos: America/Cancun (QRoo), America/Mexico_City (centro), America/Bogota, America/Lima.
 const TIMEZONE = process.env.TIMEZONE ?? 'America/Cancun'
 
-// ids estables → idempotencia
-const ORG_ID = 'org-prod-1'
-const LEGAL_ID = 'legal-prod-1'
-const PROP_ID = 'prop-prod-1'
+// ids estables derivados del slug del hotel → soporta MÚLTIPLES hoteles en la
+// misma instancia (multi-tenant). Cada hotel = un slug único (HOTEL_SLUG o
+// derivado del nombre). Re-correr con el mismo slug = idempotente (no duplica);
+// con slug distinto = crea OTRO hotel sin tocar los existentes.
+const HOTEL_SLUG = (process.env.HOTEL_SLUG ?? slugify(HOTEL_NAME))
+const ORG_ID = `org-${HOTEL_SLUG}`
+const LEGAL_ID = `legal-${HOTEL_SLUG}`
+const PROP_ID = `prop-${HOTEL_SLUG}`
 
 async function main() {
   console.log(`🌱 Onboarding PROD: "${HOTEL_NAME}" (${CITY}, ${COUNTRY}) · ${CURRENCY} · ${ROOM_COUNT} habitaciones`)
