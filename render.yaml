@@ -20,6 +20,14 @@ services:
     buildCommand: npm ci --include=dev && npm run build -w @zenix/shared && npx prisma generate --schema apps/api/prisma/schema.prisma && npm run build -w @zenix/api && npx prisma migrate deploy --schema apps/api/prisma/schema.prisma
     startCommand: npm run start:prod -w @zenix/api
     healthCheckPath: /api/health
+    # No rebuildear la API en cambios que no la afectan (docs, web, mobile, seeds).
+    buildFilter:
+      ignoredPaths:
+        - "**/*.md"
+        - "docs/**"
+        - "apps/web/**"
+        - "apps/mobile/**"
+        - "apps/api/prisma/seed*.ts"
     envVars:
       - key: NODE_ENV
         value: production
