@@ -70,9 +70,16 @@ export function BookingPage() {
   const [submitting, setSubmitting] = useState(false)
   const [formErr, setFormErr] = useState<string | null>(null)
   const [confirmation, setConfirmation] = useState<ReservationResp | null>(null)
-  const idemKey = useMemo(() => crypto.randomUUID(), [selected])
+  // El idempotency key se renueva al cambiar de habitación o al iniciar una
+  // reserva nueva (flowNonce) — así una segunda reserva no replica la primera.
+  const [flowNonce, setFlowNonce] = useState(0)
+  const idemKey = useMemo(() => crypto.randomUUID(), [selected, flowNonce])
 
   const primary = info?.branding.primaryColor || '#0f766e'
+
+  function resetFlow() {
+    setConfirmation(null); setSelected(null); setStep('search'); setFlowNonce((n) => n + 1)
+  }
 
   useEffect(() => {
     api.get<PropertyInfo>(`/v1/public/properties/${slug}`)
@@ -80,7 +87,30 @@ export function BookingPage() {
       .catch((e) => setLoadErr(e instanceof ApiError && e.status === 404 ? 'Esta página de reservas no existe o está desactivada.' : 'No se pudo cargar el hotel.'))
   }, [slug])
 
+  // SEO — la hosted page es indexable (reservas directas = tráfico orgánico).
+  // Meta + Open Graph + schema.org Hotel inyectados al cargar el hotel.
+  useEffect(() => {
+    if (!info) return
+    const desc = info.heroSubtitle || `Reserva directa en ${info.name}${info.city ? `, ${info.city}` : ''}. Sin comisiones.`
+    document.title = `Reservar — ${info.name}`
+    upsertMeta('name', 'description', desc)
+    upsertMeta('property', 'og:title', info.name)
+    upsertMeta('property', 'og:description', desc)
+    upsertMeta('property', 'og:type', 'website')
+    if (info.branding.logoUrl) upsertMeta('property', 'og:image', info.branding.logoUrl)
+    upsertJsonLd({
+      '@context': 'https://schema.org',
+      '@type': 'Hotel',
+      name: info.name,
+      ...(info.city ? { address: { '@type': 'PostalAddress', addressLocality: info.city } } : {}),
+      url: typeof window !== 'undefined' ? window.location.href : undefined,
+      priceRange: info.currency,
+    })
+  }, [info])
+
   async function search() {
+    setFormErr(null)
+    if (new Date(checkOut) <= new Date(checkIn)) { setFormErr('La salida debe ser posterior a la llegada.'); return }
     setSearching(true); setAvail(null)
     try {
       const r = await api.get<AvailResp>(`/v1/public/properties/${slug}/availability?checkIn=${checkIn}&checkOut=${checkOut}&adults=${adults}&children=${children}`)
@@ -138,6 +168,7 @@ export function BookingPage() {
           <button onClick={search} disabled={searching} className="btn-primary mt-4 w-full" style={{ background: primary }}>
             {searching ? 'Buscando…' : 'Buscar disponibilidad'}
           </button>
+          {step === 'search' && formErr && <p className="mt-2 text-center text-sm text-rose-600">{formErr}</p>}
         </section>
 
         {/* ── Resultados ── */}
@@ -207,6 +238,7 @@ export function BookingPage() {
               ))}
               <div className="mt-2 flex justify-between font-semibold"><span>Total (en recepción)</span><span>{money(confirmation.totalAmount, confirmation.currency)}</span></div>
             </div>
+            <button onClick={resetFlow} className="btn-ghost mt-4 w-full">Hacer otra reserva</button>
           </div>
         </div>
       )}
@@ -228,6 +260,21 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function Centered({ children }: { children: React.ReactNode }) {
   return <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6 text-center">{children}</div>
 }
+/** Crea o actualiza un <meta> por name/property (SEO + Open Graph). */
+function upsertMeta(attr: 'name' | 'property', key: string, content: string) {
+  if (typeof document === 'undefined') return
+  let el = document.head.querySelector<HTMLMetaElement>(`meta[${attr}="${key}"]`)
+  if (!el) { el = document.createElement('meta'); el.setAttribute(attr, key); document.head.appendChild(el) }
+  el.setAttribute('content', content)
+}
+/** Inyecta/actualiza el bloque JSON-LD schema.org Hotel. */
+function upsertJsonLd(data: Record<string, unknown>) {
+  if (typeof document === 'undefined') return
+  let el = document.getElementById('zenix-booking-jsonld')
+  if (!el) { el = document.createElement('script'); el.id = 'zenix-booking-jsonld'; (el as HTMLScriptElement).type = 'application/ld+json'; document.head.appendChild(el) }
+  el.textContent = JSON.stringify(data)
+}
+
 /** Oscurece un hex ~18% para el gradiente del hero. */
 function shade(hex: string) {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex); if (!m) return hex

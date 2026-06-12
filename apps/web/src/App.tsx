@@ -11,7 +11,9 @@ import { PacStatusBanner } from './components/PacStatusBanner'
 import { LoginPage } from './pages/LoginPage'
 import { SetupPage } from './pages/SetupPage'
 import { PrecheckinPage } from './pages/PrecheckinPage'
-import { BookingPage } from './booking/BookingPage'
+// BOOKING-ENGINE B5 — lazy (code-split): el huésped sólo descarga este chunk,
+// no el bundle del PMS. Ruta pública sin shell de staff.
+const BookingPage = lazy(() => import('./booking/BookingPage').then((m) => ({ default: m.BookingPage })))
 import { OnboardingCardCapture } from './pages/OnboardingCardCapture'
 import { GlobalMaintenanceDrawer } from './components/GlobalMaintenanceDrawer'
 import { useNotificationAlerts } from './hooks/useNotificationAlerts'
