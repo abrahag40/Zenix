@@ -887,10 +887,167 @@ model Property {
   metricsForwardSnapshots MetricsForwardSnapshot[]
   competitors             Competitor[]
   localEventOverrides     LocalEventOverride[]
+  // ── Sprint BOOKING-ENGINE B0/B2/B3 (2026-06-11) — "Zenix Booking" direct engine
+  bookingEngineConfig     BookingEngineConfig?
+  bookingApiKeys          BookingApiKey[]
+  webhookSubscriptions    WebhookSubscription[]
 
   @@index([organizationId])
   @@index([legalEntityId])
   @@map("properties")
+}
+
+// ─── BOOKING-ENGINE B0 (2026-06-11) — "Zenix Booking" direct booking engine ──
+// Config 1:1 con Property que habilita la página pública de reservas directas
+// `book.zenix.com/{slug}` + la API pública (source='DIRECT_WEB', cero comisión
+// OTA). Configurada consultor-led desde el Wizard Step 5.5 (ver
+// docs/sprints/BOOKING-ENGINE-wizard-integration.md) o Settings post-onboarding.
+//
+// SECUENCIA OPCIÓN B (decisión owner 2026-06-11): Fase 1 arranca PAY_AT_HOTEL-
+// only. `paymentPolicy` existe en el schema con los 4 valores, pero hasta que
+// PAY-CORE (v1.0.1) aterrice el ÚNICO valor operativo es PAY_AT_HOTEL — los
+// demás se exponen deshabilitados en la UI ("próximamente"). El prepago se
+// enchufa después sin reescribir el flujo de reserva.
+model BookingEngineConfig {
+  id         String  @id @default(uuid())
+  propertyId String  @unique @map("property_id")
+  // Identificador público en la URL: book.zenix.com/{slug}. Único global.
+  // Derivado del nombre de la property al crear (slugify), editable en wizard.
+  slug       String  @unique
+  // Master switch. Hasta que el consultor publica, la página pública responde 404.
+  enabled    Boolean @default(false)
+
+  // ── Política de pago ──────────────────────────────────────────────────────
+  // FULL_PREPAY | DEPOSIT_30 | DEPOSIT_50 | PAY_AT_HOTEL.
+  // Opción B: locked a PAY_AT_HOTEL en Fase 1 (los demás requieren PAY-CORE).
+  paymentPolicy  String @default("PAY_AT_HOTEL") @map("payment_policy")
+  // TTL del hold de inventario para una reserva sin confirmar (minutos). El
+  // scheduler libera la noche si la reserva no se confirma/cobra a tiempo.
+  // Default 24h — alineado con voucher OXXO/SPEI (24-72h) cuando llegue prepago.
+  holdTtlMinutes Int    @default(1440) @map("hold_ttl_minutes")
+
+  // ── Branding (consultor lo llena en wizard Step 5.5) ─────────────────────
+  logoUrl      String? @map("logo_url")
+  primaryColor String? @map("primary_color") // hex, ej. "#0f766e"
+  accentColor  String? @map("accent_color")
+  fontFamily   String? @map("font_family")
+
+  // ── Copy & políticas ──────────────────────────────────────────────────────
+  heroTitle    String? @map("hero_title")
+  heroSubtitle String? @map("hero_subtitle")
+  termsUrl     String? @map("terms_url")
+  // Hook a la política de cancelación (GROUP-BILLING Fase C). String suelto
+  // (patrón "espiral" §95) para evitar migration cuando se formalice el FK.
+  cancellationPolicyId String? @map("cancellation_policy_id")
+
+  // ── Display ───────────────────────────────────────────────────────────────
+  defaultLanguage String  @default("es-MX") @map("default_language")
+  displayCurrency String? @map("display_currency") // fallback a LegalEntity.baseCurrency
+
+  // ── Marketplace Tier 2 (§6 del plan) — opt-in comisión 3-5% ──────────────
+  marketplaceListingEnabled Boolean @default(false) @map("marketplace_listing_enabled")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  publishedAt DateTime? @map("published_at")
+
+  property Property @relation(fields: [propertyId], references: [id])
+
+  @@index([slug], map: "idx_booking_engine_config_slug")
+  @@map("booking_engine_config")
+}
+
+// ─── BOOKING-ENGINE B2 (2026-06-11) — API key pública (Tier 3 + write auth) ──
+// Autentica los POST de reservas desde websites externos. Patrón Stripe restricted
+// key: la llave completa es `pk_{env}_{keyId(16hex)}{secret(32hex)}`. Persistimos
+// `keyId` plano (lookup O(1)) + `keyHash` = bcrypt(secret) (el secreto NUNCA se
+// guarda en claro; el plaintext sólo existe en el momento de generarla). CORS
+// dinámico: cada llave declara `allowedOrigins[]` — origen no listado → 403.
+model BookingApiKey {
+  id          String   @id @default(uuid())
+  propertyId  String   @map("property_id")
+  environment String   @default("live") // 'live' | 'test'
+  keyId       String   @unique @map("key_id") // 16 hex — lookup público
+  keyHash     String   @map("key_hash") // bcrypt(secret)
+  keyPrefix   String   @map("key_prefix") // display: "pk_live_a1b2c3…"
+  label       String
+  // Dominios autorizados a llamar con esta llave (CORS). Vacío = sin restricción
+  // de origen (uso server-to-server donde no hay header Origin).
+  allowedOrigins String[] @default([]) @map("allowed_origins")
+  active      Boolean  @default(true)
+  lastUsedAt  DateTime? @map("last_used_at")
+  revokedAt   DateTime? @map("revoked_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  property Property @relation(fields: [propertyId], references: [id])
+
+  @@index([propertyId], map: "idx_booking_api_key_property")
+  @@map("booking_api_keys")
+}
+
+// ─── BOOKING-ENGINE B2 — idempotencia de POST /reservations ──────────────────
+// El cliente manda `Idempotency-Key` (UUID) por reserva. Si reintenta (doble
+// click, retry de red) con la MISMA key → devolvemos la respuesta cacheada en
+// vez de crear una reserva duplicada. `requestHash` detecta reuso de la misma
+// key con body distinto → 409 (contrato Stripe).
+model BookingIdempotencyRecord {
+  id             String   @id @default(uuid())
+  apiKeyId       String   @map("api_key_id")
+  idempotencyKey String   @map("idempotency_key")
+  requestHash    String   @map("request_hash") // sha256(body)
+  responseJson   Json     @map("response_json")
+  statusCode     Int      @map("status_code")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([apiKeyId, idempotencyKey], map: "uniq_booking_idempotency")
+  @@map("booking_idempotency_records")
+}
+
+// ─── BOOKING-ENGINE B3 (2026-06-11) — webhooks outbound ──────────────────────
+// El website del hotel se suscribe a eventos (`reservation.created`,
+// `availability.changed`, …). Zenix le hace POST firmado (HMAC SHA256) cuando
+// ocurren → el sitio mantiene su calendario en sync sin polling. Patrón idéntico
+// al outbound de Channex (§144): cola + backoff + dead-letter.
+model WebhookSubscription {
+  id           String   @id @default(uuid())
+  propertyId   String   @map("property_id")
+  url          String
+  // Eventos suscritos: 'reservation.created' | 'availability.changed' | ...
+  events       String[]
+  secret       String // HMAC signing key (el cliente verifica X-Zenix-Signature)
+  active       Boolean  @default(true)
+  failureCount Int      @default(0) @map("failure_count")
+  lastDeliveryAt DateTime? @map("last_delivery_at")
+  disabledAt   DateTime? @map("disabled_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  property  Property          @relation(fields: [propertyId], references: [id])
+  deliveries WebhookDelivery[]
+
+  @@index([propertyId], map: "idx_webhook_sub_property")
+  @@map("webhook_subscriptions")
+}
+
+// Una entrega individual. Append-only-ish: status avanza PENDING → DELIVERED |
+// FAILED → (retry) → DELIVERED | DEAD_LETTER. Forense + retry state.
+model WebhookDelivery {
+  id             String   @id @default(uuid())
+  subscriptionId String   @map("subscription_id")
+  event          String
+  payload        Json
+  status         String   @default("PENDING") // PENDING | DELIVERED | FAILED | DEAD_LETTER
+  attempts       Int      @default(0)
+  nextAttemptAt  DateTime? @map("next_attempt_at")
+  lastError      String?  @map("last_error")
+  statusCode     Int?     @map("status_code")
+  createdAt      DateTime @default(now()) @map("created_at")
+  deliveredAt    DateTime? @map("delivered_at")
+
+  subscription WebhookSubscription @relation(fields: [subscriptionId], references: [id])
+
+  @@index([status, nextAttemptAt], map: "idx_webhook_delivery_retry")
+  @@index([subscriptionId], map: "idx_webhook_delivery_sub")
+  @@map("webhook_deliveries")
 }
 
 // ─── CHANNEX-AUTO-PROVISION Day 2 — OTA channel connections ───────────────

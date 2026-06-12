@@ -18,6 +18,9 @@ const ROOM_EVENT_TYPES = new Set<SseEventType>([
   'channex:stay:modified',
   'channex:stay:cancelled',
   'channex:stay:conflict',
+  // BOOKING-ENGINE B2 — reserva directa (DIRECT_WEB) creada desde un website
+  // externo vía Zenix Booking. Refresca el calendario al instante (§124).
+  'booking:created',
   // Block lifecycle events — keep calendar and all modules in sync
   'block:created',
   'block:approved',

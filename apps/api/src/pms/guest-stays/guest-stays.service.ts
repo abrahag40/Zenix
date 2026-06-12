@@ -73,6 +73,7 @@ const SOURCE_CHAR: Record<string, string> = {
   sembo:       'S',
   channex:     'C',
   direct:      'D',
+  direct_web:  'W', // BOOKING-ENGINE — reserva directa vía Zenix Booking (website)
 }
 
 /** Returns the local date string (YYYY-MM-DD) for a given UTC date in the specified IANA timezone. */

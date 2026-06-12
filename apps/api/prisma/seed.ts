@@ -156,6 +156,27 @@ async function main() {
   })
   console.log(`✅ Properties: ${tulum.name}, ${cancun.name} (ambos bajo LegalEntity MX)`)
 
+  // 3b. BOOKING ENGINE CONFIG — "Zenix Booking" B0 (2026-06-11) ──────────────
+  // Habilita book.zenix.com/hotel-tulum para el cliente piloto. Opción B:
+  // paymentPolicy = PAY_AT_HOTEL (prepago se enchufa post-PAY-CORE).
+  await prisma.bookingEngineConfig.upsert({
+    where: { propertyId: tulum.id },
+    update: { slug: 'hotel-tulum', enabled: true },
+    create: {
+      propertyId: tulum.id,
+      slug: 'hotel-tulum',
+      enabled: true,
+      paymentPolicy: 'PAY_AT_HOTEL',
+      heroTitle: 'Hotel Tulum',
+      heroSubtitle: 'Reserva directa, sin comisiones. Pagas al llegar.',
+      primaryColor: '#0f766e',
+      defaultLanguage: 'es-MX',
+      displayCurrency: 'MXN',
+      publishedAt: new Date(),
+    },
+  })
+  console.log(`✅ Booking Engine: book.zenix.com/hotel-tulum (PAY_AT_HOTEL, enabled)`)
+
   // 3. ROOM TYPES ───────────────────────────────────────────────────────────
 
   async function upsertRoomType(args: {

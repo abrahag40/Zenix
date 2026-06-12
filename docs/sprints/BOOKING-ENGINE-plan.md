@@ -1,9 +1,18 @@
-# Sprint BOOKING-ENGINE — Plan + Estudio de Mercado
+# Sprint BOOKING-ENGINE ("Zenix Booking") — Plan + Estudio de Mercado
 
-> **Status:** RESEARCH ✓ · Plan técnico aprobado · Implementación pendiente de scheduling
+> **Status (2026-06-11):** RESEARCH ✓ · Plan técnico aprobado · **Decisiones de arranque tomadas con owner** · Implementación lista para iniciar (v1.1.0).
 > **Sprint owner:** ZaharDev consulting + Zenix product
-> **Estimado Fase 1 (API + Hosted UI):** 5-6 semanas
+> **Estimado Fase 1 (API + Hosted UI, modo PAY_AT_HOTEL):** 5-6 semanas
 > **Justificación negocio:** habilitar a Zenix para conectarse a cualquier sitio web en tiempo real (3 tiers de integración) — diferencial LATAM vs Cloudbeds/Mews
+>
+> ### Decisiones de arranque (2026-06-11, con owner) — resuelven §8
+> | # | Decisión | Resolución |
+> |---|----------|-----------|
+> | **Naming** (§8.1) | Nombre comercial del feature | **"Zenix Booking"** — alinea con nomenclatura interna ZBA/ZBP/ZBW. Módulo backend `public-booking`, app `apps/booking-page/`. |
+> | **Secuencia A/B** (CLAUDE.md) | ¿PAY-CORE antes o booking engine primero? | **Opción B** — Fase 1 arranca en **`PAY_AT_HOTEL`-only**, CERO dependencia Stripe/PAY-CORE. Captura reservas directas (`source='DIRECT_WEB'`) desde ya; el prepago online se enchufa cuando PAY-CORE (v1.0.1) aterrice, sin reescritura. Justificación: desacopla releases + entrega valor antes + el insight nuclear (reserva directa sin comisión OTA) no requiere prepago para existir. |
+> | **Channex** (§8.3) | ¿Cerrar CHANNEX-INBOUND antes? | **YA RESUELTO** — CHANNEX-INBOUND cerrado + CHANNEX-CANCEL-FIX mergeado (PR #75). Direct + OTA conviven hoy. No es bloqueante. |
+>
+> **Ver el work plan re-secuenciado para Opción B en la [§5-B](#5b-plan-de-implementación--opción-b-pay_at_hotel-first).** El §5 original (prepago integrado en Fase 1) queda como referencia del end-state v1.1.1+.
 
 ---
 
@@ -396,6 +405,73 @@ Si Fase 1 muestra demanda de WordPress específicamente:
 
 ---
 
+## 5-B. Plan de implementación — OPCIÓN B (PAY_AT_HOTEL-first)
+
+> **Re-secuenciado 2026-06-11 tras decisión owner.** El §5 de arriba asume prepago integrado en Fase 1 (depende de PAY-CORE). Esta versión **B** desacopla el prepago: Fase 1 entrega el motor completo + hosted UI capturando reservas con **pago en recepción**, cero dependencia Stripe. El prepago llega como capa enchufable post-PAY-CORE. **Este es el orden de trabajo vigente.**
+
+### Principio de diseño que hace B posible
+
+El checkout se construye desde el día 1 con un campo `paymentPolicy` (`FULL_PREPAY | DEPOSIT_30 | DEPOSIT_50 | PAY_AT_HOTEL`). En Fase 1 el **único valor habilitado es `PAY_AT_HOTEL`**; los demás existen en el schema/UI pero aparecen deshabilitados con copy "Disponible próximamente". Cuando PAY-CORE aterriza, se habilitan sin tocar el flujo de reserva — solo se enchufa el `PaymentProvider` en el step de pago. Patrón "feature flag por capacidad", no rama de código.
+
+### Tabla de seguimiento — Fase 1-B (5-6 semanas)
+
+| Etapa | Alcance | Días-dev | Dependencia | Estado |
+|-------|---------|----------|-------------|--------|
+| **B0 — Foundation** | `source='DIRECT_WEB'` (string, sin migration de enum, schema.prisma:1545) + `BookingEngineConfig` model (slug + branding + `paymentPolicy=PAY_AT_HOTEL`) + property slug system (`packages/shared/booking-slug.ts`) + seed Hotel Tulum | 2-3 | — | ✅ **hecho** (2026-06-11) |
+| **B1 — API pública READ** | Módulo `apps/api/src/public-booking/` · `GET /v1/public/properties/:slug[/availability\|/rates\|/room-types]` · `@Public()` + `Cache-Control: max-age=30` · delega §35 · filtro capacidad · **verificado e2e** (200 vs hotel-tulum). ⚠️ Follow-ups: throttle per-IP (falta `@nestjs/throttler`) + CORS abierto en prod para `/api/v1/public/*` (hoy restringido por ALLOWED_ORIGINS) | 4-5 | B0 | ✅ **hecho** (2026-06-11) · 2 follow-ups |
+| **B2 — API pública WRITE (PAY_AT_HOTEL)** | `BookingApiKey` (pk_live/pk_test, bcrypt, allowedOrigins CORS) + `ApiKeyGuard` · idempotencia `BookingIdempotencyRecord` · `POST /v1/public/reservations` con `rooms[]` (multi-tipo/multi-fecha/grupo) + `AvailabilityService.check` (§35, atómico) → `GuestStay{source:'DIRECT_WEB', HOTEL_COLLECT}` + Journey + Segment + `ReservationGroup` si N>1 · `GET /reservations/:ref` status · SSE `booking:created` (§124). **Verificado e2e** (single + grupo + idempotencia + capacidad 400 + 401). ⚠️ `DELETE`/cancel → B2.1 (requiere wire del cancellation engine Fase C) | 5-6 | B1 | ✅ **hecho** (2026-06-11) |
+| **B3 — Webhooks + feed de disponibilidad** | `WebhookSubscription` + `WebhookDelivery` · `WebhookDispatcher` (HMAC `X-Zenix-Signature`, retry expo 1s/5s/30s/5m/30m, dead-letter + notif supervisor) · listener reusa `channex.availability.changed` (§141) + `booking.*` · eventos `reservation.created` + `availability.changed` · **`GET /availability-calendar`** (feed advisory per-noche para que el website pinte fechas sin cupo en gris). **Verificado e2e** (HMAC válido + retry FAILED + calendario). ⚠️ `reservation.cancelled` → follow-up (cubierto hoy por `availability.changed`) | 3-4 | B2 | ✅ **hecho** (2026-06-11) |
+| **B4 — Panel consultor (Nova)** | **OPCIONAL** — `BookingEngineManagementController` `/v1/nova/booking-engine` (Nova-scoped + IDOR check §191): list + **toggle on/off** + upsert config + generate/revoke API key + create/toggle webhook. UI `NovaBookingEnginePage` (sidebar "Zenix Booking"). **Verificado e2e EN NAVEGADOR**: render en Nova shell, toggle Cancún INACTIVO→ACTIVO (config creada al vuelo), detalle URL+policy, "Generar llave" → plaintext una vez, sección webhooks. Sin errores de consola. Pendiente: Step 5.5 del wizard + preview live + branding form | 5-6 | B0-B3 | ✅ **hecho** (2026-06-11) |
+| *Follow-up B1/B2* | **`@nestjs/throttler`** instalado + `ThrottlerGuard` 60/min per-IP en el controller público — **verificado e2e** (60×200 → 429) | — | — | ✅ **hecho** |
+| **B5 — Hosted page `book.zenix.com/{slug}`** | `BookingPage` en `apps/web/src/booking/` ruta pública `/book/:slug` (patrón PrecheckinPage — sin shell PMS, en `PUBLIC_ROUTE_PREFIXES`). Endpoint **first-party slug-scoped sin API key** `POST /properties/:slug/reservations` (rate-limited, patrón Cloudbeds). Flujo single-page mobile-first search→results→checkout→confirmation · branding del config (color/hero) vía API · banner PAY_AT_HOTEL · maneja 409. **Verificado e2e EN NAVEGADOR**: reserva real Cabaña → `MX-W-000-2606-0001` DIRECT_WEB/HOTEL_COLLECT/PENDING en BD; bug email-vacío encontrado+corregido. **Detalles cerrados:** SEO (title/description/Open Graph + JSON-LD schema.org Hotel inyectados client-side, verificados) + code-split lazy (el huésped no descarga el bundle PMS) + guard de fechas + "Hacer otra reserva" (reset idempotency). Sin errores consola. ⚠️ B5.1 (infra-coupled, diferido): extracción a `apps/booking-page/` standalone + SSR (cuando se provisione `book.zenix.com`) + i18n. Payment = Fase P (post-PAY-CORE) | 8-10 | B1-B2 | ✅ **hecho** (2026-06-11, SEO ✅, sin SSR) |
+| **B6 — OpenAPI docs + sandbox** | `@nestjs/swagger` + plugin introspección DTOs · doc scoped a `PublicBookingModule` (controller Nova excluido con `@ApiExcludeController`) · **Swagger UI en `/api/docs`** + spec `/api/docs-json` (8 paths, security `X-API-Key`, summaries) · guía [docs/booking-engine-integration.md](../booking-engine-integration.md) "integra en 5 min" (curl/JS + tabla de errores 409/400/403/401 + HMAC) · sandbox = keys `pk_test_`. **Verificado e2e EN NAVEGADOR** (Swagger UI renderiza, Nova no se filtra, DTOs introspectados). ⚠️ Caveat dev: `deleteOutDir:false` → un `nest start` sobre dist stale no re-aplica el plugin; build limpio sí | 3 | B1-B3 | ✅ **hecho** (2026-06-11) |
+| **B7 — QA + piloto** | **Suite automatizada 11/11 verde** (`booking-api-key.service.spec` 5 + `public-reservations.service.spec` 6): genera/verifica API key (bcrypt, revoke scoped), **aislamiento multi-tenant** (roomTypeId de otro hotel → 404), hotel-por-slug, capacidad 400, no-disponible 409, idempotencia replay/conflict, slug apagado 404. + validación e2e navegador (hosted page completa + panel + Swagger). Security: throttler per-IP + bcrypt keys + CORS allowedOrigins + HMAC webhooks + idempotencia + tenant isolation + IDOR check Nova. ⚠️ **Ops/piloto (no-código):** load test 500 concurrent + test en 3 sitios reales | 5 | todo | ✅ **código hecho** (2026-06-11) · ops pendiente |
+
+**Total Fase 1-B:** ~32-42 días-dev = ~6-8 semanas calendar (1 dev secuencial). Sin bloqueo PAY-CORE.
+
+### Capa de prepago (post-PAY-CORE, v1.1.1+) — se enchufa, no se reescribe
+
+| Etapa | Alcance | Depende |
+|-------|---------|---------|
+| **P1 — PaymentProvider en checkout** | Habilitar `FULL_PREPAY/DEPOSIT_*` en el step de pago del Hosted UI · Stripe Elements + Mercado Pago SDK + OXXO voucher (diferencial LATAM) | PAY-CORE v1.0.1 |
+| **P2 — Stripe Connect split + CommissionLog** | Marketplace Tier 2 (§6): split guest→hotel 97% / Zenix 3% · `CommissionLog` model · attribution matrix por UTM | P1 + COMMISSION-MODEL |
+
+### Qué desbloquea cada etapa (valor incremental)
+
+- **Tras B2:** un hotel ya recibe reservas directas vía API (pago en recepción) → mide `source='DIRECT_WEB'` en reports → ahorro de comisión OTA empieza.
+- **Tras B5:** cualquier hotel pega `<a href="book.zenix.com/{slug}">Reservar</a>` en su sitio → **producto vendible end-to-end sin una línea de Stripe**.
+- **Tras P1:** el huésped prepaga online → reduce no-shows + captura el segmento que exige pago al reservar.
+
+### Riesgo específico de B (pago en recepción) + mitigación
+
+| Riesgo | Mitigación |
+|--------|-----------|
+| No-show sin garantía de tarjeta (no hay prepago) | `cancellationPolicy` engine (Fase C GROUP-BILLING, **ya en main**) aplica retención documentada + `hold TTL` auto-libera inventario si la reserva no se confirma · el night audit ya marca no-shows (§13) |
+| Hotel espera prepago y B no lo da | Copy explícito en wizard + hosted UI: "Fase 1 captura la reserva; el cobro online llega con PAY-CORE". El `paymentPolicy` deshabilitado comunica el roadmap sin prometer de más (§4 honestidad técnica) |
+
+### Bug hunt pre-merge (2026-06-11) — hallazgos y fixes
+
+Auditoría doble (seguridad + correctitud) antes del merge. Corregido + verificado (13/13 tests + e2e):
+
+| # | Hallazgo | Severidad | Fix |
+|---|----------|-----------|-----|
+| 1 | Race de overbooking — availability check fuera de tx, sin lock | 🔴 Crítico | `pg_advisory_xact_lock('booking:'+propertyId)` + re-check DENTRO de `$transaction` (patrón `guest-stays.create` BUG #9) |
+| 2 | Idempotencia no-atómica (record post-commit best-effort) → dup bajo concurrencia | 🟠 Alto | record insertado dentro de la tx bajo lock; P2002 → 409 |
+| 3 | CORS prod bloquea `/api/v1/public/*` cross-origin → motor inservible para websites externos | 🔴 Crítico | middleware CORS abierto para el prefijo público (READ público + WRITE con X-API-Key, sin cookies) |
+| 4 | Webhook dead-letter emitía SSE `booking:created` fantasma | 🟠 Alto | removido; estado DEAD_LETTER + failureCount persistidos |
+| 5 | SSRF vía URL de webhook (169.254/localhost/RFC1918) | 🟡 Medio | `assertSafeWebhookUrl` rechaza hosts internos |
+| 6 | `from`/`to` del calendar aceptaban basura silenciosa | 🟡 Medio | validación → 400 |
+| 7 | Total de reserva rotulaba moneda inconsistente | 🟡 Medio | `currency` del response = tarifa real |
+| 8 | System staff password determinista | 🟢 Bajo | `randomBytes(32)` |
+
+**Diferidos (documentados, no bloquean piloto single-instance):**
+- Aislamiento test/live keys (comparten DB) — sandbox compartido por diseño Fase 1 (el integration guide ya lo dice).
+- `FOR UPDATE SKIP LOCKED` en `WebhookRetryScheduler` — solo relevante multi-instance (el plan ya prevé Redis-backed para multi-pod, §143 pattern).
+- `trust proxy` para que el rate-limit per-IP funcione detrás del LB (Render/Vercel) — verificar en deploy.
+- Queries de disponibilidad O(rooms×días) — mitigado por cache 30-60s; agregado batcheado si escala.
+
+---
+
 ## 6. Modelo de monetización — DUAL TIER
 
 Sprint extiende su scope para incluir monetización del booking engine. Modelo **diferente a Cloudbeds/Mews** (que son 100% SaaS sin comisión), híbrido entre PMS y low-cost OTA marketplace.
@@ -505,15 +581,16 @@ referralSource    String?  // capturado al crear via booking engine
 
 ## 8. Decisiones pendientes antes de iniciar
 
-| # | Decisión | Quién decide |
-|---|----------|--------------|
-| 1 | **Naming comercial:** "Zenix Direct" / "Zenix Connect" / "Zenix Booking" | Producto |
-| 2 | **Pricing del feature** — incluido en PMS o addon | Negocio |
-| 3 | **Dependencia CHANNEX-INBOUND** — ¿cerrar ese sprint antes para que direct + OTA convivan limpio? (recomendado: SÍ) | Técnica |
-| 4 | **Subdomain DNS** — `book.zenix.com` o `reservations.zenix.com` o `{property-slug}.book.zenix.com` (white-label friendly) | Producto |
-| 5 | **SSR vs SPA puro** para Hosted UI — SSR mejor SEO pero más complejidad de deploy. Recomendación: Vite SSR mínimo, NextJS si necesidad crece | Técnica |
-| 6 | **Sandbox** — ¿permitir que ANY developer cree sandbox key o solo customers Zenix pagados? | Negocio |
-| 7 | **Open source el widget** (Fase 2) — estrategia hype + adopción, GitHub stars como marketing | Estratégica |
+| # | Decisión | Quién decide | Estado |
+|---|----------|--------------|--------|
+| 1 | **Naming comercial:** "Zenix Direct" / "Zenix Connect" / "Zenix Booking" | Producto | ✅ **"Zenix Booking"** (2026-06-11) |
+| 2 | **Pricing del feature** — incluido en PMS o addon | Negocio | ⏳ Tier 1 incluido en plan PMS ($0 comisión); Tier 2 Marketplace opt-in 3-5% (§6). Confirmar al cerrar Fase 1. |
+| 3 | **Dependencia CHANNEX-INBOUND** — ¿cerrar antes? | Técnica | ✅ **Resuelto** — CHANNEX-INBOUND + CANCEL-FIX ya en main (PR #75). No bloquea. |
+| — | **Secuencia A/B** (PAY-CORE antes vs booking engine primero) | Owner | ✅ **Opción B** (2026-06-11) — Fase 1 PAY_AT_HOTEL-only, prepago se enchufa post-PAY-CORE. Ver §5-B. |
+| 4 | **Subdomain DNS** — `book.zenix.com` vs `{slug}.book.zenix.com` (white-label) | Producto | ⏳ Recomendación: `book.zenix.com/{slug}` ahora + wildcard `*.book.zenix.com` reservado para white-label futuro. Decidir en B5. |
+| 5 | **SSR vs SPA puro** para Hosted UI | Técnica | ⏳ Recomendación: Vite SSR mínimo en B5; NextJS solo si SEO lo exige. |
+| 6 | **Sandbox** — ¿any developer o solo customers pagados? | Negocio | ⏳ Decidir en B6. |
+| 7 | **Open source el widget** (Fase 2) | Estratégica | ⏳ Diferido a Fase 2. |
 
 ---
 

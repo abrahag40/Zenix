@@ -55,6 +55,7 @@ const ALL_SSE_TYPES: SseEventType[] = [
   'channex:stay:cancelled', 'channex:stay:conflict',
   'channex:group:created', 'channex:group:modified', 'channex:group:cancelled',
   'channex:drift-detected',
+  'booking:created',
   'maintenance:reported', 'discrepancy:reported',
   'room:ready', 'checkout:confirmed', 'checkin:completed', 'room:moved',
   'block:created', 'block:approved', 'block:rejected',

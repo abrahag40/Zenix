@@ -44,9 +44,15 @@ describe('BookingSameDayListener', () => {
     prismaMock.unit.findMany.mockResolvedValue([{ id: 'unit-A1' }])
   })
 
-  /** Crea un ISO date string que es HOY 14:00 en Cancún tz (UTC-5). */
+  /** Crea un ISO date string que es HOY 14:00 en Cancún tz (UTC-5).
+   *  Fix flake CI 2026-06-11: la fecha debe calcularse en la TZ de Cancún, NO en
+   *  UTC. Con `new Date().toISOString()` (UTC), en la ventana 00:00–05:00 UTC la
+   *  fecha UTC va un día por delante de la de Cancún → el listener (timezone-aware)
+   *  veía el check-in en "mañana" y skippeaba → el test fallaba sólo en esa franja. */
   const todayCheckInCancun = (): string => {
-    const today = new Date().toISOString().slice(0, 10)
+    const today = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Cancun', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date())
     return `${today}T19:00:00.000Z` // 19:00 UTC = 14:00 Cancún (CST UTC-5)
   }
 

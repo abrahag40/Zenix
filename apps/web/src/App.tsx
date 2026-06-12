@@ -11,6 +11,9 @@ import { PacStatusBanner } from './components/PacStatusBanner'
 import { LoginPage } from './pages/LoginPage'
 import { SetupPage } from './pages/SetupPage'
 import { PrecheckinPage } from './pages/PrecheckinPage'
+// BOOKING-ENGINE B5 — lazy (code-split): el huésped sólo descarga este chunk,
+// no el bundle del PMS. Ruta pública sin shell de staff.
+const BookingPage = lazy(() => import('./booking/BookingPage').then((m) => ({ default: m.BookingPage })))
 import { OnboardingCardCapture } from './pages/OnboardingCardCapture'
 import { GlobalMaintenanceDrawer } from './components/GlobalMaintenanceDrawer'
 import { useNotificationAlerts } from './hooks/useNotificationAlerts'
@@ -41,6 +44,7 @@ const NovaWizardPage = lazy(() => import('./nova/pages/NovaWizardPage').then(m =
 const NovaBillingPage = lazy(() => import('./nova/pages/NovaBillingPage').then(m => ({ default: m.NovaBillingPage })))
 const NovaBillingCodesPage = lazy(() => import('./nova/pages/NovaBillingCodesPage').then(m => ({ default: m.NovaBillingCodesPage })))
 const NovaBillingChannexPage = lazy(() => import('./nova/pages/NovaBillingChannexPage').then(m => ({ default: m.NovaBillingChannexPage })))
+const NovaBookingEnginePage = lazy(() => import('./nova/pages/NovaBookingEnginePage').then(m => ({ default: m.NovaBookingEnginePage })))
 const NovaBillingApprovalsPage = lazy(() => import('./nova/pages/NovaBillingApprovalsPage').then(m => ({ default: m.NovaBillingApprovalsPage })))
 const NovaBillingClientPage = lazy(() => import('./nova/pages/NovaBillingClientPage').then(m => ({ default: m.NovaBillingClientPage })))
 
@@ -103,7 +107,7 @@ function NotificationAlertsMount() {
 // notificaciones). Un huésped abriendo /precheckin en su móvil recibía un stream
 // de notificaciones de staff (y, en un navegador con token de staff persistido,
 // el SSE autenticado quedaba abierto). Gateamos por prefijo de ruta.
-const PUBLIC_ROUTE_PREFIXES = ['/login', '/setup', '/precheckin', '/onboarding']
+const PUBLIC_ROUTE_PREFIXES = ['/login', '/setup', '/precheckin', '/onboarding', '/book']
 function ConditionalAlertsMount() {
   const { pathname } = useLocation()
   const isPublic = PUBLIC_ROUTE_PREFIXES.some((p) => pathname.startsWith(p))
@@ -123,6 +127,8 @@ export default function App() {
           <Route path="/setup/:token" element={<SetupPage />} />
           {/* AUTO-CHECKIN — mini web-app pública del huésped (pre-arrival) */}
           <Route path="/precheckin/:token" element={<PrecheckinPage />} />
+          {/* BOOKING-ENGINE B5 — hosted page pública del huésped (book.zenix.com/{slug}) */}
+          <Route path="/book/:slug" element={<BookingPage />} />
           {/* Netflix-style trial — card capture post-password (Day 2) */}
           <Route path="/onboarding/card" element={<OnboardingCardCapture />} />
           <Route path="/dashboard"       element={<ProtectedLayout><DashboardPage /></ProtectedLayout>} />
@@ -152,6 +158,7 @@ export default function App() {
           {/* Placeholders Days 10-15 — todos abren el NovaShell empty con el
               page-title. Cada uno se reemplaza por su page real al avanzar. */}
           <Route path="/nova/channex"    element={<NovaChannexPage />} />
+          <Route path="/nova/booking-engine" element={<NovaBookingEnginePage />} />
           <Route path="/nova/wizard"     element={<NovaWizardPage />} />
           <Route path="/nova/billing"          element={<NovaBillingPage />} />
           <Route path="/nova/billing/codigos"      element={<NovaBillingCodesPage />} />

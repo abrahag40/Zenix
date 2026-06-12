@@ -3,6 +3,7 @@ import { APP_GUARD } from '@nestjs/core'
 import { ConfigModule } from '@nestjs/config'
 import { EventEmitterModule } from '@nestjs/event-emitter'
 import { ScheduleModule } from '@nestjs/schedule'
+import { ThrottlerModule } from '@nestjs/throttler'
 import { ClsModule, ClsMiddleware } from 'nestjs-cls'
 import configuration from './config/configuration'
 import { PrismaModule } from './prisma/prisma.module'
@@ -58,6 +59,7 @@ import { FeatureFlagsModule } from './feature-flags/feature-flags.module'
 import { UploadsModule } from './uploads/uploads.module'
 import { PrecheckinModule } from './precheckin/precheckin.module'
 import { BillingModule } from './billing/billing.module'
+import { PublicBookingModule } from './public-booking/public-booking.module'
 import { TenantContextMiddleware } from './common/tenant-context.middleware'
 import { TenantContextService } from './common/tenant-context.service'
 import { TenantGuard } from './common/guards/tenant.guard'
@@ -83,6 +85,10 @@ import { PropertyScopeGuard } from './common/guards/property-scope.guard'
       delimiter: '.',
     }),
     ScheduleModule.forRoot(),
+    // BOOKING-ENGINE — rate-limit per-IP de la API pública (R1 DDoS/scraping).
+    // Config global; el ThrottlerGuard se aplica SOLO en PublicBookingController
+    // (no global, para no limitar los endpoints autenticados del PMS).
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 60 }]),
     PrismaModule,
     AuditModule, // Sprint AUDIT-CORE — global, expone AuditOutboxService
     AuthModule,
@@ -131,6 +137,7 @@ import { PropertyScopeGuard } from './common/guards/property-scope.guard'
     UploadsModule, // Mx-1B-W2 — image upload + static serve (foundation for Mx-1C)
     PrecheckinModule, // AUTO-CHECKIN — pre-arrival identity capture (Fase 1)
     BillingModule, // Sprint BILLING-CORE (v1.1.0) — Stripe subscription billing + discount codes + retention + dunning
+    PublicBookingModule, // BOOKING-ENGINE B1 (v1.1.0) — "Zenix Booking" API pública headless (READ)
   ],
   providers: [
     TenantContextService,
