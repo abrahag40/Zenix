@@ -1471,6 +1471,43 @@ Verificado: lo planeado para CHECK-IN C2/C3 ya se entregó en el sprint GROUP-BI
 
 ---
 
+## 🚀 Deploy a producción — MVP v0.1.0 (EN CURSO, branch `chore/deploy-prep`)
+
+> **Objetivo:** primer despliegue low-cost (free tier) del PMS de **control operativo interno**. Decisión owner 2026-06-12: lanzar **v0.1.0 SIN Channex, SIN Stripe/billing, SIN CFDI, SIN booking engine** (puro staff-facing). El **Booking Engine entra en v0.2.0** como extra vendible (reservas directas sin comisión, operadas desde Zenix, **independiente de Channex**). Migración al "deber ser" (AWS + pagos + facturación + Channex) cuando haya capital (hoy reservado para la cert Channex). Checklist completo: [docs/ops/deploy-checklist-v1.0.0.md](docs/ops/deploy-checklist-v1.0.0.md).
+
+**Stack $0 (Fase 1 §73, free tier):** Vercel Hobby (web) + Render Free (API) + Neon Free (Postgres). Storage R2 diferido (fotos = data-URI hoy).
+
+**Cuentas (verificadas en navegador 2026-06-12):** Vercel Hobby ✓ · Neon Free ✓ (proyecto `zenix-prod` creado por owner) · Render: cuenta creada, **falta crear el Web Service**.
+
+**⚠️ Trampa free tier:** Render duerme la API tras ~15min sin tráfico → los crons (night audit no-shows 2am) NO corren dormido. Mitigación: pinger externo gratis (cron-job.org/UptimeRobot) a `/api/health` cada 10min. Endpoint ya creado.
+
+**Fixes de deploy ya aplicados (branch `chore/deploy-prep`):**
+- `start` script → `dist/apps/api/src/main` (antes `dist/main` inexistente → crasheaba). Verificado build+start.
+- `.env.example` completo (KEK, ALLOWED_ORIGINS, BANXICO, NOVA_BASE_URL, RESEND_BILLING_FROM).
+- `/api/health` endpoint (Public, sin DB) — Render health-check + keep-alive. Verificado 200.
+- `render.yaml` (blueprint API free tier: build monorepo shared→api + `prisma migrate deploy` en preDeploy + `start:prod` + healthCheckPath `/api/health`; secrets `sync:false`).
+- `apps/web/vercel.json` (Vite SPA + rewrites all→index para rutas cliente).
+- App bootea **fail-soft sin Channex/Stripe/KEK** (verificado) → v0.1.0 corre con `DATABASE_URL` + `JWT_SECRET` + básicos.
+
+**Env mínimo v0.1.0 (Render):** `DATABASE_URL` (Neon, `?sslmode=require`), `JWT_SECRET` (openssl rand -base64 32), `JWT_EXPIRES_IN=24h`, `NODE_ENV=production`, `ALLOWED_ORIGINS` (URL Vercel), `APP_BASE_URL`, `NOVA_BASE_URL`. Opcionales (vacío=feature off): RESEND_*, BANXICO_TOKEN, GOOGLE_PLACES_API_KEY, EXPO_ACCESS_TOKEN. **NO setear** Channex/Stripe/KEK/sandbox en v0.1.0.
+
+**Checklist de pasos — estatus:**
+1. [x] 🤖 Fixes de código (start, health, env.example, blueprints) — branch `chore/deploy-prep`.
+2. [ ] 🤖 Mergear `chore/deploy-prep` → `main` (Render lee `render.yaml` desde main).
+3. [x] 👤 Crear proyecto Neon `zenix-prod` + cuenta Render.
+4. [ ] 👤 Neon: copiar `DATABASE_URL` (pooled, `?sslmode=require`).
+5. [ ] 👤+🤖 Render: crear Web Service (Blueprint `render.yaml`) conectando el repo GitHub.
+6. [ ] 👤 Render: pegar secrets (env mínimo). 🤖 genera valores aleatorios; **owner pega** (Claude NO pega secrets).
+7. [ ] 🤖 `prisma migrate deploy` (Render preDeploy lo corre) + verificar `migrate status`.
+8. [ ] Onboarding del hotel real: vía Wizard Nova **o** `seed.prod.ts` mínimo (1 org + legal entity + hotel + ORG_OWNER + rooms). **NO** correr el `seed.ts` de dev (crea demo Tulum). 🤖 escribe el seed.prod cuando el owner dé los datos del hotel.
+9. [ ] 👤+🤖 Vercel: importar `apps/web`, setear `VITE_API_URL` (URL Render) + actualizar `ALLOWED_ORIGINS`.
+10. [ ] 🤖 Smoke tests prod (health, login ORG_OWNER, crear reserva, SSE) + configurar pinger.
+11. [ ] 👤 Acuerdo escrito con el hotel: pago en recepción (sin prepago) + factura manual (sin CFDI).
+
+**Reglas de seguridad del deploy:** Claude NO crea cuentas, NO pega secrets en dashboards, NO concede OAuth — eso es del owner. Claude SÍ: código/config/scripts/comandos/verificación + generar valores aleatorios para que el owner los pegue.
+
+---
+
 ## Patterns & Conventions
 
 ### API (NestJS)
