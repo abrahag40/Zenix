@@ -1491,17 +1491,19 @@ Verificado: lo planeado para CHECK-IN C2/C3 ya se entregó en el sprint GROUP-BI
 
 **Env mínimo v0.1.0 (Render):** `DATABASE_URL` (Neon, `?sslmode=require`), `JWT_SECRET` (openssl rand -base64 32), `JWT_EXPIRES_IN=24h`, `NODE_ENV=production`, `ALLOWED_ORIGINS` (URL Vercel), `APP_BASE_URL`, `NOVA_BASE_URL`. Opcionales (vacío=feature off): RESEND_*, BANXICO_TOKEN, GOOGLE_PLACES_API_KEY, EXPO_ACCESS_TOKEN. **NO setear** Channex/Stripe/KEK/sandbox en v0.1.0.
 
-**Checklist de pasos — estatus:**
-1. [x] 🤖 Fixes de código (start, health, env.example, blueprints) — branch `chore/deploy-prep`.
-2. [ ] 🤖 Mergear `chore/deploy-prep` → `main` (Render lee `render.yaml` desde main).
-3. [x] 👤 Crear proyecto Neon `zenix-prod` + cuenta Render.
-4. [ ] 👤 Neon: copiar `DATABASE_URL` (pooled, `?sslmode=require`).
-5. [ ] 👤+🤖 Render: crear Web Service (Blueprint `render.yaml`) conectando el repo GitHub.
-6. [ ] 👤 Render: pegar secrets (env mínimo). 🤖 genera valores aleatorios; **owner pega** (Claude NO pega secrets).
-7. [ ] 🤖 `prisma migrate deploy` (Render preDeploy lo corre) + verificar `migrate status`.
-8. [ ] Onboarding del hotel real: vía Wizard Nova **o** `seed.prod.ts` mínimo (1 org + legal entity + hotel + ORG_OWNER + rooms). **NO** correr el `seed.ts` de dev (crea demo Tulum). 🤖 escribe el seed.prod cuando el owner dé los datos del hotel.
-9. [ ] 👤+🤖 Vercel: importar `apps/web`, setear `VITE_API_URL` (URL Render) + actualizar `ALLOWED_ORIGINS`.
-10. [ ] 🤖 Smoke tests prod (health, login ORG_OWNER, crear reserva, SSE) + configurar pinger.
+**🔗 URLs producción:** API = **`https://zenix-api.onrender.com`** (LIVE ✓) · Web (Vercel) = pendiente · Neon project = `tiny-night-07343327` / db `neondb`. Render Blueprint ID `exs-d8m3r3jbc2fs73ej3lk0` · service `srv-d8m49b3eo5us7397im50`.
+
+**Checklist de pasos — estatus (actualizado 2026-06-12):**
+1. [x] 🤖 Fixes de código (start, health, env.example, blueprints).
+2. [x] 🤖 Mergeado a `main` (PR #105 + fixes deploy `941d51e`).
+3. [x] 👤 Neon project + cuenta Render + GitHub conectado a Render.
+4. [x] 👤 `DATABASE_URL` pegado en Render.
+5. [x] 👤+🤖 Render Web Service `zenix-api` creado vía Blueprint.
+6. [x] 👤 Secrets pegados (DATABASE_URL + JWT_SECRET).
+7. [x] 🤖 **API LIVE** — `prisma migrate deploy` aplicó migraciones en Neon (verificado: /api/health 200, /api/docs 200, public 404=BD ok). Fix aplicado: `npm ci --include=dev` (devDeps para nest-cli) + Node 20.
+8. [ ] **AQUÍ:** Onboarding del hotel real (BD prod vacía). Vía Wizard Nova **o** `seed.prod.ts` mínimo. **NO** correr `seed.ts` dev. 🤖 escribe el seed.prod cuando owner dé datos del hotel; o creamos un user de prueba para validar login.
+9. [ ] 👤+🤖 Vercel: importar `apps/web` (conectar GitHub a Vercel), setear `VITE_API_URL=https://zenix-api.onrender.com`. Luego actualizar `ALLOWED_ORIGINS`/`APP_BASE_URL`/`NOVA_BASE_URL` en Render con la URL Vercel.
+10. [ ] 🤖 Smoke tests prod completos (login ORG_OWNER, crear reserva, SSE) + configurar pinger (cron-job.org → /api/health cada 10min).
 11. [ ] 👤 Acuerdo escrito con el hotel: pago en recepción (sin prepago) + factura manual (sin CFDI).
 
 **Reglas de seguridad del deploy:** Claude NO crea cuentas, NO pega secrets en dashboards, NO concede OAuth — eso es del owner. Claude SÍ: código/config/scripts/comandos/verificación + generar valores aleatorios para que el owner los pegue.
