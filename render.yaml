@@ -12,10 +12,11 @@ services:
     plan: free
     region: virginia # cerca de Neon (AWS us-east-1)
     branch: main
-    # Monorepo npm workspaces: instala todo, compila shared → api.
-    buildCommand: npm ci && npm run build -w @zenix/shared && npx prisma generate --schema apps/api/prisma/schema.prisma && npm run build -w @zenix/api
-    # Migraciones ANTES de levantar la nueva versión (Render preDeploy).
-    preDeployCommand: npx prisma migrate deploy --schema apps/api/prisma/schema.prisma
+    # Monorepo npm workspaces: instala todo, compila shared → api, y corre las
+    # migraciones. NOTA: el free tier NO soporta preDeployCommand, así que el
+    # `prisma migrate deploy` va al final del build (idempotente — sólo aplica
+    # migraciones pendientes; si falla, el build falla y NO se despliega versión rota).
+    buildCommand: npm ci && npm run build -w @zenix/shared && npx prisma generate --schema apps/api/prisma/schema.prisma && npm run build -w @zenix/api && npx prisma migrate deploy --schema apps/api/prisma/schema.prisma
     startCommand: npm run start:prod -w @zenix/api
     healthCheckPath: /api/health
     envVars:
