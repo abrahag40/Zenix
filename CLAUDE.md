@@ -1493,29 +1493,100 @@ Verificado: lo planeado para CHECK-IN C2/C3 ya se entregó en el sprint GROUP-BI
 
 **🔗 URLs producción:** API = **`https://zenix-api.onrender.com`** (LIVE ✓) · Web (Vercel) = **`https://zenix-web-silk.vercel.app`** (LIVE ✓, proyecto `zenix-web`) · Neon project = `tiny-night-07343327` / db `neondb`. Render Blueprint ID `exs-d8m3r3jbc2fs73ej3lk0` · service `srv-d8m49b3eo5us7397im50`. `ALLOWED_ORIGINS` en Render = URL Vercel (CORS). `VITE_API_URL` en Vercel = URL Render.
 
-**Checklist de pasos — estatus (actualizado 2026-06-12):**
-1. [x] 🤖 Fixes de código (start, health, env.example, blueprints).
-2. [x] 🤖 Mergeado a `main` (PR #105 + fixes deploy `941d51e`).
-3. [x] 👤 Neon project + cuenta Render + GitHub conectado a Render.
-4. [x] 👤 `DATABASE_URL` pegado en Render.
-5. [x] 👤+🤖 Render Web Service `zenix-api` creado vía Blueprint.
-6. [x] 👤 Secrets pegados (DATABASE_URL + JWT_SECRET).
-7. [x] 🤖 **API LIVE** — `prisma migrate deploy` aplicó migraciones en Neon (verificado: /api/health 200, /api/docs 200, public 404=BD ok). Fix aplicado: `npm ci --include=dev` (devDeps para nest-cli) + Node 20.
-8. [x] 🤖+👤 **Web (Vercel) LIVE** — proyecto `zenix-web` (root `apps/web`, Vite, `VITE_API_URL`→Render). `ALLOWED_ORIGINS`→URL Vercel seteado en Render (CORS). Web sirve 200 (`<title>Zenix</title>`).
-9. [ ] **AQUÍ:** Onboarding del hotel real (BD prod vacía → login aún sin usuario). Vía Wizard Nova **o** `seed.prod.ts` mínimo (owner corre `DATABASE_URL=<prod> npx ts-node prisma/seed.prod.ts`). **NO** correr `seed.ts` dev. 🤖 escribe el seed.prod cuando owner dé datos del hotel (nombre, ciudad, #/tipos de habitaciones, nombre+email dueño, moneda).
-10. [ ] 🤖 Smoke tests prod completos (login ORG_OWNER, crear reserva, SSE) + configurar pinger (cron-job.org → /api/health cada 10min para que no duerma + crons corran).
-11. [ ] 👤 Acuerdo escrito con el hotel: pago en recepción (sin prepago) + factura manual (sin CFDI).
-12. [x] 🤖 `buildFilter` en render.yaml (docs/web/mobile/seeds no rebuildean API). + `seed.prod.ts` crea `PropertySettings` (timezone, para schedulers).
+### Checklist COMPLETO de despliegue — alineado a estándares (actualizado 2026-06-12)
 
-**⚠️ Gaps NO considerados inicialmente (auditados 2026-06-12):**
-13. [ ] **Builds en el checklist** — API (Render) y Web (Vercel) **buildean automáticamente** en cada push a main (CI/CD implícito). ✅ ambos verificados. PERO no hay **staging** — un push malo a `main` auto-deploya a prod (riesgo; considerar branch `production` o cuidado con main).
-14. [ ] **Mobile app NO desplegada** — `apps/mobile` (Expo) requiere: EAS project (app.json `projectId` vacío) + `EXPO_PUBLIC_API_URL=https://zenix-api.onrender.com` + EAS Build (APK/IPA) + distribución a dispositivos del staff. Hoy los housekeepers usarían la **web responsive** en su teléfono. Hub Recamarista nativo + sync offline = NO usable aún.
-15. [ ] **Recuperación de contraseña** — sin Resend, "olvidé mi contraseña" no envía email → si el admin se bloquea, se recupera re-corriendo el seed o por acceso a BD. Riesgo operativo.
-16. [ ] **Monitoreo/errores** — sin Sentry/alertas. Si la API crashea, nadie se entera salvo viendo Render. 🤖 puede integrar Sentry.
-17. [ ] **Backups Neon** — confirmar retención del free tier + **probar un restore** (§76 dice "verificados").
-18. [ ] **Cold start UX** — free tier: 1er request tras dormir ~50s. El pinger (paso 10) lo mitiga. SSE (tiempo real del calendario) puede cortarse al dormir.
-19. [ ] **Wizard Nova / Booking Engine / Billing / Channex** — código DESPLEGADO pero INACTIVO en v0.1.0 (sin PLATFORM_ADMIN / sin config / sin keys). Por diseño. Booking engine → v0.2.0.
-20. [ ] **Legal** — términos/privacidad + LFPDPPP para datos reales de huéspedes (v1.0.1).
+> Lista única y completa de *production-readiness*, alineada a **The Twelve-Factor App** (12factor.net), **OWASP** (ASVS / Top 10), **Google SRE** (SLO/monitoreo/runbooks) y **Cloud Well-Architected** (5 pilares). **No es solo v0.1.0** — es la barra de un despliegue productivo completo; marca lo que YA está y lo que FALTA para llegar al "deber ser".
+> **Estado:** ✅ hecho/verificado · ⏳ pendiente (necesario) · ❌ falta · 🔵 diferido por diseño (con razón) · 👤 acción del owner · 🤖 acción de Claude.
+
+#### A. Build & Release — *12-Factor V (Build/Release/Run), X (Dev/Prod Parity); DORA*
+- [x] ✅ Build reproducible API (Render: `npm ci --include=dev` → nest build → migrate). Auto en push a `main`.
+- [x] ✅ Build reproducible Web (Vercel: Vite). Auto en push a `main`.
+- [x] ✅ Separación build → release → run (Render/Vercel nativo). Release = commit SHA inmutable.
+- [x] ✅ CI bloqueante antes de merge (GitHub Actions "Lint & Test").
+- [x] ✅ Versionado semántico + git tag (`v1.0.0`).
+- [ ] ❌ **Mobile build (EAS)** — `app.json projectId` vacío; sin build APK/IPA ni distribución.
+- [ ] ❌ **Entorno de staging** separado de prod (hoy push a `main` = deploy directo a prod; sin gate de pre-prod). Considerar branch `production` o entorno staging en Render/Vercel.
+- [ ] ⏳ **Rollback probado** — Render permite redeploy de commit anterior; migraciones SIN down-script → documentar plan de reversión por migración crítica.
+
+#### B. Configuración & Secrets — *12-Factor III (Config); OWASP ASVS V6 (Secrets)*
+- [x] ✅ Config 100% por env vars (nada hardcodeado).
+- [x] ✅ `.env.example` completo y al día.
+- [x] ✅ Secrets fuera del repo (dashboards Render/Vercel; `sync:false` en render.yaml).
+- [x] ✅ `JWT_SECRET` / `CHANNEX_CREDENTIALS_KEK` generados aleatorios (no reusados de dev).
+- [ ] ⏳ 👤 **Rotar las keys de Stripe** expuestas en chat durante validación (§199).
+- [ ] ⏳ Gestión de secrets / rotación periódica (hoy manual en dashboards; futuro: vault).
+
+#### C. Datos & Backing Services — *12-Factor IV; Well-Architected Reliability*
+- [x] ✅ DB gestionada attach-able (Neon Postgres, `?sslmode=require`).
+- [x] ✅ Migraciones versionadas + `prisma migrate deploy` automático en build.
+- [x] ✅ `seed.prod.ts` (onboarding SIN datos demo) — crea Org+LegalEntity+Property+**PropertySettings(timezone)**+RoomType+Rooms+admin **Staff SUPERVISOR** (no ORG_OWNER → entra al PMS, no a Nova). 👤 owner lo corre 1 vez.
+- [ ] ⏳ 👤 **Correr `seed.prod.ts` en prod** (BD vacía → sin usuario aún).
+- [ ] ⏳ **Backups automáticos verificados + restore PROBADO** (Neon free: confirmar retención).
+- [ ] ⏳ Connection pooling correcto (Neon pooled para runtime / direct para migraciones).
+- [ ] 🔵 Cold storage / partición de retención >365d — diferido v1.0.3 REPORTS-CORE.
+
+#### D. Runtime & Procesos — *12-Factor VI-IX (Stateless, Port, Concurrency, Disposability)*
+- [x] ✅ Proceso stateless + port binding (`process.env.PORT`).
+- [x] ✅ Health check liveness `/api/health` (Public, sin DB).
+- [ ] ⏳ Graceful shutdown (SIGTERM cierra conexiones DB/SSE) — verificar `enableShutdownHooks`.
+- [ ] ⏳ **Keep-alive pinger** (cron-job.org/UptimeRobot → `/api/health` cada 10min) — free tier no duerma + crons (night audit) corran.
+- [ ] 🔵 Concurrencia / escala horizontal — single instance free tier (SSE + crons asumen 1 pod; multi-pod requiere Redis + `SKIP LOCKED`, §143).
+
+#### E. Red, TLS, CORS, Dominios — *OWASP ASVS V9/V14; Well-Architected Security*
+- [x] ✅ HTTPS/TLS automático (Render + Vercel).
+- [x] ✅ CORS público abierto para `/api/v1/public/*` (booking engine cross-origin).
+- [x] ✅ CORS del PMS restringido a `ALLOWED_ORIGINS` (URL Vercel).
+- [ ] ❌ **Security headers** (HSTS, CSP, X-Frame-Options, X-Content-Type-Options) — agregar `helmet`.
+- [ ] ⏳ **Brute-force / rate-limit en `/auth/login`** (hoy throttler solo en API pública).
+- [ ] 🔵 Dominios propios (`app/api/nova/book.zenix.com`) — hoy `*.vercel.app` / `*.onrender.com` (OK para piloto).
+
+#### F. Seguridad de aplicación — *OWASP Top 10 / ASVS; ISO 27001*
+- [x] ✅ Auth JWT + bcrypt; multi-tenancy aislado (verificado); anti-overbook transaccional.
+- [x] ✅ Rate-limit API pública (throttler); webhook HMAC + anti-SSRF; secrets at-rest AES-256-GCM (KEK).
+- [ ] ⏳ **`npm audit`** — el build reportó 32 vulnerabilidades (5 high, 1 critical) → revisar/remediar.
+- [ ] ⏳ SSE token en URL (MT-9) — redacción en proxy pendiente.
+- [ ] ❌ Pen-test / security review formal (v1.0.1).
+- [ ] 🔵 2FA admin — futuro.
+
+#### G. Observabilidad — *12-Factor XI (Logs); Google SRE (SLI/SLO, monitoreo)*
+- [x] ✅ Logs como stream (stdout) capturados por Render/Vercel; sin secrets en logs (§192 audit-safe).
+- [ ] ❌ **Error tracking (Sentry)** — hoy si la API crashea nadie se entera salvo ver Render.
+- [ ] ❌ **Alertas** (caída, error spike, latencia).
+- [ ] ⏳ Uptime monitoring (vía el pinger + UptimeRobot).
+- [ ] ⏳ Métricas (latencia/error-rate/throughput) — Render da básicas; sin dashboard propio.
+- [ ] 🔵 Tracing distribuido + SLO/SLI formales — futuro.
+
+#### H. Confiabilidad / DR — *Well-Architected Reliability; SRE*
+- [x] ✅ Health check + auto-restart (Render).
+- [ ] ⏳ Backups + **restore probado** (ver C).
+- [ ] ⏳ Rollback probado (ver A).
+- [ ] ❌ **Runbook de incidentes** (§76 lista 8 tipos: caída API/DB, migración fallida, leak de secret, etc.).
+- [ ] 🔵 Multi-AZ / redundancia — N/A free tier.
+
+#### I. Performance & Costo — *Well-Architected Performance Efficiency + Cost*
+- [x] ✅ Compresión gzip (main.ts) + cache headers API pública + índices DB (perf).
+- [ ] ⏳ Cold start mitigado (pinger).
+- [ ] ⏳ Load test (≥500 búsquedas concurrentes).
+- [x] ✅ Costo $0/mes (free tier). Triggers de migración a paid documentados (§74-75).
+
+#### J. Cumplimiento / Legal — *GDPR / LFPDPPP / ISO 27701*
+- [ ] ⏳ 👤 **Acuerdo escrito con el hotel** (alcance v0.1.0: pago en recepción, factura manual).
+- [ ] ❌ Aviso de privacidad + términos (datos reales de huéspedes).
+- [ ] 🔵 CFDI/facturación MX — diferido v1.0.2 CFDI-CORE.
+- [x] ✅ PII inmutable en no-shows + retención fiscal (§11) — base ya en el modelo.
+
+#### K. Superficies de aplicación
+- [x] ✅ **Web (PMS + Nova)** — LIVE `https://zenix-web-silk.vercel.app`.
+- [x] ✅ **API** — LIVE `https://zenix-api.onrender.com`.
+- [ ] ❌ **Mobile (Hub Recamarista + dashboard)** — NO desplegada (EAS; ver A). Housekeepers usarían web-responsive por ahora.
+- [ ] 🔵 **Wizard Nova / Booking Engine / Billing / Channex** — código DESPLEGADO pero **inactivo** (sin PLATFORM_ADMIN / sin config / sin keys). Por diseño; Booking engine → **v0.2.0** (extra vendible).
+
+#### L. Operación / Go-live — *SRE Launch Readiness*
+- [ ] ⏳ 🤖 **Smoke tests prod end-to-end** (login admin → /dashboard, crear reserva, SSE, no-show).
+- [ ] ⏳ Documentación operativa + capacitación del staff del hotel.
+- [ ] ⏳ Plan de soporte / contacto ante incidente.
+
+**Resumen de barra:** v0.1.0 (web+API+BD live, pago-en-recepción) cubre A(parcial)/B/C/D(parcial)/E(parcial)/F(core)/I(core)/K(web+API). Para un **despliegue productivo completo** faltan: mobile (EAS), staging, security headers + brute-force + npm audit, Sentry + alertas + runbook, backups/restore + rollback probados, dominios propios, legal/privacidad, y los módulos de pago/factura/Channex (v0.1.1+/v0.2.0).
 
 **Reglas de seguridad del deploy:** Claude NO crea cuentas, NO pega secrets en dashboards, NO concede OAuth — eso es del owner. Claude SÍ: código/config/scripts/comandos/verificación + generar valores aleatorios para que el owner los pegue.
 
