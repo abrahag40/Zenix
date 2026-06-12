@@ -149,6 +149,50 @@ export class WizardActivationService {
             timezone: prop.timezone,
           },
         })
+
+        // ── (4b) Inventario local: RoomType + N Rooms por fila del Step 5 ──
+        // Sin esto el hotel activaba con calendario vacío (0 habitaciones) y NO
+        // era operativo desde el día 1. Crea las habitaciones reales en la misma
+        // $transaction, independiente de Channex (que solo las EMPUJA, no crea).
+        // Multi-property: el mismo set de inventario se aplica a cada property
+        // (el cliente lo ajusta luego per-property en Settings).
+        if (dto.inventory && dto.inventory.length > 0) {
+          let roomCounter = 100 // numeración 101, 102, … per-property
+          for (let i = 0; i < dto.inventory.length; i++) {
+            const row = dto.inventory[i]
+            const code = (row.code?.trim() || `RT${i + 1}`).toUpperCase().slice(0, 20)
+            const roomType = await tx.roomType.create({
+              data: {
+                organizationId: org.id,
+                propertyId: created.id,
+                name: row.name.trim(),
+                code,
+                maxOccupancy: row.capacity,
+                baseRate: row.baseRate ?? 0,
+                currency: dto.legalEntityBaseCurrency,
+                amenities: [],
+                isActive: true,
+              },
+            })
+            // capacity ≥ 5 ⇒ dormitorio compartido (per-bed); si no, privada.
+            const category = row.capacity >= 5 ? 'SHARED' : 'PRIVATE'
+            for (let n = 0; n < row.count; n++) {
+              roomCounter++
+              await tx.room.create({
+                data: {
+                  organizationId: org.id,
+                  propertyId: created.id,
+                  number: String(roomCounter),
+                  floor: 1,
+                  category,
+                  capacity: row.capacity,
+                  roomTypeId: roomType.id,
+                  status: 'AVAILABLE',
+                },
+              })
+            }
+          }
+        }
       }
 
       // ── (5) Org Owner User placeholder + setup token ────────

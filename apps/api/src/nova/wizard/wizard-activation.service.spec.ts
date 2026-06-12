@@ -82,6 +82,12 @@ function makePrismaMock(opts: {
     propertySettings: {
       create: jest.fn().mockResolvedValue({}),
     },
+    roomType: {
+      create: jest.fn().mockResolvedValue({ id: 'new-rt-id' }),
+    },
+    room: {
+      create: jest.fn().mockResolvedValue({ id: 'new-room-id' }),
+    },
     user: {
       create: jest.fn().mockResolvedValue({ id: 'new-owner-id', email: 'owner@hotel-test.com' }),
     },
@@ -280,6 +286,40 @@ describe('WizardActivationService', () => {
           retentionPolicy: 'PERMANENT',
         }),
       )
+    })
+
+    it('crea RoomTypes + Rooms locales desde el inventario (hotel operativo desde día 1)', async () => {
+      const prisma = makePrismaMock()
+      const service = new WizardActivationService(prisma, makeAuditMock(), makeEmailMock(), makeSubscriptionMock(), makeDiscountMock(), makeBillingMock(), makeChannexProvisionMock())
+      await service.activate(
+        makeDto({
+          inventory: [
+            { name: 'Estándar', count: 3, capacity: 2, baseRate: 1200 },
+            { name: 'Dorm 8', count: 1, capacity: 8 }, // sin baseRate → 0; cap≥5 ⇒ SHARED
+          ],
+        }),
+        baseActor,
+      )
+      // 2 room types creados con código derivado RT1/RT2 + currency de la LegalEntity
+      expect(prisma._tx.roomType.create).toHaveBeenCalledTimes(2)
+      expect(prisma._tx.roomType.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ name: 'Estándar', code: 'RT1', maxOccupancy: 2, currency: 'MXN' }),
+        }),
+      )
+      // 3 + 1 = 4 habitaciones; el dorm (cap 8) es SHARED
+      expect(prisma._tx.room.create).toHaveBeenCalledTimes(4)
+      expect(prisma._tx.room.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ category: 'SHARED', capacity: 8 }) }),
+      )
+    })
+
+    it('sin inventario NO crea RoomTypes ni Rooms (backward-compat)', async () => {
+      const prisma = makePrismaMock()
+      const service = new WizardActivationService(prisma, makeAuditMock(), makeEmailMock(), makeSubscriptionMock(), makeDiscountMock(), makeBillingMock(), makeChannexProvisionMock())
+      await service.activate(makeDto(), baseActor)
+      expect(prisma._tx.roomType.create).not.toHaveBeenCalled()
+      expect(prisma._tx.room.create).not.toHaveBeenCalled()
     })
 
     it('creates Brand when brandEnabled=true with brandName', async () => {
