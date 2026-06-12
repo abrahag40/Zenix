@@ -6,6 +6,23 @@ export type { ConfirmCheckinInput, PaymentEntryInput }
 // Sprint CHECK-IN-α §107 — payload del endpoint /checkin-context.
 export type PaymentModel = 'HOTEL_COLLECT' | 'OTA_COLLECT' | 'HYBRID_DEPOSIT'
 
+// Búsqueda global de reservas (TimelineTopBar)
+export type GuestSearchStatus = 'ARRIVING' | 'IN_HOUSE' | 'CHECKED_OUT' | 'NO_SHOW' | 'CANCELLED'
+export interface GuestSearchResult {
+  id: string
+  guestName: string
+  guestPhone: string | null
+  guestEmail: string | null
+  bookingRef: string | null
+  channexBookingId: string | null
+  otaName: string | null
+  source: string | null
+  roomNumber: string | null
+  checkinAt: string
+  checkoutAt: string
+  status: GuestSearchStatus
+}
+
 // Sprint EDIT-RESERVATION — bitácora de notas
 export type NoteChannel = 'GENERAL' | 'GUEST_REQUEST' | 'HOUSEKEEPING' | 'INTERNAL'
 
@@ -157,6 +174,13 @@ export const guestStaysApi = {
     api.get<Record<string, unknown>[]>(
       `${BASE}?propertyId=${propertyId}&from=${from.toISOString()}&to=${to.toISOString()}`
     ),
+
+  /**
+   * Búsqueda global de reservas por nombre / teléfono / email / bookingRef /
+   * ID de reserva OTA (channexBookingId). Sin límite de fechas.
+   */
+  search: (q: string) =>
+    api.get<GuestSearchResult[]>(`${BASE}/search?q=${encodeURIComponent(q)}`),
 
   /**
    * Pre-flight availability check — no side effects.

@@ -3,6 +3,7 @@ import { startOfDay } from 'date-fns'
 import { toast } from 'sonner'
 import { api, ApiError } from '@/api/client'
 import { guestStaysApi } from '../api/guest-stays.api'
+import type { GuestSearchResult } from '../api/guest-stays.api'
 import type { NewStayData } from '../components/dialogs/CheckInDialog'
 import { OTA_OPTIONS } from '../components/dialogs/CheckInDialog'
 import type { GuestStayBlock } from '../types/timeline.types'
@@ -1071,5 +1072,22 @@ export function useEditGuestStayNote(stayId: string) {
       }
       toast.error(code && map[code] ? map[code] : err.message ?? 'No se pudo editar')
     },
+  })
+}
+
+/**
+ * Búsqueda global de reservas (TimelineTopBar). El caller pasa el término ya
+ * debounced; la query se habilita con ≥2 caracteres. keepPreviousData evita
+ * parpadeo del dropdown mientras se teclea.
+ */
+export function useGuestStaySearch(q: string) {
+  const term = q.trim()
+  return useQuery<GuestSearchResult[]>({
+    queryKey: ['guest-search', term],
+    queryFn: () => guestStaysApi.search(term) as Promise<GuestSearchResult[]>,
+    enabled: term.length >= 2,
+    placeholderData: keepPreviousData,
+    staleTime: 15_000,
+    retry: false,
   })
 }

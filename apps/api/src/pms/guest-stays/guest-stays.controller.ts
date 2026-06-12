@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Controller,
   Post,
   Get,
@@ -197,6 +198,27 @@ export class GuestStaysController {
     return this.service.getMobileList(actor.propertyId, actor.role, {
       search, statusFilter: statusArray, dateFilter,
     })
+  }
+
+  /**
+   * GET /v1/guest-stays/search?q=&limit=
+   * Búsqueda global de reservas por nombre / teléfono / email / bookingRef /
+   * ID de reserva OTA (channexBookingId). Sin límite de fechas — sirve para
+   * encontrar CUALQUIER reserva (pasada, presente o futura). Declarado antes de
+   * :id para evitar route shadowing (§26). HOUSEKEEPER no accede (PII).
+   */
+  @Get('search')
+  searchStays(
+    @Query('q')     q?: string,
+    @Query('limit') limit?: string,
+    @CurrentUser()  actor?: JwtPayload,
+  ) {
+    if (!actor) throw new BadRequestException('No actor')
+    if (actor.role === 'HOUSEKEEPER') {
+      throw new ForbiddenException('Sin acceso a la búsqueda de reservas')
+    }
+    const take = Math.min(Math.max(parseInt(limit ?? '15', 10) || 15, 1), 30)
+    return this.service.searchStays(actor.propertyId, q ?? '', take)
   }
 
   /**
