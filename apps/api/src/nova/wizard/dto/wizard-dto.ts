@@ -11,6 +11,7 @@ import {
   IsEmail,
   IsIn,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   Length,
@@ -94,6 +95,32 @@ export class WizardPropertyDto {
   cityDisplay?: string
 }
 
+/**
+ * Step 5 — fila de inventario editada por el consultor. El wizard crea, en la
+ * misma $transaction de activación, un RoomType + N Rooms (count) por cada fila,
+ * para que el hotel quede operativo (calendario con habitaciones) desde el día 1.
+ */
+export class WizardInventoryRoomTypeDto {
+  @IsString() @MinLength(1) @MaxLength(80)
+  name!: string
+
+  /** Código corto único per-property. Si falta, el backend deriva RT1/RT2/... */
+  @IsOptional()
+  @IsString() @MaxLength(20)
+  code?: string
+
+  @IsInt() @Min(1) @Max(500)
+  count!: number
+
+  @IsInt() @Min(1) @Max(50)
+  capacity!: number
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  baseRate?: number
+}
+
 export class WizardDiscountDto {
   @IsInt() @Min(5) @Max(50)
   percentOff!: number
@@ -163,6 +190,17 @@ export class WizardActivateDto {
   // Step 5 — Inventory template
   @IsIn(['HOSTAL', 'BOUTIQUE', 'CABAÑAS', 'BUSINESS', 'CUSTOM'])
   inventoryTemplate!: 'HOSTAL' | 'BOUTIQUE' | 'CABAÑAS' | 'BUSINESS' | 'CUSTOM'
+
+  /**
+   * Step 5 — filas de inventario editadas. Opcional para backward-compat con
+   * tests legacy; si presente, el wizard crea RoomTypes + Rooms locales en la
+   * misma $transaction (hotel operativo desde el día 1, independiente de Channex).
+   */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => WizardInventoryRoomTypeDto)
+  inventory?: WizardInventoryRoomTypeDto[]
 
   // Step 6 — Org Owner
   @IsEmail()

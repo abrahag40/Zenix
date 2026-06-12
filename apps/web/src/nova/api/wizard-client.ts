@@ -94,8 +94,14 @@ export const wizardClient = {
         cityFreeText: p.cityFreeText || undefined,
         cityDisplay: p.cityDisplay || undefined,
       })),
-      // Step 5
+      // Step 5 — template + filas reales (crean RoomTypes + Rooms locales)
       inventoryTemplate: state.inventoryTemplate,
+      inventory: state.inventoryRoomTypes.map((rt) => ({
+        name: rt.name,
+        count: rt.count,
+        capacity: rt.capacity,
+        baseRate: rt.baseRate ?? undefined,
+      })),
       // Step 6
       orgOwnerEmail: state.orgOwnerEmail,
       orgOwnerName: state.orgOwnerName,
