@@ -12,6 +12,7 @@ import {
   UseGuards,
 } from '@nestjs/common'
 import { AuthGuard } from '@nestjs/passport'
+import { ApiExcludeController } from '@nestjs/swagger'
 import { Request } from 'express'
 import type { JwtPayload } from '@zenix/shared'
 import { PrismaService } from '../prisma/prisma.service'
@@ -41,6 +42,7 @@ function resolveActingOrgId(req: Request & { user?: JwtPayload }): string | unde
  * y suscribe webhooks — SIN tocar código. Scoped por acting org: cada property
  * se valida contra la organización en contexto (defense-in-depth IDOR, §191).
  */
+@ApiExcludeController() // interno (Nova) — fuera de la doc pública del motor
 @Controller('v1/nova/booking-engine')
 @UseGuards(AuthGuard('jwt'), NovaTiersGuard, NovaActingOrgGuard)
 @NovaTiers('PLATFORM', 'PARTNER_ADMIN', 'PARTNER_MEMBER', 'ORG_OWNER')

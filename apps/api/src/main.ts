@@ -10,6 +10,8 @@ if (typeof globalThis.crypto === 'undefined') {
 import { ValidationPipe } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { NestFactory, Reflector } from '@nestjs/core'
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'
+import { PublicBookingModule } from './public-booking/public-booking.module'
 import * as bodyParser from 'body-parser'
 import * as compression from 'compression'
 import { AppModule } from './app.module'
@@ -106,6 +108,28 @@ async function bootstrap() {
   app.useGlobalFilters(new HttpExceptionFilter())
 
   app.setGlobalPrefix('api')
+
+  // ── OpenAPI / Swagger — BOOKING-ENGINE B6 ──────────────────────────────────
+  // Doc PÚBLICA del motor "Zenix Booking" para developers externos (Tier 3).
+  // Scoped a PublicBookingModule (el controller Nova interno se excluye con
+  // @ApiExcludeController). UI en /api/docs · spec JSON en /api/docs-json.
+  const swaggerConfig = new DocumentBuilder()
+    .setTitle('Zenix Booking API')
+    .setDescription(
+      'API pública headless de reservas directas. Un website externo consume estos ' +
+        'endpoints por HTTP para mostrar disponibilidad y crear reservas (source=DIRECT_WEB, ' +
+        'cero comisión OTA). READ es abierto; WRITE requiere `X-API-Key` (pk_live_/pk_test_) ' +
+        '+ `Idempotency-Key`. Guía: docs/booking-engine-integration.md.',
+    )
+    .setVersion('1.0')
+    .addApiKey({ type: 'apiKey', name: 'X-API-Key', in: 'header' }, 'ApiKey')
+    .build()
+  const swaggerDoc = SwaggerModule.createDocument(app, swaggerConfig, {
+    include: [PublicBookingModule],
+  })
+  SwaggerModule.setup('api/docs', app, swaggerDoc, {
+    swaggerOptions: { persistAuthorization: true },
+  })
 
   const configService = app.get(ConfigService)
   const port = configService.get<number>('port') ?? 3000
