@@ -1505,7 +1505,17 @@ Verificado: lo planeado para CHECK-IN C2/C3 ya se entregó en el sprint GROUP-BI
 9. [ ] **AQUÍ:** Onboarding del hotel real (BD prod vacía → login aún sin usuario). Vía Wizard Nova **o** `seed.prod.ts` mínimo (owner corre `DATABASE_URL=<prod> npx ts-node prisma/seed.prod.ts`). **NO** correr `seed.ts` dev. 🤖 escribe el seed.prod cuando owner dé datos del hotel (nombre, ciudad, #/tipos de habitaciones, nombre+email dueño, moneda).
 10. [ ] 🤖 Smoke tests prod completos (login ORG_OWNER, crear reserva, SSE) + configurar pinger (cron-job.org → /api/health cada 10min para que no duerma + crons corran).
 11. [ ] 👤 Acuerdo escrito con el hotel: pago en recepción (sin prepago) + factura manual (sin CFDI).
-12. [ ] 🤖 Pendiente menor: agregar `buildFilter` en render.yaml para no rebuildear la API en cambios doc-only; agregar `APP_BASE_URL`/`NOVA_BASE_URL` cuando se wire email (Resend).
+12. [x] 🤖 `buildFilter` en render.yaml (docs/web/mobile/seeds no rebuildean API). + `seed.prod.ts` crea `PropertySettings` (timezone, para schedulers).
+
+**⚠️ Gaps NO considerados inicialmente (auditados 2026-06-12):**
+13. [ ] **Builds en el checklist** — API (Render) y Web (Vercel) **buildean automáticamente** en cada push a main (CI/CD implícito). ✅ ambos verificados. PERO no hay **staging** — un push malo a `main` auto-deploya a prod (riesgo; considerar branch `production` o cuidado con main).
+14. [ ] **Mobile app NO desplegada** — `apps/mobile` (Expo) requiere: EAS project (app.json `projectId` vacío) + `EXPO_PUBLIC_API_URL=https://zenix-api.onrender.com` + EAS Build (APK/IPA) + distribución a dispositivos del staff. Hoy los housekeepers usarían la **web responsive** en su teléfono. Hub Recamarista nativo + sync offline = NO usable aún.
+15. [ ] **Recuperación de contraseña** — sin Resend, "olvidé mi contraseña" no envía email → si el admin se bloquea, se recupera re-corriendo el seed o por acceso a BD. Riesgo operativo.
+16. [ ] **Monitoreo/errores** — sin Sentry/alertas. Si la API crashea, nadie se entera salvo viendo Render. 🤖 puede integrar Sentry.
+17. [ ] **Backups Neon** — confirmar retención del free tier + **probar un restore** (§76 dice "verificados").
+18. [ ] **Cold start UX** — free tier: 1er request tras dormir ~50s. El pinger (paso 10) lo mitiga. SSE (tiempo real del calendario) puede cortarse al dormir.
+19. [ ] **Wizard Nova / Booking Engine / Billing / Channex** — código DESPLEGADO pero INACTIVO en v0.1.0 (sin PLATFORM_ADMIN / sin config / sin keys). Por diseño. Booking engine → v0.2.0.
+20. [ ] **Legal** — términos/privacidad + LFPDPPP para datos reales de huéspedes (v1.0.1).
 
 **Reglas de seguridad del deploy:** Claude NO crea cuentas, NO pega secrets en dashboards, NO concede OAuth — eso es del owner. Claude SÍ: código/config/scripts/comandos/verificación + generar valores aleatorios para que el owner los pegue.
 
