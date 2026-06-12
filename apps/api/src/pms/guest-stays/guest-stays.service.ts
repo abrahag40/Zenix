@@ -4185,6 +4185,80 @@ export class GuestStaysService {
   // ──────────────────────────────────────────────────────────────────────────
 
   /**
+   * GET /v1/guest-stays/search?q=
+   * Búsqueda global de reservas (sin límite de fechas). Match case-insensitive
+   * por nombre / email / bookingRef / channexBookingId (ID OTA) y substring por
+   * teléfono (normalizado, ignora espacios/guiones/paréntesis). Server-side con
+   * Prisma OR — escala sin traer todo a memoria. Excluye soft-deleted.
+   */
+  async searchStays(propertyId: string, q: string, take: number) {
+    const term = q.trim()
+    if (term.length < 2) return []
+
+    // Teléfono: normaliza el término (sólo dígitos) para que "55 1234" matchee
+    // "+52 55 1234". Se compara contra guestPhone crudo vía `contains` cuando el
+    // término tiene dígitos; el resto de campos usa el término tal cual.
+    const digits = term.replace(/[^\d]/g, '')
+
+    const or: Prisma.GuestStayWhereInput[] = [
+      { guestName: { contains: term, mode: 'insensitive' } },
+      { guestEmail: { contains: term, mode: 'insensitive' } },
+      { bookingRef: { contains: term, mode: 'insensitive' } },
+      { channexBookingId: { contains: term, mode: 'insensitive' } },
+    ]
+    if (digits.length >= 3) {
+      or.push({ guestPhone: { contains: digits } })
+      or.push({ guestPhone: { contains: term } })
+    }
+
+    const stays = await this.prisma.guestStay.findMany({
+      where: { propertyId, deletedAt: null, OR: or },
+      select: {
+        id: true,
+        guestName: true,
+        guestPhone: true,
+        guestEmail: true,
+        bookingRef: true,
+        channexBookingId: true,
+        channexOtaName: true,
+        source: true,
+        checkinAt: true,
+        scheduledCheckout: true,
+        actualCheckin: true,
+        actualCheckout: true,
+        noShowAt: true,
+        cancelledAt: true,
+        room: { select: { number: true } },
+      },
+      orderBy: { checkinAt: 'desc' },
+      take,
+    })
+
+    return stays.map((s) => ({
+      id: s.id,
+      guestName: s.guestName,
+      guestPhone: s.guestPhone,
+      guestEmail: s.guestEmail,
+      bookingRef: s.bookingRef,
+      channexBookingId: s.channexBookingId,
+      otaName: s.channexOtaName,
+      source: s.source,
+      roomNumber: s.room?.number ?? null,
+      checkinAt: s.checkinAt.toISOString(),
+      checkoutAt: s.scheduledCheckout.toISOString(),
+      status: s.cancelledAt
+        ? 'CANCELLED'
+        : s.noShowAt
+          ? 'NO_SHOW'
+          : s.actualCheckout
+            ? 'CHECKED_OUT'
+            : s.actualCheckin
+              ? 'IN_HOUSE'
+              : 'ARRIVING',
+    }))
+  }
+
+  /**
    * GET /v1/guest-stays/mobile/list
    * Returns a filtered list of reservations pre-shaped for the mobile card.
    * All derived fields (status, arrivesToday, dateRangeLabel, etc.) are

@@ -1,6 +1,7 @@
-import { Search, Plus, Calendar, LogIn } from 'lucide-react'
+import { Plus, Calendar, LogIn } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { GuestSearchBox } from './GuestSearchBox'
+import type { GuestSearchResult } from '../../api/guest-stays.api'
 import {
   Tooltip,
   TooltipContent,
@@ -52,23 +53,19 @@ interface TimelineTopBarProps {
    *  fechas hoy/mañana → tras crear auto-abre ConfirmCheckinDialog.
    *  Flow end-to-end "Llegó cliente → tiene cuarto" en <60s. */
   onWalkIn?: () => void
+  /** Búsqueda global → el padre navega el calendario a la reserva + abre su ficha. */
+  onSelectStay?: (result: GuestSearchResult) => void
 }
 
-export function TimelineTopBar({ onNewReservation, onWalkIn }: TimelineTopBarProps) {
+export function TimelineTopBar({ onNewReservation, onWalkIn, onSelectStay }: TimelineTopBarProps) {
   return (
     <div className="flex items-center gap-3 px-4 h-14 border-b border-slate-200 bg-white shrink-0">
       {/* Left cluster: nav drawer trigger + property switcher */}
       <AppDrawer />
       <PropertySwitcher />
 
-      {/* Center: search */}
-      <div className="flex-1 max-w-md mx-auto relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-        <Input
-          placeholder="Buscar reservas, huéspedes..."
-          className="pl-9 h-9 bg-slate-50 border-slate-200 text-sm"
-        />
-      </div>
+      {/* Center: search (global de reservas por nombre/teléfono/ID OTA) */}
+      <GuestSearchBox onSelect={(r) => onSelectStay?.(r)} />
 
       {/* Right cluster: actions → user menu */}
       <div className="flex items-center gap-1.5">

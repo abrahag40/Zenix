@@ -846,6 +846,14 @@ export function TimelineScheduler() {
       <TimelineTopBar
         onNewReservation={() => setCheckInDialog({ open: true })}
         onWalkIn={() => setCheckInDialog({ open: true, walkIn: true })}
+        onSelectStay={(r) => {
+          // Navega el calendario a la fecha de la reserva (expande la ventana de
+          // datos si hace falta) y abre su ficha. Si la reserva ya está en la
+          // ventana cargada, el sheet resuelve al instante; si está lejos, el
+          // scroll dispara la carga y el sheet aparece al llegar los datos.
+          scrollToDate(subDays(parseISO(r.checkinAt), 1))
+          openSheet(r.id)
+        }}
       />
       <TimelineSubBar
         onNavigate={handleNavigate}
