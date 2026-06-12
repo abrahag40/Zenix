@@ -2260,6 +2260,24 @@ Sistema registra `referralSource` en cada booking (`hotel_website` vs `zenix_mar
 
 Ver detalle técnico en `docs/sprints/COMMISSION-MODEL-plan.md`.
 
+### Diferenciador técnico — motor headless (API-first), 3 formas de consumo
+
+A diferencia de los booking engines cerrados de la competencia, **Zenix Booking es una API, no una página fija**. El sitio web del hotel es independiente y se conecta por HTTP:
+
+| Forma de consumo | Para quién | Esfuerzo del hotel |
+|------------------|-----------|--------------------|
+| **Hosted page** `book.zenix.com/{slug}` | 80% — hoteles sin equipo técnico | pegar un `<a href>` en su sitio (5 min) |
+| **API REST pública** (con `pk_live_…` + webhooks HMAC) | 5% — cadenas/devs que quieren su propia UI | leer la doc e integrar |
+| **Widget embebido** (Fase 2) | 15% — sitios que quieren reservar sin redirect | un `<script>` |
+
+Las tres consumen **la misma API backend** — el hotel migra de una a otra sin rehacer nada. Ningún PMS LATAM ofrece este modelo headless con onboarding consultor-led (toggle on/off desde el panel Nova, opcional).
+
+### Estado de implementación (2026-06-11)
+
+**Fase 1 construida y verificada e2e** (branch `feat/booking-engine-foundation`): API pública READ + WRITE (reservas multi-habitación/multi-fecha, anti-overbooking transaccional, idempotencia), webhooks outbound, feed de disponibilidad por noche, panel consultor en Nova (activar/desactivar por property), y la **hosted page completa** (`book.zenix.com/{slug}`) con SEO. Modo **pago en recepción** (`PAY_AT_HOTEL`) — el hotel captura reservas directas sin comisión OTA desde ya.
+
+**El prepago online** (Stripe Connect split 97/3 + OXXO/MercadoPago/SPEI) y el **marketplace comisionable** llegan con PAY-CORE (v1.0.1) — se enchufan sin rehacer el motor. Es decir: el ahorro de comisión OTA empieza en Fase 1; el upsell del marketplace 3% es el siguiente escalón.
+
 ---
 
 ## 💰 Estudio comparativo de precios (mayo 2026)
