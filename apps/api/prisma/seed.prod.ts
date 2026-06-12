@@ -34,6 +34,10 @@ const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? 'Zenix123!'
 const ROOM_COUNT = parseInt(process.env.ROOM_COUNT ?? '10', 10)
 // Tarifa base por noche (en la moneda del hotel) para el tipo Estándar.
 const BASE_RATE = parseInt(process.env.BASE_RATE ?? '1200', 10)
+// IANA timezone del hotel — CRÍTICO: los schedulers (night audit de no-shows,
+// morning roster de housekeeping) operan en esta TZ. Default Caribe MX.
+// Ejemplos: America/Cancun (QRoo), America/Mexico_City (centro), America/Bogota, America/Lima.
+const TIMEZONE = process.env.TIMEZONE ?? 'America/Cancun'
 
 // ids estables → idempotencia
 const ORG_ID = 'org-prod-1'
@@ -81,6 +85,14 @@ async function main() {
       city: CITY,
       region: REGION,
     },
+  })
+
+  // 3b. PropertySettings — timezone para schedulers (night audit, morning roster).
+  // El resto de campos (hora de checkout, corte de no-show, etc.) usan defaults.
+  await prisma.propertySettings.upsert({
+    where: { propertyId: property.id },
+    update: { timezone: TIMEZONE },
+    create: { organizationId: org.id, propertyId: property.id, timezone: TIMEZONE },
   })
 
   // 4. RoomType "Estándar" (el dueño agrega más tipos en la UI)
