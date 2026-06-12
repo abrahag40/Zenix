@@ -1588,6 +1588,26 @@ Verificado: lo planeado para CHECK-IN C2/C3 ya se entregó en el sprint GROUP-BI
 
 **Resumen de barra:** v0.1.0 (web+API+BD live, pago-en-recepción) cubre A(parcial)/B/C/D(parcial)/E(parcial)/F(core)/I(core)/K(web+API). Para un **despliegue productivo completo** faltan: mobile (EAS), staging, security headers + brute-force + npm audit, Sentry + alertas + runbook, backups/restore + rollback probados, dominios propios, legal/privacidad, y los módulos de pago/factura/Channex (v0.1.1+/v0.2.0).
 
+#### M. Comercialización & onboarding repetible (vender a N hoteles) — *SaaS multi-tenant*
+> **Modelo:** UNA instancia multi-tenant sirve a TODOS los hoteles (`Organization → Property`, §63). **NUNCA** un deploy por hotel (no escala, caro). Vender un hotel = crear su Org+Property+usuarios en la MISMA instancia. Patrón Cloudbeds/Mews.
+- [x] ✅ Multi-tenancy en el código (aislamiento verificado).
+- [x] ✅ `seed.prod.ts` parametrizado por `HOTEL_SLUG` → onboarda **N hoteles** vía CLI sin colisión (herramienta INTERINA, técnica).
+- [ ] ❌ **Wizard de onboarding usable en prod** (el "Zenix Activate" §77) — HOY inaccesible: requiere un usuario `PLATFORM_ADMIN` + las 4 health-checks del Step 7 (Channex/Stripe/PAC/SMTP) que NO aplican en v0.1.0. **Para vender con libertad self-service** → (a) sembrar/crear un PLATFORM_ADMIN, (b) hacer el Step 7 saltable cuando las integraciones no están. **ESTE es el bloqueante real de "vender 100% operativo sin tocar CLI".**
+- [ ] ⏳ **Proceso comercial documentado** (venta → captura de datos del hotel → onboarding → entrega de credenciales → capacitación → soporte).
+
+#### N. Flujo de desarrollo con prod vivo (dev → staging → prod) — *Git Flow / Trunk-Based + CI/CD; DORA*
+> Sí, estamos PARCIALMENTE alineados al estándar. NO se copia código de dev a prod: se hace `git push` → CI → (staging → QA →) prod vía pipeline. Lo que tenemos y lo que falta:
+- [x] ✅ Git + feature branch + **Pull Request + code review** (cada cambio).
+- [x] ✅ **CI** bloqueante (GitHub Actions "Lint & Test") antes de merge.
+- [x] ✅ **IaC** (render.yaml/vercel.json) + **CD** automático: push a `main` → build → migrate → deploy.
+- [x] ✅ Migraciones versionadas (Prisma, forward-only) aplicadas por el pipeline.
+- [ ] ❌ **Entorno de STAGING** (prod-like, datos sintéticos) — HOY `main` = prod directo, **sin gate de pre-prod**. Falta: branch `staging` (o `develop`) → deploya a un Render+Neon de staging → QA valida → se **promueve** a prod (merge a `main`/`production`). Con hoteles pagando, esto deja de ser opcional.
+- [ ] ❌ **Migraciones probadas en staging + BACKUP antes de aplicar en prod** (una migración mala en prod con datos reales es el riesgo #1).
+- [ ] ⏳ **Hotfix flow** documentado (cómo parchear prod urgente sin saltarse CI).
+- [x] ✅ Feature flags / toggles para activar features sin redeploy (parcial: booking engine on/off; rama por código para lo demás).
+
+**Resumen del flujo objetivo (estándar):** `dev local` → push `feature/x` → **PR + CI** → merge a `staging` → **deploy auto a staging** → **QA** → merge `staging`→`main` (o `production`) → **deploy auto a prod** (con backup pre-migración + rollback listo). Hoy falta el tramo de **staging + QA gate** y la **seguridad de migraciones**.
+
 **Reglas de seguridad del deploy:** Claude NO crea cuentas, NO pega secrets en dashboards, NO concede OAuth — eso es del owner. Claude SÍ: código/config/scripts/comandos/verificación + generar valores aleatorios para que el owner los pegue.
 
 ---
