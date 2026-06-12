@@ -1491,7 +1491,7 @@ Verificado: lo planeado para CHECK-IN C2/C3 ya se entregó en el sprint GROUP-BI
 
 **Env mínimo v0.1.0 (Render):** `DATABASE_URL` (Neon, `?sslmode=require`), `JWT_SECRET` (openssl rand -base64 32), `JWT_EXPIRES_IN=24h`, `NODE_ENV=production`, `ALLOWED_ORIGINS` (URL Vercel), `APP_BASE_URL`, `NOVA_BASE_URL`. Opcionales (vacío=feature off): RESEND_*, BANXICO_TOKEN, GOOGLE_PLACES_API_KEY, EXPO_ACCESS_TOKEN. **NO setear** Channex/Stripe/KEK/sandbox en v0.1.0.
 
-**🔗 URLs producción:** API = **`https://zenix-api.onrender.com`** (LIVE ✓) · Web (Vercel) = pendiente · Neon project = `tiny-night-07343327` / db `neondb`. Render Blueprint ID `exs-d8m3r3jbc2fs73ej3lk0` · service `srv-d8m49b3eo5us7397im50`.
+**🔗 URLs producción:** API = **`https://zenix-api.onrender.com`** (LIVE ✓) · Web (Vercel) = **`https://zenix-web-silk.vercel.app`** (LIVE ✓, proyecto `zenix-web`) · Neon project = `tiny-night-07343327` / db `neondb`. Render Blueprint ID `exs-d8m3r3jbc2fs73ej3lk0` · service `srv-d8m49b3eo5us7397im50`. `ALLOWED_ORIGINS` en Render = URL Vercel (CORS). `VITE_API_URL` en Vercel = URL Render.
 
 **Checklist de pasos — estatus (actualizado 2026-06-12):**
 1. [x] 🤖 Fixes de código (start, health, env.example, blueprints).
@@ -1501,10 +1501,11 @@ Verificado: lo planeado para CHECK-IN C2/C3 ya se entregó en el sprint GROUP-BI
 5. [x] 👤+🤖 Render Web Service `zenix-api` creado vía Blueprint.
 6. [x] 👤 Secrets pegados (DATABASE_URL + JWT_SECRET).
 7. [x] 🤖 **API LIVE** — `prisma migrate deploy` aplicó migraciones en Neon (verificado: /api/health 200, /api/docs 200, public 404=BD ok). Fix aplicado: `npm ci --include=dev` (devDeps para nest-cli) + Node 20.
-8. [ ] **AQUÍ:** Onboarding del hotel real (BD prod vacía). Vía Wizard Nova **o** `seed.prod.ts` mínimo. **NO** correr `seed.ts` dev. 🤖 escribe el seed.prod cuando owner dé datos del hotel; o creamos un user de prueba para validar login.
-9. [ ] 👤+🤖 Vercel: importar `apps/web` (conectar GitHub a Vercel), setear `VITE_API_URL=https://zenix-api.onrender.com`. Luego actualizar `ALLOWED_ORIGINS`/`APP_BASE_URL`/`NOVA_BASE_URL` en Render con la URL Vercel.
-10. [ ] 🤖 Smoke tests prod completos (login ORG_OWNER, crear reserva, SSE) + configurar pinger (cron-job.org → /api/health cada 10min).
+8. [x] 🤖+👤 **Web (Vercel) LIVE** — proyecto `zenix-web` (root `apps/web`, Vite, `VITE_API_URL`→Render). `ALLOWED_ORIGINS`→URL Vercel seteado en Render (CORS). Web sirve 200 (`<title>Zenix</title>`).
+9. [ ] **AQUÍ:** Onboarding del hotel real (BD prod vacía → login aún sin usuario). Vía Wizard Nova **o** `seed.prod.ts` mínimo (owner corre `DATABASE_URL=<prod> npx ts-node prisma/seed.prod.ts`). **NO** correr `seed.ts` dev. 🤖 escribe el seed.prod cuando owner dé datos del hotel (nombre, ciudad, #/tipos de habitaciones, nombre+email dueño, moneda).
+10. [ ] 🤖 Smoke tests prod completos (login ORG_OWNER, crear reserva, SSE) + configurar pinger (cron-job.org → /api/health cada 10min para que no duerma + crons corran).
 11. [ ] 👤 Acuerdo escrito con el hotel: pago en recepción (sin prepago) + factura manual (sin CFDI).
+12. [ ] 🤖 Pendiente menor: agregar `buildFilter` en render.yaml para no rebuildear la API en cambios doc-only; agregar `APP_BASE_URL`/`NOVA_BASE_URL` cuando se wire email (Resend).
 
 **Reglas de seguridad del deploy:** Claude NO crea cuentas, NO pega secrets en dashboards, NO concede OAuth — eso es del owner. Claude SÍ: código/config/scripts/comandos/verificación + generar valores aleatorios para que el owner los pegue.
 
