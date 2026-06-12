@@ -60,6 +60,7 @@ import { UploadsModule } from './uploads/uploads.module'
 import { PrecheckinModule } from './precheckin/precheckin.module'
 import { BillingModule } from './billing/billing.module'
 import { PublicBookingModule } from './public-booking/public-booking.module'
+import { HealthController } from './health/health.controller'
 import { TenantContextMiddleware } from './common/tenant-context.middleware'
 import { TenantContextService } from './common/tenant-context.service'
 import { TenantGuard } from './common/guards/tenant.guard'
@@ -139,6 +140,7 @@ import { PropertyScopeGuard } from './common/guards/property-scope.guard'
     BillingModule, // Sprint BILLING-CORE (v1.1.0) — Stripe subscription billing + discount codes + retention + dunning
     PublicBookingModule, // BOOKING-ENGINE B1 (v1.1.0) — "Zenix Booking" API pública headless (READ)
   ],
+  controllers: [HealthController], // /api/health — liveness para Render + keep-alive
   providers: [
     TenantContextService,
     {

@@ -1,0 +1,45 @@
+# Render blueprint — Zenix API (MVP v0.1.0, free tier).
+# Importar: Render → New → Blueprint → conectar el repo. Render lee este archivo.
+# Los secrets (sync:false) se pegan en el dashboard, NUNCA aquí.
+#
+# ⚠️ Free tier: el servicio DUERME tras ~15min sin tráfico (cold start ~50s) y
+# los crons no corren dormido. Mitigación: un pinger externo gratuito
+# (cron-job.org / UptimeRobot) a https://<api>/api/health cada ~10min.
+services:
+  - type: web
+    name: zenix-api
+    runtime: node
+    plan: free
+    region: virginia # cerca de Neon (AWS us-east-1)
+    branch: main
+    # Monorepo npm workspaces: instala todo, compila shared → api.
+    buildCommand: npm ci && npm run build -w @zenix/shared && npx prisma generate --schema apps/api/prisma/schema.prisma && npm run build -w @zenix/api
+    # Migraciones ANTES de levantar la nueva versión (Render preDeploy).
+    preDeployCommand: npx prisma migrate deploy --schema apps/api/prisma/schema.prisma
+    startCommand: npm run start:prod -w @zenix/api
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_EXPIRES_IN
+        value: 24h
+      # ── Secrets — pegar en el dashboard (sync:false = no en el yaml) ──────────
+      - key: DATABASE_URL
+        sync: false # Neon connection string (?sslmode=require)
+      - key: JWT_SECRET
+        sync: false # openssl rand -base64 32 (NUEVO)
+      - key: ALLOWED_ORIGINS
+        sync: false # https://<web>.vercel.app (+ dominios prod)
+      - key: APP_BASE_URL
+        sync: false # URL del PMS (Vercel)
+      - key: NOVA_BASE_URL
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false # opcional MVP (vacío → emails stub)
+      - key: RESEND_FROM_ADDRESS
+        sync: false
+      - key: BANXICO_TOKEN
+        sync: false # opcional MVP (FX MX)
+      # ── v0.1.0 SIN Channex/Stripe/KEK — dejar SIN setear (la app bootea
+      #     fail-soft sin ellos; las features quedan inactivas). Se agregan en
+      #     la migración "al deber ser" con capital. ──────────────────────────
