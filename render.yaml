@@ -46,10 +46,16 @@ services:
         sync: false # URL del PMS (Vercel)
       - key: NOVA_BASE_URL
         sync: false
+      # ── Email (Resend). Sin RESEND_API_KEY los emails quedan en modo stub
+      #    (el setup link del wizard SIEMPRE se muestra en pantalla como respaldo).
+      #    Para que salgan automáticos: crear cuenta Resend + verificar dominio
+      #    (DNS) + pegar la API key aquí. Runbook: docs/ops/resend-email-setup.md
       - key: RESEND_API_KEY
-        sync: false # opcional MVP (vacío → emails stub)
+        sync: false # re_… (vacío → emails stub)
       - key: RESEND_FROM_ADDRESS
-        sync: false
+        sync: false # "Zenix <noreply@tudominio.com>" (dominio verificado en Resend)
+      - key: RESEND_BILLING_FROM
+        sync: false # "Zenix Facturación <billing@tudominio.com>" (opcional; fallback a RESEND_FROM_ADDRESS)
       - key: BANXICO_TOKEN
         sync: false # opcional MVP (FX MX)
       # ── v0.1.0 SIN Channex/Stripe/KEK — dejar SIN setear (la app bootea
