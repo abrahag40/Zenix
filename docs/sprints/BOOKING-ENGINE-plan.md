@@ -449,6 +449,27 @@ El checkout se construye desde el día 1 con un campo `paymentPolicy` (`FULL_PRE
 | No-show sin garantía de tarjeta (no hay prepago) | `cancellationPolicy` engine (Fase C GROUP-BILLING, **ya en main**) aplica retención documentada + `hold TTL` auto-libera inventario si la reserva no se confirma · el night audit ya marca no-shows (§13) |
 | Hotel espera prepago y B no lo da | Copy explícito en wizard + hosted UI: "Fase 1 captura la reserva; el cobro online llega con PAY-CORE". El `paymentPolicy` deshabilitado comunica el roadmap sin prometer de más (§4 honestidad técnica) |
 
+### Bug hunt pre-merge (2026-06-11) — hallazgos y fixes
+
+Auditoría doble (seguridad + correctitud) antes del merge. Corregido + verificado (13/13 tests + e2e):
+
+| # | Hallazgo | Severidad | Fix |
+|---|----------|-----------|-----|
+| 1 | Race de overbooking — availability check fuera de tx, sin lock | 🔴 Crítico | `pg_advisory_xact_lock('booking:'+propertyId)` + re-check DENTRO de `$transaction` (patrón `guest-stays.create` BUG #9) |
+| 2 | Idempotencia no-atómica (record post-commit best-effort) → dup bajo concurrencia | 🟠 Alto | record insertado dentro de la tx bajo lock; P2002 → 409 |
+| 3 | CORS prod bloquea `/api/v1/public/*` cross-origin → motor inservible para websites externos | 🔴 Crítico | middleware CORS abierto para el prefijo público (READ público + WRITE con X-API-Key, sin cookies) |
+| 4 | Webhook dead-letter emitía SSE `booking:created` fantasma | 🟠 Alto | removido; estado DEAD_LETTER + failureCount persistidos |
+| 5 | SSRF vía URL de webhook (169.254/localhost/RFC1918) | 🟡 Medio | `assertSafeWebhookUrl` rechaza hosts internos |
+| 6 | `from`/`to` del calendar aceptaban basura silenciosa | 🟡 Medio | validación → 400 |
+| 7 | Total de reserva rotulaba moneda inconsistente | 🟡 Medio | `currency` del response = tarifa real |
+| 8 | System staff password determinista | 🟢 Bajo | `randomBytes(32)` |
+
+**Diferidos (documentados, no bloquean piloto single-instance):**
+- Aislamiento test/live keys (comparten DB) — sandbox compartido por diseño Fase 1 (el integration guide ya lo dice).
+- `FOR UPDATE SKIP LOCKED` en `WebhookRetryScheduler` — solo relevante multi-instance (el plan ya prevé Redis-backed para multi-pod, §143 pattern).
+- `trust proxy` para que el rate-limit per-IP funcione detrás del LB (Render/Vercel) — verificar en deploy.
+- Queries de disponibilidad O(rooms×días) — mitigado por cache 30-60s; agregado batcheado si escala.
+
 ---
 
 ## 6. Modelo de monetización — DUAL TIER

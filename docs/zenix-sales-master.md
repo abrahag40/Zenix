@@ -2274,7 +2274,7 @@ Las tres consumen **la misma API backend** — el hotel migra de una a otra sin 
 
 ### Estado de implementación (2026-06-11)
 
-**Fase 1 construida y verificada e2e** (branch `feat/booking-engine-foundation`): API pública READ + WRITE (reservas multi-habitación/multi-fecha, anti-overbooking transaccional, idempotencia), webhooks outbound, feed de disponibilidad por noche, panel consultor en Nova (activar/desactivar por property), y la **hosted page completa** (`book.zenix.com/{slug}`) con SEO. Modo **pago en recepción** (`PAY_AT_HOTEL`) — el hotel captura reservas directas sin comisión OTA desde ya.
+**Fase 1 construida, verificada e2e y endurecida (bug-hunt pre-merge 2026-06-11)** (branch `feat/booking-engine-foundation`): API pública READ + WRITE (reservas multi-habitación/multi-fecha, **anti-overbooking con lock transaccional**, idempotencia atómica), webhooks outbound firmados (HMAC, anti-SSRF), feed de disponibilidad por noche, OpenAPI/Swagger + guía de integración, panel consultor en Nova (activar/desactivar por property), y la **hosted page completa** (`/book/{slug}`) con SEO. Aislamiento **multi-tenant** verificado (cada reserva resuelve hotel + habitaciones contra su propia property). Modo **pago en recepción** (`PAY_AT_HOTEL`) — el hotel captura reservas directas sin comisión OTA desde ya. **Para go-live de un cliente real falta sólo: merge + deploy a producción** (subdominio `book.zenix.com` opcional vs sitio propio del hotel headless).
 
 **El prepago online** (Stripe Connect split 97/3 + OXXO/MercadoPago/SPEI) y el **marketplace comisionable** llegan con PAY-CORE (v1.0.1) — se enchufan sin rehacer el motor. Es decir: el ahorro de comisión OTA empieza en Fase 1; el upsell del marketplace 3% es el siguiente escalón.
 

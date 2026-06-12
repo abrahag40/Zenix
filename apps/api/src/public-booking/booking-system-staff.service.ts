@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common'
 import * as bcrypt from 'bcrypt'
+import { randomBytes } from 'crypto'
 import { PrismaService } from '../prisma/prisma.service'
 
 /**
@@ -33,7 +34,10 @@ export class BookingSystemStaffService {
       return existing.id
     }
 
-    const hash = await bcrypt.hash(`booking-engine-${propertyId}`, 10)
+    // Password aleatorio impredecible — este Staff NUNCA autentica (es sólo
+    // referencia FK para checkedInById). Antes era determinista
+    // (`booking-engine-${propertyId}`) → riesgo teórico de login. randomBytes lo cierra.
+    const hash = await bcrypt.hash(randomBytes(32).toString('hex'), 10)
     const created = await this.prisma.staff.create({
       data: {
         propertyId,

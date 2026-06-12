@@ -132,10 +132,23 @@ export class PublicReservationsService {
       property.legalEntity?.baseCurrency ??
       'USD'
 
-    // ── Resolver cada línea (capacidad + habitación física libre §35) ──────────
-    const resolved: ResolvedLine[] = []
-    const usedRoomIds = new Set<string>() // evita asignar la misma room 2× en el grupo
-
+    // ── Validación read-only por línea: roomType + capacidad + noches + tarifa ──
+    // La ASIGNACIÓN de la habitación física + re-check de disponibilidad se hace
+    // DENTRO de la $transaction bajo advisory lock (anti-overbook §35 — mismo
+    // patrón que guest-stays.create BUG #9). Sin el lock, dos reservas web
+    // concurrentes por el último cuarto pasan ambas el check → overbooking.
+    interface PreLine {
+      line: ReservationRoomDto
+      roomTypeName: string
+      candidateRooms: { id: string; number: string | null }[]
+      checkIn: Date
+      checkOut: Date
+      nights: number
+      pax: number
+      nightlyRate: number
+      currency: string
+    }
+    const preLines: PreLine[] = []
     for (const line of dto.rooms) {
       const roomType = await this.prisma.roomType.findFirst({
         where: { id: line.roomTypeId, propertyId: property.id, isActive: true, deletedAt: null },
@@ -144,206 +157,243 @@ export class PublicReservationsService {
       if (!roomType) {
         throw new NotFoundException(`Tipo de habitación no encontrado: ${line.roomTypeId}`)
       }
-
       const pax = line.adults + (line.children ?? 0)
       if (pax > roomType.maxOccupancy) {
         throw new BadRequestException(
           `"${roomType.name}" admite hasta ${roomType.maxOccupancy} huéspedes; se solicitaron ${pax}`,
         )
       }
-
       const checkIn = new Date(line.checkIn)
       const checkOut = new Date(line.checkOut)
       if (utcDay(checkOut) <= utcDay(checkIn)) {
         throw new BadRequestException('checkOut debe ser posterior a checkIn')
       }
-      const nights = Math.round((utcDay(checkOut) - utcDay(checkIn)) / 86400000)
-
-      let chosen: { id: string; number: string | null } | null = null
-      for (const room of roomType.rooms) {
-        if (usedRoomIds.has(room.id)) continue
-        const res = await this.availability.check({ roomId: room.id, from: checkIn, to: checkOut })
-        if (res.available) {
-          chosen = room
-          break
-        }
-      }
-      if (!chosen) {
-        throw new ConflictException(
-          `Sin disponibilidad para "${roomType.name}" en ${line.checkIn} → ${line.checkOut}`,
-        )
-      }
-      usedRoomIds.add(chosen.id)
-
-      const nightlyRate = Number(roomType.baseRate)
-      resolved.push({
+      preLines.push({
         line,
-        roomTypeId: roomType.id,
         roomTypeName: roomType.name,
-        chosenRoomId: chosen.id,
-        roomNumber: chosen.number,
+        candidateRooms: roomType.rooms,
         checkIn,
         checkOut,
-        nights,
+        nights: Math.round((utcDay(checkOut) - utcDay(checkIn)) / 86400000),
         pax,
-        nightlyRate,
-        total: nightlyRate * nights,
+        nightlyRate: Number(roomType.baseRate),
         currency: roomType.currency ?? currency,
       })
     }
 
     const checkedInById = await this.systemStaff.getOrCreate(property.id, organizationId)
-    const isGroup = resolved.length > 1
+    const isGroup = preLines.length > 1
     const countryCode = property.legalEntity?.countryCode ?? 'MX'
     const propCode = property.propCode ?? '000'
+    // M2 fix: la moneda del response = la tarifa real (uniforme por property),
+    // no el displayCurrency (evita rotular una tarifa USD como MXN).
+    const responseCurrency = preLines[0]?.currency ?? currency
 
-    // ── Crear todo en UNA transacción ──────────────────────────────────────────
-    const result = await this.prisma.$transaction(async (tx) => {
-      let groupId: string | null = null
-      if (isGroup) {
-        const group = await tx.reservationGroup.create({
-          data: {
-            organizationId,
-            propertyId: property.id,
-            primaryGuestName: dto.guest.name,
-            primaryGuestEmail: dto.guest.email ?? null,
-            primaryGuestPhone: dto.guest.phone ?? null,
-            groupSize: resolved.reduce((s, r) => s + r.pax, 0),
-            roomCount: resolved.length,
-            groupCheckIn: resolved.reduce((min, r) => (r.checkIn < min ? r.checkIn : min), resolved[0].checkIn),
-            groupCheckOut: resolved.reduce((max, r) => (r.checkOut > max ? r.checkOut : max), resolved[0].checkOut),
-          },
-          select: { id: true },
+    // ── Crear todo en UNA transacción con advisory lock anti-overbook ───────────
+    type StayOut = { id: string; bookingRef: string; roomTypeName: string; roomNumber: string | null; total: number; currency: string; checkIn: Date; checkOut: Date }
+    let txResult: { replay?: unknown; response?: any; stays?: StayOut[]; groupId?: string | null }
+    try {
+      txResult = await this.prisma.$transaction(async (tx) => {
+        // Serializa la creación de reservas de ESTA property (cubre el re-check de
+        // disponibilidad + el contador del bookingRef). Se libera al commit.
+        // try/catch TypeError → no rompe unit tests con $transaction mockeado.
+        try {
+          await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, `booking:${property.id}`)
+        } catch (e) {
+          if (!(e instanceof TypeError)) throw e
+        }
+
+        // Idempotencia BAJO lock: si una request concurrente con la misma key ya
+        // commiteó, devolvemos su respuesta (no creamos doble reserva).
+        const dup = await tx.bookingIdempotencyRecord.findUnique({
+          where: { apiKeyId_idempotencyKey: { apiKeyId: ctx.scopeId, idempotencyKey } },
         })
-        groupId = group.id
+        if (dup) {
+          if (dup.requestHash !== requestHash) {
+            throw new ConflictException('Idempotency-Key reutilizado con un body distinto')
+          }
+          return { replay: dup.responseJson }
+        }
+
+        // Asignar habitación física re-chequeando disponibilidad DENTRO del lock.
+        const usedRoomIds = new Set<string>() // evita asignar la misma room 2× en el grupo
+        const resolved: ResolvedLine[] = []
+        for (const pre of preLines) {
+          let chosen: { id: string; number: string | null } | null = null
+          for (const room of pre.candidateRooms) {
+            if (usedRoomIds.has(room.id)) continue
+            const res = await this.availability.check({ roomId: room.id, from: pre.checkIn, to: pre.checkOut })
+            if (res.available) { chosen = room; break }
+          }
+          if (!chosen) {
+            throw new ConflictException(
+              `Sin disponibilidad para "${pre.roomTypeName}" en ${pre.line.checkIn} → ${pre.line.checkOut}`,
+            )
+          }
+          usedRoomIds.add(chosen.id)
+          resolved.push({
+            line: pre.line,
+            roomTypeId: pre.line.roomTypeId,
+            roomTypeName: pre.roomTypeName,
+            chosenRoomId: chosen.id,
+            roomNumber: chosen.number,
+            checkIn: pre.checkIn,
+            checkOut: pre.checkOut,
+            nights: pre.nights,
+            pax: pre.pax,
+            nightlyRate: pre.nightlyRate,
+            total: pre.nightlyRate * pre.nights,
+            currency: pre.currency,
+          })
+        }
+
+        let groupId: string | null = null
+        if (isGroup) {
+          const group = await tx.reservationGroup.create({
+            data: {
+              organizationId,
+              propertyId: property.id,
+              primaryGuestName: dto.guest.name,
+              primaryGuestEmail: dto.guest.email ?? null,
+              primaryGuestPhone: dto.guest.phone ?? null,
+              groupSize: resolved.reduce((s, r) => s + r.pax, 0),
+              roomCount: resolved.length,
+              groupCheckIn: resolved.reduce((min, r) => (r.checkIn < min ? r.checkIn : min), resolved[0].checkIn),
+              groupCheckOut: resolved.reduce((max, r) => (r.checkOut > max ? r.checkOut : max), resolved[0].checkOut),
+            },
+            select: { id: true },
+          })
+          groupId = group.id
+        }
+
+        const stays: StayOut[] = []
+        for (let i = 0; i < resolved.length; i++) {
+          const r = resolved[i]
+          const bookingRef = await this.buildBookingRef(tx, countryCode, propCode, r.checkIn)
+          const created = await tx.guestStay.create({
+            data: {
+              organizationId,
+              propertyId: property.id,
+              roomId: r.chosenRoomId,
+              bookingRef,
+              guestName: r.line.guestName ?? dto.guest.name,
+              guestEmail: dto.guest.email ?? null,
+              guestPhone: dto.guest.phone ?? null,
+              paxCount: r.pax,
+              checkinAt: r.checkIn,
+              scheduledCheckout: r.checkOut,
+              ratePerNight: new Prisma.Decimal(r.nightlyRate),
+              currency: r.currency,
+              totalAmount: new Prisma.Decimal(r.total),
+              amountPaid: new Prisma.Decimal(0),
+              paymentStatus: 'PENDING',
+              paymentModel: 'HOTEL_COLLECT',
+              source: 'DIRECT_WEB',
+              notes: dto.notes ?? null,
+              checkedInById,
+              ...(isGroup ? { reservationGroupId: groupId, groupRoomIndex: i + 1 } : {}),
+            },
+            select: { id: true, roomId: true, checkinAt: true, scheduledCheckout: true, guestName: true, guestEmail: true },
+          })
+
+          // StayJourney + ORIGINAL StaySegment — mirror del flujo canónico (§137).
+          const journey = await tx.stayJourney.create({
+            data: {
+              organizationId,
+              propertyId: property.id,
+              guestName: created.guestName,
+              guestEmail: created.guestEmail,
+              guestStayId: created.id,
+              journeyCheckIn: created.checkinAt,
+              journeyCheckOut: created.scheduledCheckout,
+            },
+            select: { id: true },
+          })
+          await tx.staySegment.create({
+            data: {
+              journeyId: journey.id,
+              roomId: created.roomId,
+              guestStayId: created.id,
+              checkIn: created.checkinAt,
+              checkOut: created.scheduledCheckout,
+              status: 'ACTIVE',
+              reason: 'ORIGINAL',
+              rateSnapshot: new Prisma.Decimal(r.nightlyRate),
+            },
+          })
+
+          stays.push({
+            id: created.id, bookingRef, roomTypeName: r.roomTypeName, roomNumber: r.roomNumber,
+            total: r.total, currency: r.currency, checkIn: r.checkIn, checkOut: r.checkOut,
+          })
+        }
+
+        const response = {
+          reservationRef: stays[0].bookingRef,
+          isGroup,
+          groupId,
+          paymentPolicy: property.bookingEngineConfig!.paymentPolicy, // PAY_AT_HOTEL
+          currency: responseCurrency,
+          totalAmount: stays.reduce((s, r) => s + r.total, 0),
+          rooms: stays.map((s) => ({
+            bookingRef: s.bookingRef,
+            roomType: s.roomTypeName,
+            roomNumber: s.roomNumber,
+            checkIn: isoDate(s.checkIn),
+            checkOut: isoDate(s.checkOut),
+            total: s.total,
+            currency: s.currency,
+          })),
+          message: 'Reserva confirmada. El pago se realiza al llegar al hotel.',
+        }
+
+        // Idempotencia persistida DENTRO del lock → segura contra concurrencia.
+        await tx.bookingIdempotencyRecord.create({
+          data: {
+            apiKeyId: ctx.scopeId,
+            idempotencyKey,
+            requestHash,
+            responseJson: response as unknown as Prisma.InputJsonValue,
+            statusCode: 201,
+          },
+        })
+
+        return { response, stays, groupId }
+      })
+    } catch (e) {
+      // P2002 (bookingRef o idempotency) bajo carrera extrema → 409 limpio
+      // en vez de 500 (la causa real ya está serializada por el advisory lock).
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException('Reserva duplicada o en proceso; reintenta.')
       }
+      throw e
+    }
 
-      const stays: { id: string; bookingRef: string; roomTypeName: string; roomNumber: string | null; total: number; currency: string; checkIn: Date; checkOut: Date }[] = []
-
-      for (let i = 0; i < resolved.length; i++) {
-        const r = resolved[i]
-        const bookingRef = await this.buildBookingRef(tx, countryCode, propCode, r.checkIn)
-
-        const created = await tx.guestStay.create({
-          data: {
-            organizationId,
-            propertyId: property.id,
-            roomId: r.chosenRoomId,
-            bookingRef,
-            guestName: r.line.guestName ?? dto.guest.name,
-            guestEmail: dto.guest.email ?? null,
-            guestPhone: dto.guest.phone ?? null,
-            paxCount: r.pax,
-            checkinAt: r.checkIn,
-            scheduledCheckout: r.checkOut,
-            ratePerNight: new Prisma.Decimal(r.nightlyRate),
-            currency: r.currency,
-            totalAmount: new Prisma.Decimal(r.total),
-            amountPaid: new Prisma.Decimal(0),
-            paymentStatus: 'PENDING',
-            paymentModel: 'HOTEL_COLLECT',
-            source: 'DIRECT_WEB',
-            notes: dto.notes ?? null,
-            checkedInById,
-            ...(isGroup ? { reservationGroupId: groupId, groupRoomIndex: i + 1 } : {}),
-          },
-          select: { id: true, roomId: true, checkinAt: true, scheduledCheckout: true, guestName: true, guestEmail: true },
-        })
-
-        // StayJourney + ORIGINAL StaySegment — mirror del flujo canónico (§).
-        const journey = await tx.stayJourney.create({
-          data: {
-            organizationId,
-            propertyId: property.id,
-            guestName: created.guestName,
-            guestEmail: created.guestEmail,
-            guestStayId: created.id,
-            journeyCheckIn: created.checkinAt,
-            journeyCheckOut: created.scheduledCheckout,
-          },
-          select: { id: true },
-        })
-        await tx.staySegment.create({
-          data: {
-            journeyId: journey.id,
-            roomId: created.roomId,
-            guestStayId: created.id,
-            checkIn: created.checkinAt,
-            checkOut: created.scheduledCheckout,
-            status: 'ACTIVE',
-            reason: 'ORIGINAL',
-            rateSnapshot: new Prisma.Decimal(r.nightlyRate),
-          },
-        })
-
-        stays.push({
-          id: created.id,
-          bookingRef,
-          roomTypeName: r.roomTypeName,
-          roomNumber: r.roomNumber,
-          total: r.total,
-          currency: r.currency,
-          checkIn: r.checkIn,
-          checkOut: r.checkOut,
-        })
-      }
-
-      return { groupId, stays }
-    })
+    // Replay concurrente detectado bajo lock → devolver la respuesta cacheada.
+    if (txResult.replay) return txResult.replay
+    const stays = txResult.stays!
 
     // ── SSE → recepción ve la reserva al instante (§124) ───────────────────────
-    for (const s of result.stays) {
+    for (const s of stays) {
       this.notifications.emit(property.id, 'booking:created', {
         stayId: s.id,
         bookingRef: s.bookingRef,
-        groupId: result.groupId,
+        groupId: txResult.groupId ?? null,
       })
     }
 
     // ── Webhook outbound (B3) → el website del hotel se entera ──────────────────
     this.events.emit('booking.reservation.created', {
       propertyId: property.id,
-      reservationRef: result.stays[0].bookingRef,
+      reservationRef: stays[0].bookingRef,
       isGroup,
-      groupId: result.groupId,
-      rooms: result.stays.map((s) => ({ bookingRef: s.bookingRef, roomType: s.roomTypeName })),
+      groupId: txResult.groupId ?? null,
+      rooms: stays.map((s) => ({ bookingRef: s.bookingRef, roomType: s.roomTypeName })),
     })
     // La reserva ocupó inventario → invalidar el calendario cacheado del website.
     this.events.emit('booking.availability.changed', { propertyId: property.id })
 
-    const response = {
-      reservationRef: result.stays[0].bookingRef,
-      isGroup,
-      groupId: result.groupId,
-      paymentPolicy: property.bookingEngineConfig.paymentPolicy, // PAY_AT_HOTEL
-      currency,
-      totalAmount: result.stays.reduce((s, r) => s + r.total, 0),
-      rooms: result.stays.map((s) => ({
-        bookingRef: s.bookingRef,
-        roomType: s.roomTypeName,
-        roomNumber: s.roomNumber,
-        checkIn: isoDate(s.checkIn),
-        checkOut: isoDate(s.checkOut),
-        total: s.total,
-        currency: s.currency,
-      })),
-      message: 'Reserva confirmada. El pago se realiza al llegar al hotel.',
-    }
-
-    // ── Persistir idempotencia (best-effort) ───────────────────────────────────
-    await this.prisma.bookingIdempotencyRecord
-      .create({
-        data: {
-          apiKeyId: ctx.scopeId,
-          idempotencyKey,
-          requestHash,
-          responseJson: response as unknown as Prisma.InputJsonValue,
-          statusCode: 201,
-        },
-      })
-      .catch((e) => this.logger.warn(`No se pudo persistir idempotencia: ${e}`))
-
-    return response
+    return txResult.response
   }
 
   /** Estado público de una reserva por bookingRef, scoped a la property de la llave. */

@@ -1,8 +1,31 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import { randomBytes } from 'crypto'
 import { PrismaService } from '../../prisma/prisma.service'
 
 const VALID_EVENTS = ['reservation.created', 'reservation.cancelled', 'availability.changed']
+
+/**
+ * Valida la URL del webhook contra SSRF: exige http(s) y rechaza hosts internos
+ * (loopback, link-local cloud-metadata 169.254, rangos privados RFC1918). El
+ * dispatcher hace fetch server-side → sin esto un consultor podría apuntar a
+ * `http://169.254.169.254/...` (metadata IAM) o a `localhost`. Chequeo sintáctico
+ * (sin resolución DNS — un atacante con DNS-rebinding requeriría más; mitigación
+ * base suficiente para el piloto con consultores de confianza).
+ */
+function assertSafeWebhookUrl(raw: string): void {
+  let u: URL
+  try { u = new URL(raw) } catch { throw new BadRequestException('URL de webhook inválida') }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') {
+    throw new BadRequestException('El webhook debe usar http(s)')
+  }
+  const host = u.hostname.toLowerCase()
+  const blocked =
+    host === 'localhost' || host === '0.0.0.0' || host === '::1' || host.endsWith('.localhost') ||
+    /^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host) ||
+    /^169\.254\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+    host.endsWith('.internal') || host.endsWith('.local')
+  if (blocked) throw new BadRequestException(`Host de webhook no permitido: ${host}`)
+}
 
 /**
  * WebhookSubscriptionService — BOOKING-ENGINE B3.
@@ -16,6 +39,7 @@ export class WebhookSubscriptionService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(propertyId: string, url: string, events: string[]) {
+    assertSafeWebhookUrl(url)
     const filtered = events.filter((e) => VALID_EVENTS.includes(e))
     const secret = `whsec_${randomBytes(24).toString('hex')}`
     const sub = await this.prisma.webhookSubscription.create({

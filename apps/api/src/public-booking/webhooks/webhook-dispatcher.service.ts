@@ -2,7 +2,6 @@ import { Injectable, Logger } from '@nestjs/common'
 import { createHmac } from 'crypto'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
-import { NotificationsService } from '../../notifications/notifications.service'
 
 const MAX_ATTEMPTS = 5
 // Backoff por intento (segundos): 1s, 5s, 30s, 5min, 30min.
@@ -23,10 +22,7 @@ const BACKOFF_SECONDS = [1, 5, 30, 300, 1800]
 export class WebhookDispatcherService {
   private readonly logger = new Logger(WebhookDispatcherService.name)
 
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly notifications: NotificationsService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   /** Encola un evento para todas las subscriptions activas de la property. */
   async enqueue(propertyId: string, event: string, payload: Record<string, unknown>) {
@@ -105,13 +101,15 @@ export class WebhookDispatcherService {
         where: { id: deliveryId },
         data: { status: 'DEAD_LETTER', attempts, lastError: error, statusCode },
       })
-      this.logger.error(`[Webhook] DEAD_LETTER delivery=${deliveryId} sub=${subscriptionId}: ${error}`)
-      // Notif permanente al SUPERVISOR (§101) — el website del hotel no recibe eventos.
-      this.notifications.emit(propertyId, 'booking:created', {
-        webhookDeadLetter: true,
-        subscriptionId,
-        error,
-      })
+      this.logger.error(`[Webhook] DEAD_LETTER delivery=${deliveryId} sub=${subscriptionId} property=${propertyId}: ${error}`)
+      // El estado DEAD_LETTER queda persistido en WebhookDelivery (forense) +
+      // failureCount en la subscription. NO emitimos SSE `booking:created` aquí:
+      // sería un evento fantasma (sin stayId) que el calendario de recepción
+      // intentaría renderizar. La notif persistente al SUPERVISOR (AppNotification
+      // §101) queda como follow-up dedicado (no un SSE transitorio).
+      await this.prisma.webhookSubscription
+        .update({ where: { id: subscriptionId }, data: { failureCount: { increment: 1 } } })
+        .catch(() => undefined)
       return
     }
     const backoff = BACKOFF_SECONDS[Math.min(attempts - 1, BACKOFF_SECONDS.length - 1)]

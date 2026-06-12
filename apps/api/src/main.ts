@@ -86,6 +86,25 @@ async function bootstrap() {
     }),
   )
 
+  // BOOKING-ENGINE — CORS ABIERTO para la API pública `/api/v1/public/*`.
+  // El website de CADA hotel (dominio distinto y desconocido a priori) llama a
+  // estos endpoints desde el browser; ALLOWED_ORIGINS (lista fija del panel) no
+  // los contiene → sin esto, el preflight fallaría en producción y el motor
+  // sería inservible cross-origin. Seguro porque: READ es público y WRITE
+  // autentica con `X-API-Key` (no cookies → no credentials). Se registra ANTES
+  // del enableCors global; para orígenes externos el cors global no añade ACAO
+  // (origin no permitido) → un único header, sin duplicado.
+  app.use((req: any, res: any, next: any) => {
+    if (typeof req.path === 'string' && req.path.startsWith('/api/v1/public')) {
+      res.header('Access-Control-Allow-Origin', '*')
+      res.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
+      res.header('Access-Control-Allow-Headers', 'Content-Type,X-API-Key,Idempotency-Key')
+      res.header('Access-Control-Max-Age', '86400')
+      if (req.method === 'OPTIONS') return res.sendStatus(204)
+    }
+    next()
+  })
+
   app.enableCors({
     origin: process.env.NODE_ENV === 'production'
       ? process.env.ALLOWED_ORIGINS?.split(',') ?? []

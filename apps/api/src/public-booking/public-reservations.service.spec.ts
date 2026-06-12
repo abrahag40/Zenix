@@ -37,6 +37,8 @@ describe('PublicReservationsService', () => {
 
   beforeEach(() => {
     tx = {
+      $executeRawUnsafe: jest.fn().mockResolvedValue(0), // advisory lock (no-op en test)
+      bookingIdempotencyRecord: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({}) },
       guestStay: { create: jest.fn().mockResolvedValue({ id: 's1', roomId: 'room-A1', checkinAt: new Date(), scheduledCheckout: new Date(), guestName: 'Test Guest', guestEmail: null }), count: jest.fn().mockResolvedValue(0) },
       stayJourney: { create: jest.fn().mockResolvedValue({ id: 'j1' }) },
       staySegment: { create: jest.fn().mockResolvedValue({}) },
@@ -120,6 +122,31 @@ describe('PublicReservationsService', () => {
     prisma.bookingIdempotencyRecord.findUnique.mockResolvedValue({ requestHash: 'OTRO_HASH', responseJson: {} })
     await expect(service.createReservationBySlug('hotel-a', dto(), 'idem-conflict'))
       .rejects.toBeInstanceOf(ConflictException)
+  })
+
+  it('ANTI-OVERBOOK: adquiere advisory lock per-property + persiste idempotencia DENTRO de la tx', async () => {
+    prisma.bookingEngineConfig.findUnique.mockResolvedValue({ propertyId: 'prop-A', enabled: true })
+    prisma.roomType.findFirst.mockResolvedValue(roomTypeA)
+    await service.createReservationBySlug('hotel-a', dto(), 'idem-lock')
+    // Advisory lock pg_advisory_xact_lock keyed por la property, dentro de la tx.
+    expect(tx.$executeRawUnsafe).toHaveBeenCalledWith(expect.stringContaining('pg_advisory_xact_lock'), 'booking:prop-A')
+    // El record de idempotencia se escribe con tx (bajo lock), no con prisma suelto.
+    expect(tx.bookingIdempotencyRecord.create).toHaveBeenCalled()
+    expect(prisma.bookingIdempotencyRecord.create).not.toHaveBeenCalled()
+  })
+
+  it('idempotencia concurrente: un dup detectado BAJO lock devuelve replay sin crear', async () => {
+    prisma.bookingEngineConfig.findUnique.mockResolvedValue({ propertyId: 'prop-A', enabled: true })
+    prisma.bookingIdempotencyRecord.findUnique.mockResolvedValue(null) // fast-path no lo ve
+    prisma.roomType.findFirst.mockResolvedValue(roomTypeA)
+    // Pero bajo el lock, otra request concurrente ya commiteó el mismo key:
+    tx.bookingIdempotencyRecord.findUnique.mockResolvedValue({
+      requestHash: require('crypto').createHash('sha256').update(JSON.stringify(dto())).digest('hex'),
+      responseJson: { reservationRef: 'CONCURRENT-WIN' },
+    })
+    const r: any = await service.createReservationBySlug('hotel-a', dto(), 'idem-race')
+    expect(r.reservationRef).toBe('CONCURRENT-WIN')
+    expect(tx.guestStay.create).not.toHaveBeenCalled()
   })
 
   it('slug inexistente o motor apagado → 404 (no filtra existencia)', async () => {

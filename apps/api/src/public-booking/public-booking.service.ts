@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common'
+import { BadRequestException, Injectable, NotFoundException, Logger } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 import { AvailabilityService } from '../pms/availability/availability.service'
 import { AvailabilityQueryDto } from './dto/availability-query.dto'
@@ -227,11 +227,16 @@ export class PublicBookingService {
     const config = await this.resolvePublishedProperty(slug)
     const propertyId = config.property.id
 
-    const fromDay = utcMidnight(new Date(fromStr))
-    const toDay = utcMidnight(new Date(toStr))
+    const fromParsed = new Date(fromStr)
+    const toParsed = new Date(toStr)
+    if (Number.isNaN(fromParsed.getTime()) || Number.isNaN(toParsed.getTime())) {
+      throw new BadRequestException('from/to deben ser fechas válidas (YYYY-MM-DD)')
+    }
+    const fromDay = utcMidnight(fromParsed)
+    const toDay = utcMidnight(toParsed)
     const nights = Math.round((toDay - fromDay) / 86400000)
-    if (nights < 1) throw new NotFoundException('Rango de fechas inválido')
-    if (nights > 62) throw new NotFoundException('Rango máximo 62 noches')
+    if (nights < 1) throw new BadRequestException('Rango de fechas inválido (to debe ser posterior a from)')
+    if (nights > 62) throw new BadRequestException('Rango máximo 62 noches')
 
     const roomTypes = await this.prisma.roomType.findMany({
       where: {
