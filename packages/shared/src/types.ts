@@ -840,6 +840,7 @@ export type SseEventType =
   | 'channex:stay:modified'             // booking_modify aplicado (Day 4)
   | 'channex:stay:cancelled'            // booking_cancel aplicado (Day 4)
   | 'channex:stay:conflict'             // overlap detectado, requiere review humano (D-CHX5)
+  | 'booking:created'                   // BOOKING-ENGINE B2 — reserva directa (DIRECT_WEB) creada vía Zenix Booking
   | 'channex:drift-detected'            // pull reconciliation encontró revision no procesada (Day 6)
   // Sprint CHECK-IN C2.2 (2026-05-29) — multi-room ReservationGroup §153-§158
   | 'channex:group:created'             // booking_new multi-room → ReservationGroup + N stays creadas
