@@ -4204,6 +4204,9 @@ export class GuestStaysService {
       { guestName: { contains: term, mode: 'insensitive' } },
       { guestEmail: { contains: term, mode: 'insensitive' } },
       { bookingRef: { contains: term, mode: 'insensitive' } },
+      // Código de reserva de la OTA (Booking/Expedia number) — el que el
+      // personal teclea en el extranet de la OTA para hallar la misma reserva.
+      { otaReservationCode: { contains: term, mode: 'insensitive' } },
       { channexBookingId: { contains: term, mode: 'insensitive' } },
     ]
     if (digits.length >= 3) {
@@ -4219,6 +4222,7 @@ export class GuestStaysService {
         guestPhone: true,
         guestEmail: true,
         bookingRef: true,
+        otaReservationCode: true,
         channexBookingId: true,
         channexOtaName: true,
         source: true,
@@ -4240,6 +4244,7 @@ export class GuestStaysService {
       guestPhone: s.guestPhone,
       guestEmail: s.guestEmail,
       bookingRef: s.bookingRef,
+      otaReservationCode: s.otaReservationCode,
       channexBookingId: s.channexBookingId,
       otaName: s.channexOtaName,
       source: s.source,

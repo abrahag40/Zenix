@@ -1840,6 +1840,11 @@ model GuestStay {
   // humana (D-CHX5). AvailabilityService NO los excluye — siguen visibles
   // como "reservas en disputa" hasta que un humano decida.
   channexBookingId     String?   @unique @map("channex_booking_id")
+  // Código de reserva de la OTA (Booking.com/Expedia/Airbnb) — el número que ve
+  // el huésped y que el personal teclea en el extranet de la OTA para encontrar
+  // la MISMA reserva. Channex lo manda como `ota_reservation_code`. Distinto del
+  // channexBookingId (UUID interno de Channex, inútil para el personal). Buscable.
+  otaReservationCode   String?   @map("ota_reservation_code")
   channexRevision      Int?      @map("channex_revision")
   channexConflict      Boolean   @default(false) @map("channex_conflict")
   channexLastSyncAt    DateTime? @map("channex_last_sync_at")
@@ -1899,6 +1904,7 @@ model GuestStay {
   @@index([noShowAt])
   @@index([cancelledAt])
   @@index([channexConflict])
+  @@index([otaReservationCode])
   @@index([reservationGroupId])
   // Sprint testing BUG #21 — calendar timeline + overstayed widget rendering
   // hacían SEQ SCAN sobre guest_stays. A 78 rows = 0.16 ms; proyección 100k
@@ -1981,6 +1987,8 @@ model ReservationGroup {
   // crea group duplicado). Null si el grupo nace de un flow manual futuro.
   channexBookingId String? @unique @map("channex_booking_id")
   channexOtaName   String? @map("channex_ota_name")
+  // Código de reserva de la OTA visible al personal (Booking/Expedia confirmation).
+  otaReservationCode String? @map("ota_reservation_code")
 
   // Datos del titular (común para todas las rooms del grupo). Vienen de
   // revision.customer en Channex inbound.

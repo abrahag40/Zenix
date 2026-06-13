@@ -484,6 +484,7 @@ export class BookingNewHandler {
             propertyId: property.id,
             channexBookingId: revision.booking_id,
             channexOtaName: revision.ota_name ?? null,
+            otaReservationCode: revision.ota_reservation_code ?? null,
             primaryGuestName,
             primaryGuestEmail: revision.customer?.mail ?? null,
             primaryGuestPhone: revision.customer?.phone ?? null,

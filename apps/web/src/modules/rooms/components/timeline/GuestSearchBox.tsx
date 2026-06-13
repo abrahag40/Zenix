@@ -145,11 +145,13 @@ export function GuestSearchBox({ onSelect }: GuestSearchBoxProps) {
                             <span className="inline-flex items-center gap-1"><Phone className="h-3 w-3" />{r.guestPhone}</span>
                           )}
                         </div>
-                        {(r.channexBookingId || r.bookingRef) && (
+                        {/* Prioriza el código de la OTA (Booking/Expedia number)
+                            que el personal reconoce; cae a bookingRef interno. */}
+                        {(r.otaReservationCode || r.bookingRef) && (
                           <div className="flex items-center gap-1 mt-0.5 text-[11px] text-slate-400 truncate">
                             <Hash className="h-3 w-3 flex-shrink-0" />
                             {r.otaName && <span className="capitalize text-slate-500">{r.otaName}</span>}
-                            <span className="font-mono truncate">{r.channexBookingId || r.bookingRef}</span>
+                            <span className="font-mono truncate text-slate-500">{r.otaReservationCode || r.bookingRef}</span>
                           </div>
                         )}
                       </div>
