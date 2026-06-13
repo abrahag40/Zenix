@@ -71,6 +71,7 @@ function adaptStay(raw: Record<string, unknown>): GuestStayBlock {
     // Sprint CHANNEX-INBOUND + CHANNEX-UX-E2-E3 §149-§152 — Channel Manager fields
     // surfaced en BookingDetailSheet (chip sync) + CancelReservationDialog (push CRS).
     channexBookingId:     (raw.channexBookingId as string | null | undefined) ?? null,
+    otaReservationCode:   (raw.otaReservationCode as string | null | undefined) ?? null,
     channexOtaName:       (raw.channexOtaName as string | null | undefined) ?? null,
     channexConflict:      (raw.channexConflict as boolean | undefined) ?? false,
     channexLastSyncAt:    raw.channexLastSyncAt ? new Date(raw.channexLastSyncAt as string) : null,

@@ -761,6 +761,7 @@ export class GuestStaysService {
         cancelRefundAt: true,
         // Channex sync chip
         channexBookingId: true,
+        otaReservationCode: true,
         channexOtaName: true,
         channexConflict: true,
         channexLastSyncAt: true,

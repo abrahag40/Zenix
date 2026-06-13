@@ -88,6 +88,8 @@ export interface GuestStayBlock {
    * visual cue (channexConflict → ring amber).
    */
   channexBookingId?: string | null
+  /** Código de reserva de la OTA (Booking/Expedia number) visible al personal. */
+  otaReservationCode?: string | null
   channexOtaName?: string | null
   channexConflict?: boolean
   channexLastSyncAt?: Date | null

@@ -31,6 +31,7 @@ import {
   AlertCircle,
   Copy,
   Check,
+  Ticket,
   Ban,
   Pencil,
   Camera,
@@ -152,6 +153,53 @@ function InlineCopyId({
         <Check className="h-3.5 w-3.5 text-emerald-600" />
       ) : (
         <Copy className="h-3.5 w-3.5 opacity-40 group-hover:opacity-90 transition-opacity" />
+      )}
+    </button>
+  )
+}
+
+/**
+ * Código de reserva de la OTA (Booking/Expedia number) — el que el personal
+ * teclea en el extranet de la OTA para hallar la MISMA reserva. Vive bajo el
+ * nombre del huésped en el header del sheet, copiable de un click. Estilo
+ * armonizado con el header (usa el color de estado con opacidad para el label).
+ */
+function OtaReservationCopy({
+  code,
+  otaLabel,
+  color,
+}: { code: string; otaLabel?: string; color: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(code)
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1200)
+        } catch {
+          // no-op si el navegador bloquea clipboard
+        }
+      }}
+      className="group inline-flex items-center gap-1.5 -ml-1.5 px-1.5 py-1 rounded-md hover:bg-white/50 transition-colors max-w-full"
+      style={{ color }}
+      title={copied ? 'Copiado' : `Copiar código de reserva${otaLabel ? ` de ${otaLabel}` : ''}`}
+    >
+      <Ticket className="h-3.5 w-3.5 flex-shrink-0" style={{ opacity: 0.55 }} />
+      <span className="text-[11px] font-medium flex-shrink-0" style={{ opacity: 0.65 }}>
+        Reserva
+      </span>
+      <span
+        className="select-all font-mono font-semibold truncate"
+        style={{ fontSize: '12px', letterSpacing: '-0.01em', fontFeatureSettings: '"ss01"' }}
+      >
+        {code}
+      </span>
+      {copied ? (
+        <Check className="h-3.5 w-3.5 flex-shrink-0 text-emerald-600" />
+      ) : (
+        <Copy className="h-3.5 w-3.5 flex-shrink-0 opacity-40 group-hover:opacity-90 transition-opacity" />
       )}
     </button>
   )
@@ -1161,6 +1209,19 @@ export function BookingDetailSheet({
                   </span>
                 )}
               </div>
+
+              {/* Código de reserva de la OTA — copiable de un click. El número
+                  que recepción teclea en el extranet de Booking/Expedia para
+                  hallar la misma reserva. Solo si llegó por OTA con código. */}
+              {stay.otaReservationCode && (
+                <div className="mt-1.5">
+                  <OtaReservationCopy
+                    code={stay.otaReservationCode}
+                    otaLabel={otaMeta.label}
+                    color={statusColors.text}
+                  />
+                </div>
+              )}
             </div>
 
             {/* Header controls: full-page link + close.
