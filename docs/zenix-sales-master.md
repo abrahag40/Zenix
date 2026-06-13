@@ -342,7 +342,25 @@ Este nivel de trazabilidad es el estándar de Opera Cloud. Zenix lo tiene dispon
 
 Al hacer click en cualquier bloque del calendario se abre un panel lateral de 420px con toda la información del huésped: fechas, pagos, canal de origen, datos de contacto, historial de eventos. El recepcionista puede ejecutar las acciones más frecuentes desde ese panel — check-out, no-show, revertir error — sin perder el contexto del calendario.
 
+**El código de reserva de la OTA, a la mano.** En la cabecera del panel, bajo el nombre del huésped, aparece el **código de confirmación real de la OTA** (el número de Booking.com / Expedia / Hostelworld que el huésped ve en su correo) **copiable de un solo click**. Es el dato que recepción teclea en el extranet de la OTA para encontrar exactamente la misma reserva — sin buscar a ciegas. Además, el canal se muestra con su **marca y color oficial** (Booking.com navy, Expedia amarillo, Airbnb coral, Hostelworld naranja, etc.), no un genérico "OTA". El identificador técnico interno queda en una sección secundaria, donde no estorba al personal.
+
 Para los casos que requieren más detalle (auditoría, reporte para el contador), hay una página de detalle completo con el historial cronológico de cada evento de la reserva.
+
+---
+
+### Buscador global de reservas — encuentra cualquier reserva en segundos
+
+El buscador del calendario encuentra **cualquier reserva** (pasada, presente o futura, sin límite de fechas) por:
+
+- **Nombre del huésped**
+- **Teléfono** (tolera espacios, guiones y prefijos: "55 1234" encuentra "+52 55 1234")
+- **Email**
+- **Código de reserva de la OTA** (el número de Booking/Expedia) — completo o por fragmento
+- **Folio interno de Zenix** (`MX-W-…`)
+
+Cada resultado muestra nombre + estado (Por llegar / Alojado / Salió / No-show / Cancelada) + habitación + fechas + canal. Al elegir uno, **el calendario navega automáticamente a la fecha de esa reserva y abre su ficha**. La búsqueda corre en el servidor (escala sin traer todo a memoria) y respeta permisos: el housekeeper no accede a datos de huésped (PII).
+
+**El caso real:** un huésped llama citando su número de Booking.com, o llega sin recordar con qué nombre reservó. La recepcionista teclea el código y tiene la reserva en pantalla en menos de un segundo — sin abrir la extranet de la OTA ni adivinar fechas.
 
 ---
 
@@ -1458,6 +1476,16 @@ Antes de marcar el customer como PRODUCTION, Zenix Activate ejecuta una batería
 - ✅ Test SSE conectividad real-time
 
 Si **algún check crítico falla**, el wizard bloquea la activación. Si hay warnings, pregunta "Continuar o reparar?". Sin sorpresas el día 1.
+
+### Activación flexible — el hotel puede arrancar en modo "PMS-only" y conectar integraciones después
+
+No todos los hoteles contratan todo el día 1. Algunos quieren empezar a operar el PMS (calendario, recepción, check-in, housekeeping, reportes) **antes** de tener su Channel Manager, su pasarela de pago o su facturación electrónica listos. Zenix Activate lo permite sin atajos peligrosos:
+
+- En el paso de Integraciones, las que no estén configuradas (Channex, Stripe, PAC/CFDI, correo) se marcan como **warning overridable** — no como error bloqueante. El consultor acepta explícitamente activar con esas integraciones pendientes (queda registrado), y el hotel arranca operativo.
+- Cada integración se **conecta después sin re-activar al cliente**: el Channel Manager (OTAs) cuando el hotel esté listo, la facturación electrónica cuando contrate su proveedor (PAC), etc.
+- **El inventario del wizard se materializa de verdad:** los RoomTypes y habitaciones que el consultor define en el Step 5 se crean en el PMS al activar, así el calendario queda listo para recibir reservas desde el primer minuto — no es solo una vista previa.
+
+Esto da un **camino de venta escalonado**: vender primero el control operativo (lo que el hotel siente de inmediato), y sumar Channel Manager, pagos y facturación como upgrades, sin re-implementar nada.
 
 ### Activation Report PDF
 
