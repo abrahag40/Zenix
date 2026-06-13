@@ -158,6 +158,10 @@ export class ChannexBookingMapper {
       // ReservationGroup; las stays quedan null para no chocar con el UNIQUE
       // (la lookup hace primero group.findUnique, fallback stay.findUnique).
       channexBookingId: omitChannexBookingId ? null : revision.booking_id,
+      // Código de reserva de la OTA visible al personal (Booking/Expedia number).
+      // SÍ se guarda en cada stay (a diferencia del channexBookingId que en
+      // multi-room solo vive en el group) — el personal lo busca por habitación.
+      otaReservationCode: revision.ota_reservation_code ?? null,
       channexLastSyncAt: revision.inserted_at ? new Date(revision.inserted_at) : new Date(),
       channexConflict,
       channexOtaName: revision.ota_name ?? null,

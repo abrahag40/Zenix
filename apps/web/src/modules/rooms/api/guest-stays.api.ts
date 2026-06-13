@@ -14,6 +14,8 @@ export interface GuestSearchResult {
   guestPhone: string | null
   guestEmail: string | null
   bookingRef: string | null
+  /** Código de reserva de la OTA (Booking/Expedia) visible al personal. */
+  otaReservationCode: string | null
   channexBookingId: string | null
   otaName: string | null
   source: string | null
