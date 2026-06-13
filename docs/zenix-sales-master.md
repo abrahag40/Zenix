@@ -2168,10 +2168,6 @@ Lo que competidores tienen y Zenix NO tiene aún — decisiones explícitas, no 
 
 > "Cada habitación que se limpia sin confirmación digital es una habitación que puede estar mal limpiada y nadie lo sabe. Cada no-show gestionado por WhatsApp es un cargo que no puedes cobrar si el huésped disputa con el banco. Zenix resuelve ambos problemas en el mismo sistema."
 
-### Para hostales con dormitorios compartidos
-
-> "Ningún PMS del mercado — ni Opera, ni Mews, ni Cloudbeds — gestiona por cama de verdad. Zenix es el único construido desde el principio para la realidad del hostal: la Cama 1 y la Cama 3 del mismo dorm pueden tener estados, huéspedes y tareas completamente distintos."
-
 ### Para hoteles con recepción de efectivo
 
 > "En LATAM el efectivo sigue siendo el método principal. Sin un registro por turno, cada noche es un punto ciego financiero. Zenix registra cada peso cobrado — quién lo cobró, a qué hora, en qué turno. Al cierre el supervisor compara caja física con sistema. Si no cuadra, el sistema ya sabe quién cobró en ese rango."
@@ -2190,7 +2186,7 @@ Lo que competidores tienen y Zenix NO tiene aún — decisiones explícitas, no 
 
 ### Para hostales con dorms multi-cama (4-12 camas por habitación)
 
-> "Si operas hostal con dorms compartidos, ningún PMS del mercado entry-level entiende tu realidad. Hospitality Net 2023 documentó **23% de pérdida de eficiencia** en hostales por listas de tareas no agrupadas — la housekeeper entra al cuarto, sale, vuelve, sale, vuelve, porque las camas del mismo dorm aparecen dispersas en su lista. Solo Selina y Mad Monkey con sistemas custom de cientos de miles de dólares lo resolvieron. Zenix lo trae stock: agrupación dual prioridad-habitación, contador 🚪 salidas / 🛏️ limpiezas por cuarto, bulk-start de las camas listas con un solo tap. Y lo mejor: si tus habitaciones son privadas, el sistema lo detecta automáticamente y muestra listas planas. Crece contigo sin reconfigurar."
+> "Si operas hostal con dorms compartidos, ningún PMS del mercado entry-level entiende tu realidad — ni Opera, ni Mews, ni Cloudbeds gestiona por cama de verdad. En Zenix, la Cama 1 y la Cama 3 del mismo dorm pueden tener estados, huéspedes y tareas completamente distintos. Y la operación lo agradece: Hospitality Net 2023 documentó **23% de pérdida de eficiencia** en hostales por listas de tareas no agrupadas — la housekeeper entra al cuarto, sale, vuelve, sale, vuelve, porque las camas del mismo dorm aparecen dispersas en su lista. Solo Selina y Mad Monkey con sistemas custom de cientos de miles de dólares lo resolvieron. Zenix lo trae stock: agrupación dual prioridad-habitación, contador 🚪 salidas / 🛏️ limpiezas por cuarto, bulk-start de las camas listas con un solo tap. Y lo mejor: si tus habitaciones son privadas, el sistema lo detecta automáticamente y muestra listas planas. Crece contigo sin reconfigurar."
 
 ### Para propiedades con políticas de limpieza distintas (eco-friendly / Marriott Bonvoy style)
 
