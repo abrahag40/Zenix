@@ -1645,6 +1645,26 @@ Verificado: lo planeado para CHECK-IN C2/C3 ya se entregó en el sprint GROUP-BI
 
 > **Tests al cierre de la sesión:** 193/193 Nova + 31/31 channex mapper/handler + typecheck api+web verde en cada PR + CI "Lint & Test" verde en los 8 PRs. Verificación e2e en navegador local (Chrome MCP) de: wizard 10 pasos + activación, búsqueda por nombre/código OTA, chip OTA copiable + marca Booking.com, reset de propiedad al re-login. **Pendiente menor honesto:** consistencia del nombre de OTA en el dropdown del buscador (muestra el raw `channexOtaName`, no el label canónico de `resolveOtaDisplay`) — cosmético, no se tocó.
 
+---
+
+## MIGRATION-CORE — Zenix Onboard (PLAN, 2026-06-13)
+
+> **Estado:** PLAN sin implementar. Aprobado por owner para formalizar tras estudio de migración Cloudbeds→Zenix (un prospecto con años en Cloudbeds preguntó si puede migrar su data). Plan SCRUM completo en **[docs/sprints/MIGRATION-CORE-plan.md](docs/sprints/MIGRATION-CORE-plan.md)**. Módulo comercial 9 en [zenix-sales-master.md](docs/zenix-sales-master.md). v1.1.x DLC/servicio — **NO bloquea v1.0.0**.
+
+**Qué es:** módulo **Zenix Onboard** para migrar datos desde cualquier PMS (Cloudbeds primero) a Zenix. Motor **genérico + adapters** (`ISourcePmsAdapter` Strategy, mismo patrón §89 `IPacAdapter`), con `CloudbedsAdapter` como primero. Flujo: el consultor sube el export (CSV/XLSX) en Nova → parse a **staging descartable** (sin tocar producción) → normaliza (timezone IANA §12, ISO 4217, dedup) → **detecta empalmes** → **dry-run/preview** con resolución de conflictos → **load idempotente** que crea `GuestStay`+`StayJourney`+`StaySegment(ORIGINAL)` con `source='MIGRATED'` + `migrationSourceId`/`migrationJobId` + AuditLog.
+
+**Hechos verificados del estudio (fuentes Cloudbeds oficiales):** Cloudbeds exporta reservas/huéspedes/reportes a XLSX/CSV/JSON self-service (no requiere permiso del proveedor); tiene API PMS (API Keys/OAuth) pero el acceso requiere aprobación de Cloudbeds + autorización de la propiedad → por eso **Fase 1 es por archivo** (cero dependencia de un competidor); el PAN de tarjeta **nunca** se exporta (PCI-DSS universal).
+
+**Decisiones D-MIG1..6 (se §-numeran al implementar):**
+- **D-MIG1** — motor genérico + adapters, no script de Cloudbeds.
+- **D-MIG2** — staging descartable; load idempotente vía UNIQUE `(migrationJobId, migrationSourceId)`.
+- **D-MIG3** ★ — **detección de empalmes** (requisito explícito del owner): solape de fechas sobre el mismo recurso físico — **habitación** (privadas) o **cama** (dorms/hostal, bed-level); corre staging-vs-staging **y** staging-vs-reservas existentes; reusa `AvailabilityService` (§35); back-to-back NO es empalme (§128).
+- **D-MIG4** — dry-run/preview obligatorio con gate de conflictos `ERROR` antes del load (NN/g H5); resolución skip/reasignar/aceptar-con-razón.
+- **D-MIG5** — **no migrar todo** (alcance honesto): reservas + huéspedes + inventario + contabilidad histórica. Fuera por ley/arquitectura: PCI (tarjetas), OTA-live (se reconecta vía Channex), `MetricsDailySnapshot` pace/STLY (no reconstruible retroactivo — §RATES-METRICS).
+- **D-MIG6** — doble entrega: producto (módulo Nova) + servicio asistido white-glove (ZaharDev) sobre el mismo motor.
+
+**Estimación:** ~18-24 días-dev = ~4-5 sem calendar (1 dev). Sprints: 0 Discovery/spike → 1 Foundation+parsing → 2 Validación+**CollisionDetector** ★ → 3 Preview UI Nova → 4 Load+Audit → 5 Servicio+2º adapter spike → 6 QA+piloto (con export real cuando exista). **Pendiente de arranque:** no hay export real aún → Sprint 0 usa export sintético marcado `ASSUMED`; el piloto valida con data real.
+
 ## Patterns & Conventions
 
 ### API (NestJS)
