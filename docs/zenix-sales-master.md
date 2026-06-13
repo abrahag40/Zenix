@@ -2154,6 +2154,39 @@ Lo que competidores tienen y Zenix NO tiene aún — decisiones explícitas, no 
 
 ---
 
+## Módulo 9 — Zenix Onboard: migración sin fricción desde tu PMS actual (DLC v1.1.x / servicio)
+
+### El problema real — la objeción #1 al cambiar de PMS
+
+Cuando un hotel lleva años en Cloudbeds (o Mews, u Opera), la pregunta que frena la venta no es el precio ni las features: es **"¿y todo mi historial?"**. Cambiar de PMS se percibe como empezar de cero. Esa fricción es exactamente lo que retiene a los clientes en plataformas que ya no les sirven.
+
+### Lo que hace Zenix Onboard
+
+El hotel **exporta su data desde su PMS actual** (Cloudbeds permite exportar reservas, huéspedes y reportes financieros a CSV/Excel de forma self-service — no necesita permiso del proveedor) y Zenix la **importa con un wizard guiado**: subir archivo → el sistema valida, normaliza y **muestra un preview de todo lo que se va a cargar** → el consultor revisa → se carga a producción. Migra historial de reservas, perfiles de huésped, inventario y contabilidad histórica consultable.
+
+**Arquitectura de adapters** (igual que el motor fiscal multi-país): un `CloudbedsAdapter` hoy, y mañana Mews/Opera/RoomRaccoon/Excel agregando solo un adapter — **cada migración exitosa le quita un cliente a un competidor distinto**.
+
+### El diferenciador que el owner pidió: detección de empalmes
+
+Antes de cargar nada, Zenix **avisa cuando dos reservas se empalman** — dos huéspedes en la misma habitación y fechas, o **en la misma cama** de un dormitorio compartido. Detecta solapes tanto entre las filas importadas como contra lo que ya exista en Zenix, reutilizando el mismo motor anti-overbooking del PMS. Ningún importador genérico de CSV hace esto: cargan a ciegas y el hotel descubre el problema cuando ya está en producción. **En Zenix lo ves en el preview, antes de tocar un solo dato real**, y decides: saltar la fila, reasignar habitación/cama, o aceptar el empalme histórico con una razón auditada.
+
+### Honestidad de alcance (lo que vende confianza)
+
+No prometemos "migramos *todo*" — eso sería mentir. Migramos tu **historial de reservas + huéspedes + inventario + contabilidad histórica**. Lo único que **por ley (PCI-DSS) nadie puede mover son los números de tarjeta**, y tus **conexiones con Booking/Expedia se reconectan en minutos** vía Channel Manager. Esa honestidad es parte del pitch: un vendedor que promete migrar tarjetas o no entiende PCI o está mintiendo.
+
+### Doble entrega: producto + servicio
+
+- **Producto** — el módulo vive en Nova; el consultor opera la migración con el wizard (preview + resolución de conflictos + carga idempotente que no duplica si se re-ejecuta).
+- **Servicio "white-glove"** — ZaharDev ejecuta la migración por el cliente como servicio de cierre: *"tú no haces nada, nosotros te mudamos"*. Es el argumento que desarma la objeción de "años de data".
+
+### Para el speech de ventas
+
+> "¿Tu mayor miedo de cambiar es perder años de historial en Cloudbeds? Nosotros lo migramos: tus reservas, tus huéspedes, tu inventario y tu contabilidad histórica entran a Zenix. Y antes de cargar nada te mostramos un preview que detecta hasta los empalmes —dos huéspedes en la misma cama el mismo día— para que no se cuele ni un error. Lo único que por ley no se puede mover son los números de tarjeta, y tus canales de Booking y Expedia se reconectan en minutos. Tú no tocas nada: nosotros te mudamos."
+
+> **Plan técnico:** [docs/sprints/MIGRATION-CORE-plan.md](sprints/MIGRATION-CORE-plan.md) — motor genérico + `CloudbedsAdapter`, staging descartable, detección de empalmes room/bed-level, dry-run con gate, load idempotente. ~18-24 días-dev (DLC v1.1.x).
+
+---
+
 ## Los argumentos de cierre
 
 ### Para hoteles que usan Opera Cloud o Mews hoy
