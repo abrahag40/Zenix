@@ -122,23 +122,27 @@ export const OTA_ACCENT_COLORS: Record<string, string> = {
 // Channex emite slugs `booking_com`, `airbnb`, `expedia`, etc. — distintos del
 // `source` legacy (`booking`, `airbnb`, etc.) que usaban reservas direct/manual.
 // Este helper unifica ambos a una clave canónica para lookup de color + label.
+// Keyed por nombre NORMALIZADO (solo alfanumérico, lowercase) para tolerar las
+// múltiples formas en que Channex / el source legacy escriben el mismo OTA:
+// "Booking.com", "BookingCom", "booking_com", "booking" → todas → "bookingcom"/"booking".
 const OTA_DISPLAY: Record<string, { key: string; label: string }> = {
-  // Channex slugs
-  booking_com:    { key: 'booking',     label: 'Booking.com' },
+  bookingcom:     { key: 'booking',     label: 'Booking.com' },
+  booking:        { key: 'booking',     label: 'Booking.com' },
   expedia:        { key: 'expedia',     label: 'Expedia' },
   airbnb:         { key: 'airbnb',      label: 'Airbnb' },
   hostelworld:    { key: 'hostelworld', label: 'Hostelworld' },
   agoda:          { key: 'agoda',       label: 'Agoda' },
-  hotels_com:     { key: 'hotels_com',  label: 'Hotels.com' },
+  hotelscom:      { key: 'hotels_com',  label: 'Hotels.com' },
+  hotels:         { key: 'hotels_com',  label: 'Hotels.com' },
   despegar:       { key: 'despegar',    label: 'Despegar' },
   tripadvisor:    { key: 'tripadvisor', label: 'Tripadvisor' },
   google:         { key: 'google',      label: 'Google' },
+  googlehotelari: { key: 'google',      label: 'Google' },
   // Legacy source labels (direct/walk-in reservations)
-  booking:        { key: 'booking',     label: 'Booking.com' },
   direct:         { key: 'direct',      label: 'Directa' },
-  'walk-in':      { key: 'walk-in',     label: 'Walk-in' },
+  walkin:         { key: 'walk-in',     label: 'Walk-in' },
+  ota:            { key: 'other',       label: 'OTA' },
   other:          { key: 'other',       label: 'Otra OTA' },
-  OTA:            { key: 'other',       label: 'OTA' },
 }
 
 export interface OtaDisplayMeta {
@@ -149,28 +153,42 @@ export interface OtaDisplayMeta {
   textTone:  'light' | 'dark'
 }
 
+/** Tono de texto AA según luminancia del color de fondo. */
+function toneForColor(color: string): 'light' | 'dark' {
+  const r = parseInt(color.slice(1, 3), 16)
+  const g = parseInt(color.slice(3, 5), 16)
+  const b = parseInt(color.slice(5, 7), 16)
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+  return luminance > 0.6 ? 'dark' : 'light'
+}
+
 /**
  * Single source of truth para chip + accent del OTA. Usa preferentemente
- * `channexOtaName` (slug de Channex) → fallback a `source` legacy → fallback
- * a 'other'. Devuelve color + label + tone para que el chip tenga contraste
- * AA contra el background (Expedia yellow #FFC72C necesita texto slate;
- * Booking navy necesita texto blanco).
+ * `channexOtaName` (nombre que Channex guarda en BD al crear la reserva) →
+ * fallback a `source` legacy. Normaliza para tolerar variantes de escritura.
+ *
+ * OTA conocida → branding canónico (color + label oficial, ej. "Booking.com").
+ * OTA NO mapeada pero CON nombre en BD → muestra ESE nombre real (no un genérico
+ * "Otra OTA"). Solo cuando no hay nombre alguno → "Otra OTA".
  */
 export function resolveOtaDisplay(
   channexOtaName?: string | null,
   legacySource?: string | null,
 ): OtaDisplayMeta {
-  const raw = (channexOtaName ?? legacySource ?? 'other').toString().toLowerCase()
-  const entry = OTA_DISPLAY[raw] ?? OTA_DISPLAY.other
-  const color = OTA_ACCENT_COLORS[entry.key] ?? OTA_ACCENT_COLORS.other
-  // Light backgrounds (Expedia yellow, Tripadvisor green-lite) → dark text.
-  // Resto → texto blanco. Heurística: convertir hex a luminancia relativa.
-  const r = parseInt(color.slice(1, 3), 16)
-  const g = parseInt(color.slice(3, 5), 16)
-  const b = parseInt(color.slice(5, 7), 16)
-  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-  const textTone: 'light' | 'dark' = luminance > 0.6 ? 'dark' : 'light'
-  return { key: entry.key, label: entry.label, color, textTone }
+  const rawSource = (channexOtaName ?? legacySource ?? '').toString().trim()
+  const norm = rawSource.toLowerCase().replace(/[^a-z0-9]/g, '')
+  const entry = OTA_DISPLAY[norm]
+
+  if (entry) {
+    const color = OTA_ACCENT_COLORS[entry.key] ?? OTA_ACCENT_COLORS.other
+    return { key: entry.key, label: entry.label, color, textTone: toneForColor(color) }
+  }
+
+  // No mapeada: si hay nombre desde Channex/BD, mostrarlo tal cual (el dato real
+  // que llegó de la OTA); si está vacío, recién ahí caer a "Otra OTA" genérico.
+  const color = OTA_ACCENT_COLORS.other
+  const label = rawSource || 'Otra OTA'
+  return { key: 'other', label, color, textTone: toneForColor(color) }
 }
 
 export const STATUS_DOT_COLORS: Record<string, string> = {
