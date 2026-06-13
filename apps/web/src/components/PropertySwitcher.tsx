@@ -69,7 +69,7 @@ export function PropertySwitcher() {
     if (!valid) {
       const fallback =
         properties.find((p) => p.id === user?.propertyId) ?? properties[0]
-      setActiveProperty(fallback.id, fallback.name)
+      setActiveProperty(fallback.id, fallback.name, user?.id ?? null)
     } else if (valid.name !== activePropertyName) {
       setActiveProperty(valid.id, valid.name)
     }
@@ -127,7 +127,7 @@ export function PropertySwitcher() {
         targetPropertyId: p.id,
       })
       setAuth(auth)
-      setActiveProperty(p.id, p.name)
+      setActiveProperty(p.id, p.name, user?.id ?? null)
       qc.clear()
       toast.success(`Sucursal: ${p.name}`)
     } catch (err) {

@@ -17,7 +17,14 @@ import { persist } from 'zustand/middleware'
 interface PropertyState {
   activePropertyId: string | null
   activePropertyName: string | null
-  setActiveProperty: (id: string, name: string) => void
+  /**
+   * A qué usuario pertenece la propiedad activa persistida. Evita que el login
+   * de OTRO usuario herede una propiedad stale del usuario anterior (bug del
+   * calendario mostrando un hotel equivocado). El mismo usuario que recarga o
+   * re-loguea conserva su elección; un usuario distinto resetea a su home.
+   */
+  ownerUserId: string | null
+  setActiveProperty: (id: string, name: string, ownerUserId?: string | null) => void
   clear: () => void
 }
 
@@ -26,9 +33,16 @@ export const usePropertyStore = create<PropertyState>()(
     (set) => ({
       activePropertyId: null,
       activePropertyName: null,
-      setActiveProperty: (id, name) =>
-        set({ activePropertyId: id, activePropertyName: name }),
-      clear: () => set({ activePropertyId: null, activePropertyName: null }),
+      ownerUserId: null,
+      setActiveProperty: (id, name, ownerUserId) =>
+        set((s) => ({
+          activePropertyId: id,
+          activePropertyName: name,
+          // Si el caller no provee ownerUserId, conserva el existente
+          // (ej. cuando solo se actualiza el display name desde el switcher).
+          ownerUserId: ownerUserId !== undefined ? ownerUserId : s.ownerUserId,
+        })),
+      clear: () => set({ activePropertyId: null, activePropertyName: null, ownerUserId: null }),
     }),
     { name: 'zx_active_property' },
   ),
