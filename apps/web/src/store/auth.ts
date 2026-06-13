@@ -18,14 +18,15 @@ export const useAuthStore = create<AuthState>()(
       setAuth: (data) => {
         localStorage.setItem('hk_token', data.accessToken)
         set({ token: data.accessToken, user: data.user })
-        // Seed the property switcher with the user's home property id.
-        // The display name is left empty on purpose — PropertySwitcher's
-        // /properties query resolves it moments later and avoids flashing
-        // the raw UUID in the top bar. If the user already had a property
-        // active (persisted from a previous session), respect it.
+        // Seed the property switcher con la propiedad home del usuario.
+        // El display name se deja vacío a propósito — la query /properties del
+        // PropertySwitcher lo resuelve y evita parpadear el UUID en el top bar.
+        // Respeta la propiedad persistida SOLO si pertenece a ESTE mismo usuario
+        // (reload / re-login). Si la dejó otro usuario (o no hay), resetea a su
+        // home — evita que el calendario aterrice en el hotel equivocado.
         const prop = usePropertyStore.getState()
-        if (!prop.activePropertyId) {
-          prop.setActiveProperty(data.user.propertyId, '')
+        if (!prop.activePropertyId || prop.ownerUserId !== data.user.id) {
+          prop.setActiveProperty(data.user.propertyId, '', data.user.id)
         }
       },
       logout: () => {
