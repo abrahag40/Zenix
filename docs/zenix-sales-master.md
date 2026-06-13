@@ -242,7 +242,7 @@ Datos públicos verificados:
 
 **Lecturas honestas del análisis** (sin reverenciar ni atacar):
 
-1. **ResNexus es un PMS USA bien establecido — no un fraude.** 23 años, 4,200 properties, 4.8★ con 424 reviews verificadas no se construyen sin valor real. Su customer support es legendario en reviews ("over the top", "hospitality coaches dedicados") y su stack de **100+ reports nativos** es objetivamente más profundo que el de Zenix v1.0.0.
+1. **ResNexus es un PMS USA bien establecido — no un fraude.** Esa base instalada y ese rating (ver arriba) no se construyen sin valor real. Su customer support es legendario en reviews ("over the top", "hospitality coaches dedicados") y su stack de **100+ reports nativos** es objetivamente más profundo que el de Zenix v1.0.0.
 
 2. **Pero ResNexus NO es un PMS LATAM. Es un PMS B&B norteamericano que está empezando a explorar el mercado.** Sus 5 properties LATAM (3 MX + 1 CR + 1 PA = 0.12% de su base) son anecdóticas. Si un vendedor de ResNexus se aparece en México, **pídele que te muestre 1 cliente activo facturando CFDI desde su PMS**. No lo tiene — su sistema fiscal es USA-centric (sales tax states + Canada provinces) y QuickBooks export, no CFDI/DIAN/SUNAT.
 
@@ -451,7 +451,7 @@ A las 7:00 AM (configurable per-property — los hostels vacacionales arrancan 6
 3. **Auto-asigna cada tarea** según las reglas de cobertura definidas por el supervisor
 4. **Notifica a cada housekeeper** con un resumen tipo "☀️ Tu día de hoy: 8 habitaciones · 3 con check-in mismo día 🔴"
 
-**Multi-timezone real**: si tu cadena tiene hoteles en Cancún (UTC-5), Bogotá (UTC-5), y Madrid (UTC+1), cada uno recibe su roster a las 7 AM **locales**. No 7 AM UTC. No "7 AM del servidor". Locales reales. Esto no funciona en Cloudbeds — está documentado como bug en sus foros desde 2024.
+**Multi-timezone real**: si tu cadena tiene hoteles en Cancún (UTC-5), Bogotá (UTC-5), y Madrid (UTC+1), cada uno recibe su roster a las 7 AM **locales** — no 7 AM UTC ni "del servidor" (el manejo correcto de timezone per-propiedad es justo donde fallan los PMS entry-level; ver Módulo 2).
 
 **Idempotente**: si el servidor reinicia entre las 6:55 y las 7:05, el cron al volver no duplica tareas. Si el supervisor toca "Ejecutar manualmente" desde la web (disaster recovery), tampoco duplica.
 
@@ -1263,7 +1263,7 @@ Cuando un supervisor intenta extender el período de un bloqueo, el sistema veri
 
 ### Actualización en tiempo real sin refrescar el navegador
 
-Cuando un bloqueo es creado, aprobado, rechazado, extendido o liberado, el calendario se actualiza automáticamente en todos los navegadores conectados — sin recargar la página. Esto usa el mismo mecanismo SSE (Server-Sent Events) que actualiza las llegadas, los no-shows y las tareas de housekeeping.
+Los bloqueos (crear/aprobar/rechazar/extender/liberar) se propagan al calendario de todos por el mismo SSE en tiempo real del Core (ver "El sistema se actualiza solo").
 
 **Para el speech de ventas:** en un hotel con 2 recepcionistas en turno simultáneo, si el supervisor bloquea una habitación desde su tableta, ambos recepcionistas ven el cambio en su pantalla en menos de 2 segundos. Ningún PMS entry-level tiene este nivel de coordinación en tiempo real entre roles.
 
@@ -1320,7 +1320,7 @@ Solución al gap competitivo más votado en Mews (8 votos, 2 quejas verbatim 202
 
 Único PMS del mercado con dual-view de tasas de cambio:
 
-- **Banxico oficial** (SF43718 FIX) fetcheado diariamente vía cron 13:00 CST. Es el rate que el SAT acepta para CFDI 4.0 Art. 20 CFF. Token gratuito Banxico SIE — 40k consultas/día.
+- **Banxico oficial** (SF43718 FIX, el rate que el SAT acepta para CFDI — ver Módulo 7) fetcheado a diario automáticamente.
 - **Hotel interno** (override comercial) editable por el supervisor: rate absoluto o spread relativo sobre el oficial. Aplica solo para quotes al huésped y cobros front-desk — nunca para CFDI.
 - **Dashboard widget** muestra ambos lado a lado con delta percent. Settings tab "Tipo de cambio" permite supervisor editar override con historial validFrom/validTo.
 
