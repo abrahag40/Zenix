@@ -96,6 +96,12 @@ interface RequestOptions extends RequestInit {
    * "Cargando..." sin error visible. Pattern de Stripe SDK / axios.
    */
   timeoutMs?: number
+  /**
+   * Tipo de respuesta esperado. Default 'json'. Usar 'text' para endpoints que
+   * devuelven HTML/CSV (p. ej. el reporte de migración HTML imprimible). Mantiene
+   * el manejo central de auth/timeout/401 (§122) — sin raw fetch fuera de aquí.
+   */
+  responseType?: 'json' | 'text'
 }
 
 // Defaults por verbo HTTP — perceptible vs paciencia razonable.
@@ -131,7 +137,7 @@ async function request<T>(
   path: string,
   options: RequestOptions = {},
 ): Promise<T> {
-  const { skipAuth = false, timeoutMs, signal: callerSignal, ...init } = options
+  const { skipAuth = false, timeoutMs, responseType = 'json', signal: callerSignal, ...init } = options
   const headers = new Headers(init.headers)
 
   if (!headers.has('Content-Type') && !(init.body instanceof FormData)) {
@@ -204,6 +210,7 @@ async function request<T>(
   }
 
   if (res.status === 204) return undefined as T
+  if (responseType === 'text') return (await res.text()) as unknown as T
   return res.json() as Promise<T>
 }
 
