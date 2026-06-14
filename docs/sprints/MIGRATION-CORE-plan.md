@@ -2,7 +2,7 @@
 
 > **Módulo comercial:** **Zenix Onboard** — migración de datos desde cualquier PMS (Cloudbeds primero) hacia Zenix.
 > **Versión objetivo:** v1.1.x (DLC / servicio de onboarding). No bloquea v1.0.0.
-> **Estado:** **Sprints 0-1 CERRADOS** (2026-06-13/14). S0: DTO canónico + schema staging + migración + export sintético. S1: módulo NestJS `migration/` + `GenericCsvAdapter` + `CloudbedsAdapter` + parser CSV propio + endpoints upload/parse/mapping (Nova-scoped + IDOR). Sprints 2-6 pendientes. **Próximo: Sprint 2 (CollisionDetector ★).**
+> **Estado:** **Sprints 0-2 CERRADOS** (2026-06-13/14). S0: DTO + schema staging + migración + export sintético. S1: módulo NestJS + `GenericCsvAdapter`/`CloudbedsAdapter` + parser CSV + endpoints upload/parse/mapping. S2: normalize + room-matcher + **CollisionDetector ★** (empalmes room/bed) + dedup → job a `PREVIEW_READY` + endpoint `/conflicts`. Sprints 3-6 pendientes. **Próximo: Sprint 3 (Preview UI en Nova).**
 > **Origen:** estudio de migración Cloudbeds→Zenix (sesión 2026-06-13). Pregunta del prospecto: "¿puedo migrar todos mis datos de Cloudbeds (años de uso)?".
 > **Documentos hermanos:** [zenix-sales-master.md](../zenix-sales-master.md) Módulo 9 · [CLAUDE.md](../../CLAUDE.md) §MIGRATION-CORE · **[migration/pms-export-landscape.md](migration/pms-export-landscape.md)** (estudio verificado de qué exporta cada PMS — fundamenta la estrategia de adapters).
 
@@ -212,6 +212,15 @@ El estudio verificó que **casi todo PMS exporta reservas/huéspedes a CSV/Excel
 | US-2.5 | Como consultor, quiero que el job quede en `PREVIEW_READY` con un **resumen de conflictos** consultable. | `GET …/jobs/:id/conflicts` retorna conflictos agrupados por tipo con counts. | 2 |
 
 **Entregables Sprint 2:** normalización + room/bed mapping + **CollisionDetector** + dedup. **DoD:** suite de tests del detector verde (el corazón del módulo). **Demo:** subir un export con un empalme deliberado y ver el conflicto `BED_OVERLAP` reportado.
+
+> **✅ CERRADO 2026-06-14 (rama `feat/migration-sprint2`).** Entregado:
+> - **`collision/collision-detector.ts`** (★ D-MIG3, PURO): `detectCollisions(claims, existing)` con predicado half-open de AvailabilityService (§35); 2 pasadas (staging-vs-staging + staging-vs-existente); `ROOM_OVERLAP`/`BED_OVERLAP` según recurso; back-to-back NO es empalme (§128). El recurso = etiqueta del origen normalizada (distingue camas) para dorms, o `room:<id>` para privadas emparejadas.
+> - **`validation/normalize-reservation.ts`** (PURO): valida fecha (BAD_DATE/MISSING_DATES = ERROR), monto negativo (WARN), mapea estado origen→canónico Zenix, aplica moneda base de la LegalEntity, deriva `occupies` (cancelada/no-show no ocupan).
+> - **`validation/room-matcher.ts`** (PURO): empareja por número exacto / prefijo de dorm; `shared` por `Room.category=SHARED`; sin match → `NO_ROOM_MATCH`.
+> - **`validation/guest-dedup.ts`** (PURO): agrupa por email>teléfono>nombre → `DUP_GUEST`.
+> - **`MigrationService.validate(jobId)`**: orquesta todo, persiste `MigrationConflict` (idempotente: borra previos), actualiza `validationStatus`/`issues` por fila, job → `PREVIEW_READY` con counts {ok,warn,error,overlaps,conflicts}. Se corre automático tras el mapeo. + endpoint `GET /v1/nova/migration/jobs/:id/conflicts` (agrupado por tipo).
+> - **Tests:** 37/37 (22 nuevos Sprint 2 incl. los casos DoD del detector: 0/exacto/parcial/contención/back-to-back/dorm-2-camas/dorm-misma-cama/disjuntos/staging-vs-existente/triple). Typecheck api+shared+web verdes. **Verificación e2e contra BD dev** con el sample (empalmes deliberados): status `PREVIEW_READY`, conflictos detectados exactos — ROOM_OVERLAP:1 (hab 103) · BAD_DATE:1 · NEGATIVE_AMOUNT:1 · DUP_GUEST:1 · NO_ROOM_MATCH:4. Cleanup en cascada OK.
+> - **Pendiente Sprint 3:** UI de preview en Nova (resolver conflictos: skip/reasignar/aceptar) + gate de ERRORes antes del load.
 
 > **★ Detalle del requisito del owner (D-MIG3):** "empalme" = solape de rango de fechas `[checkIn, checkOut)` sobre el **mismo recurso físico** (habitación si privada; cama si dorm). Back-to-back (checkout día X = checkin día X) **NO** es empalme (consistente con la regla de disponibilidad §128). El detector corre **dos veces**: (1) entre las filas del propio import; (2) contra lo que ya existe en la BD de esa property (por si el hotel ya empezó a cargar reservas manualmente). Severity `ERROR` si bloquea (mismo recurso ocupado); el consultor decide resolución en el preview.
 

@@ -88,6 +88,14 @@ export class MigrationController {
     return this.migration.getJob(jobId)
   }
 
+  @Get('migration/jobs/:jobId/conflicts')
+  @RequireActingOrg()
+  async getConflicts(@Param('jobId') jobId: string, @Req() req: Request & { user?: JwtPayload }) {
+    const orgId = this.requireOrg(req)
+    await this.migration.assertJobInOrg(jobId, orgId)
+    return this.migration.getConflicts(jobId)
+  }
+
   @Post('migration/jobs/:jobId/mapping')
   @RequireActingOrg()
   async applyMapping(
