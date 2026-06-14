@@ -10,12 +10,16 @@
  */
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { createHash } from 'crypto'
-import { MigrationJobStatus, MigrationSource } from '@zenix/shared'
-import type { MigrationColumnMapping } from '@zenix/shared'
+import { MigrationJobStatus, MigrationRowStatus, MigrationSource } from '@zenix/shared'
+import type { MigrationColumnMapping, MigrationReservationDto } from '@zenix/shared'
 import { PrismaService } from '../prisma/prisma.service'
 import { SourcePmsAdapterRegistry } from './adapters/source-pms-adapter.registry'
 import { parseCsv } from './adapters/csv-parser'
 import { mapRows } from './adapters/reservation-mapper'
+import { normalizeReservation, type NormalizeIssue } from './validation/normalize-reservation'
+import { matchRoom, type ZenixRoomLite } from './validation/room-matcher'
+import { findDuplicateGuests } from './validation/guest-dedup'
+import { detectCollisions, type OccupancyClaim } from './collision/collision-detector'
 
 @Injectable()
 export class MigrationService {
@@ -103,6 +107,7 @@ export class MigrationService {
     const mapping = adapter.defaultMapping() ?? input.mapping ?? null
     if (mapping) {
       await this.applyMappingInternal(job.id, mapping, parsed.rows)
+      await this.validate(job.id) // Sprint 2: normaliza + detecta empalmes → PREVIEW_READY
     }
 
     this.logger.log(
@@ -120,6 +125,7 @@ export class MigrationService {
       orderBy: { rowIndex: 'asc' },
     })
     await this.applyMappingInternal(jobId, mapping, rows.map((r) => r.rawJson as Record<string, string>))
+    await this.validate(jobId) // Sprint 2: normaliza + detecta empalmes → PREVIEW_READY
     return this.getJob(jobId)
   }
 
@@ -147,6 +153,163 @@ export class MigrationService {
         counts: { parsed: rawRows.length, mapped: reservations.length, ok: 0, warn: 0, error: 0, loaded: 0 },
       },
     })
+  }
+
+  /**
+   * Sprint 2 — normaliza + empareja habitación + DETECTA EMPALMES (★ D-MIG3) +
+   * dedup de huéspedes. Persiste conflictos + estado por fila y deja el job en
+   * PREVIEW_READY. Idempotente: re-validar borra los conflictos previos del job.
+   */
+  async validate(jobId: string) {
+    const job = await this.prisma.migrationJob.findUnique({ where: { id: jobId } })
+    if (!job) throw new NotFoundException(`MigrationJob ${jobId} no encontrado`)
+
+    // Inventario + moneda base de la property.
+    const property = await this.prisma.property.findUnique({
+      where: { id: job.propertyId },
+      select: { legalEntity: { select: { baseCurrency: true } } },
+    })
+    const defaultCurrency = property?.legalEntity?.baseCurrency ?? 'MXN'
+    const roomsRaw = await this.prisma.room.findMany({
+      where: { propertyId: job.propertyId },
+      select: { id: true, number: true, category: true, roomType: { select: { name: true, code: true } } },
+    })
+    const rooms: ZenixRoomLite[] = roomsRaw.map((r) => ({
+      id: r.id,
+      number: r.number,
+      category: r.category as 'PRIVATE' | 'SHARED',
+      roomTypeName: r.roomType?.name ?? null,
+      roomTypeCode: r.roomType?.code ?? null,
+    }))
+
+    const stagingRows = await this.prisma.migrationStagingReservation.findMany({
+      where: { jobId },
+      orderBy: { rowIndex: 'asc' },
+    })
+
+    const conflicts: Array<{ type: string; severity: string; rowRefs: string[]; message: string }> = []
+    const claims: OccupancyClaim[] = []
+    const reservationsForDedup: MigrationReservationDto[] = []
+    const rowUpdates: Array<{ rowIndex: number; status: string; issues: NormalizeIssue[] }> = []
+    let ok = 0, warn = 0, error = 0
+
+    for (const row of stagingRows) {
+      const ref = String(row.rowIndex)
+      const mapped = row.mapped as MigrationReservationDto | null
+      if (!mapped) { error++; rowUpdates.push({ rowIndex: row.rowIndex, status: MigrationRowStatus.ERROR, issues: [{ type: 'MISSING_DATES', message: 'Fila sin mapear.' }] }); continue }
+
+      const norm = normalizeReservation(mapped, { defaultCurrency })
+      reservationsForDedup.push(mapped)
+
+      // Conflictos por issues de normalización.
+      for (const issue of norm.issues) {
+        conflicts.push({
+          type: issue.type === 'NEGATIVE_AMOUNT' ? 'NEGATIVE_AMOUNT' : 'BAD_DATE',
+          severity: issue.type === 'NEGATIVE_AMOUNT' ? 'WARN' : 'ERROR',
+          rowRefs: [ref],
+          message: issue.message,
+        })
+      }
+
+      // Emparejar habitación + construir clave de recurso.
+      const match = matchRoom(mapped.roomLabel, mapped.roomTypeLabel, rooms)
+      if (!match.matched && mapped.roomLabel) {
+        conflicts.push({
+          type: 'NO_ROOM_MATCH', severity: 'WARN', rowRefs: [ref],
+          message: `La habitación "${mapped.roomLabel}" no existe en Zenix — reasigna en el preview.`,
+        })
+      }
+
+      // Clave de recurso: privada emparejada → por roomId (compara con existentes);
+      // dorm o sin emparejar → por etiqueta del origen (distingue camas).
+      if (norm.occupies) {
+        const resourceKey = match.matched && !match.shared
+          ? `room:${match.roomId}`
+          : match.resourceKey ? `label:${match.resourceKey}` : ''
+        if (resourceKey) {
+          claims.push({ ref, resourceKey, shared: match.shared, checkIn: mapped.checkIn, checkOut: mapped.checkOut })
+        }
+      }
+
+      let status = norm.status
+      if (status === MigrationRowStatus.OK) ok++
+      else if (status === MigrationRowStatus.WARN) warn++
+      else error++
+      rowUpdates.push({ rowIndex: row.rowIndex, status, issues: norm.issues })
+    }
+
+    // Reservas Zenix existentes (activas) para la pasada staging-vs-existente.
+    const existingStays = await this.prisma.guestStay.findMany({
+      where: { propertyId: job.propertyId, deletedAt: null, cancelledAt: null, noShowAt: null },
+      select: { id: true, roomId: true, checkinAt: true, scheduledCheckout: true },
+    })
+    const existingClaims: OccupancyClaim[] = existingStays.map((s) => ({
+      ref: `existing:${s.id}`,
+      resourceKey: `room:${s.roomId}`,
+      shared: false,
+      checkIn: s.checkinAt.toISOString().slice(0, 10),
+      checkOut: s.scheduledCheckout.toISOString().slice(0, 10),
+    }))
+
+    // ★ DETECCIÓN DE EMPALMES
+    const collisions = detectCollisions(claims, existingClaims)
+    for (const c of collisions) {
+      conflicts.push({ type: c.type, severity: 'ERROR', rowRefs: c.refs, message: c.message })
+    }
+
+    // Dedup de huéspedes (WARN).
+    const dupGroups = findDuplicateGuests(reservationsForDedup, (_r, i) => String(stagingRows[i]?.rowIndex ?? i))
+    for (const g of dupGroups) {
+      conflicts.push({ type: 'DUP_GUEST', severity: 'WARN', rowRefs: g.refs, message: `Huésped duplicado "${g.displayName}" en ${g.refs.length} reservas.` })
+    }
+
+    // Persistencia idempotente: borra conflictos previos + reescribe estado de filas.
+    await this.prisma.$transaction([
+      this.prisma.migrationConflict.deleteMany({ where: { jobId } }),
+      ...(conflicts.length > 0
+        ? [this.prisma.migrationConflict.createMany({
+            data: conflicts.map((c) => ({ jobId, type: c.type, severity: c.severity, rowRefs: c.rowRefs, message: c.message })),
+          })]
+        : []),
+      ...rowUpdates.map((u) =>
+        this.prisma.migrationStagingReservation.updateMany({
+          where: { jobId, rowIndex: u.rowIndex },
+          data: { validationStatus: u.status, issues: u.issues as unknown as object },
+        }),
+      ),
+      this.prisma.migrationJob.update({
+        where: { id: jobId },
+        data: {
+          status: MigrationJobStatus.PREVIEW_READY,
+          counts: {
+            parsed: stagingRows.length, ok, warn, error,
+            conflicts: conflicts.length,
+            overlaps: collisions.length,
+            loaded: 0,
+          },
+        },
+      }),
+    ])
+
+    this.logger.log(
+      `[Migration] validate job=${jobId} rows=${stagingRows.length} ok=${ok} warn=${warn} error=${error} empalmes=${collisions.length} conflictos=${conflicts.length}`,
+    )
+    return this.getConflicts(jobId)
+  }
+
+  /** Conflictos del job agrupados por tipo (para el preview/dry-run). */
+  async getConflicts(jobId: string) {
+    const all = await this.prisma.migrationConflict.findMany({ where: { jobId }, orderBy: { type: 'asc' } })
+    const byType: Record<string, number> = {}
+    for (const c of all) byType[c.type] = (byType[c.type] ?? 0) + 1
+    return {
+      jobId,
+      total: all.length,
+      byType,
+      conflicts: all.map((c) => ({
+        id: c.id, type: c.type, severity: c.severity, rowRefs: c.rowRefs, message: c.message,
+      })),
+    }
   }
 
   /** Detalle del job + counts + headers detectados + muestra de filas mapeadas. */
