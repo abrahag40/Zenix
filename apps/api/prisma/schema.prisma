@@ -1896,6 +1896,12 @@ model GuestStay {
   // GROUP-BILLING Fase C — política de cancelación aplicable (FK real; el hook
   // cancellationPolicyId existía desde CANCEL-ARCHIVE §95 como string suelto).
   cancellationPolicy CancellationPolicy? @relation(fields: [cancellationPolicyId], references: [id], onDelete: SetNull)
+  // MIGRATION-CORE (Zenix Onboard) — trazabilidad + idempotencia de migración.
+  // source='MIGRATED' marca reservas importadas desde otro PMS; migrationSourceId
+  // = id en el PMS origen; UNIQUE (job, source) evita duplicar en re-run del load.
+  migrationSourceId  String?       @map("migration_source_id")
+  migrationJobId     String?       @map("migration_job_id")
+  migrationJob       MigrationJob? @relation(fields: [migrationJobId], references: [id], onDelete: SetNull)
 
   @@index([organizationId])
   @@index([organizationId, propertyId])
@@ -1906,6 +1912,8 @@ model GuestStay {
   @@index([channexConflict])
   @@index([otaReservationCode])
   @@index([reservationGroupId])
+  @@unique([migrationJobId, migrationSourceId])
+  @@index([migrationJobId])
   // Sprint testing BUG #21 — calendar timeline + overstayed widget rendering
   // hacían SEQ SCAN sobre guest_stays. A 78 rows = 0.16 ms; proyección 100k
   // = ~200 ms p95. Calendar query usa propertyId + checkinAt range; overstayed
@@ -1913,6 +1921,103 @@ model GuestStay {
   @@index([propertyId, checkinAt])
   @@index([propertyId, scheduledCheckout, actualCheckout])
   @@map("guest_stays")
+}
+
+// ====== MIGRATION-CORE / Zenix Onboard (Sprint 0, 2026-06-13) ================
+// Motor de migración desde otro PMS. Plan: docs/sprints/MIGRATION-CORE-plan.md.
+// organizationId/propertyId/uploadedById son escalares denormalizados (§66) — sin
+// @relation para no inflar Organization/Property. Todo el staging es DESCARTABLE:
+// borrar un MigrationJob pre-load no deja rastro en producción (cascade).
+// Status/enums se guardan como String (valores en packages/shared/enums.ts) —
+// filosofía "espiral" (§95): evita migration churn mientras el módulo evoluciona.
+
+model MigrationJob {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  propertyId     String   @map("property_id")
+  /** MigrationSource: GENERIC_CSV | CLOUDBEDS | MEWS | … */
+  sourceSystem   String   @map("source_system")
+  /** MigrationJobStatus: DRAFT | PARSING | VALIDATING | PREVIEW_READY | LOADING | COMPLETED | PARTIAL | FAILED */
+  status         String   @default("DRAFT")
+  fileName       String?  @map("file_name")
+  /** sha256 del archivo subido — idempotencia de re-subida. */
+  fileHash       String?  @map("file_hash")
+  uploadedById   String   @map("uploaded_by_id")
+  /** Mapeo de columnas usado (GenericCsvAdapter / pre-map del adapter). */
+  columnMapping  Json?    @map("column_mapping")
+  /** Conteos: { parsed, ok, warn, error, loaded, skipped, failed }. */
+  counts         Json?
+  errorMessage   String?  @map("error_message")
+  createdAt      DateTime @default(now()) @map("created_at")
+  completedAt    DateTime? @map("completed_at")
+
+  stagingReservations MigrationStagingReservation[]
+  stagingGuests       MigrationStagingGuest[]
+  conflicts           MigrationConflict[]
+  /** Reservas productivas creadas por este job (trazabilidad + idempotencia). */
+  migratedStays       GuestStay[]
+
+  @@index([organizationId, propertyId])
+  @@index([status])
+  @@index([propertyId, fileHash])
+  @@map("migration_jobs")
+}
+
+model MigrationStagingReservation {
+  id         String       @id @default(uuid())
+  jobId      String       @map("job_id")
+  job        MigrationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  rowIndex   Int          @map("row_index")
+  /** Fila cruda original del archivo (auditoría del mapeo). */
+  rawJson    Json         @map("raw_json")
+  /** MigrationReservationDto normalizado (post-adapter + normalizer). */
+  mapped     Json?
+  /** MigrationRowStatus: OK | WARN | ERROR */
+  validationStatus String  @default("OK") @map("validation_status")
+  /** Issues tipados de validación: [{type, message}]. */
+  issues     Json?
+  /** MigrationResolution: PENDING | SKIP | ACCEPT | REASSIGN */
+  resolution String       @default("PENDING")
+  /** Habitación destino al resolver REASSIGN. */
+  targetRoomId String?    @map("target_room_id")
+  resolutionReason String? @map("resolution_reason")
+
+  @@index([jobId])
+  @@index([jobId, validationStatus])
+  @@map("migration_staging_reservations")
+}
+
+model MigrationStagingGuest {
+  id        String       @id @default(uuid())
+  jobId     String       @map("job_id")
+  job       MigrationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  rawJson   Json         @map("raw_json")
+  mapped    Json?
+  /** Si es duplicado, id del huésped Zenix con el que se fusiona. */
+  mergeIntoGuestId String? @map("merge_into_guest_id")
+
+  @@index([jobId])
+  @@map("migration_staging_guests")
+}
+
+model MigrationConflict {
+  id        String       @id @default(uuid())
+  jobId     String       @map("job_id")
+  job       MigrationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  /** MigrationConflictType: ROOM_OVERLAP | BED_OVERLAP | DUP_GUEST | NO_ROOM_MATCH | UNMAPPED_RATE | BAD_DATE | NEGATIVE_AMOUNT */
+  type      String
+  /** MigrationConflictSeverity: WARN | ERROR */
+  severity  String       @default("WARN")
+  /** Referencias a las filas staging involucradas (ej. los 2 lados de un empalme). */
+  rowRefs   Json         @map("row_refs")
+  message   String?
+  /** Sugerencia de resolución (ej. habitación libre alternativa). */
+  suggestion Json?
+  resolvedAt DateTime?   @map("resolved_at")
+
+  @@index([jobId])
+  @@index([jobId, type])
+  @@map("migration_conflicts")
 }
 
 // ====== Cancellation Policy (Sprint GROUP-BILLING Fase C, 2026-06-01) =========

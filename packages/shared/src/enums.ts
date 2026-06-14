@@ -442,3 +442,67 @@ export enum RecurrenceScope {
   PER_PROPERTY  = 'PER_PROPERTY',
   COMMON_AREAS  = 'COMMON_AREAS',
 }
+
+// ─── MIGRATION-CORE (Zenix Onboard) — Sprint 0 ──────────────────────────────
+// Plan: docs/sprints/MIGRATION-CORE-plan.md · Estudio: docs/sprints/migration/
+// PMS de origen soportados por el motor de migración. GENERIC_CSV (D-MIG7) es el
+// motor base con wizard de mapeo que cubre cualquier origen; el resto son
+// pre-mapeos sobre él.
+export enum MigrationSource {
+  GENERIC_CSV    = 'GENERIC_CSV',
+  CLOUDBEDS      = 'CLOUDBEDS',
+  MEWS           = 'MEWS',
+  ROOMRACCOON    = 'ROOMRACCOON',
+  LITTLE_HOTELIER= 'LITTLE_HOTELIER',
+  CLOCK_PMS      = 'CLOCK_PMS',
+  SIRVOY         = 'SIRVOY',
+  HOTELOGIX      = 'HOTELOGIX',
+  WEBREZPRO      = 'WEBREZPRO',
+  RESNEXUS       = 'RESNEXUS',
+  OPERA_CLOUD    = 'OPERA_CLOUD',
+  ZAVIA          = 'ZAVIA',
+  NEWHOTEL       = 'NEWHOTEL',
+}
+
+// Ciclo de vida del job de migración (staging → preview → load).
+export enum MigrationJobStatus {
+  DRAFT         = 'DRAFT',          // creado, archivo subido, sin parsear
+  PARSING       = 'PARSING',        // adapter leyendo el archivo
+  VALIDATING    = 'VALIDATING',     // normalización + detección de empalmes
+  PREVIEW_READY = 'PREVIEW_READY',  // listo para revisión humana (dry-run)
+  LOADING       = 'LOADING',        // cargando a producción
+  COMPLETED     = 'COMPLETED',      // todo cargado OK
+  PARTIAL       = 'PARTIAL',        // cargado con filas fallidas reportadas
+  FAILED        = 'FAILED',         // error global (archivo ilegible, etc.)
+}
+
+// Estado de validación por fila en staging.
+export enum MigrationRowStatus {
+  OK    = 'OK',
+  WARN  = 'WARN',   // cargable, con observación (ej. huésped duplicado)
+  ERROR = 'ERROR',  // no cargable hasta resolver (ej. empalme, fecha inválida)
+}
+
+// Tipos de conflicto detectados en validación.
+export enum MigrationConflictType {
+  ROOM_OVERLAP    = 'ROOM_OVERLAP',    // ★ empalme misma habitación + fechas (privadas)
+  BED_OVERLAP     = 'BED_OVERLAP',     // ★ empalme misma cama + fechas (dorms/hostal)
+  DUP_GUEST       = 'DUP_GUEST',       // huésped duplicado (merge sugerido)
+  NO_ROOM_MATCH   = 'NO_ROOM_MATCH',   // la habitación del origen no existe en Zenix
+  UNMAPPED_RATE   = 'UNMAPPED_RATE',   // tarifa/rate plan sin equivalente
+  BAD_DATE        = 'BAD_DATE',        // fecha imposible o checkout<=checkin
+  NEGATIVE_AMOUNT = 'NEGATIVE_AMOUNT', // monto inválido
+}
+
+export enum MigrationConflictSeverity {
+  WARN  = 'WARN',
+  ERROR = 'ERROR',
+}
+
+// Decisión del consultor por fila en el dry-run/preview.
+export enum MigrationResolution {
+  PENDING  = 'PENDING',
+  SKIP     = 'SKIP',      // no migrar esta fila
+  ACCEPT   = 'ACCEPT',    // migrar tal cual (ej. aceptar empalme histórico con razón)
+  REASSIGN = 'REASSIGN',  // migrar reasignando habitación/cama (targetRoomId)
+}
