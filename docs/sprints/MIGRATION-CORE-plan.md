@@ -2,7 +2,7 @@
 
 > **Módulo comercial:** **Zenix Onboard** — migración de datos desde cualquier PMS (Cloudbeds primero) hacia Zenix.
 > **Versión objetivo:** v1.1.x (DLC / servicio de onboarding). No bloquea v1.0.0.
-> **Estado:** **Sprints 0-2 CERRADOS** (2026-06-13/14). S0: DTO + schema staging + migración + export sintético. S1: módulo NestJS + `GenericCsvAdapter`/`CloudbedsAdapter` + parser CSV + endpoints upload/parse/mapping. S2: normalize + room-matcher + **CollisionDetector ★** (empalmes room/bed) + dedup → job a `PREVIEW_READY` + endpoint `/conflicts`. Sprints 3-6 pendientes. **Próximo: Sprint 3 (Preview UI en Nova).**
+> **Estado:** **Sprints 0-3 CERRADOS** (2026-06-13/14). S0: DTO + schema staging + migración + export sintético. S1: módulo NestJS + `GenericCsvAdapter`/`CloudbedsAdapter` + parser CSV + endpoints upload/parse/mapping. S2: normalize + room-matcher + **CollisionDetector ★** (empalmes room/bed) + dedup → job a `PREVIEW_READY` + endpoint `/conflicts`. S3: **Preview UI en Nova** (`/nova/migration`) + resolución por fila (SKIP/ACCEPT-con-razón/REASSIGN) + gate de ERRORes + endpoints `properties`/`rooms`/`resolution`/`delete`. Sprints 4-6 pendientes. **Próximo: Sprint 4 (Load idempotente + AuditLog → reservas reales `source='MIGRATED'`).**
 > **Origen:** estudio de migración Cloudbeds→Zenix (sesión 2026-06-13). Pregunta del prospecto: "¿puedo migrar todos mis datos de Cloudbeds (años de uso)?".
 > **Documentos hermanos:** [zenix-sales-master.md](../zenix-sales-master.md) Módulo 9 · [CLAUDE.md](../../CLAUDE.md) §MIGRATION-CORE · **[migration/pms-export-landscape.md](migration/pms-export-landscape.md)** (estudio verificado de qué exporta cada PMS — fundamenta la estrategia de adapters).
 
@@ -235,8 +235,17 @@ El estudio verificó que **casi todo PMS exporta reservas/huéspedes a CSV/Excel
 
 ---
 
-### Sprint 3 — E4 Dry-run / Preview UI en Nova (5 días-dev)
+### Sprint 3 — E4 Dry-run / Preview UI en Nova (5 días-dev) — ✅ CERRADO 2026-06-14
 **Sprint Goal:** el consultor **ve y resuelve** todo en una pantalla antes de cargar nada a producción.
+
+> **✅ Entregado (rama `feat/migration-sprint3`):**
+> - **Backend resolución + gate.** `MigrationService.resolveRow(jobId, rowIndex, orgId, dto)` (IDOR + guards estado COMPLETED/LOADING; `ACCEPT` exige razón ≥5 chars → audit; `REASSIGN` exige `targetRoomId` de la property; `SKIP` excluye la fila). `validate()` ahora **respeta la resolución por fila**: `SKIP` no entra a claims/dedup/conflictos (`skipped++`); `ACCEPT` baja la severidad del empalme a `WARN` (deja de bloquear); `REASSIGN` usa `targetRoomId` como recurso. Counts nuevos: `skipped` + `blocking` (`= conflicts ERROR`). `deleteJob(jobId, orgId)` (IDOR + guard pre-load → cascade). Helpers `listProperties(orgId)` + `listRooms(propertyId)`.
+> - **Endpoints nuevos:** `GET /v1/nova/migration/properties`, `GET /v1/nova/properties/:propertyId/migration/rooms`, `PATCH /v1/nova/migration/jobs/:jobId/rows/:rowIndex/resolution`, `DELETE /v1/nova/migration/jobs/:jobId`. DTO `ResolveRowDto` (`action` SKIP/ACCEPT/REASSIGN + `targetRoomId?` + `reason?`).
+> - **Frontend (Nova):** `nova/api/migration-client.ts` (espejo del controller, `X-Acting-Organization-Id`), `nova/pages/NovaMigrationPage.tsx` (subir CSV → StatTiles Reservas/OK/Avisos/Empalmes/Bloqueantes → lista de conflictos con SKIP/ACCEPT(razón)/REASSIGN(selector de habitación) por fila → **gate**: botón "Importar a producción" deshabilitado mientras `blocking > 0`, placeholder Sprint 4 → descartar job con confirmación). Ruta `/nova/migration` en `App.tsx` + entrada "Migración" en `NovaSidebar`.
+> - **Tests:** 37/37 unit verdes (la lógica de resolución dentro de `validate()` queda cubierta por la suite del detector; sin regresión). Typecheck api + web verdes.
+> - **Verificación e2e contra BD dev** (cliente `seed-org-1` / Hotel Cancún): endpoints `properties` (n=2) / `sources` (n=2) / `rooms` (n=8) → 200; flujo subir sample → `PREVIEW_READY` (parsed 15 · ok 13 · warn 1 · blocking 2 · overlaps 1 · conflicts 16) → **ACCEPT empalme `blocking 2→1`** → **SKIP bad-date `blocking 1→0`, `skipped 1`** (el gate se desbloquearía en Sprint 4) → guard razón corta `400` → `DELETE 200`.
+> - **Salvedad honesta (§4):** el render de la página NO se capturó en navegador (el Vite del dueño ocupa :5173 y el preview tool no se adjunta a un server externo; la API se reinició para verificar porque la corriendo era stale). La página es binding directo a endpoints **verificados e2e** + primitives canónicos del design-system Nova que ya typecheckean. Verificar el render visual al abrir Nova → Migración.
+> - **Pendiente Sprint 4:** load idempotente real (crea `GuestStay`+`StayJourney`+`StaySegment`, `source='MIGRATED'`) + AuditLog + reporte de migración + wizard de mapeo de columnas para `GENERIC_CSV` (hoy el preview usa el pre-mapeo Cloudbeds/genérico; el mapeo manual interactivo se entrega junto al load).
 
 | # | Historia | Criterios de aceptación | SP |
 |---|---|---|---|

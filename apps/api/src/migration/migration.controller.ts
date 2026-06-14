@@ -16,9 +16,11 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   Param,
+  Patch,
   Post,
   Req,
   UseGuards,
@@ -30,7 +32,7 @@ import { PrismaService } from '../prisma/prisma.service'
 import { NovaTiers, NovaTiersGuard } from '../nova/guards/nova-tiers.guard'
 import { NovaActingOrgGuard, RequireActingOrg } from '../nova/guards/nova-acting-org.guard'
 import { MigrationService } from './migration.service'
-import { CreateMigrationJobDto, ApplyMappingDto } from './dto/migration-dto'
+import { CreateMigrationJobDto, ApplyMappingDto, ResolveRowDto } from './dto/migration-dto'
 
 function resolveActingOrgId(req: Request & { user?: JwtPayload }): string | undefined {
   const augmented = req as Request & { actingOrgId?: string; user?: JwtPayload }
@@ -49,6 +51,20 @@ export class MigrationController {
   @Get('migration/sources')
   listSources() {
     return this.migration.listSources()
+  }
+
+  @Get('migration/properties')
+  @RequireActingOrg()
+  async listProperties(@Req() req: Request & { user?: JwtPayload }) {
+    return this.migration.listProperties(this.requireOrg(req))
+  }
+
+  @Get('properties/:propertyId/migration/rooms')
+  @RequireActingOrg()
+  async listRooms(@Param('propertyId') propertyId: string, @Req() req: Request & { user?: JwtPayload }) {
+    const orgId = this.requireOrg(req)
+    await this.assertPropertyInOrg(propertyId, orgId)
+    return this.migration.listRooms(propertyId)
   }
 
   @Post('properties/:propertyId/migration/jobs')
@@ -106,6 +122,27 @@ export class MigrationController {
     const orgId = this.requireOrg(req)
     await this.migration.assertJobInOrg(jobId, orgId)
     return this.migration.applyMapping(jobId, dto.mapping)
+  }
+
+  @Patch('migration/jobs/:jobId/rows/:rowIndex/resolution')
+  @RequireActingOrg()
+  async resolveRow(
+    @Param('jobId') jobId: string,
+    @Param('rowIndex') rowIndex: string,
+    @Body() dto: ResolveRowDto,
+    @Req() req: Request & { user?: JwtPayload },
+  ) {
+    const orgId = this.requireOrg(req)
+    await this.migration.assertJobInOrg(jobId, orgId)
+    return this.migration.resolveRow(jobId, Number(rowIndex), orgId, dto)
+  }
+
+  @Delete('migration/jobs/:jobId')
+  @RequireActingOrg()
+  async deleteJob(@Param('jobId') jobId: string, @Req() req: Request & { user?: JwtPayload }) {
+    const orgId = this.requireOrg(req)
+    await this.migration.assertJobInOrg(jobId, orgId)
+    return this.migration.deleteJob(jobId, orgId)
   }
 
   // ─── helpers ──────────────────────────────────────────────────────────────

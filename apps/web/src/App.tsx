@@ -47,6 +47,7 @@ const NovaBillingChannexPage = lazy(() => import('./nova/pages/NovaBillingChanne
 const NovaBookingEnginePage = lazy(() => import('./nova/pages/NovaBookingEnginePage').then(m => ({ default: m.NovaBookingEnginePage })))
 const NovaBillingApprovalsPage = lazy(() => import('./nova/pages/NovaBillingApprovalsPage').then(m => ({ default: m.NovaBillingApprovalsPage })))
 const NovaBillingClientPage = lazy(() => import('./nova/pages/NovaBillingClientPage').then(m => ({ default: m.NovaBillingClientPage })))
+const NovaMigrationPage = lazy(() => import('./nova/pages/NovaMigrationPage').then(m => ({ default: m.NovaMigrationPage })))
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -159,6 +160,7 @@ export default function App() {
               page-title. Cada uno se reemplaza por su page real al avanzar. */}
           <Route path="/nova/channex"    element={<NovaChannexPage />} />
           <Route path="/nova/booking-engine" element={<NovaBookingEnginePage />} />
+          <Route path="/nova/migration"  element={<NovaMigrationPage />} />
           <Route path="/nova/wizard"     element={<NovaWizardPage />} />
           <Route path="/nova/billing"          element={<NovaBillingPage />} />
           <Route path="/nova/billing/codigos"      element={<NovaBillingCodesPage />} />

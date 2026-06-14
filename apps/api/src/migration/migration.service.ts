@@ -35,6 +35,26 @@ export class MigrationService {
     return this.registry.list()
   }
 
+  /** Properties de la acting org (para elegir destino de la migración en la UI). */
+  async listProperties(organizationId: string) {
+    const props = await this.prisma.property.findMany({
+      where: { organizationId },
+      select: { id: true, name: true, city: true },
+      orderBy: { name: 'asc' },
+    })
+    return props
+  }
+
+  /** Habitaciones de una property (para el selector de reasignación en el preview). */
+  async listRooms(propertyId: string) {
+    const rooms = await this.prisma.room.findMany({
+      where: { propertyId },
+      select: { id: true, number: true, category: true },
+      orderBy: { number: 'asc' },
+    })
+    return rooms
+  }
+
   /**
    * Crea el job, decodifica el archivo, parsea a staging y —si el adapter trae
    * pre-mapeo (Cloudbeds) o el caller envía mapping (genérico)— mapea de una vez.
@@ -193,10 +213,23 @@ export class MigrationService {
     const rowUpdates: Array<{ rowIndex: number; status: string; issues: NormalizeIssue[] }> = []
     let ok = 0, warn = 0, error = 0
 
+    const acceptRefs = new Set<string>() // filas con empalme aceptado por el consultor → conflicto no bloqueante
+    let skipped = 0
+
     for (const row of stagingRows) {
       const ref = String(row.rowIndex)
+      const resolution = row.resolution // PENDING | SKIP | ACCEPT | REASSIGN
       const mapped = row.mapped as MigrationReservationDto | null
       if (!mapped) { error++; rowUpdates.push({ rowIndex: row.rowIndex, status: MigrationRowStatus.ERROR, issues: [{ type: 'MISSING_DATES', message: 'Fila sin mapear.' }] }); continue }
+
+      // SKIP: el consultor decidió no migrar esta fila → fuera de claims, dedup y
+      // conflictos (no se cargará). Se cuenta aparte.
+      if (resolution === 'SKIP') {
+        skipped++
+        rowUpdates.push({ rowIndex: row.rowIndex, status: MigrationRowStatus.OK, issues: [] })
+        continue
+      }
+      if (resolution === 'ACCEPT') acceptRefs.add(ref)
 
       const norm = normalizeReservation(mapped, { defaultCurrency })
       reservationsForDedup.push(mapped)
@@ -211,9 +244,13 @@ export class MigrationService {
         })
       }
 
-      // Emparejar habitación + construir clave de recurso.
+      // Emparejar habitación + construir clave de recurso. REASSIGN sobreescribe
+      // la habitación con la elegida por el consultor (targetRoomId).
       const match = matchRoom(mapped.roomLabel, mapped.roomTypeLabel, rooms)
-      if (!match.matched && mapped.roomLabel) {
+      const reassignedRoom = resolution === 'REASSIGN' && row.targetRoomId
+        ? rooms.find((r) => r.id === row.targetRoomId)
+        : undefined
+      if (!match.matched && !reassignedRoom && mapped.roomLabel) {
         conflicts.push({
           type: 'NO_ROOM_MATCH', severity: 'WARN', rowRefs: [ref],
           message: `La habitación "${mapped.roomLabel}" no existe en Zenix — reasigna en el preview.`,
@@ -223,15 +260,17 @@ export class MigrationService {
       // Clave de recurso: privada emparejada → por roomId (compara con existentes);
       // dorm o sin emparejar → por etiqueta del origen (distingue camas).
       if (norm.occupies) {
-        const resourceKey = match.matched && !match.shared
-          ? `room:${match.roomId}`
+        const effRoomId = reassignedRoom?.id ?? (match.matched ? match.roomId : null)
+        const effShared = reassignedRoom ? reassignedRoom.category === 'SHARED' : match.shared
+        const resourceKey = effRoomId && !effShared
+          ? `room:${effRoomId}`
           : match.resourceKey ? `label:${match.resourceKey}` : ''
         if (resourceKey) {
-          claims.push({ ref, resourceKey, shared: match.shared, checkIn: mapped.checkIn, checkOut: mapped.checkOut })
+          claims.push({ ref, resourceKey, shared: effShared, checkIn: mapped.checkIn, checkOut: mapped.checkOut })
         }
       }
 
-      let status = norm.status
+      const status = norm.status
       if (status === MigrationRowStatus.OK) ok++
       else if (status === MigrationRowStatus.WARN) warn++
       else error++
@@ -251,10 +290,13 @@ export class MigrationService {
       checkOut: s.scheduledCheckout.toISOString().slice(0, 10),
     }))
 
-    // ★ DETECCIÓN DE EMPALMES
+    // ★ DETECCIÓN DE EMPALMES. Si alguna fila del par fue ACCEPT por el
+    // consultor (empalme histórico aceptado con razón), el conflicto baja a WARN
+    // (no bloquea el load).
     const collisions = detectCollisions(claims, existingClaims)
     for (const c of collisions) {
-      conflicts.push({ type: c.type, severity: 'ERROR', rowRefs: c.refs, message: c.message })
+      const accepted = c.refs.some((r) => acceptRefs.has(r))
+      conflicts.push({ type: c.type, severity: accepted ? 'WARN' : 'ERROR', rowRefs: c.refs, message: c.message })
     }
 
     // Dedup de huéspedes (WARN).
@@ -282,9 +324,11 @@ export class MigrationService {
         data: {
           status: MigrationJobStatus.PREVIEW_READY,
           counts: {
-            parsed: stagingRows.length, ok, warn, error,
+            parsed: stagingRows.length, ok, warn, error, skipped,
             conflicts: conflicts.length,
             overlaps: collisions.length,
+            // blocking = conflictos ERROR sin resolver → el gate de Sprint 4 los exige en 0.
+            blocking: conflicts.filter((c) => c.severity === 'ERROR').length,
             loaded: 0,
           },
         },
@@ -310,6 +354,66 @@ export class MigrationService {
         id: c.id, type: c.type, severity: c.severity, rowRefs: c.rowRefs, message: c.message,
       })),
     }
+  }
+
+  /**
+   * Sprint 3 — resuelve un conflicto a nivel fila (skip / aceptar empalme con
+   * razón / reasignar habitación) SIN tocar producción. Re-valida el job para
+   * recomputar conflictos y counts (idempotente). Verifica IDOR vía la org.
+   */
+  async resolveRow(
+    jobId: string,
+    rowIndex: number,
+    organizationId: string,
+    dto: { action: 'SKIP' | 'ACCEPT' | 'REASSIGN'; targetRoomId?: string; reason?: string },
+  ) {
+    const row = await this.prisma.migrationStagingReservation.findFirst({
+      where: { jobId, rowIndex },
+      select: { id: true, jobId: true, job: { select: { organizationId: true, propertyId: true, status: true } } },
+    })
+    if (!row) throw new NotFoundException(`Fila ${rowIndex} del job ${jobId} no encontrada`)
+    if (row.job.organizationId !== organizationId) throw new NotFoundException(`Fila no encontrada`)
+    if (row.job.status === MigrationJobStatus.COMPLETED || row.job.status === MigrationJobStatus.LOADING) {
+      throw new BadRequestException('No se puede modificar un job ya cargado o en carga.')
+    }
+
+    if (dto.action === 'REASSIGN') {
+      if (!dto.targetRoomId) throw new BadRequestException('REASSIGN requiere targetRoomId.')
+      const target = await this.prisma.room.findFirst({
+        where: { id: dto.targetRoomId, propertyId: row.job.propertyId },
+        select: { id: true },
+      })
+      if (!target) throw new BadRequestException('La habitación destino no pertenece a esta propiedad.')
+    }
+    if (dto.action === 'ACCEPT' && (!dto.reason || dto.reason.trim().length < 5)) {
+      throw new BadRequestException('Aceptar un empalme requiere una razón (≥5 caracteres) para el audit.')
+    }
+
+    await this.prisma.migrationStagingReservation.update({
+      where: { id: row.id },
+      data: {
+        resolution: dto.action,
+        targetRoomId: dto.action === 'REASSIGN' ? dto.targetRoomId : null,
+        resolutionReason: dto.reason?.trim() || null,
+      },
+    })
+    await this.validate(jobId) // recomputa conflictos + counts con la resolución aplicada
+    return this.getJob(jobId)
+  }
+
+  /** Descarta un job completo (solo pre-load). Cascade borra staging + conflictos. */
+  async deleteJob(jobId: string, organizationId: string) {
+    const job = await this.prisma.migrationJob.findUnique({
+      where: { id: jobId },
+      select: { id: true, organizationId: true, status: true },
+    })
+    if (!job) throw new NotFoundException(`MigrationJob ${jobId} no encontrado`)
+    if (job.organizationId !== organizationId) throw new NotFoundException(`MigrationJob ${jobId} no encontrado`)
+    if (job.status === MigrationJobStatus.COMPLETED || job.status === MigrationJobStatus.LOADING) {
+      throw new BadRequestException('No se puede descartar un job ya cargado a producción.')
+    }
+    await this.prisma.migrationJob.delete({ where: { id: jobId } })
+    return { deleted: true, jobId }
   }
 
   /** Detalle del job + counts + headers detectados + muestra de filas mapeadas. */
