@@ -2,7 +2,7 @@
 
 > **Módulo comercial:** **Zenix Onboard** — migración de datos desde cualquier PMS (Cloudbeds primero) hacia Zenix.
 > **Versión objetivo:** v1.1.x (DLC / servicio de onboarding). No bloquea v1.0.0.
-> **Estado:** **Sprint 0 CERRADO** (2026-06-13) — DTO canónico + schema de staging + migración aplicada + export sintético. Sprints 1-6 pendientes. Rama `feat/migration-sprint0`.
+> **Estado:** **Sprints 0-1 CERRADOS** (2026-06-13/14). S0: DTO canónico + schema staging + migración + export sintético. S1: módulo NestJS `migration/` + `GenericCsvAdapter` + `CloudbedsAdapter` + parser CSV propio + endpoints upload/parse/mapping (Nova-scoped + IDOR). Sprints 2-6 pendientes. **Próximo: Sprint 2 (CollisionDetector ★).**
 > **Origen:** estudio de migración Cloudbeds→Zenix (sesión 2026-06-13). Pregunta del prospecto: "¿puedo migrar todos mis datos de Cloudbeds (años de uso)?".
 > **Documentos hermanos:** [zenix-sales-master.md](../zenix-sales-master.md) Módulo 9 · [CLAUDE.md](../../CLAUDE.md) §MIGRATION-CORE · **[migration/pms-export-landscape.md](migration/pms-export-landscape.md)** (estudio verificado de qué exporta cada PMS — fundamenta la estrategia de adapters).
 
@@ -180,6 +180,14 @@ El estudio verificó que **casi todo PMS exporta reservas/huéspedes a CSV/Excel
 | US-1.5 | Como consultor, quiero ver **counts del parsing** (filas leídas / mapeadas / ilegibles) tras subir. | Job `PARSING`→`VALIDATING`; `GET /v1/nova/migration/jobs/:id` retorna counts; filas en `MigrationStagingReservation`. | 3 |
 
 **Entregables Sprint 1:** endpoint de upload + `GenericCsvAdapter` (motor) + `CloudbedsAdapter` (pre-mapeo) + registry, parseando a staging. **DoD:** unit tests del parser verdes + typecheck. **Demo:** subir un CSV genérico, mapear columnas y ver N filas en staging; subir un export Cloudbeds y ver que se mapea solo.
+
+> **✅ CERRADO 2026-06-14 (rama `feat/migration-sprint1`).** Entregado:
+> - Módulo NestJS `apps/api/src/migration/` (bounded context): `MigrationModule` + `MigrationController` (Nova-scoped: `NovaTiersGuard`+`NovaActingOrgGuard`, IDOR check property/job ↔ acting org) + `MigrationService`. Registrado en `app.module.ts`.
+> - **Parser CSV propio sin dependencias** (`adapters/csv-parser.ts`, subset RFC 4180: comillas, comas/saltos dentro de comillas, `""` escapado, BOM). XLSX diferido (necesita lib `xlsx`; mientras, "Guardar como CSV" cubre todo origen).
+> - `ISourcePmsAdapter` + `SourcePmsAdapterRegistry` (Strategy §89). `GenericCsvAdapter` (D-MIG7, `defaultMapping=null` → wizard) + `CloudbedsAdapter` (pre-mapeo del schema doc). `reservation-mapper.ts` puro: aplica mapping → DTO, parsea fecha (DD/MM/YYYY default LATAM + ISO + valida imposibles), deriva `guestName`/`amountPaid`, dedup ligero de huéspedes.
+> - Endpoints: `GET /v1/nova/migration/sources`, `POST /v1/nova/properties/:propertyId/migration/jobs` (upload base64 + parse + auto-map si dedicado), `GET /v1/nova/properties/:propertyId/migration/jobs`, `GET /v1/nova/migration/jobs/:jobId`, `POST /v1/nova/migration/jobs/:jobId/mapping`. **Idempotencia por `(propertyId, fileHash)`** (re-subir = mismo job).
+> - **Tests:** 15/15 unit (`migration-parsing.spec.ts`: parser, parseSourceDate, mapRows, pipeline Cloudbeds). Typecheck api+shared+web verdes. **Verificación e2e contra BD dev:** subir `cloudbeds-sample.csv` → 15 filas en staging mapeadas (CB-100001→María Hernández→2026-02-01), status VALIDATING, idempotencia OK, cleanup en cascada OK.
+> - **Pendiente Sprint 2:** la validación profunda (normalize timezone/ISO) + detección de empalmes + dedup real dejan el job en `PREVIEW_READY` (hoy queda en `VALIDATING` tras el mapeo, sin correr aún el CollisionDetector).
 
 **Desglose técnico (pasos de dev):**
 1. Nuevo módulo NestJS `apps/api/src/migration/` (bounded context, §Evans). `MigrationController` (Nova-scoped, `NovaActingOrgGuard`) + `MigrationService`.
