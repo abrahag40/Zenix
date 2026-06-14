@@ -54,6 +54,14 @@ export class MigrationController {
     return this.migration.listSources()
   }
 
+  /** Plantilla oficial Zenix (CSV) descargable. No necesita acting org — archivo estático. */
+  @Get('migration/template')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="zenix-import-template.csv"')
+  getTemplate() {
+    return this.migration.getTemplateCsv()
+  }
+
   @Get('migration/properties')
   @RequireActingOrg()
   async listProperties(@Req() req: Request & { user?: JwtPayload }) {

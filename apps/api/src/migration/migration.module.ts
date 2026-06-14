@@ -12,6 +12,7 @@ import { AuditLogService } from '../nova/audit/audit-log.service'
 import { MigrationController } from './migration.controller'
 import { MigrationService } from './migration.service'
 import { SourcePmsAdapterRegistry } from './adapters/source-pms-adapter.registry'
+import { ZenixTemplateAdapter } from './adapters/zenix-template.adapter'
 import { GenericCsvAdapter } from './adapters/generic-csv.adapter'
 import { CloudbedsAdapter } from './adapters/cloudbeds.adapter'
 
@@ -23,6 +24,7 @@ import { CloudbedsAdapter } from './adapters/cloudbeds.adapter'
   providers: [
     MigrationService,
     SourcePmsAdapterRegistry,
+    ZenixTemplateAdapter,
     GenericCsvAdapter,
     CloudbedsAdapter,
     AuditLogService,

@@ -62,6 +62,10 @@ export const migrationApi = {
   sources: () =>
     api.get<MigrationSourceOption[]>(`${BASE}/sources`, { headers: actingOrgHeader() }),
 
+  /** Plantilla oficial Zenix (CSV). Devuelve el texto CSV — la UI lo descarga. */
+  template: () =>
+    api.get<string>(`${BASE}/template`, { responseType: 'text' }),
+
   properties: () =>
     api.get<MigrationPropertyOption[]>(`${BASE}/properties`, { headers: actingOrgHeader() }),
 

@@ -4,6 +4,7 @@
 import { parseCsv } from './csv-parser'
 import { mapRows, parseSourceDate } from './reservation-mapper'
 import { CloudbedsAdapter } from './cloudbeds.adapter'
+import { ZenixTemplateAdapter, buildZenixTemplateCsv, TEMPLATE_FIELDS } from './zenix-template.adapter'
 
 describe('csv-parser', () => {
   it('parsea CSV simple con headers y filas', () => {
@@ -126,5 +127,39 @@ describe('CloudbedsAdapter pre-mapeo + pipeline sobre la muestra', () => {
     })
     // amountPaid derivado: 2400 total - 1200 balance = 1200
     expect(reservations[1].amountPaid).toBe(1200)
+  })
+})
+
+// Sprint 5 — Plantilla Zenix (patrón SuccessFactors).
+describe('ZenixTemplateAdapter', () => {
+  const adapter = new ZenixTemplateAdapter()
+
+  it('mapeo es IDENTIDAD (encabezado === campo canónico)', () => {
+    const m = adapter.defaultMapping()
+    expect(m.dateFormat).toBe('YYYY-MM-DD')
+    for (const { field } of TEMPLATE_FIELDS) expect(m.reservation[field]).toBe(field)
+  })
+
+  it('el CSV generado se parsea de vuelta con los encabezados canónicos', () => {
+    const csv = buildZenixTemplateCsv()
+    const { headers, rows } = parseCsv(csv)
+    expect(headers).toEqual(TEMPLATE_FIELDS.map((f) => f.field))
+    expect(headers).toContain('checkIn')
+    expect(headers).toContain('roomLabel')
+    expect(rows.length).toBeGreaterThanOrEqual(2) // filas de ejemplo
+  })
+
+  it('una plantilla llenada mapea a DTO canónico end-to-end (identidad + fechas ISO)', () => {
+    const csv = [
+      TEMPLATE_FIELDS.map((f) => f.field).join(','),
+      'MIG-1,Ana García,,,,,,,2026-09-10,2026-09-12,201,Estándar,1000,2000,2000,MXN,CHECKED_OUT,,,2,0,',
+    ].join('\n')
+    const { rows } = parseCsv(csv)
+    const { reservations } = mapRows(rows, adapter.defaultMapping())
+    expect(reservations[0]).toMatchObject({
+      sourceId: 'MIG-1', guestName: 'Ana García',
+      checkIn: '2026-09-10', checkOut: '2026-09-12',
+      roomLabel: '201', currency: 'MXN', status: 'CHECKED_OUT',
+    })
   })
 })

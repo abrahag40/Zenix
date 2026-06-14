@@ -39,7 +39,7 @@ export function NovaMigrationPage() {
   const qc = useQueryClient()
 
   const [propertyId, setPropertyId] = useState('')
-  const [sourceSystem, setSourceSystem] = useState('CLOUDBEDS')
+  const [sourceSystem, setSourceSystem] = useState('ZENIX_TEMPLATE')
   const [file, setFile] = useState<File | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
   const [acceptingRow, setAcceptingRow] = useState<number | null>(null)
@@ -115,6 +115,21 @@ export function NovaMigrationPage() {
     onError: (e: Error) => toast.error(e.message ?? 'No se pudo importar'),
   })
 
+  // Descarga la plantilla oficial Zenix (CSV) — patrón SuccessFactors.
+  const downloadTemplate = async () => {
+    try {
+      const csv = await migrationApi.template()
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'zenix-import-template.csv'
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(url), 5_000)
+    } catch (e) {
+      toast.error((e as Error).message ?? 'No se pudo descargar la plantilla')
+    }
+  }
+
   // Abre el reporte HTML en una pestaña nueva (fetch con auth → blob).
   const openReport = async () => {
     try {
@@ -169,6 +184,19 @@ export function NovaMigrationPage() {
           Sube el export de reservas del PMS actual del cliente{actingOrgName ? ` (${actingOrgName})` : ''}. Te mostramos
           un <strong>preview con los empalmes y errores</strong> antes de cargar nada a producción.
         </Caption>
+
+        {/* Paso 0: plantilla Zenix (patrón SuccessFactors) */}
+        {!jobId && (
+          <Surface variant="raised" radius="lg" padding="md" tone="info">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <Body><strong>¿Usas la plantilla Zenix?</strong> Exporta las reservas del PMS del cliente, pégalas en nuestra plantilla (Excel → Guardar como CSV) y súbela. Sin mapear columnas.</Body>
+                <Caption className="mt-1">Formato ISO de fechas (YYYY-MM-DD). Los datos de tarjeta NUNCA se migran (PCI).</Caption>
+              </div>
+              <Button variant="ghost" iconLeft={FileSpreadsheet} onClick={downloadTemplate}>Descargar plantilla</Button>
+            </div>
+          </Surface>
+        )}
 
         {/* Paso 1: subir */}
         {!jobId && (

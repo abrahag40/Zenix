@@ -449,6 +449,10 @@ export enum RecurrenceScope {
 // motor base con wizard de mapeo que cubre cualquier origen; el resto son
 // pre-mapeos sobre él.
 export enum MigrationSource {
+  // Plantilla oficial Zenix (CSV) — el consultor exporta de su PMS y rellena
+  // nuestra plantilla con los encabezados canónicos (patrón SuccessFactors).
+  // Pre-mapeo identidad → no requiere el wizard de mapeo.
+  ZENIX_TEMPLATE = 'ZENIX_TEMPLATE',
   GENERIC_CSV    = 'GENERIC_CSV',
   CLOUDBEDS      = 'CLOUDBEDS',
   MEWS           = 'MEWS',

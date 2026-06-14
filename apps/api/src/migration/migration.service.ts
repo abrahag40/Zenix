@@ -17,6 +17,7 @@ import { PrismaService } from '../prisma/prisma.service'
 import { AvailabilityService } from '../pms/availability/availability.service'
 import { AuditLogService } from '../nova/audit/audit-log.service'
 import { SourcePmsAdapterRegistry } from './adapters/source-pms-adapter.registry'
+import { buildZenixTemplateCsv } from './adapters/zenix-template.adapter'
 import { parseCsv } from './adapters/csv-parser'
 import { mapRows } from './adapters/reservation-mapper'
 import { normalizeReservation, type NormalizeIssue } from './validation/normalize-reservation'
@@ -45,6 +46,11 @@ export class MigrationService {
   /** Lista los PMS de origen soportados (para el dropdown del wizard). */
   listSources() {
     return this.registry.list()
+  }
+
+  /** Plantilla oficial Zenix (CSV) descargable — patrón SuccessFactors. */
+  getTemplateCsv(): string {
+    return buildZenixTemplateCsv()
   }
 
   /** Properties de la acting org (para elegir destino de la migración en la UI). */
