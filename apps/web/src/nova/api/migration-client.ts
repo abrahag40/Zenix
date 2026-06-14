@@ -13,6 +13,7 @@ function actingOrgHeader(): Record<string, string> {
 }
 
 export interface MigrationSourceOption { id: string; label: string; hasDefaultMapping: boolean }
+export interface MigrationFieldDef { field: string; required: boolean; help: string }
 export interface MigrationPropertyOption { id: string; name: string; city: string | null }
 export interface MigrationRoomOption { id: string; number: string; category: 'PRIVATE' | 'SHARED' }
 
@@ -65,6 +66,10 @@ export const migrationApi = {
   /** Plantilla oficial Zenix (CSV). Devuelve el texto CSV — la UI lo descarga. */
   template: () =>
     api.get<string>(`${BASE}/template`, { responseType: 'text' }),
+
+  /** Campos canónicos importables (para el wizard de mapeo del origen genérico). */
+  fields: () =>
+    api.get<MigrationFieldDef[]>(`${BASE}/fields`, { headers: actingOrgHeader() }),
 
   properties: () =>
     api.get<MigrationPropertyOption[]>(`${BASE}/properties`, { headers: actingOrgHeader() }),

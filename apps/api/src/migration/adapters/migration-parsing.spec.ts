@@ -1,10 +1,11 @@
 /**
  * Tests del núcleo PURO de parsing/mapeo (DoD del Sprint 1). Sin BD ni NestJS.
  */
-import { parseCsv } from './csv-parser'
+import { parseCsv, detectDelimiter } from './csv-parser'
 import { mapRows, parseSourceDate } from './reservation-mapper'
 import { CloudbedsAdapter } from './cloudbeds.adapter'
 import { ZenixTemplateAdapter, buildZenixTemplateCsv, TEMPLATE_FIELDS } from './zenix-template.adapter'
+import { MewsAdapter } from './mews.adapter'
 
 describe('csv-parser', () => {
   it('parsea CSV simple con headers y filas', () => {
@@ -160,6 +161,45 @@ describe('ZenixTemplateAdapter', () => {
       sourceId: 'MIG-1', guestName: 'Ana García',
       checkIn: '2026-09-10', checkOut: '2026-09-12',
       roomLabel: '201', currency: 'MXN', status: 'CHECKED_OUT',
+    })
+  })
+})
+
+// Sprint 6 — auto-detección de delimitador (Excel es-MX/es-ES usa `;`).
+describe('detectDelimiter + parseCsv', () => {
+  it('detecta coma por default', () => {
+    expect(detectDelimiter('a,b,c\n1,2,3')).toBe(',')
+  })
+  it('detecta punto y coma (Excel LATAM)', () => {
+    expect(detectDelimiter('a;b;c\n1;2;3')).toBe(';')
+    const { headers, rows } = parseCsv('id;nombre;fecha\nX1;Ana;2026-01-01')
+    expect(headers).toEqual(['id', 'nombre', 'fecha'])
+    expect(rows[0]).toEqual({ id: 'X1', nombre: 'Ana', fecha: '2026-01-01' })
+  })
+  it('detecta tab', () => {
+    expect(detectDelimiter('a\tb\tc\n1\t2\t3')).toBe('\t')
+  })
+  it('ignora delimitadores dentro de comillas al detectar', () => {
+    // El header "a,b" entre comillas no debe contar como 2 columnas coma.
+    expect(detectDelimiter('"a,b";c;d\n1;2;3')).toBe(';')
+  })
+})
+
+// Sprint 6 — spike MewsAdapter: el motor funciona con un 2º PMS sin tocarse.
+describe('MewsAdapter (spike genericidad)', () => {
+  it('mapea un export estilo Mews a DTO canónico con el motor compartido', () => {
+    const adapter = new MewsAdapter()
+    const csv = [
+      'Reservation number,State,Guest,Arrival,Departure,Assigned space,Space type,Total amount,Currency,Channel',
+      'MEW-555,Checked out,Hans Müller,2026-10-01,2026-10-04,305,Deluxe,4500,EUR,Booking.com',
+    ].join('\n')
+    const { rows } = parseCsv(csv)
+    const { reservations } = mapRows(rows, adapter.defaultMapping())
+    expect(reservations[0]).toMatchObject({
+      sourceId: 'MEW-555', guestName: 'Hans Müller',
+      checkIn: '2026-10-01', checkOut: '2026-10-04',
+      roomLabel: '305', roomTypeLabel: 'Deluxe', currency: 'EUR',
+      sourceChannel: 'Booking.com',
     })
   })
 })

@@ -46,6 +46,10 @@ export function NovaMigrationPage() {
   const [acceptReason, setAcceptReason] = useState('')
   const [reassigningRow, setReassigningRow] = useState<number | null>(null)
   const [reassignRoomId, setReassignRoomId] = useState('')
+  // Sprint 6 — wizard de mapeo (origen genérico, sin pre-mapeo)
+  const [colMap, setColMap] = useState<Record<string, string>>({})
+  const [mapDateFormat, setMapDateFormat] = useState('YYYY-MM-DD')
+  const [mapSeeded, setMapSeeded] = useState(false)
 
   const properties = useQuery({
     queryKey: ['mig-properties', actingOrgId],
@@ -67,12 +71,21 @@ export function NovaMigrationPage() {
     queryKey: ['mig-job', jobId],
     queryFn: () => migrationApi.getJob(jobId!),
     enabled: !!jobId,
-    refetchInterval: (q) => (['VALIDATING', 'PARSING', 'LOADING'].includes(q.state.data?.status ?? '') ? 1500 : false),
+    // PARSING en genérico = esperando mapeo humano → no se poll-ea; solo estados transitorios.
+    refetchInterval: (q) => (['VALIDATING', 'LOADING'].includes(q.state.data?.status ?? '') ? 1500 : false),
   })
   const conflicts = useQuery({
     queryKey: ['mig-conflicts', jobId],
     queryFn: () => migrationApi.getConflicts(jobId!),
     enabled: !!jobId && job.data?.status === 'PREVIEW_READY',
+  })
+
+  // Un job genérico queda en PARSING sin columnMapping hasta que el consultor mapea.
+  const needsMapping = job.data?.status === 'PARSING' && !job.data?.columnMapping
+  const fields = useQuery({
+    queryKey: ['mig-fields', actingOrgId],
+    queryFn: () => migrationApi.fields(),
+    enabled: !!actingOrgId && !!needsMapping,
   })
 
   const createMut = useMutation({
@@ -81,7 +94,10 @@ export function NovaMigrationPage() {
       const b64 = await fileToBase64(file)
       return migrationApi.createJob(propertyId, { sourceSystem, fileName: file.name, fileBase64: b64 })
     },
-    onSuccess: (j) => { setJobId(j.id); toast.success('Archivo analizado — revisa el preview') },
+    onSuccess: (j) => {
+      setJobId(j.id); setColMap({}); setMapSeeded(false)
+      toast.success(j.status === 'PARSING' ? 'Archivo leído — mapea las columnas' : 'Archivo analizado — revisa el preview')
+    },
     onError: (e: Error) => toast.error(e.message ?? 'No se pudo analizar el archivo'),
   })
 
@@ -114,6 +130,37 @@ export function NovaMigrationPage() {
     },
     onError: (e: Error) => toast.error(e.message ?? 'No se pudo importar'),
   })
+
+  // Sprint 6 — aplicar el mapeo manual (origen genérico) → valida → PREVIEW_READY.
+  const applyMappingMut = useMutation({
+    mutationFn: () => {
+      const reservation = Object.fromEntries(Object.entries(colMap).filter(([, h]) => h)) as Record<string, string>
+      return migrationApi.applyMapping(jobId!, { reservation, dateFormat: mapDateFormat })
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['mig-job', jobId] })
+      qc.invalidateQueries({ queryKey: ['mig-conflicts', jobId] })
+      toast.success('Mapeo aplicado — revisa el preview')
+    },
+    onError: (e: Error) => toast.error(e.message ?? 'No se pudo aplicar el mapeo'),
+  })
+
+  // Auto-sugerencia de mapeo: empareja cada campo canónico con el encabezado
+  // más parecido (normalizado). El consultor ajusta lo que haga falta.
+  useEffect(() => {
+    if (!needsMapping || mapSeeded || !fields.data || !job.data?.detectedHeaders?.length) return
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
+    const headers = job.data.detectedHeaders
+    const seed: Record<string, string> = {}
+    for (const f of fields.data) {
+      const fn = norm(f.field)
+      const exact = headers.find((h) => norm(h) === fn)
+      const partial = exact ?? headers.find((h) => { const hn = norm(h); return hn.includes(fn) || fn.includes(hn) })
+      if (partial) seed[f.field] = partial
+    }
+    setColMap(seed)
+    setMapSeeded(true)
+  }, [needsMapping, mapSeeded, fields.data, job.data?.detectedHeaders])
 
   // Descarga la plantilla oficial Zenix (CSV) — patrón SuccessFactors.
   const downloadTemplate = async () => {
@@ -235,9 +282,77 @@ export function NovaMigrationPage() {
         {/* Paso 2: preview */}
         {jobId && job.data && (
           <>
-            {(job.data.status === 'PARSING' || job.data.status === 'VALIDATING' || job.data.status === 'LOADING') && (
+            {(job.data.status === 'VALIDATING' || job.data.status === 'LOADING') && (
               <Surface variant="raised" radius="lg" padding="lg">
-                <Body>{job.data.status === 'LOADING' ? 'Importando a producción…' : 'Analizando el archivo…'} ({job.data.status})</Body>
+                <Body>{job.data.status === 'LOADING' ? 'Importando a producción…' : 'Validando + detectando empalmes…'} ({job.data.status})</Body>
+              </Surface>
+            )}
+
+            {/* Paso 1.5: wizard de mapeo (origen genérico, sin pre-mapeo) */}
+            {needsMapping && (
+              <Surface variant="raised" radius="lg" padding="lg">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <Headline as="h2">Mapea las columnas</Headline>
+                    <Caption>Indica qué columna de tu archivo corresponde a cada dato de Zenix. Pre-rellenamos lo que pudimos adivinar.</Caption>
+                  </div>
+                  <label className="text-[12px] text-slate-600 flex items-center gap-2">
+                    Formato de fecha
+                    <select value={mapDateFormat} onChange={(e) => setMapDateFormat(e.target.value)}
+                      className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm">
+                      <option value="YYYY-MM-DD">YYYY-MM-DD</option>
+                      <option value="DD/MM/YYYY">DD/MM/YYYY</option>
+                      <option value="MM/DD/YYYY">MM/DD/YYYY</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div className="mt-4 grid sm:grid-cols-2 gap-x-6 gap-y-2">
+                  {(fields.data ?? []).map((f) => (
+                    <label key={f.field} className="flex items-center justify-between gap-3 py-1">
+                      <span className="text-[13px] text-slate-700 flex items-center gap-1.5 min-w-0">
+                        <span className="truncate">{f.field}</span>
+                        {f.required && <span className="text-[10px] font-semibold text-rose-500">obligatorio</span>}
+                      </span>
+                      <select value={colMap[f.field] ?? ''} onChange={(e) => setColMap((m) => ({ ...m, [f.field]: e.target.value }))}
+                        className="h-8 w-44 flex-shrink-0 rounded-md border border-slate-200 bg-white px-2 text-[13px]">
+                        <option value="">— sin mapear —</option>
+                        {(job.data?.detectedHeaders ?? []).map((h) => <option key={h} value={h}>{h}</option>)}
+                      </select>
+                    </label>
+                  ))}
+                </div>
+
+                {/* Preview de las primeras filas crudas */}
+                {!!job.data?.sample?.length && (
+                  <div className="mt-4 overflow-x-auto">
+                    <Caption>Vista previa ({job.data.sample.length} filas)</Caption>
+                    <table className="mt-1 text-[11px] border-collapse">
+                      <thead>
+                        <tr>{(job.data.detectedHeaders ?? []).map((h) => <th key={h} className="border border-slate-200 bg-slate-50 px-2 py-1 text-left font-medium text-slate-500 whitespace-nowrap">{h}</th>)}</tr>
+                      </thead>
+                      <tbody>
+                        {job.data.sample.map((r) => (
+                          <tr key={r.rowIndex}>
+                            {(job.data!.detectedHeaders ?? []).map((h) => <td key={h} className="border border-slate-100 px-2 py-1 whitespace-nowrap text-slate-600">{String((r.raw as Record<string, unknown>)?.[h] ?? '')}</td>)}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                <div className="mt-4 flex items-center gap-3">
+                  <Button iconLeft={ArrowLeftRight}
+                    disabled={applyMappingMut.isPending || !colMap.sourceId || !colMap.checkIn || !colMap.checkOut}
+                    onClick={() => applyMappingMut.mutate()}>
+                    {applyMappingMut.isPending ? 'Aplicando…' : 'Aplicar mapeo y validar'}
+                  </Button>
+                  {(!colMap.sourceId || !colMap.checkIn || !colMap.checkOut) &&
+                    <Caption>Mapea al menos <strong>sourceId</strong>, <strong>checkIn</strong> y <strong>checkOut</strong>.</Caption>}
+                  <div className="flex-1" />
+                  <Button variant="ghost" iconLeft={Trash2} onClick={() => deleteMut.mutate()} disabled={deleteMut.isPending}>Descartar</Button>
+                </div>
               </Surface>
             )}
 

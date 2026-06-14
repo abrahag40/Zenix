@@ -8,6 +8,7 @@ import type { ISourcePmsAdapter } from './source-pms-adapter.interface'
 import { ZenixTemplateAdapter } from './zenix-template.adapter'
 import { GenericCsvAdapter } from './generic-csv.adapter'
 import { CloudbedsAdapter } from './cloudbeds.adapter'
+import { MewsAdapter } from './mews.adapter'
 
 @Injectable()
 export class SourcePmsAdapterRegistry {
@@ -17,9 +18,10 @@ export class SourcePmsAdapterRegistry {
     zenixTemplate: ZenixTemplateAdapter,
     generic: GenericCsvAdapter,
     cloudbeds: CloudbedsAdapter,
+    mews: MewsAdapter,
   ) {
     // Orden: plantilla Zenix (camino recomendado) → genérico (motor) → dedicados.
-    this.adapters = [zenixTemplate, generic, cloudbeds]
+    this.adapters = [zenixTemplate, generic, cloudbeds, mews]
   }
 
   get(source: MigrationSource | string): ISourcePmsAdapter {
