@@ -15,6 +15,7 @@ import { SourcePmsAdapterRegistry } from './adapters/source-pms-adapter.registry
 import { ZenixTemplateAdapter } from './adapters/zenix-template.adapter'
 import { GenericCsvAdapter } from './adapters/generic-csv.adapter'
 import { CloudbedsAdapter } from './adapters/cloudbeds.adapter'
+import { MewsAdapter } from './adapters/mews.adapter'
 
 @Module({
   // AvailabilityModule → guard anti-overbook en el load (§35). AuditLogService
@@ -27,6 +28,7 @@ import { CloudbedsAdapter } from './adapters/cloudbeds.adapter'
     ZenixTemplateAdapter,
     GenericCsvAdapter,
     CloudbedsAdapter,
+    MewsAdapter,
     AuditLogService,
   ],
   exports: [MigrationService],

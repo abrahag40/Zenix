@@ -62,6 +62,12 @@ export class MigrationController {
     return this.migration.getTemplateCsv()
   }
 
+  /** Campos canónicos importables (para el wizard de mapeo del origen genérico). */
+  @Get('migration/fields')
+  listFields() {
+    return this.migration.listFields()
+  }
+
   @Get('migration/properties')
   @RequireActingOrg()
   async listProperties(@Req() req: Request & { user?: JwtPayload }) {

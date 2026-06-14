@@ -17,7 +17,7 @@ import { PrismaService } from '../prisma/prisma.service'
 import { AvailabilityService } from '../pms/availability/availability.service'
 import { AuditLogService } from '../nova/audit/audit-log.service'
 import { SourcePmsAdapterRegistry } from './adapters/source-pms-adapter.registry'
-import { buildZenixTemplateCsv } from './adapters/zenix-template.adapter'
+import { buildZenixTemplateCsv, TEMPLATE_FIELDS } from './adapters/zenix-template.adapter'
 import { parseCsv } from './adapters/csv-parser'
 import { mapRows } from './adapters/reservation-mapper'
 import { normalizeReservation, type NormalizeIssue } from './validation/normalize-reservation'
@@ -51,6 +51,14 @@ export class MigrationService {
   /** Plantilla oficial Zenix (CSV) descargable — patrón SuccessFactors. */
   getTemplateCsv(): string {
     return buildZenixTemplateCsv()
+  }
+
+  /**
+   * Campos canónicos importables (para el wizard de mapeo del origen genérico).
+   * Misma fuente que la plantilla (`TEMPLATE_FIELDS`) → un solo set de columnas.
+   */
+  listFields() {
+    return TEMPLATE_FIELDS.map((f) => ({ field: f.field, required: f.req, help: f.help }))
   }
 
   /** Properties de la acting org (para elegir destino de la migración en la UI). */
