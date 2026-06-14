@@ -37,6 +37,7 @@ import {
   Globe,
   CreditCard,
   Sparkles,
+  ArrowUpFromLine,
   ScrollText,
   Settings,
 } from 'lucide-react'
@@ -58,6 +59,7 @@ const NAV: NavItem[] = [
   { label: 'Channex Command', to: '/nova/channex', icon: Cable },
   { label: 'Zenix Booking', to: '/nova/booking-engine', icon: Globe },
   { label: 'Wizard Activate', to: '/nova/wizard', icon: Sparkles },
+  { label: 'Migración', to: '/nova/migration', icon: ArrowUpFromLine },
   { label: 'Audit log', to: '/nova/audit', icon: ScrollText },
   { label: 'Settings', to: '/nova/settings', icon: Settings },
 ]

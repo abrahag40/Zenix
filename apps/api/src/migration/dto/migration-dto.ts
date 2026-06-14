@@ -27,3 +27,16 @@ export class ApplyMappingDto {
   @IsObject()
   mapping!: { reservation: Record<string, string>; dateFormat?: string }
 }
+
+export class ResolveRowDto {
+  @IsIn(['SKIP', 'ACCEPT', 'REASSIGN'])
+  action!: 'SKIP' | 'ACCEPT' | 'REASSIGN'
+
+  /** Requerido si action=REASSIGN. */
+  @IsOptional() @IsString()
+  targetRoomId?: string
+
+  /** Requerido si action=ACCEPT (≥5 chars, para el audit del empalme aceptado). */
+  @IsOptional() @IsString() @MaxLength(500)
+  reason?: string
+}
