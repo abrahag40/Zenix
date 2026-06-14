@@ -2179,6 +2179,21 @@ No prometemos "migramos *todo*" — eso sería mentir. Migramos tu **historial d
 - **Producto** — el módulo vive en Nova; el consultor opera la migración con el wizard (preview + resolución de conflictos + carga idempotente que no duplica si se re-ejecuta).
 - **Servicio "white-glove"** — ZaharDev ejecuta la migración por el cliente como servicio de cierre: *"tú no haces nada, nosotros te mudamos"*. Es el argumento que desarma la objeción de "años de data".
 
+### Cobertura: migra desde CUALQUIER PMS (no solo Cloudbeds)
+
+Un estudio verificado de los principales PMS (Cloudbeds, Mews, OPERA, RoomRaccoon, Little Hotelier, Clock PMS+, Sirvoy, Hotelogix, WebRezPro, ResNexus + los LATAM Zavia/NewHotel) confirmó que **casi todos exportan reservas y huéspedes a CSV/Excel de forma self-service** y usan una **plantilla casi idéntica**. Por eso Zenix Onboard tiene un **importador genérico con mapeo de columnas**: aunque el prospecto use un PMS que no hayamos visto —o incluso un Excel casero—, el consultor mapea las columnas y migra igual. **La objeción "¿se puede migrar mi data?" se responde "sí" para cualquier origen realista.**
+
+**Playbook anti-objeción (qué responder según su PMS):**
+
+| Viene de… | Respuesta |
+|---|---|
+| Cloudbeds / Mews / RoomRaccoon / Little Hotelier / Sirvoy / Hotelogix / WebRezPro / ResNexus / Clock | "Sí, directo. Exportas tu historial desde tu panel (lo haces tú, sin permiso de ellos), lo subes a Zenix, y te mostramos un preview con todo lo que entra —incluidos los empalmes— antes de cargar nada." |
+| OPERA Cloud | "Sí, como migración asistida: OPERA es enterprise, así que nosotros extraemos y cargamos. Tú no tocas nada." |
+| Zavia / NewHotel u otro LATAM | "Sí. Exportas tu reporte de reservas a Excel y mapeamos tus columnas — danos un archivo de muestra y confirmamos el alcance en el preview." |
+| Excel / Google Sheets / papel | "Más fácil: si ya está en una hoja, la subes y el wizard mapea columnas. Si está en papel, te ayudamos a capturarlo una sola vez." |
+
+*(Estudio completo con fuentes: [docs/sprints/migration/pms-export-landscape.md](sprints/migration/pms-export-landscape.md).)*
+
 ### Para el speech de ventas
 
 > "¿Tu mayor miedo de cambiar es perder años de historial en Cloudbeds? Nosotros lo migramos: tus reservas, tus huéspedes, tu inventario y tu contabilidad histórica entran a Zenix. Y antes de cargar nada te mostramos un preview que detecta hasta los empalmes —dos huéspedes en la misma cama el mismo día— para que no se cuele ni un error. Lo único que por ley no se puede mover son los números de tarjeta, y tus canales de Booking y Expedia se reconectan en minutos. Tú no tocas nada: nosotros te mudamos."
