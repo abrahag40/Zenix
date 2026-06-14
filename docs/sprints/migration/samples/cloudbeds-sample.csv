@@ -1,0 +1,16 @@
+Reservation ID,Status,Guest First Name,Guest Last Name,Email,Phone,Country,Check-in,Check-out,Room Name,Room Type,Rate Plan,Source,Adults,Children,Total,Balance,Currency,OTA Reference
+CB-100001,Checked Out,María,Hernández,maria.h@example.com,+52 998 123 4567,MX,01/02/2026,04/02/2026,101,Standard Queen,BAR,Booking.com,2,0,3600.00,0.00,MXN,BDC-44821
+CB-100002,Checked Out,John,Smith,jsmith@example.com,+1 415 555 0199,US,03/02/2026,06/02/2026,102,Standard Queen,BAR,Expedia,2,1,4200.00,0.00,MXN,EXP-99110
+CB-100003,Confirmed,Sofía,Ramírez,sofia.r@example.com,5512345678,MX,20/06/2026,22/06/2026,103,Standard Queen,BAR,Direct,1,0,2400.00,1200.00,MXN,
+CB-100004,No Show,Carlos,Díaz,cdiaz@example.com,+52 55 8888 1111,MX,10/02/2026,12/02/2026,104,Standard Queen,Non-refundable,Booking.com,2,0,2800.00,2800.00,MXN,BDC-44990
+CB-100005,Cancelled,Emma,Wilson,emma.w@example.com,+44 20 7946 0958,GB,15/03/2026,18/03/2026,105,Deluxe King,BAR,Airbnb,2,0,5400.00,0.00,MXN,ABNB-77231
+CB-100006,Checked Out,Liang,Wu,liang.wu@example.com,+86 10 5555 2222,CN,05/03/2026,08/03/2026,Dorm A - Bed 1,Dorm 6 Mixed,Hostel BAR,Hostelworld,1,0,900.00,0.00,MXN,HW-30021
+CB-100007,Checked Out,Anya,Petrova,anya.p@example.com,+7 495 000 0000,RU,05/03/2026,08/03/2026,Dorm A - Bed 2,Dorm 6 Mixed,Hostel BAR,Hostelworld,1,0,900.00,0.00,MXN,HW-30022
+CB-100008,Confirmed,María,Hernández,maria.h@example.com,+52 998 123 4567,MX,01/07/2026,03/07/2026,201,Junior Suite,BAR,Direct,2,0,5000.00,2500.00,MXN,
+CB-100009,Confirmed,Tomás,O'Brien,tobrien@example.com,+353 1 555 0000,IE,20/06/2026,23/06/2026,103,Standard Queen,BAR,Booking.com,2,0,3600.00,0.00,MXN,BDC-45120
+CB-100010,Confirmed,Grupo,Familia García,familia.garcia@example.com,+52 33 1234 5678,MX,28/06/2026,30/06/2026,,Standard Queen,Group,Direct,4,2,7200.00,0.00,MXN,
+CB-100011,Checked Out,Hans,Müller,hans.m@example.com,+49 30 0000 0000,DE,12/01/2026,15/01/2026,Dorm A - Bed 1,Dorm 6 Mixed,Hostel BAR,Direct,1,0,750.00,0.00,MXN,
+CB-100012,Confirmed,Lucía,Fernández,lucia.f@example.com,+34 91 000 0000,ES,02/07/2026,05/07/2026,106,Standard Queen,BAR,Hotels.com,2,0,3600.00,1800.00,MXN,HC-55002
+CB-100013,Confirmed,Bad,Dates,bad.dates@example.com,+52 55 0000 0000,MX,10/07/2026,08/07/2026,106,Standard Queen,BAR,Direct,1,0,1200.00,1200.00,MXN,
+CB-100014,Confirmed,Negative,Amount,neg.amount@example.com,+52 55 0000 1111,MX,11/07/2026,12/07/2026,202,Junior Suite,BAR,Direct,1,0,-500.00,0.00,MXN,
+CB-100015,Checked Out,José Ángel,Núñez Peña,jose.nunez@example.com,+52 998 765 4321,MX,18/01/2026,20/01/2026,107,Standard Queen,BAR,Booking.com,2,0,2400.00,0.00,MXN,BDC-45233

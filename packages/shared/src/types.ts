@@ -1328,3 +1328,80 @@ export interface MaintenanceTicketListQuery {
   /** Active = not in CLOSED|VERIFIED. Default true. */
   activeOnly?: boolean
 }
+
+// ─── MIGRATION-CORE (Zenix Onboard) — Sprint 0 ──────────────────────────────
+// DTO canónico al que TODOS los adapters mapean (D-MIG1). La forma replica la
+// plantilla de import casi-universal de la industria (estudio pms-export-landscape.md):
+// 1 fila por reserva con confirmación + huésped + llegada/salida + habitación + tarifa.
+
+/** Una reserva normalizada desde el export de cualquier PMS de origen. */
+export interface MigrationReservationDto {
+  /** ID de la reserva en el PMS de origen (confirmation/booking id). Clave de idempotencia + trazabilidad. */
+  sourceId: string
+  /** Nombre completo tal cual viene del origen (fallback si no hay first/last). */
+  guestName: string
+  guestFirstName?: string
+  guestLastName?: string
+  guestEmail?: string
+  guestPhone?: string
+  guestCountry?: string
+  guestDocument?: string
+  /** ISO date YYYY-MM-DD (ya normalizada por el adapter/normalizer). */
+  checkIn: string
+  checkOut: string
+  /** Etiqueta de habitación/unidad del origen (ej. "101", "Dorm A - Bed 3"). */
+  roomLabel?: string
+  /** Etiqueta de tipo de habitación del origen (ej. "Standard Queen", "Dorm 6"). */
+  roomTypeLabel?: string
+  ratePerNight?: number
+  totalAmount?: number
+  amountPaid?: number
+  /** ISO 4217. Si falta, el normalizer usa la moneda base de la LegalEntity. */
+  currency?: string
+  /** Estado del origen mapeado a enum Zenix (ARRIVING/IN_HOUSE/CHECKED_OUT/NO_SHOW/CANCELLED). */
+  status?: string
+  /** Canal/origen de la reserva (Booking.com, Direct, Walk-in…). */
+  sourceChannel?: string
+  /** Código de reserva de la OTA, si el origen lo trae. */
+  otaReservationCode?: string
+  adults?: number
+  children?: number
+  notes?: string
+  /** Fila cruda original (para auditoría y debugging del mapeo). */
+  raw?: Record<string, unknown>
+}
+
+/** Un huésped normalizado (para dedup + creación de perfiles). */
+export interface MigrationGuestDto {
+  sourceId?: string
+  fullName: string
+  firstName?: string
+  lastName?: string
+  email?: string
+  phone?: string
+  country?: string
+  document?: string
+  raw?: Record<string, unknown>
+}
+
+/**
+ * Mapeo de columnas del GenericCsvAdapter (D-MIG7): por cada campo canónico,
+ * el header del archivo de origen que lo provee. Lo arma el wizard de mapeo
+ * (o lo pre-define un adapter dedicado como CloudbedsAdapter).
+ */
+export interface MigrationColumnMapping {
+  /** campoCanónico (keyof MigrationReservationDto) → header en el archivo de origen. */
+  reservation: Partial<Record<string, string>>
+  /** Formato de fecha del origen si no es ISO (ej. 'DD/MM/YYYY'). */
+  dateFormat?: string
+}
+
+/** Resultado del parseo de un adapter: reservas + huéspedes en forma canónica. */
+export interface MigrationParseResult {
+  reservations: MigrationReservationDto[]
+  guests: MigrationGuestDto[]
+  /** Headers crudos detectados (para el wizard de mapeo genérico). */
+  detectedHeaders: string[]
+  /** Filas que el parser no pudo leer (índice + motivo). */
+  unreadableRows: Array<{ rowIndex: number; reason: string }>
+}

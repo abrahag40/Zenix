@@ -2,7 +2,7 @@
 
 > **Módulo comercial:** **Zenix Onboard** — migración de datos desde cualquier PMS (Cloudbeds primero) hacia Zenix.
 > **Versión objetivo:** v1.1.x (DLC / servicio de onboarding). No bloquea v1.0.0.
-> **Estado:** PLAN — sin implementar. Aprobado por owner 2026-06-13 para formalizar.
+> **Estado:** **Sprint 0 CERRADO** (2026-06-13) — DTO canónico + schema de staging + migración aplicada + export sintético. Sprints 1-6 pendientes. Rama `feat/migration-sprint0`.
 > **Origen:** estudio de migración Cloudbeds→Zenix (sesión 2026-06-13). Pregunta del prospecto: "¿puedo migrar todos mis datos de Cloudbeds (años de uso)?".
 > **Documentos hermanos:** [zenix-sales-master.md](../zenix-sales-master.md) Módulo 9 · [CLAUDE.md](../../CLAUDE.md) §MIGRATION-CORE · **[migration/pms-export-landscape.md](migration/pms-export-landscape.md)** (estudio verificado de qué exporta cada PMS — fundamenta la estrategia de adapters).
 
@@ -142,8 +142,13 @@ El estudio verificó que **casi todo PMS exporta reservas/huéspedes a CSV/Excel
 
 ---
 
-### Sprint 0 — Discovery / Spike (2-3 días-dev)
+### Sprint 0 — Discovery / Spike (2-3 días-dev) — ✅ CERRADO 2026-06-13
 **Sprint Goal:** entender el formato real de export de Cloudbeds y congelar el modelo de staging + el DTO canónico, sin escribir aún el motor productivo.
+
+> **✅ Entregado (rama `feat/migration-sprint0`):**
+> - **US-0.1** — Export sintético [samples/cloudbeds-sample.csv](migration/samples/cloudbeds-sample.csv) (15 filas con 10 casos borde deliberados: empalme room, dorm 2 camas, fecha inválida, monto negativo, huésped duplicado, acentos, `DD/MM/YYYY`, habitación vacía) + doc de schema [migration/cloudbeds-export-schema.md](migration/cloudbeds-export-schema.md) con el mapeo Cloudbeds→canónico + pre-mapeo del adapter. **Marcado `ASSUMED`** (sin export real — se reemplaza con trial Cloudbeds / archivo del piloto).
+> - **US-0.2** — DTO canónico en `packages/shared`: `MigrationReservationDto`, `MigrationGuestDto`, `MigrationColumnMapping`, `MigrationParseResult` (types.ts) + enums `MigrationSource` (13 PMS incl. `GENERIC_CSV`), `MigrationJobStatus`, `MigrationRowStatus`, `MigrationConflictType` (incl. `ROOM_OVERLAP`/`BED_OVERLAP` ★), `MigrationConflictSeverity`, `MigrationResolution` (enums.ts). Shared compila limpio.
+> - **US-0.3** — Schema Prisma: modelos `MigrationJob`, `MigrationStagingReservation`, `MigrationStagingGuest`, `MigrationConflict` + campos `GuestStay.migrationSourceId`/`migrationJobId` + UNIQUE `(migrationJobId, migrationSourceId)` + índices. `organizationId/propertyId/uploadedById` escalares denormalizados (§66) — sin tocar Organization/Property. Status/enums como String (filosofía espiral §95). Migración `20260616000000_migration_core_sprint0` **aplicada aislada** (excluido el drift de `webhook_deliveries` del diff) + cliente regenerado. Tablas verificadas vacías. Typecheck api + shared verdes.
 
 | # | Historia (As a… I want… so that…) | Criterios de aceptación | SP |
 |---|---|---|---|
