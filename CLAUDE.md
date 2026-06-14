@@ -1682,6 +1682,20 @@ Verificado: lo planeado para CHECK-IN C2/C3 ya se entregó en el sprint GROUP-BI
 
 **Estimación:** ~18-24 días-dev = ~4-5 sem calendar (1 dev). Sprints (cada uno con desglose técnico paso-a-paso en el plan): 0 Discovery/spike → 1 Foundation + `GenericCsvAdapter` + `CloudbedsAdapter` → 2 Validación + **CollisionDetector** ★ → 3 Preview UI Nova (incl. wizard de mapeo) → 4 Load+Audit → 5 Servicio+2º adapter → 6 QA+piloto. **Pendiente de arranque:** no hay export real aún → Sprint 0 usa export sintético marcado `ASSUMED`; el piloto valida con data real.
 
+---
+
+## CASH-ARQUEO-REPORTS-CORE — Caja, arqueo diario y reportes contables (PLAN, 2026-06-14)
+
+> **Estado: PLAN redactado, no implementado.** Plan completo en **[docs/sprints/CASH-ARQUEO-REPORTS-plan.md](docs/sprints/CASH-ARQUEO-REPORTS-plan.md)**. Owner pidió este módulo como **el de mayor prioridad de reportes** ("la caja y arqueo diario así como los reportes contables son los reportes que más importan en el sistema", 2026-06-14). **Decisión owner: arrancar Plan-primero** (es fiscal-grade — visión a largo plazo, no parches). **NO confundir** con el reporte de migración ni con los reportes operacionales en prod.
+
+- **Qué cubre:** Cash drawer + apertura/cierre de turno + **arqueo diario multi-divisa** (variance + razón, SUPERVISOR) + `PaymentLog.shiftId` + los **reportes contables núcleo** (arqueo de turno, ingresos del día por método/divisa, cuentas por cobrar/City Ledger, no-show/cancelaciones con cargo, resumen de impuestos operacional, revenue diario) + export CSV.
+- **Territorio:** PAY-CORE (v1.0.1, §81-§88 — la caja) + REPORTS-CORE (v1.0.3 — los reportes); este plan une el subset de mayor valor.
+- **Ya existe (no reinventar):** `PaymentLog` append-only (§28), `shiftDateForTimezone()`, no-show charging (§195-§199), group payments (§238-§242), FX-CORE (§103). **Gap:** el diseño §85 `CashierShift` está escrito pero **no implementado** (sin modelo, sin `shiftId`, sin UI, sin reportes).
+- **Fuera de alcance (diferido):** CFDI/timbrado (v1.0.2 — los reportes NO dependen de CFDI, D-RPT-4), `PaymentFxLock` realizado (v1.0.1), 12 reportes USALI completos + cold storage, GuestCredit liabilities.
+- **Decisiones propuestas D-CASH-1..5 + D-RPT-1..4** (per-divisa nunca agregado · CASH exige turno OPEN · variance>umbral exige razón+SUPERVISOR · reportes SUPERVISOR+ con CSV · cifras de data real con fórmula USALI declarada). Se §-numeran al implementar.
+- **Sprints:** CASH-1 (schema+servicio+tests variance) → CASH-2 (wiring+UI recepción) → RPT-1 (arqueo/ingresos/AR + CSV) → RPT-2 (no-show/revenue/impuestos) → QA. **~15-20 días-dev.** Bloqueante v1.0.1 para operación contable del piloto.
+- **Próximo paso al retomar:** confirmar con owner umbral de variance + divisas activas del piloto → arrancar CASH-1 (schema + servicio + tests, sin UI) → verificar fórmulas vs AHLEI/USALI antes de exponer cifras.
+
 ## Patterns & Conventions
 
 ### API (NestJS)
