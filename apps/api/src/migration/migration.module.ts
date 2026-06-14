@@ -1,0 +1,27 @@
+/**
+ * MigrationModule — Zenix Onboard (MIGRATION-CORE). Bounded context (Evans 2003):
+ * BD + auth compartidos, sin imports cruzados de otros módulos de dominio.
+ * Sprint 1: upload + parse + mapeo a staging. Sprint 2+ agregará validación,
+ * detección de empalmes, preview y load idempotente.
+ */
+import { Module } from '@nestjs/common'
+import { PrismaModule } from '../prisma/prisma.module'
+import { NovaModule } from '../nova/nova.module'
+import { MigrationController } from './migration.controller'
+import { MigrationService } from './migration.service'
+import { SourcePmsAdapterRegistry } from './adapters/source-pms-adapter.registry'
+import { GenericCsvAdapter } from './adapters/generic-csv.adapter'
+import { CloudbedsAdapter } from './adapters/cloudbeds.adapter'
+
+@Module({
+  imports: [PrismaModule, NovaModule],
+  controllers: [MigrationController],
+  providers: [
+    MigrationService,
+    SourcePmsAdapterRegistry,
+    GenericCsvAdapter,
+    CloudbedsAdapter,
+  ],
+  exports: [MigrationService],
+})
+export class MigrationModule {}
