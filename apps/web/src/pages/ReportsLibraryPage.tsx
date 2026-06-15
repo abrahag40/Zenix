@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { AlarmClock, ArrowRight, BarChart3, BedDouble, CalendarX, Coins, TrendingUp, Wallet } from 'lucide-react'
+import { AlarmClock, ArrowRight, BarChart3, BedDouble, CalendarX, Coins, Mail, TrendingUp, Wallet } from 'lucide-react'
 import { StaffRole } from '@zenix/shared'
 import { useAuthStore } from '@/store/auth'
 
@@ -72,11 +72,18 @@ export function ReportsLibraryPage() {
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
-      <div className="mb-5">
-        <h1 className="text-xl font-semibold text-slate-900">Reportes</h1>
-        <p className="text-sm text-slate-500 mt-0.5">
-          Tablas operables y descargables (Excel/CSV) para administración y contabilidad.
-        </p>
+      <div className="mb-5 flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold text-slate-900">Reportes</h1>
+          <p className="text-sm text-slate-500 mt-0.5">
+            Tablas operables y descargables (Excel/CSV) para administración y contabilidad.
+          </p>
+        </div>
+        {isSupervisor ? (
+          <Link to="/reports/scheduled" className="h-9 inline-flex items-center gap-1.5 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 px-3 text-xs font-medium shrink-0">
+            <Mail className="h-3.5 w-3.5" /> Programados
+          </Link>
+        ) : null}
       </div>
 
       <div className="space-y-6">

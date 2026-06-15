@@ -891,6 +891,8 @@ model Property {
   bookingEngineConfig     BookingEngineConfig?
   bookingApiKeys          BookingApiKey[]
   webhookSubscriptions    WebhookSubscription[]
+  // ── Sprint REPORTS-REVAMP P4(a) (2026-06-15) — reportes programados por email
+  scheduledReports        ScheduledReport[]
 
   @@index([organizationId])
   @@index([legalEntityId])
@@ -4726,6 +4728,55 @@ model MetricsForwardSnapshot {
   @@index([propertyId, stayDate])
   @@index([propertyId, asOfDate])
   @@map("metrics_forward_snapshots")
+}
+
+/// Reporte programado por email (Sprint REPORTS-REVAMP P4a, 2026-06-15). El
+/// estudio pms-reporting-landscape §2 DESEA documenta "scheduled email reports"
+/// como diferenciador querido (patrón Cloudbeds Drawer Closure Summary + roomMaster
+/// scheduled + QuickBooks custom report email). El scheduler corre multi-timezone
+/// (§12 patrón night-audit) y genera el MISMO reporte de la biblioteca (reusa
+/// build*ReportRows + buildReportXlsx) adjunto al email vía Resend.
+model ScheduledReport {
+  id             String   @id @default(uuid())
+  propertyId     String   @map("property_id")
+  organizationId String   @map("organization_id")
+
+  /// Clave del reporte en el catálogo (cash-shifts, no-shows, metrics, overstayed, …).
+  reportKey String @map("report_key")
+  /// DAILY | WEEKLY | MONTHLY.
+  frequency String
+  /// Hora local (0-23) a la que se envía, en la timezone de la propiedad.
+  sendHour Int @default(7) @map("send_hour")
+  /// Para WEEKLY: día de la semana 1-7 (1=lunes). Null en DAILY/MONTHLY.
+  weekday Int?
+  /// Para MONTHLY: día del mes 1-28. Null en DAILY/WEEKLY.
+  monthday Int?
+  /// Ventana de datos del reporte en días hacia atrás (ej. 1=ayer, 7=última semana).
+  rangeDays Int @default(1) @map("range_days")
+
+  /// Destinatarios (emails). Append-only conceptual; editable por SUPERVISOR.
+  recipients String[]
+  /// xlsx | csv.
+  format String @default("xlsx")
+  /// Filtros congelados del reporte (ej. { currency: 'MXN' }). Opcional.
+  filters Json?
+
+  active      Boolean @default(true)
+  /// Última fecha local (YYYY-MM-DD) en que se envió — idempotencia del cron.
+  lastRunDate String? @map("last_run_date")
+  lastRunAt   DateTime? @map("last_run_at")
+  /// Resultado del último envío: sent | no-key | api-error | network | no-data.
+  lastRunStatus String? @map("last_run_status")
+
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId])
+  @@index([active])
+  @@map("scheduled_reports")
 }
 
 // ======================= COMPSET + LOCAL EVENTS (Fase 3 RATES-METRICS) =======================
