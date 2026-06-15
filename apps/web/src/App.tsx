@@ -35,6 +35,7 @@ const CashSummaryReportPage = lazy(() => import('./pms/cashier-shift/CashSummary
 const NoShowReportPage = lazy(() => import('./reports/NoShowReportPage').then(m => ({ default: m.NoShowReportPage })))
 const StayReportPage = lazy(() => import('./reports/StayReportPage').then(m => ({ default: m.StayReportPage })))
 const MetricsReportPage = lazy(() => import('./reports/MetricsReportPage').then(m => ({ default: m.MetricsReportPage })))
+const OverstayedReportPage = lazy(() => import('./reports/OverstayedReportPage').then(m => ({ default: m.OverstayedReportPage })))
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })))
 const DiscrepanciesPage = lazy(() => import('./pages/DiscrepanciesPage').then(m => ({ default: m.DiscrepanciesPage })))
 const ChannexConflictsPage = lazy(() => import('./pages/ChannexConflictsPage'))
@@ -163,6 +164,7 @@ export default function App() {
           <Route path="/reports/no-shows" element={<ProtectedLayout><NoShowReportPage /></ProtectedLayout>} />
           <Route path="/reports/stays" element={<ProtectedLayout><StayReportPage /></ProtectedLayout>} />
           <Route path="/reports/metrics" element={<ProtectedLayout><MetricsReportPage /></ProtectedLayout>} />
+          <Route path="/reports/overstayed" element={<ProtectedLayout><OverstayedReportPage /></ProtectedLayout>} />
           <Route path="/reports/classic" element={<ProtectedLayout><ReportsPage /></ProtectedLayout>} />
           <Route path="/settings/:section?" element={<ProtectedLayout><SettingsPage /></ProtectedLayout>} />
           <Route path="/reservations/:id"  element={<ProtectedLayout><ReservationDetailPage /></ProtectedLayout>} />

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { ArrowRight, BarChart3, BedDouble, CalendarX, Coins, TrendingUp, Wallet } from 'lucide-react'
+import { AlarmClock, ArrowRight, BarChart3, BedDouble, CalendarX, Coins, TrendingUp, Wallet } from 'lucide-react'
 import { StaffRole } from '@zenix/shared'
 import { useAuthStore } from '@/store/auth'
 
@@ -55,6 +55,7 @@ const GROUPS: { area: string; reports: ReportCard[] }[] = [
       { key: 'metrics', title: 'Métricas diarias', description: 'Ocupación, ADR y RevPAR por día (USALI) con llegadas, salidas, cancelaciones y no-shows. Export Excel/CSV.', to: '/reports/metrics', icon: BarChart3, supervisorOnly: true },
       { key: 'noshow', title: 'No-shows', description: 'Reservas no presentadas, cargo, estado y quién lo marcó. Export Excel/CSV.', to: '/reports/no-shows', icon: CalendarX, supervisorOnly: true },
       { key: 'stays', title: 'Estadías extendidas', description: 'Quién extendió, noches/ingreso extra y contacto para retención. Export Excel/CSV.', to: '/reports/stays', icon: TrendingUp, supervisorOnly: true },
+      { key: 'overstayed', title: 'Saldos vencidos', description: 'Reservas con salida vencida sin checkout (zombie) y su saldo pendiente, para cobro/conciliación. Export Excel/CSV.', to: '/reports/overstayed', icon: AlarmClock, supervisorOnly: true },
     ],
   },
   {

@@ -18,10 +18,14 @@ import { CleaningStatus, StaffRole } from '@zenix/shared'
 import { SegmentReason } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { Decimal } from '@prisma/client/runtime/library'
+import { AvailabilityService } from '../pms/availability/availability.service'
 
 @Injectable()
 export class ReportsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private availability: AvailabilityService,
+  ) {}
 
   /**
    * getOverview — KPIs generales de la propiedad para un período.
@@ -428,6 +432,67 @@ export class ReportsService {
       currency: r.currency,
       availableCurrencies: r.availableCurrencies,
       availableStatuses: r.availableStatuses,
+      sort: r.sort,
+      dir: r.dir,
+      page,
+      pageSize,
+    }
+  }
+
+  /**
+   * Reporte tabular de Saldos vencidos / overstayed (Estándar de Reportes) — stays
+   * "zombie" (`scheduledCheckout` ya pasó, sin `actualCheckout`). Reusa
+   * `AvailabilityService.findOverstayed` (§128). Filtro de divisa para que el total
+   * de saldo sea SUM-able; las filas en otra divisa se muestran pero no suman.
+   */
+  async buildOverstayedReportRows(
+    propertyId: string,
+    params: { currency?: string; sort?: string; dir?: string },
+  ) {
+    const list = await this.availability.findOverstayed(propertyId)
+    const availableCurrencies = [...new Set(list.map((s) => s.currency).filter(Boolean))].sort()
+    const currency = params.currency || availableCurrencies[0] || 'MXN'
+
+    const rows = list.map((s) => ({
+      id: s.id,
+      guest: s.guestName,
+      room: s.roomNumber ?? '—',
+      scheduledCheckout: s.scheduledCheckout.toISOString(),
+      hoursOverdue: s.hoursOverdue,
+      daysOverdue: Math.floor(s.hoursOverdue / 24),
+      balance: s.outstandingBalance,
+      currency: s.currency,
+      source: s.source ?? 'DIRECTO',
+      paymentStatus: s.paymentStatus,
+      contact: s.guestPhone ?? s.guestEmail ?? '',
+    }))
+
+    const SORTABLE = ['scheduledCheckout', 'guest', 'room', 'hoursOverdue', 'balance'] as const
+    const sortKey = (SORTABLE as readonly string[]).includes(params.sort ?? '') ? (params.sort as (typeof SORTABLE)[number]) : 'scheduledCheckout'
+    const dir = params.dir === 'asc' ? 1 : -1
+    rows.sort((a, b) => {
+      const va = a[sortKey] as string | number
+      const vb = b[sortKey] as string | number
+      return (va < vb ? -1 : va > vb ? 1 : 0) * dir
+    })
+
+    const balance = Math.round(rows.filter((r) => r.currency === currency).reduce((s, r) => s + r.balance, 0) * 100) / 100
+    return { rows, totals: { count: rows.length, balance }, currency, availableCurrencies, sort: sortKey, dir: dir === 1 ? 'asc' : 'desc' }
+  }
+
+  async getOverstayedReportTable(
+    propertyId: string,
+    params: { currency?: string; sort?: string; dir?: string; page?: number; pageSize?: number },
+  ) {
+    const r = await this.buildOverstayedReportRows(propertyId, params)
+    const page = Math.max(1, params.page ?? 1)
+    const pageSize = Math.min(200, Math.max(1, params.pageSize ?? 25))
+    return {
+      rows: r.rows.slice((page - 1) * pageSize, page * pageSize),
+      total: r.rows.length,
+      totals: r.totals,
+      currency: r.currency,
+      availableCurrencies: r.availableCurrencies,
       sort: r.sort,
       dir: r.dir,
       page,

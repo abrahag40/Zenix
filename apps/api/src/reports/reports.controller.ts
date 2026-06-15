@@ -8,6 +8,7 @@ import { ReportsService } from './reports.service'
 import { OptionalDateRangeDto } from '../common/dto/date-range.dto'
 import { NoShowReportExportQueryDto, NoShowReportQueryDto } from './dto/no-show-report-query.dto'
 import { StayReportExportQueryDto, StayReportQueryDto } from './dto/stay-report-query.dto'
+import { OverstayedReportExportQueryDto, OverstayedReportQueryDto } from './dto/overstayed-report-query.dto'
 import { buildReportCsv, buildReportXlsx, type ReportColumn } from '../common/report-export'
 
 function stayColumns(currency: string): ReportColumn[] {
@@ -19,6 +20,20 @@ function stayColumns(currency: string): ReportColumn[] {
     { key: 'nights', header: 'Noches extra', width: 12 },
     { key: 'revenue', header: `Ingreso extra (${currency})`, width: 16, numFmt: '#,##0.00' },
     { key: 'source', header: 'Canal', width: 14 },
+    { key: 'contact', header: 'Contacto', width: 26 },
+  ]
+}
+
+function overstayedColumns(currency: string): ReportColumn[] {
+  return [
+    { key: 'guest', header: 'Huésped', width: 24 },
+    { key: 'room', header: 'Habitación', width: 12 },
+    { key: 'scheduledCheckout', header: 'Salida programada', width: 16 },
+    { key: 'daysOverdue', header: 'Días vencidos', width: 13 },
+    { key: 'hoursOverdue', header: 'Horas vencidas', width: 14 },
+    { key: 'balance', header: `Saldo pendiente (${currency})`, width: 18, numFmt: '#,##0.00' },
+    { key: 'source', header: 'Canal', width: 14 },
+    { key: 'paymentStatus', header: 'Estado de pago', width: 16 },
     { key: 'contact', header: 'Contacto', width: 26 },
   ]
 }
@@ -129,6 +144,40 @@ export class ReportsController {
     res.set({
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'Content-Disposition': 'attachment; filename="no-shows.xlsx"',
+    })
+    return res.send(buf)
+  }
+
+  /** GET /reports/overstayed-table — reporte tabular de saldos vencidos / overstayed (SUPERVISOR). */
+  @Get('overstayed-table')
+  @Roles(StaffRole.SUPERVISOR)
+  overstayedTable(@CurrentUser() user: JwtPayload, @Query() q: OverstayedReportQueryDto) {
+    return this.service.getOverstayedReportTable(user.propertyId, q)
+  }
+
+  /** GET /reports/overstayed-table/export?format=xlsx|csv — export del reporte (SUPERVISOR). */
+  @Get('overstayed-table/export')
+  @Roles(StaffRole.SUPERVISOR)
+  async overstayedTableExport(
+    @CurrentUser() user: JwtPayload,
+    @Query() q: OverstayedReportExportQueryDto,
+    @Res() res: Response,
+  ) {
+    const { rows, totals, currency } = await this.service.buildOverstayedReportRows(user.propertyId, q)
+    const cols = overstayedColumns(currency)
+    const exportRows = rows.map((r) => ({ ...r, scheduledCheckout: r.scheduledCheckout.slice(0, 10) }))
+    const totalsRow = { guest: 'TOTALES', balance: totals.balance }
+    if (q.format === 'csv') {
+      res.set({
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="saldos-vencidos.csv"',
+      })
+      return res.send(buildReportCsv(cols, exportRows, totalsRow))
+    }
+    const buf = await buildReportXlsx('Saldos vencidos', cols, exportRows, totalsRow)
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': 'attachment; filename="saldos-vencidos.xlsx"',
     })
     return res.send(buf)
   }
