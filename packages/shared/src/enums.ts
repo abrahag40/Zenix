@@ -269,6 +269,36 @@ export enum PaymentMethod {
   COMP          = 'COMP',
 }
 
+// ─── Caja / Arqueo (Sprint CASH-DRAWER-REPORTS, §85 + D-CASH1..15) ───────────
+export enum CashierShiftStatus {
+  OPEN       = 'OPEN',
+  CLOSED     = 'CLOSED',     // contado, fuera de tolerancia, pendiente supervisor
+  RECONCILED = 'RECONCILED', // cuadrado o conciliado
+  DISPUTED   = 'DISPUTED',   // supervisor rechazó la conciliación
+}
+
+export enum CashMovementType {
+  OPENING_FLOAT = 'OPENING_FLOAT',
+  PAID_IN       = 'PAID_IN',
+  PAID_OUT      = 'PAID_OUT',
+  CHANGE_GIVEN  = 'CHANGE_GIVEN',
+  FX_CONVERSION = 'FX_CONVERSION',
+  CORRECTION    = 'CORRECTION',
+  SPOT_COUNT    = 'SPOT_COUNT', // arqueo del supervisor a mitad de turno (D-CASH13)
+}
+
+export enum CashBankModel {
+  PERSONAL_IMPREST = 'PERSONAL_IMPREST', // 1 gaveta por cajero (default, D-CASH15)
+  CARRIED_BALANCE  = 'CARRIED_BALANCE',  // saldo encadenado turno→turno
+  SHARED           = 'SHARED',           // gaveta compartida traspasada
+}
+
+export enum CashOpeningSource {
+  FRESH_BANK = 'FRESH_BANK', // fondo nuevo
+  SAFE       = 'SAFE',       // del safe del hotel
+  HANDOVER   = 'HANDOVER',   // recibido del turno anterior (D-CASH14)
+}
+
 export enum SegmentReason {
   ORIGINAL            = 'ORIGINAL',
   EXTENSION_SAME_ROOM = 'EXTENSION_SAME_ROOM',

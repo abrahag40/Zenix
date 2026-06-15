@@ -27,6 +27,9 @@ import {
   TaskLogEvent,
   TaskType,
   PropertyType,
+  CashierShiftStatus,
+  CashMovementType,
+  CashOpeningSource,
 } from './enums'
 
 // ─── Property ────────────────────────────────────────────────────────────────
@@ -382,6 +385,46 @@ export interface CashSummaryDto {
     total: string
     count: number
   }[]
+}
+
+// ─── Cash drawer / cashier shift (Sprint CASH-DRAWER-REPORTS) ─────────────────
+
+/** Saldo de caja multi-divisa, per-divisa nunca agregado (D-CASH3). Ej: { MXN: 2000, USD: 50 }. */
+export type CashByCurrency = Record<string, number>
+
+export interface CashierShiftDto {
+  id: string
+  organizationId: string
+  propertyId: string
+  staffId: string
+  status: CashierShiftStatus
+  openedAt: string
+  closedAt: string | null
+  openingSource: CashOpeningSource
+  handoverFromShiftId: string | null
+  openingAcceptedById: string | null
+  closingWitnessId: string | null
+  openingFloat: CashByCurrency
+  expectedClose: CashByCurrency | null
+  actualClose: CashByCurrency | null
+  variance: CashByCurrency | null
+  varianceReason: string | null
+  reconciledById: string | null
+  reconciledAt: string | null
+  createdAt: string
+}
+
+export interface CashMovementDto {
+  id: string
+  shiftId: string
+  type: CashMovementType
+  currency: string
+  amount: string // Decimal serialized as string
+  paymentLogId: string | null
+  transactionGroupId: string | null
+  notes: string | null
+  createdById: string
+  createdAt: string
 }
 
 // ─── Check-in Confirmation ───────────────────────────────────────────────────

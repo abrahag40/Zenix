@@ -12,9 +12,10 @@ import { ChannexModule } from '../../integrations/channex/channex.module'
 import { NotificationCenterModule } from '../../notification-center/notification-center.module'
 import { AssignmentModule } from '../../assignment/assignment.module'
 import { UploadsModule } from '../../uploads/uploads.module'
+import { CashierShiftModule } from '../cashier-shift/cashier-shift.module'
 
 @Module({
-  imports: [StayJourneysModule, NotificationsModule, ChannexModule, NotificationCenterModule, AssignmentModule, UploadsModule],
+  imports: [StayJourneysModule, NotificationsModule, ChannexModule, NotificationCenterModule, AssignmentModule, UploadsModule, CashierShiftModule],
   controllers: [GuestStaysController],
   providers: [
     GuestStaysService,

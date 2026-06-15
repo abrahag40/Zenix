@@ -54,6 +54,7 @@ import { PushService } from '../../notifications/push.service'
 import { NotificationsService } from '../../notifications/notifications.service'
 import { AssignmentService } from '../../assignment/assignment.service'
 import { AvailabilityService } from '../availability/availability.service'
+import { CashierShiftService } from '../cashier-shift/cashier-shift.service'
 
 /** Maps GuestStay.source values to the single-char SRC segment of bookingRef. */
 const SOURCE_CHAR: Record<string, string> = {
@@ -186,6 +187,10 @@ export class GuestStaysService {
     // server-side para mostrarla a recepción sin exponer el GET público.
     // @Optional: specs legacy construyen el service posicionalmente sin esto.
     @Optional() private readonly uploads?: UploadsService,
+    // CASH-DRAWER (D-CASH14) — liga el pago en efectivo al turno de caja abierto
+    // del cajero. @Optional: specs legacy lo omiten → el link es no-op (cero
+    // regresión); con la bandera cashShiftRequired apagada tampoco enforce.
+    @Optional() private readonly cashierShift?: CashierShiftService,
   ) {}
 
   /** Generates a globally unique human-readable booking reference.
@@ -3177,6 +3182,12 @@ export class GuestStaysService {
     const totalAmount   = Number(stay.totalAmount)
     const ref = dto.reference?.trim() || null
 
+    // CASH-DRAWER (D-CASH14) — liga el efectivo al turno de caja abierto del cajero.
+    // best-effort: null si no-CASH o sin turno (bandera off); ConflictException si
+    // cashShiftRequired está activo y no hay turno abierto.
+    const cashierShiftId =
+      (await this.cashierShift?.resolveShiftForCashPayment(stay.propertyId, actorId, dto.method)) ?? null
+
     const log = await this.prisma.$transaction(async (tx) => {
       // Lock primero (solo si hay reference) para serializar concurrent dups.
       if (ref) {
@@ -3222,6 +3233,7 @@ export class GuestStaysService {
           paidByStayId:   dto.paidByStayId && dto.paidByStayId !== stayId ? dto.paidByStayId : null,
           shiftDate,
           collectedById:  actorId,
+          cashierShiftId,
         },
       })
       await tx.guestStay.update({
@@ -3317,6 +3329,10 @@ export class GuestStaysService {
       return { ...t, share }
     })
 
+    // CASH-DRAWER (D-CASH14) — liga el cobro de grupo en efectivo al turno abierto.
+    const cashierShiftId =
+      (await this.cashierShift?.resolveShiftForCashPayment(propertyId, actorId, dto.method)) ?? null
+
     const logs = await this.prisma.$transaction(async (tx) => {
       const created: Array<Awaited<ReturnType<typeof tx.paymentLog.create>>> = []
       for (const s of shares) {
@@ -3334,6 +3350,7 @@ export class GuestStaysService {
             transactionGroupId,
             shiftDate,
             collectedById:      actorId,
+            cashierShiftId,
           },
         })
         const newPaid = s.paid + s.share
