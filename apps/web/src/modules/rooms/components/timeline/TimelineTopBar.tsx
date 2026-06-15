@@ -12,6 +12,7 @@ import { AppDrawer } from '@/components/AppDrawer'
 import { PropertySwitcher } from '@/components/PropertySwitcher'
 import { UserMenu } from '@/components/UserMenu'
 import { NotificationBell } from '@/components/NotificationBell'
+import { ShiftBadge } from '@/pms/cashier-shift/ShiftBadge'
 
 /**
  * TimelineTopBar — sticky header for the PMS timeline.
@@ -115,6 +116,8 @@ export function TimelineTopBar({ onNewReservation, onWalkIn, onSelectStay }: Tim
         >
           <Calendar className="h-4 w-4" />
         </Button>
+
+        <ShiftBadge />
 
         <NotificationBell />
 
