@@ -1,14 +1,21 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common'
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common'
 import { JwtPayload, StaffRole } from '@zenix/shared'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { CashierShiftService } from './cashier-shift.service'
-import { ListShiftsQueryDto, OpenShiftDto } from './dto/cashier-shift.dto'
+import {
+  AddCashMovementDto,
+  CloseShiftDto,
+  ListShiftsQueryDto,
+  OpenShiftDto,
+  ReconcileShiftDto,
+  RecordSpotCountDto,
+} from './dto/cashier-shift.dto'
 
 /**
- * Caja / Turnos — Sprint CASH-DRAWER-REPORTS Sprint 1. RECEPTIONIST + SUPERVISOR
- * (el cajero opera su turno; el supervisor concilia + ve todos, S2/S3). El cierre,
- * arqueo, movimientos y spot-count llegan en sprints siguientes.
+ * Caja / Turnos — Sprint CASH-DRAWER-REPORTS (S1 apertura + S2 cierre/arqueo).
+ * RECEPTIONIST opera su turno; SUPERVISOR concilia, ve todos y hace el spot-count.
+ * El reporte imprimible + export viven en S3.
  */
 @Controller('v1/cashier-shifts')
 @Roles(StaffRole.RECEPTIONIST, StaffRole.SUPERVISOR)
@@ -31,5 +38,38 @@ export class CashierShiftController {
   @Get()
   list(@Query() query: ListShiftsQueryDto, @CurrentUser() actor: JwtPayload) {
     return this.service.listShifts(query, actor)
+  }
+
+  /** POST /v1/cashier-shifts/:id/close — entrega/cierra el turno (conteo a ciegas). */
+  @Post(':id/close')
+  close(@Param('id') id: string, @Body() dto: CloseShiftDto, @CurrentUser() actor: JwtPayload) {
+    return this.service.closeShift(id, dto, actor)
+  }
+
+  /** POST /v1/cashier-shifts/:id/reconcile — SUPERVISOR concilia turno fuera de tolerancia. */
+  @Post(':id/reconcile')
+  @Roles(StaffRole.SUPERVISOR)
+  reconcile(@Param('id') id: string, @Body() dto: ReconcileShiftDto, @CurrentUser() actor: JwtPayload) {
+    return this.service.reconcileShift(id, dto, actor)
+  }
+
+  /** POST /v1/cashier-shifts/:id/movements — movimiento de caja (paid-out, cambio, etc.). */
+  @Post(':id/movements')
+  addMovement(@Param('id') id: string, @Body() dto: AddCashMovementDto, @CurrentUser() actor: JwtPayload) {
+    return this.service.addCashMovement(id, dto, actor)
+  }
+
+  /** GET /v1/cashier-shifts/:id/spot-count — SUPERVISOR: esperado del turno activo (read-only). */
+  @Get(':id/spot-count')
+  @Roles(StaffRole.SUPERVISOR)
+  spotCount(@Param('id') id: string, @CurrentUser() actor: JwtPayload) {
+    return this.service.getSpotCount(id, actor)
+  }
+
+  /** POST /v1/cashier-shifts/:id/spot-count — SUPERVISOR registra su conteo a mitad de turno. */
+  @Post(':id/spot-count')
+  @Roles(StaffRole.SUPERVISOR)
+  recordSpotCount(@Param('id') id: string, @Body() dto: RecordSpotCountDto, @CurrentUser() actor: JwtPayload) {
+    return this.service.recordSpotCount(id, dto, actor)
   }
 }

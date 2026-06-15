@@ -465,6 +465,9 @@ export class GuestStaysService {
         const method = validMethods.includes(dto.paymentMethod ?? '')
           ? (dto.paymentMethod as PaymentMethod)
           : PaymentMethod.CASH
+        // CASH-DRAWER (D-CASH14) — liga el anticipo en efectivo al turno abierto.
+        const cashierShiftId =
+          (await this.cashierShift?.resolveShiftForCashPayment(dto.propertyId, actorId, method)) ?? null
         await tx.paymentLog.create({
           data: {
             organizationId: orgId,
@@ -476,6 +479,7 @@ export class GuestStaysService {
             reference:      dto.paymentReference?.trim() || null,
             shiftDate:      shiftDateForTimezone(new Date(), tz),
             collectedById:  actorId,
+            cashierShiftId,
           },
         })
       }
@@ -2976,6 +2980,16 @@ export class GuestStaysService {
       }
 
       // 1. Crear registros de pago (append-only)
+      // CASH-DRAWER (D-CASH14) — liga los pagos en efectivo del check-in al turno
+      // abierto. Se resuelve una vez (el turno es el mismo); null para no-CASH.
+      const anyCash = dto.payments.some((p) => p.method === PaymentMethod.CASH)
+      const cashShiftId = anyCash
+        ? ((await this.cashierShift?.resolveShiftForCashPayment(
+            stay.propertyId,
+            actorId,
+            PaymentMethod.CASH,
+          )) ?? null)
+        : null
       for (const p of dto.payments) {
         await tx.paymentLog.create({
           data: {
@@ -2990,6 +3004,7 @@ export class GuestStaysService {
             approvalReason: p.approvalReason ?? null,
             shiftDate,
             collectedById:  actorId,
+            cashierShiftId: p.method === PaymentMethod.CASH ? cashShiftId : null,
           },
         })
       }

@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing'
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common'
 import {
+  CashMovementType,
   CashOpeningSource,
   CashierShiftStatus,
   JwtPayload,
@@ -22,8 +23,11 @@ const supervisor = (id = 'sup-1'): JwtPayload =>
 describe('CashierShiftService — Sprint 1 (apertura + handover + link)', () => {
   let service: CashierShiftService
   const prisma = {
-    cashierShift: { findFirst: jest.fn(), findMany: jest.fn(), create: jest.fn() },
+    cashierShift: { findFirst: jest.fn(), findMany: jest.fn(), create: jest.fn(), update: jest.fn() },
+    paymentLog: { findMany: jest.fn() },
+    cashMovement: { findMany: jest.fn(), create: jest.fn() },
     propertySettings: { findUnique: jest.fn() },
+    $transaction: jest.fn(),
   }
   const tenant = {
     getOrganizationId: jest.fn(() => ORG),
@@ -43,6 +47,27 @@ describe('CashierShiftService — Sprint 1 (apertura + handover + link)', () => 
     tenant.getOrganizationId.mockReturnValue(ORG)
     tenant.getPropertyId.mockReturnValue(PROP)
     prisma.cashierShift.create.mockImplementation((args: any) => Promise.resolve({ id: 'shift-new', ...args.data }))
+    prisma.cashierShift.update.mockImplementation((args: any) => Promise.resolve({ id: args.where.id, ...args.data }))
+    prisma.cashMovement.create.mockImplementation((args: any) => Promise.resolve({ id: 'mov-new', ...args.data }))
+    prisma.paymentLog.findMany.mockResolvedValue([])
+    prisma.cashMovement.findMany.mockResolvedValue([])
+    prisma.propertySettings.findUnique.mockResolvedValue({ cashVarianceThreshold: 50 })
+    prisma.$transaction.mockImplementation((ops: any) =>
+      Array.isArray(ops) ? Promise.all(ops) : ops(prisma),
+    )
+  })
+
+  const openShiftRow = (over: any = {}) => ({
+    id: 'shift-1',
+    organizationId: ORG,
+    propertyId: PROP,
+    staffId: 'staff-A',
+    status: CashierShiftStatus.OPEN,
+    openingFloat: { MXN: 2000 },
+    expectedClose: null,
+    variance: null,
+    varianceReason: null,
+    ...over,
   })
 
   describe('openShift', () => {
@@ -174,6 +199,153 @@ describe('CashierShiftService — Sprint 1 (apertura + handover + link)', () => 
       await expect(service.resolveShiftForCashPayment(PROP, 'staff-A', PaymentMethod.CASH)).rejects.toBeInstanceOf(
         ConflictException,
       )
+    })
+  })
+
+  describe('closeShift — arqueo + blind (D-CASH5/6, R3)', () => {
+    it('dentro de tolerancia → RECONCILED; al cajero NO se le revela el over/short', async () => {
+      prisma.cashierShift.findFirst.mockResolvedValueOnce(openShiftRow())
+      prisma.propertySettings.findUnique.mockResolvedValueOnce({ cashVarianceThreshold: 50 })
+      const res = await service.closeShift('shift-1', { actualClose: { MXN: 2000 } }, recept('staff-A'))
+      const upd = prisma.cashierShift.update.mock.calls[0][0].data
+      expect(upd.status).toBe(CashierShiftStatus.RECONCILED)
+      expect(upd.expectedClose).toEqual({ MXN: 2000 })
+      expect(upd.variance).toEqual({ MXN: 0 })
+      // R3: respuesta al cajero sin expected/variance
+      expect(res.status).toBe(CashierShiftStatus.RECONCILED)
+      expect((res as any).variance).toBeUndefined()
+      expect((res as any).expected).toBeUndefined()
+    })
+
+    it('fuera de tolerancia → CLOSED (pendiente de conciliación)', async () => {
+      prisma.cashierShift.findFirst.mockResolvedValueOnce(openShiftRow())
+      prisma.propertySettings.findUnique.mockResolvedValueOnce({ cashVarianceThreshold: 50 })
+      await service.closeShift('shift-1', { actualClose: { MXN: 1800 } }, recept('staff-A'))
+      const upd = prisma.cashierShift.update.mock.calls[0][0].data
+      expect(upd.status).toBe(CashierShiftStatus.CLOSED)
+      expect(upd.variance).toEqual({ MXN: -200 })
+    })
+
+    it('al SUPERVISOR que cierra sí se le devuelve expected/variance', async () => {
+      prisma.cashierShift.findFirst.mockResolvedValueOnce(openShiftRow())
+      prisma.propertySettings.findUnique.mockResolvedValueOnce({ cashVarianceThreshold: 50 })
+      const res = await service.closeShift('shift-1', { actualClose: { MXN: 1900 } }, supervisor())
+      expect((res as any).variance).toEqual({ MXN: -100 })
+    })
+
+    it('esperado incluye pagos CASH + movimientos firmados', async () => {
+      prisma.cashierShift.findFirst.mockResolvedValueOnce(openShiftRow())
+      prisma.paymentLog.findMany.mockResolvedValueOnce([{ currency: 'MXN', amount: 1000 }])
+      prisma.cashMovement.findMany.mockResolvedValueOnce([{ currency: 'MXN', amount: -300 }])
+      prisma.propertySettings.findUnique.mockResolvedValueOnce({ cashVarianceThreshold: 50 })
+      await service.closeShift('shift-1', { actualClose: { MXN: 2700 } }, recept('staff-A'))
+      const upd = prisma.cashierShift.update.mock.calls[0][0].data
+      expect(upd.expectedClose).toEqual({ MXN: 2700 }) // 2000 + 1000 − 300
+      expect(upd.status).toBe(CashierShiftStatus.RECONCILED)
+    })
+
+    it('rechaza cerrar un turno que no es OPEN', async () => {
+      prisma.cashierShift.findFirst.mockResolvedValueOnce(openShiftRow({ status: CashierShiftStatus.RECONCILED }))
+      await expect(service.closeShift('shift-1', { actualClose: { MXN: 1 } }, recept('staff-A'))).rejects.toBeInstanceOf(
+        ConflictException,
+      )
+    })
+
+    it('un cajero ajeno no puede cerrar el turno de otro', async () => {
+      prisma.cashierShift.findFirst.mockResolvedValueOnce(openShiftRow({ staffId: 'staff-A' }))
+      await expect(service.closeShift('shift-1', { actualClose: { MXN: 1 } }, recept('staff-B'))).rejects.toBeInstanceOf(
+        ForbiddenException,
+      )
+    })
+  })
+
+  describe('reconcileShift — supervisor (D-CASH6)', () => {
+    it('no-supervisor → Forbidden', async () => {
+      await expect(
+        service.reconcileShift('shift-1', { decision: 'RECONCILED', varianceReason: 'faltó cambio' }, recept()),
+      ).rejects.toBeInstanceOf(ForbiddenException)
+    })
+
+    it('solo concilia un turno CLOSED', async () => {
+      prisma.cashierShift.findFirst.mockResolvedValueOnce(openShiftRow({ status: CashierShiftStatus.OPEN }))
+      await expect(
+        service.reconcileShift('shift-1', { decision: 'RECONCILED', varianceReason: 'razón' }, supervisor()),
+      ).rejects.toBeInstanceOf(ConflictException)
+    })
+
+    it('CLOSED → DISPUTED con razón + reconciledById', async () => {
+      prisma.cashierShift.findFirst.mockResolvedValueOnce(openShiftRow({ status: CashierShiftStatus.CLOSED }))
+      await service.reconcileShift('shift-1', { decision: 'DISPUTED', varianceReason: 'faltante sin justificar' }, supervisor('sup-9'))
+      const upd = prisma.cashierShift.update.mock.calls[0][0].data
+      expect(upd.status).toBe(CashierShiftStatus.DISPUTED)
+      expect(upd.reconciledById).toBe('sup-9')
+      expect(upd.varianceReason).toBe('faltante sin justificar')
+    })
+  })
+
+  describe('addCashMovement — E3', () => {
+    it('PAID_OUT se guarda con monto NEGATIVO', async () => {
+      prisma.cashierShift.findFirst.mockResolvedValueOnce(openShiftRow())
+      await service.addCashMovement('shift-1', { type: CashMovementType.PAID_OUT, currency: 'MXN', amount: 300 }, recept('staff-A'))
+      expect(prisma.cashMovement.create.mock.calls[0][0].data.amount).toBe(-300)
+    })
+
+    it('PAID_IN se guarda POSITIVO', async () => {
+      prisma.cashierShift.findFirst.mockResolvedValueOnce(openShiftRow())
+      await service.addCashMovement('shift-1', { type: CashMovementType.PAID_IN, currency: 'MXN', amount: 150 }, recept('staff-A'))
+      expect(prisma.cashMovement.create.mock.calls[0][0].data.amount).toBe(150)
+    })
+
+    it('CORRECTION sin direction → BadRequest', async () => {
+      prisma.cashierShift.findFirst.mockResolvedValueOnce(openShiftRow())
+      await expect(
+        service.addCashMovement('shift-1', { type: CashMovementType.CORRECTION, currency: 'MXN', amount: 10 }, recept('staff-A')),
+      ).rejects.toBeInstanceOf(BadRequestException)
+    })
+
+    it('no se permiten movimientos en un turno cerrado', async () => {
+      prisma.cashierShift.findFirst.mockResolvedValueOnce(openShiftRow({ status: CashierShiftStatus.CLOSED }))
+      await expect(
+        service.addCashMovement('shift-1', { type: CashMovementType.PAID_OUT, currency: 'MXN', amount: 10 }, recept('staff-A')),
+      ).rejects.toBeInstanceOf(ConflictException)
+    })
+  })
+
+  describe('spot count — supervisor (D-CASH13)', () => {
+    it('getSpotCount no-supervisor → Forbidden', async () => {
+      await expect(service.getSpotCount('shift-1', recept())).rejects.toBeInstanceOf(ForbiddenException)
+    })
+
+    it('recordSpotCount persiste SPOT_COUNT por divisa y devuelve variance, sin cerrar el turno', async () => {
+      prisma.cashierShift.findFirst.mockResolvedValueOnce(openShiftRow())
+      prisma.paymentLog.findMany.mockResolvedValueOnce([{ currency: 'MXN', amount: 500 }])
+      const res = await service.recordSpotCount('shift-1', { counted: { MXN: 2480 } }, supervisor())
+      expect(res.expected).toEqual({ MXN: 2500 }) // 2000 + 500
+      expect(res.variance).toEqual({ MXN: -20 })
+      // crea un SPOT_COUNT y NO actualiza (cierra) el turno
+      expect(prisma.cashMovement.create).toHaveBeenCalledTimes(1)
+      expect(prisma.cashMovement.create.mock.calls[0][0].data.type).toBe(CashMovementType.SPOT_COUNT)
+      expect(prisma.cashierShift.update).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('sanitize blind — D-CASH10/R3', () => {
+    it('listShifts oculta expected/variance/razón al no-supervisor', async () => {
+      prisma.cashierShift.findMany.mockResolvedValueOnce([
+        openShiftRow({ status: CashierShiftStatus.CLOSED, expectedClose: { MXN: 2000 }, variance: { MXN: -100 }, varianceReason: 'x' }),
+      ])
+      const res = await service.listShifts({}, recept('staff-A'))
+      expect((res[0] as any).expectedClose).toBeUndefined()
+      expect((res[0] as any).variance).toBeUndefined()
+      expect((res[0] as any).varianceReason).toBeUndefined()
+    })
+
+    it('listShifts conserva los números para el supervisor', async () => {
+      prisma.cashierShift.findMany.mockResolvedValueOnce([
+        openShiftRow({ status: CashierShiftStatus.CLOSED, expectedClose: { MXN: 2000 }, variance: { MXN: -100 } }),
+      ])
+      const res = await service.listShifts({}, supervisor())
+      expect((res[0] as any).variance).toEqual({ MXN: -100 })
     })
   })
 })

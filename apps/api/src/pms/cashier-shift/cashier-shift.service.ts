@@ -1,11 +1,13 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common'
 import {
+  CashMovementType,
   CashOpeningSource,
   CashierShiftStatus,
   JwtPayload,
@@ -14,7 +16,15 @@ import {
 } from '@zenix/shared'
 import { PrismaService } from '../../prisma/prisma.service'
 import { TenantContextService } from '../../common/tenant-context.service'
-import { ListShiftsQueryDto, OpenShiftDto } from './dto/cashier-shift.dto'
+import {
+  AddCashMovementDto,
+  CloseShiftDto,
+  ListShiftsQueryDto,
+  OpenShiftDto,
+  ReconcileShiftDto,
+  RecordSpotCountDto,
+} from './dto/cashier-shift.dto'
+import { computeShiftReconciliation } from './cash-reconciliation'
 
 /**
  * CashierShiftService — Sprint CASH-DRAWER-REPORTS Sprint 1 (§85, D-CASH1..15).
@@ -103,10 +113,11 @@ export class CashierShiftService {
   /** GET /v1/cashier-shifts/current — turno OPEN del cajero, o null. */
   async getCurrentShift(actor: JwtPayload) {
     const propertyId = this.tenant.getPropertyId()
-    return this.prisma.cashierShift.findFirst({
+    const shift = await this.prisma.cashierShift.findFirst({
       where: { propertyId, staffId: actor.sub, status: CashierShiftStatus.OPEN },
       orderBy: { openedAt: 'desc' },
     })
+    return shift ? this.sanitizeForActor(shift, actor) : null
   }
 
   /**
@@ -128,11 +139,224 @@ export class CashierShiftService {
       if (query.from) where.openedAt.gte = new Date(query.from)
       if (query.to) where.openedAt.lte = new Date(query.to)
     }
-    return this.prisma.cashierShift.findMany({
+    const shifts = await this.prisma.cashierShift.findMany({
       where,
       orderBy: { openedAt: 'desc' },
       take: 200,
     })
+    return shifts.map((s) => this.sanitizeForActor(s, actor))
+  }
+
+  /**
+   * POST /v1/cashier-shifts/:id/close — el cajero entrega/cierra su turno con el
+   * conteo físico per-divisa (D-CASH5, a ciegas). Calcula el arqueo; dentro de
+   * tolerancia → RECONCILED, fuera → CLOSED (pendiente de conciliación supervisor).
+   * R3: al cajero NO se le revela el over/short — solo al supervisor / en el reporte.
+   */
+  async closeShift(shiftId: string, dto: CloseShiftDto, actor: JwtPayload) {
+    const propertyId = this.tenant.getPropertyId()
+    assertCashByCurrency(dto.actualClose, 'actualClose')
+    const shift = await this.loadShiftOrThrow(shiftId, propertyId)
+    if (shift.status !== CashierShiftStatus.OPEN) {
+      throw new ConflictException('El turno ya está cerrado.')
+    }
+    if (shift.staffId !== actor.sub && actor.role !== StaffRole.SUPERVISOR) {
+      throw new ForbiddenException('Solo el cajero del turno o un supervisor pueden cerrarlo.')
+    }
+    const threshold = await this.varianceThresholdFor(propertyId)
+    const result = await this.computeReconciliation(shift, dto.actualClose, threshold)
+    const status = result.withinTolerance ? CashierShiftStatus.RECONCILED : CashierShiftStatus.CLOSED
+    await this.prisma.cashierShift.update({
+      where: { id: shiftId },
+      data: {
+        status,
+        closedAt: new Date(),
+        expectedClose: result.expected,
+        actualClose: dto.actualClose,
+        variance: result.variance,
+        closingWitnessId: dto.witnessId ?? null,
+      },
+    })
+    this.logger.log(
+      `[CashierShift.close] id=${shiftId} status=${status} maxVar=${result.maxAbsVariance}`,
+    )
+    // R3 — conteo a ciegas: el over/short (expected/variance) sólo va al SUPERVISOR.
+    const resp: { id: string; status: CashierShiftStatus; expected?: unknown; variance?: unknown } = {
+      id: shiftId,
+      status,
+    }
+    if (actor.role === StaffRole.SUPERVISOR) {
+      resp.expected = result.expected
+      resp.variance = result.variance
+    }
+    return resp
+  }
+
+  /**
+   * POST /v1/cashier-shifts/:id/reconcile — el SUPERVISOR concilia un turno
+   * CLOSED (fuera de tolerancia) con razón obligatoria (D-CASH6). RECONCILED | DISPUTED.
+   */
+  async reconcileShift(shiftId: string, dto: ReconcileShiftDto, actor: JwtPayload) {
+    if (actor.role !== StaffRole.SUPERVISOR) {
+      throw new ForbiddenException('Solo un supervisor puede conciliar un turno.')
+    }
+    const propertyId = this.tenant.getPropertyId()
+    const shift = await this.loadShiftOrThrow(shiftId, propertyId)
+    if (shift.status !== CashierShiftStatus.CLOSED) {
+      throw new ConflictException('Solo se concilia un turno CERRADO pendiente de revisión.')
+    }
+    const status = dto.decision === 'DISPUTED' ? CashierShiftStatus.DISPUTED : CashierShiftStatus.RECONCILED
+    return this.prisma.cashierShift.update({
+      where: { id: shiftId },
+      data: {
+        status,
+        varianceReason: dto.varianceReason,
+        reconciledById: actor.sub,
+        reconciledAt: new Date(),
+      },
+    })
+  }
+
+  /**
+   * POST /v1/cashier-shifts/:id/movements — movimiento de caja append-only (E3):
+   * paid-out, cambio entregado, conversión de divisa, corrección. El signo se
+   * deriva del tipo (PAID_OUT/CHANGE_GIVEN salen); CORRECTION/FX_CONVERSION usan
+   * `direction`. OPENING_FLOAT y SPOT_COUNT no se registran por aquí.
+   */
+  async addCashMovement(shiftId: string, dto: AddCashMovementDto, actor: JwtPayload) {
+    const propertyId = this.tenant.getPropertyId()
+    const shift = await this.loadShiftOrThrow(shiftId, propertyId)
+    if (shift.status !== CashierShiftStatus.OPEN) {
+      throw new ConflictException('No se pueden registrar movimientos en un turno cerrado.')
+    }
+    if (shift.staffId !== actor.sub && actor.role !== StaffRole.SUPERVISOR) {
+      throw new ForbiddenException('Solo el cajero del turno o un supervisor pueden registrar movimientos.')
+    }
+    const amount = signMovement(dto)
+    return this.prisma.cashMovement.create({
+      data: {
+        organizationId: shift.organizationId,
+        propertyId,
+        shiftId,
+        type: dto.type,
+        currency: dto.currency,
+        amount,
+        paymentLogId: dto.paymentLogId ?? null,
+        transactionGroupId: dto.transactionGroupId ?? null,
+        notes: dto.notes ?? null,
+        createdById: actor.sub,
+      },
+    })
+  }
+
+  /**
+   * GET /v1/cashier-shifts/:id/spot-count — SUPERVISOR: esperado per-divisa del
+   * turno activo, SIN cerrarlo y SIN tocar la pantalla del cajero (D-CASH13).
+   */
+  async getSpotCount(shiftId: string, actor: JwtPayload) {
+    if (actor.role !== StaffRole.SUPERVISOR) {
+      throw new ForbiddenException('El arqueo spot es una herramienta del supervisor.')
+    }
+    const propertyId = this.tenant.getPropertyId()
+    const shift = await this.loadShiftOrThrow(shiftId, propertyId)
+    const threshold = await this.varianceThresholdFor(propertyId)
+    const result = await this.computeReconciliation(shift, {}, threshold)
+    return { shiftId, status: shift.status, expected: result.expected, currencies: result.currencies }
+  }
+
+  /**
+   * POST /v1/cashier-shifts/:id/spot-count — SUPERVISOR registra su conteo físico
+   * a mitad de turno (D-CASH13). Persiste un SPOT_COUNT por divisa (auditoría,
+   * EXCLUIDO del esperado) y devuelve la variance. NO cierra el turno.
+   */
+  async recordSpotCount(shiftId: string, dto: RecordSpotCountDto, actor: JwtPayload) {
+    if (actor.role !== StaffRole.SUPERVISOR) {
+      throw new ForbiddenException('El arqueo spot es una herramienta del supervisor.')
+    }
+    const propertyId = this.tenant.getPropertyId()
+    assertCashByCurrency(dto.counted, 'counted')
+    const shift = await this.loadShiftOrThrow(shiftId, propertyId)
+    if (shift.status !== CashierShiftStatus.OPEN) {
+      throw new ConflictException('El arqueo spot aplica a un turno abierto.')
+    }
+    const threshold = await this.varianceThresholdFor(propertyId)
+    const result = await this.computeReconciliation(shift, dto.counted, threshold)
+    const note = `spot-count supervisor=${actor.sub}${dto.witnessId ? ` testigo=${dto.witnessId}` : ''}${dto.notes ? ` — ${dto.notes}` : ''}`
+    await this.prisma.$transaction(
+      Object.entries(dto.counted).map(([currency, amount]) =>
+        this.prisma.cashMovement.create({
+          data: {
+            organizationId: shift.organizationId,
+            propertyId,
+            shiftId,
+            type: CashMovementType.SPOT_COUNT,
+            currency,
+            amount,
+            notes: note,
+            createdById: actor.sub,
+          },
+        }),
+      ),
+    )
+    this.logger.log(`[CashierShift.spotCount] id=${shiftId} by=${actor.sub} maxVar=${result.maxAbsVariance}`)
+    return {
+      shiftId,
+      expected: result.expected,
+      counted: dto.counted,
+      variance: result.variance,
+      withinTolerance: result.withinTolerance,
+    }
+  }
+
+  // ── Helpers privados ───────────────────────────────────────────────────────
+
+  private async loadShiftOrThrow(shiftId: string, propertyId: string) {
+    const shift = await this.prisma.cashierShift.findFirst({ where: { id: shiftId, propertyId } })
+    if (!shift) throw new NotFoundException('Turno de caja no encontrado en esta propiedad.')
+    return shift
+  }
+
+  private async varianceThresholdFor(propertyId: string): Promise<number> {
+    const s = await this.prisma.propertySettings.findUnique({
+      where: { propertyId },
+      select: { cashVarianceThreshold: true },
+    })
+    return s ? Number(s.cashVarianceThreshold) : 50
+  }
+
+  /** Carga pagos CASH (no-void) + movimientos firmados (excl. SPOT_COUNT) y computa el arqueo. */
+  private async computeReconciliation(
+    shift: { id: string; openingFloat: unknown },
+    actualClose: Record<string, number>,
+    threshold: number,
+  ) {
+    const [payments, movements] = await Promise.all([
+      this.prisma.paymentLog.findMany({
+        where: { cashierShiftId: shift.id, method: PaymentMethod.CASH, isVoid: false },
+        select: { currency: true, amount: true },
+      }),
+      this.prisma.cashMovement.findMany({
+        where: { shiftId: shift.id, type: { not: CashMovementType.SPOT_COUNT } },
+        select: { currency: true, amount: true },
+      }),
+    ])
+    return computeShiftReconciliation({
+      openingFloat: (shift.openingFloat ?? {}) as Record<string, number>,
+      cashPayments: payments.map((p) => ({ currency: p.currency, amount: Number(p.amount) })),
+      movements: movements.map((m) => ({ currency: m.currency, amount: Number(m.amount) })),
+      actualClose,
+      varianceThreshold: threshold,
+    })
+  }
+
+  /** R3 — al no-supervisor se le ocultan esperado/variance/razón (conteo a ciegas). */
+  private sanitizeForActor<T extends Record<string, unknown>>(shift: T, actor: JwtPayload): T {
+    if (actor.role === StaffRole.SUPERVISOR) return shift
+    const clone = { ...shift }
+    delete (clone as Record<string, unknown>).expectedClose
+    delete (clone as Record<string, unknown>).variance
+    delete (clone as Record<string, unknown>).varianceReason
+    return clone
   }
 
   /**
@@ -193,4 +417,26 @@ function cashEquals(a: CashRecord | null | undefined, b: CashRecord): boolean {
     if (Number(aa[k] ?? 0) !== Number(b[k] ?? 0)) return false
   }
   return true
+}
+
+/** Deriva el monto FIRMADO de un movimiento desde su tipo. PAID_OUT/CHANGE_GIVEN
+ *  salen (negativo); PAID_IN entra (positivo); CORRECTION/FX_CONVERSION usan
+ *  `direction`. OPENING_FLOAT y SPOT_COUNT no se registran por este endpoint. */
+function signMovement(dto: AddCashMovementDto): number {
+  const mag = Math.abs(dto.amount)
+  switch (dto.type) {
+    case CashMovementType.PAID_IN:
+      return mag
+    case CashMovementType.PAID_OUT:
+    case CashMovementType.CHANGE_GIVEN:
+      return -mag
+    case CashMovementType.CORRECTION:
+    case CashMovementType.FX_CONVERSION:
+      if (dto.direction !== 'IN' && dto.direction !== 'OUT') {
+        throw new BadRequestException(`El movimiento ${dto.type} requiere direction 'IN' u 'OUT'.`)
+      }
+      return dto.direction === 'IN' ? mag : -mag
+    default:
+      throw new BadRequestException(`Tipo de movimiento no permitido por este endpoint: ${dto.type}.`)
+  }
 }
