@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Query } from '@nestjs/common'
+import { Controller, Get, Post, Query, Res } from '@nestjs/common'
+import type { Response } from 'express'
 import { StaffRole } from '@zenix/shared'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { TenantContextService } from '../../common/tenant-context.service'
@@ -9,6 +10,23 @@ import {
   MetricsPickupDto,
   MetricsRangeDto,
 } from './dto/metrics-query.dto'
+import { MetricsReportExportQueryDto, MetricsReportQueryDto } from './dto/metrics-report-query.dto'
+import { buildReportCsv, buildReportXlsx, type ReportColumn } from '../../common/report-export'
+
+function metricsColumns(currency: string): ReportColumn[] {
+  return [
+    { key: 'date', header: 'Fecha', width: 14 },
+    { key: 'occupancy', header: 'Ocupación %', width: 13, numFmt: '#,##0.00' },
+    { key: 'roomsSold', header: 'Hab. vendidas', width: 14 },
+    { key: 'adr', header: `ADR (${currency})`, width: 14, numFmt: '#,##0.00' },
+    { key: 'revpar', header: `RevPAR (${currency})`, width: 14, numFmt: '#,##0.00' },
+    { key: 'revenue', header: `Ingreso (${currency})`, width: 16, numFmt: '#,##0.00' },
+    { key: 'arrivals', header: 'Llegadas', width: 11 },
+    { key: 'departures', header: 'Salidas', width: 11 },
+    { key: 'cancellations', header: 'Cancelaciones', width: 14 },
+    { key: 'noShows', header: 'No-shows', width: 11 },
+  ]
+}
 
 /**
  * Métricas — KPIs financieros (ADR/RevPAR/ocupación). SUPERVISOR-only: contiene
@@ -27,6 +45,53 @@ export class MetricsController {
     private readonly service: MetricsService,
     private readonly tenant: TenantContextService,
   ) {}
+
+  /**
+   * GET /v1/metrics/report?propertyId&from&to[&sort&dir&page&pageSize]
+   * Reporte tabular de Métricas diarias (Estándar de Reportes): una fila por día,
+   * paginado + totales agregados USALI. SUPERVISOR (revenue).
+   */
+  @Get('report')
+  report(@Query() dto: MetricsReportQueryDto) {
+    return this.service.getMetricsReportTable(dto.propertyId, this.tenant.getOrganizationId(), dto)
+  }
+
+  /** GET /v1/metrics/report/export?format=xlsx|csv — export del reporte (SUPERVISOR). */
+  @Get('report/export')
+  async reportExport(@Query() dto: MetricsReportExportQueryDto, @Res() res: Response) {
+    const { rows, totals, currency } = await this.service.buildMetricsReportRows(
+      dto.propertyId,
+      this.tenant.getOrganizationId(),
+      dto,
+    )
+    const cols = metricsColumns(currency)
+    const exportRows = rows.map((r) => ({ ...r, date: r.date.slice(0, 10) }))
+    const totalsRow = {
+      date: 'TOTALES',
+      occupancy: totals.occupancy,
+      roomsSold: totals.roomsSold,
+      adr: totals.adr,
+      revpar: totals.revpar,
+      revenue: totals.revenue,
+      arrivals: totals.arrivals,
+      departures: totals.departures,
+      cancellations: totals.cancellations,
+      noShows: totals.noShows,
+    }
+    if (dto.format === 'csv') {
+      res.set({
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="metricas-diarias.csv"',
+      })
+      return res.send(buildReportCsv(cols, exportRows, totalsRow))
+    }
+    const buf = await buildReportXlsx('Métricas diarias', cols, exportRows, totalsRow)
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': 'attachment; filename="metricas-diarias.xlsx"',
+    })
+    return res.send(buf)
+  }
 
   /** GET /v1/metrics/range?propertyId&from&to — snapshots para charts. */
   @Get('range')
