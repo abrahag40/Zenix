@@ -1,7 +1,12 @@
-import { Download, Printer } from 'lucide-react'
+import { useState } from 'react'
+import { ClipboardCheck, Download, Printer, Scale } from 'lucide-react'
+import { StaffRole } from '@zenix/shared'
+import { useAuthStore } from '@/store/auth'
 import { CashDialogShell } from './CashDialogShell'
 import { cashierShiftApi } from './cashier-shift.api'
 import { useShiftReport } from './useCashierShift'
+import { SpotCountDialog } from './SpotCountDialog'
+import { ReconcileDialog } from './ReconcileDialog'
 
 function money(rec: Record<string, number> | null | undefined): string {
   if (!rec || Object.keys(rec).length === 0) return '—'
@@ -31,6 +36,8 @@ export function ShiftReportDialog({
   shiftId: string | null
 }) {
   const { data: r, isLoading } = useShiftReport(open ? shiftId : null)
+  const isSupervisor = useAuthStore((s) => s.user?.role) === StaffRole.SUPERVISOR
+  const [action, setAction] = useState<'none' | 'spot' | 'reconcile'>('none')
 
   return (
     <CashDialogShell open={open} onOpenChange={onOpenChange} title="Reporte de turno de caja" maxW="max-w-lg">
@@ -92,6 +99,28 @@ export function ShiftReportDialog({
             </div>
           ) : null}
 
+          {isSupervisor && (r.shift.status === 'OPEN' || r.shift.status === 'CLOSED') ? (
+            <div className="flex gap-2 pt-2 border-t border-slate-100">
+              {r.shift.status === 'OPEN' ? (
+                <button
+                  type="button"
+                  onClick={() => setAction('spot')}
+                  className="flex-1 h-9 inline-flex items-center justify-center gap-1.5 rounded-md border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  <ClipboardCheck className="h-3.5 w-3.5" /> Arqueo sorpresa
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setAction('reconcile')}
+                  className="flex-1 h-9 inline-flex items-center justify-center gap-1.5 rounded-md bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium"
+                >
+                  <Scale className="h-3.5 w-3.5" /> Conciliar turno
+                </button>
+              )}
+            </div>
+          ) : null}
+
           <div className="flex gap-2 pt-2 border-t border-slate-100">
             <button
               type="button"
@@ -110,6 +139,22 @@ export function ShiftReportDialog({
           </div>
         </div>
       )}
+      {r ? (
+        <>
+          <SpotCountDialog
+            open={action === 'spot'}
+            onOpenChange={(o) => !o && setAction('none')}
+            shiftId={r.shift.id}
+            currencies={Object.keys(r.shift.openingFloat ?? {})}
+          />
+          <ReconcileDialog
+            open={action === 'reconcile'}
+            onOpenChange={(o) => !o && setAction('none')}
+            shiftId={r.shift.id}
+            variance={r.reconciliation?.variance ?? null}
+          />
+        </>
+      ) : null}
     </CashDialogShell>
   )
 }

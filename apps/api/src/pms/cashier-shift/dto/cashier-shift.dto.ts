@@ -158,6 +158,48 @@ export class ShiftsReportExportQueryDto extends ShiftsReportQueryDto {
   format?: 'xlsx' | 'csv'
 }
 
+/** Query del reporte de Movimientos (transacciones / PaymentLog). */
+export class TransactionsReportQueryDto {
+  @IsDateString({ strict: false })
+  from!: string
+
+  @IsDateString({ strict: false })
+  to!: string
+
+  @IsOptional()
+  @Matches(/^[A-Z]{3}$/, { message: 'currency debe ser ISO 4217' })
+  currency?: string
+
+  @IsOptional()
+  @IsIn(['CASH', 'CARD_TERMINAL', 'BANK_TRANSFER', 'OTA_PREPAID', 'COMP'])
+  method?: string
+
+  @IsOptional()
+  @IsIn(['date', 'guest', 'method', 'amount', 'cashier'])
+  sort?: string
+
+  @IsOptional()
+  @IsIn(['asc', 'desc'])
+  dir?: string
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  page?: number
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  pageSize?: number
+}
+
+export class TransactionsReportExportQueryDto extends TransactionsReportQueryDto {
+  @IsOptional()
+  @IsIn(['xlsx', 'csv'])
+  format?: 'xlsx' | 'csv'
+}
+
 /** Arqueo "spot" del supervisor (D-CASH13): conteo físico a mitad de turno SIN
  *  cerrarlo. No interrumpe al cajero. */
 export class RecordSpotCountDto {

@@ -85,6 +85,56 @@ export interface ShiftsReportResponse {
   pageSize: number
 }
 
+export interface TransactionsReportParams {
+  from: string
+  to: string
+  currency?: string
+  method?: string
+  sort?: string
+  dir?: string
+  page?: number
+  pageSize?: number
+}
+
+export interface TransactionRow {
+  id: string
+  date: string
+  guest: string
+  bookingRef: string | null
+  method: string
+  currency: string
+  amount: number
+  reference: string | null
+  cashier: string
+  isVoid: boolean
+}
+
+export interface TransactionsReportResponse {
+  rows: TransactionRow[]
+  total: number
+  totals: { amount: number }
+  currency: string
+  availableCurrencies: string[]
+  availableMethods: string[]
+  sort: string
+  dir: string
+  page: number
+  pageSize: number
+}
+
+function txReportQs(p: TransactionsReportParams): string {
+  const q = new URLSearchParams()
+  q.set('from', p.from)
+  q.set('to', p.to)
+  if (p.currency) q.set('currency', p.currency)
+  if (p.method) q.set('method', p.method)
+  if (p.sort) q.set('sort', p.sort)
+  if (p.dir) q.set('dir', p.dir)
+  if (p.page) q.set('page', String(p.page))
+  if (p.pageSize) q.set('pageSize', String(p.pageSize))
+  return q.toString()
+}
+
 function shiftsReportQs(p: ShiftsReportParams): string {
   const q = new URLSearchParams()
   q.set('from', p.from)
@@ -168,4 +218,8 @@ export const cashierShiftApi = {
     api.get<ShiftsReportResponse>(`/v1/cash-reports/shifts?${shiftsReportQs(p)}`),
   downloadShiftsExport: (p: ShiftsReportParams, format: 'xlsx' | 'csv') =>
     downloadCsv(`/v1/cash-reports/shifts/export?${shiftsReportQs(p)}&format=${format}`, `turnos-caja.${format}`),
+  transactionsReport: (p: TransactionsReportParams) =>
+    api.get<TransactionsReportResponse>(`/v1/cash-reports/transactions?${txReportQs(p)}`),
+  downloadTransactionsExport: (p: TransactionsReportParams, format: 'xlsx' | 'csv') =>
+    downloadCsv(`/v1/cash-reports/transactions/export?${txReportQs(p)}&format=${format}`, `movimientos-caja.${format}`),
 }

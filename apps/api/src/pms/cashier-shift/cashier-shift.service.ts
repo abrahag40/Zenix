@@ -594,6 +594,96 @@ export class CashierShiftService {
     return { rows: paged, total: rows.length, totals, currency, availableCurrencies, sort, dir, page, pageSize }
   }
 
+  /**
+   * Reporte tabular de Movimientos (transacciones / PaymentLog) — el "Transaction
+   * Report" USALI. Per-divisa (filtrado) para totales SUM-ables. SUPERVISOR-only.
+   */
+  async buildTransactionsRows(params: {
+    from: string
+    to: string
+    currency?: string
+    method?: string
+    sort?: string
+    dir?: string
+  }, actor: JwtPayload) {
+    if (actor.role !== StaffRole.SUPERVISOR) {
+      throw new ForbiddenException('El reporte de movimientos es para administración (supervisor).')
+    }
+    const propertyId = this.tenant.getPropertyId()
+    const where: {
+      propertyId: string
+      shiftDate: { gte: Date; lte: Date }
+      method?: PaymentMethod
+    } = { propertyId, shiftDate: { gte: new Date(params.from), lte: new Date(params.to) } }
+    if (params.method) where.method = params.method as PaymentMethod
+    const logs = await this.prisma.paymentLog.findMany({
+      where,
+      orderBy: { shiftDate: 'desc' },
+      select: {
+        id: true, shiftDate: true, method: true, currency: true, amount: true, reference: true,
+        isVoid: true, collectedById: true,
+        stay: { select: { guestName: true, bookingRef: true } },
+      },
+    })
+    const availableCurrencies = [...new Set(logs.map((l) => l.currency))].sort()
+    const availableMethods = [...new Set(logs.map((l) => l.method as string))].sort()
+    const currency = params.currency || availableCurrencies[0] || 'MXN'
+    const names = await this.resolveStaffNames(logs.map((l) => l.collectedById))
+
+    let rows = logs
+      .filter((l) => l.currency === currency)
+      .map((l) => ({
+        id: l.id,
+        date: l.shiftDate.toISOString(),
+        guest: l.stay?.guestName ?? '—',
+        bookingRef: l.stay?.bookingRef ?? null,
+        method: l.method as string,
+        currency: l.currency,
+        amount: Number(l.amount),
+        reference: l.reference,
+        cashier: names.get(l.collectedById) ?? l.collectedById,
+        isVoid: l.isVoid,
+      }))
+
+    const SORTABLE = ['date', 'guest', 'method', 'amount', 'cashier'] as const
+    const sortKey = (SORTABLE as readonly string[]).includes(params.sort ?? '') ? (params.sort as (typeof SORTABLE)[number]) : 'date'
+    const dir = params.dir === 'asc' ? 1 : -1
+    rows.sort((a, b) => {
+      const va = a[sortKey] as string | number
+      const vb = b[sortKey] as string | number
+      return (va < vb ? -1 : va > vb ? 1 : 0) * dir
+    })
+    const totals = { amount: round2(rows.reduce((s, r) => s + r.amount, 0)) }
+    return { rows, totals, currency, availableCurrencies, availableMethods, sort: sortKey, dir: dir === 1 ? 'asc' : 'desc' }
+  }
+
+  async getTransactionsReport(params: {
+    from: string
+    to: string
+    currency?: string
+    method?: string
+    sort?: string
+    dir?: string
+    page?: number
+    pageSize?: number
+  }, actor: JwtPayload) {
+    const r = await this.buildTransactionsRows(params, actor)
+    const page = Math.max(1, params.page ?? 1)
+    const pageSize = Math.min(200, Math.max(1, params.pageSize ?? 25))
+    return {
+      rows: r.rows.slice((page - 1) * pageSize, page * pageSize),
+      total: r.rows.length,
+      totals: r.totals,
+      currency: r.currency,
+      availableCurrencies: r.availableCurrencies,
+      availableMethods: r.availableMethods,
+      sort: r.sort,
+      dir: r.dir,
+      page,
+      pageSize,
+    }
+  }
+
   // ── Helpers privados ───────────────────────────────────────────────────────
 
   /** Resuelve nombres de staff por id (manual join §204), ignora nulls/duplicados. */

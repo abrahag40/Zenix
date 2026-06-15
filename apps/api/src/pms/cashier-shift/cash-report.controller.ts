@@ -6,13 +6,32 @@ import { Roles } from '../../common/decorators/roles.decorator'
 import { buildReportCsv, buildReportXlsx, type ReportColumn } from '../../common/report-export'
 import { CashierShiftService } from './cashier-shift.service'
 import { cashSummaryToCsv, shiftReportToCsv } from './cash-report-csv'
-import { CashSummaryQueryDto, ShiftsReportExportQueryDto, ShiftsReportQueryDto } from './dto/cashier-shift.dto'
+import {
+  CashSummaryQueryDto,
+  ShiftsReportExportQueryDto,
+  ShiftsReportQueryDto,
+  TransactionsReportExportQueryDto,
+  TransactionsReportQueryDto,
+} from './dto/cashier-shift.dto'
 
 function fmtDateTime(iso: string | null): string {
   if (!iso) return ''
   const d = new Date(iso)
   const p = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+function transactionColumns(currency: string): ReportColumn[] {
+  return [
+    { key: 'date', header: 'Fecha', width: 14 },
+    { key: 'bookingRef', header: 'Reserva', width: 18 },
+    { key: 'guest', header: 'Huésped', width: 24 },
+    { key: 'method', header: 'Método', width: 16 },
+    { key: 'amount', header: `Monto (${currency})`, width: 14, numFmt: '#,##0.00' },
+    { key: 'reference', header: 'Referencia', width: 20 },
+    { key: 'cashier', header: 'Cajero', width: 22 },
+    { key: 'isVoid', header: 'Anulado', width: 10 },
+  ]
 }
 
 function shiftReportColumns(currency: string): ReportColumn[] {
@@ -93,6 +112,44 @@ export class CashReportController {
     res.set({
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'Content-Disposition': 'attachment; filename="turnos-caja.xlsx"',
+    })
+    return res.send(buf)
+  }
+
+  /** GET /v1/cash-reports/transactions — reporte tabular de movimientos (SUPERVISOR). */
+  @Get('transactions')
+  @Roles(StaffRole.SUPERVISOR)
+  transactions(@Query() q: TransactionsReportQueryDto, @CurrentUser() actor: JwtPayload) {
+    return this.service.getTransactionsReport(q, actor)
+  }
+
+  /** GET /v1/cash-reports/transactions/export?format=xlsx|csv — export (SUPERVISOR). */
+  @Get('transactions/export')
+  @Roles(StaffRole.SUPERVISOR)
+  async transactionsExport(
+    @Query() q: TransactionsReportExportQueryDto,
+    @CurrentUser() actor: JwtPayload,
+    @Res() res: Response,
+  ) {
+    const { rows, totals, currency } = await this.service.buildTransactionsRows(q, actor)
+    const cols = transactionColumns(currency)
+    const exportRows = rows.map((r) => ({
+      ...r,
+      date: r.date.slice(0, 10),
+      isVoid: r.isVoid ? 'Sí' : '',
+    }))
+    const totalsRow = { guest: 'TOTALES', amount: totals.amount }
+    if (q.format === 'csv') {
+      res.set({
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="movimientos-caja.csv"',
+      })
+      return res.send(buildReportCsv(cols, exportRows, totalsRow))
+    }
+    const buf = await buildReportXlsx('Movimientos', cols, exportRows, totalsRow)
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': 'attachment; filename="movimientos-caja.xlsx"',
     })
     return res.send(buf)
   }
