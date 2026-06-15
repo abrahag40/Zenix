@@ -1,9 +1,56 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common'
+import { Controller, Get, Query, Res, UseGuards } from '@nestjs/common'
+import type { Response } from 'express'
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard'
 import { CurrentUser } from '../common/decorators/current-user.decorator'
-import { JwtPayload } from '@zenix/shared'
+import { Roles } from '../common/decorators/roles.decorator'
+import { JwtPayload, StaffRole } from '@zenix/shared'
 import { ReportsService } from './reports.service'
 import { OptionalDateRangeDto } from '../common/dto/date-range.dto'
+import { NoShowReportExportQueryDto, NoShowReportQueryDto } from './dto/no-show-report-query.dto'
+import { StayReportExportQueryDto, StayReportQueryDto } from './dto/stay-report-query.dto'
+import { OverstayedReportExportQueryDto, OverstayedReportQueryDto } from './dto/overstayed-report-query.dto'
+import { buildReportCsv, buildReportXlsx, type ReportColumn } from '../common/report-export'
+
+function stayColumns(currency: string): ReportColumn[] {
+  return [
+    { key: 'guest', header: 'Huésped', width: 24 },
+    { key: 'room', header: 'Habitación', width: 12 },
+    { key: 'checkIn', header: 'Llegada', width: 14 },
+    { key: 'checkOut', header: 'Salida', width: 14 },
+    { key: 'nights', header: 'Noches extra', width: 12 },
+    { key: 'revenue', header: `Ingreso extra (${currency})`, width: 16, numFmt: '#,##0.00' },
+    { key: 'source', header: 'Canal', width: 14 },
+    { key: 'contact', header: 'Contacto', width: 26 },
+  ]
+}
+
+function overstayedColumns(currency: string): ReportColumn[] {
+  return [
+    { key: 'guest', header: 'Huésped', width: 24 },
+    { key: 'room', header: 'Habitación', width: 12 },
+    { key: 'scheduledCheckout', header: 'Salida programada', width: 16 },
+    { key: 'daysOverdue', header: 'Días vencidos', width: 13 },
+    { key: 'hoursOverdue', header: 'Horas vencidas', width: 14 },
+    { key: 'balance', header: `Saldo pendiente (${currency})`, width: 18, numFmt: '#,##0.00' },
+    { key: 'source', header: 'Canal', width: 14 },
+    { key: 'paymentStatus', header: 'Estado de pago', width: 16 },
+    { key: 'contact', header: 'Contacto', width: 26 },
+  ]
+}
+
+function noShowColumns(currency: string): ReportColumn[] {
+  return [
+    { key: 'noShowAt', header: 'Marcado', width: 16 },
+    { key: 'guest', header: 'Huésped', width: 24 },
+    { key: 'room', header: 'Habitación', width: 12 },
+    { key: 'scheduledCheckin', header: 'Llegada esperada', width: 16 },
+    { key: 'source', header: 'Canal', width: 14 },
+    { key: 'fee', header: `Cargo (${currency})`, width: 12, numFmt: '#,##0.00' },
+    { key: 'chargeStatus', header: 'Estado cargo', width: 14 },
+    { key: 'reason', header: 'Razón', width: 24 },
+    { key: 'markedBy', header: 'Marcado por', width: 20 },
+  ]
+}
 
 function toYMD(d: Date) {
   return d.toISOString().slice(0, 10)
@@ -61,6 +108,112 @@ export class ReportsController {
       dto.from ?? daysAgo(29),
       dto.to ?? toYMD(new Date()),
     )
+  }
+
+  /** GET /reports/no-shows-table — reporte tabular paginado de no-shows (SUPERVISOR). */
+  @Get('no-shows-table')
+  @Roles(StaffRole.SUPERVISOR)
+  noShowTable(@CurrentUser() user: JwtPayload, @Query() q: NoShowReportQueryDto) {
+    return this.service.getNoShowReportTable(user.propertyId, q)
+  }
+
+  /** GET /reports/no-shows-table/export?format=xlsx|csv — export del reporte (SUPERVISOR). */
+  @Get('no-shows-table/export')
+  @Roles(StaffRole.SUPERVISOR)
+  async noShowTableExport(
+    @CurrentUser() user: JwtPayload,
+    @Query() q: NoShowReportExportQueryDto,
+    @Res() res: Response,
+  ) {
+    const { rows, totals, currency } = await this.service.buildNoShowReportRows(user.propertyId, q)
+    const cols = noShowColumns(currency)
+    const exportRows = rows.map((r) => ({
+      ...r,
+      noShowAt: r.noShowAt.slice(0, 10),
+      scheduledCheckin: r.scheduledCheckin.slice(0, 10),
+    }))
+    const totalsRow = { guest: 'TOTALES', fee: totals.fee }
+    if (q.format === 'csv') {
+      res.set({
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="no-shows.csv"',
+      })
+      return res.send(buildReportCsv(cols, exportRows, totalsRow))
+    }
+    const buf = await buildReportXlsx('No-shows', cols, exportRows, totalsRow)
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': 'attachment; filename="no-shows.xlsx"',
+    })
+    return res.send(buf)
+  }
+
+  /** GET /reports/overstayed-table — reporte tabular de saldos vencidos / overstayed (SUPERVISOR). */
+  @Get('overstayed-table')
+  @Roles(StaffRole.SUPERVISOR)
+  overstayedTable(@CurrentUser() user: JwtPayload, @Query() q: OverstayedReportQueryDto) {
+    return this.service.getOverstayedReportTable(user.propertyId, q)
+  }
+
+  /** GET /reports/overstayed-table/export?format=xlsx|csv — export del reporte (SUPERVISOR). */
+  @Get('overstayed-table/export')
+  @Roles(StaffRole.SUPERVISOR)
+  async overstayedTableExport(
+    @CurrentUser() user: JwtPayload,
+    @Query() q: OverstayedReportExportQueryDto,
+    @Res() res: Response,
+  ) {
+    const { rows, totals, currency } = await this.service.buildOverstayedReportRows(user.propertyId, q)
+    const cols = overstayedColumns(currency)
+    const exportRows = rows.map((r) => ({ ...r, scheduledCheckout: r.scheduledCheckout.slice(0, 10) }))
+    const totalsRow = { guest: 'TOTALES', balance: totals.balance }
+    if (q.format === 'csv') {
+      res.set({
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="saldos-vencidos.csv"',
+      })
+      return res.send(buildReportCsv(cols, exportRows, totalsRow))
+    }
+    const buf = await buildReportXlsx('Saldos vencidos', cols, exportRows, totalsRow)
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': 'attachment; filename="saldos-vencidos.xlsx"',
+    })
+    return res.send(buf)
+  }
+
+  /** GET /reports/stays-table — reporte tabular paginado de estadías extendidas (SUPERVISOR). */
+  @Get('stays-table')
+  @Roles(StaffRole.SUPERVISOR)
+  staysTable(@CurrentUser() user: JwtPayload, @Query() q: StayReportQueryDto) {
+    return this.service.getStayReportTable(user.propertyId, q)
+  }
+
+  /** GET /reports/stays-table/export?format=xlsx|csv — export del reporte (SUPERVISOR). */
+  @Get('stays-table/export')
+  @Roles(StaffRole.SUPERVISOR)
+  async staysTableExport(
+    @CurrentUser() user: JwtPayload,
+    @Query() q: StayReportExportQueryDto,
+    @Res() res: Response,
+  ) {
+    const { rows, totals, currency } = await this.service.buildStayReportRows(user.propertyId, q)
+    const cols = stayColumns(currency)
+    const exportRows = rows.map((r) => ({ ...r, checkIn: r.checkIn.slice(0, 10), checkOut: r.checkOut.slice(0, 10) }))
+    const totalsRow = { guest: 'TOTALES', nights: totals.nights, revenue: totals.revenue }
+    if (q.format === 'csv') {
+      res.set({
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="estadias-extendidas.csv"',
+      })
+      return res.send(buildReportCsv(cols, exportRows, totalsRow))
+    }
+    const buf = await buildReportXlsx('Estadías extendidas', cols, exportRows, totalsRow)
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': 'attachment; filename="estadias-extendidas.xlsx"',
+    })
+    return res.send(buf)
   }
 
   /**

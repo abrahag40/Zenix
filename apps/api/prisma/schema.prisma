@@ -891,6 +891,8 @@ model Property {
   bookingEngineConfig     BookingEngineConfig?
   bookingApiKeys          BookingApiKey[]
   webhookSubscriptions    WebhookSubscription[]
+  // ── Sprint REPORTS-REVAMP P4(a) (2026-06-15) — reportes programados por email
+  scheduledReports        ScheduledReport[]
 
   @@index([organizationId])
   @@index([legalEntityId])
@@ -1571,6 +1573,19 @@ model PropertySettings {
   // explícito quedan en cola para voluntary pickup (default — más común en
   // boutique LATAM, respeta autonomía Self-Determination Theory §43 D9).
   maintenanceAutoAssignEnabled Boolean           @default(false) @map("maintenance_auto_assign_enabled")
+  // ── Caja / Arqueo (Sprint CASH-DRAWER-REPORTS, D-CASH4/5/6/12/15) ─────────
+  // cashShiftRequired: si true, cobrar en efectivo exige un turno de caja
+  // abierto del cajero (ConflictException si no). Default FALSE — el piloto ya
+  // cobra en efectivo sin turnos; el hotel lo activa cuando entrena su staff (D-CASH4).
+  cashShiftRequired            Boolean           @default(false) @map("cash_shift_required")
+  // Conteo a ciegas al cerrar: el cajero no ve el esperado (anti-fraude, D-CASH5).
+  cashBlindCount               Boolean           @default(true) @map("cash_blind_count")
+  // Umbral de variance (moneda base) que exige razón + conciliación supervisor (D-CASH6).
+  cashVarianceThreshold        Decimal           @default(50) @map("cash_variance_threshold") @db.Decimal(8, 2)
+  // Alerta al supervisor si un turno queda abierto más de N horas (D-CASH12).
+  cashShiftAutoCloseHours      Int               @default(24) @map("cash_shift_auto_close_hours")
+  // Modelo de fondo: PERSONAL_IMPREST | CARRIED_BALANCE | SHARED (D-CASH15).
+  cashBankModel                String            @default("PERSONAL_IMPREST") @map("cash_bank_model")
   deletedAt                    DateTime?         @map("deleted_at")
   createdAt                    DateTime          @default(now())
   updatedAt                    DateTime          @updatedAt
@@ -2920,6 +2935,10 @@ model PaymentLog {
   voidsLogId         String?       @unique @map("voids_log_id")
   shiftDate          DateTime      @map("shift_date") @db.Date
   collectedById      String        @map("collected_by_id")
+  // CASH-DRAWER (Sprint CASH-DRAWER-REPORTS, D-CASH14) — turno de caja al que
+  // pertenece el pago en efectivo. Escalar (sin relación formal) para no tocar
+  // CashierShift sobre el esquema vivo. Null = pago sin turno (flag off) o no-CASH.
+  cashierShiftId     String?       @map("cashier_shift_id")
   // GROUP-PAYMENTS Fase A (D-GRP-A1) — cuando un huésped paga por OTRA habitación
   // del mismo grupo, el PaymentLog se registra contra la stay PAGADA (reduce su
   // balance) pero paidByStayId apunta a QUIÉN entregó el dinero. Arqueo correcto
@@ -2943,7 +2962,99 @@ model PaymentLog {
   @@index([transactionGroupId])
   @@index([organizationId, propertyId, shiftDate])
   @@index([collectedById, shiftDate])
+  @@index([cashierShiftId])
   @@map("payment_logs")
+}
+
+// ======================= CASH DRAWER / ARQUEO (Sprint CASH-DRAWER-REPORTS) =======================
+//
+// Caja por turno de recepcionista (§85 + D-CASH1..15). IDs escalares + índices,
+// SIN relaciones Prisma formales, para no tocar Staff/Property/LegalEntity sobre
+// el esquema vivo (§66 denormalizado, §204 manual joins). Append-only (§28): las
+// correcciones son CashMovement type=CORRECTION, nunca UPDATE/DELETE. Multi-divisa
+// per-divisa, nunca agregado (D-CASH3): openingFloat/expectedClose/actualClose/
+// variance son Json { MXN: n, USD: n, EUR: n }.
+
+enum CashierShiftStatus {
+  OPEN
+  CLOSED // contado, fuera de tolerancia, pendiente de conciliación del supervisor
+  RECONCILED // cuadrado dentro de tolerancia o conciliado por supervisor
+  DISPUTED // supervisor rechazó la conciliación
+}
+
+enum CashMovementType {
+  OPENING_FLOAT
+  PAID_IN
+  PAID_OUT
+  CHANGE_GIVEN
+  FX_CONVERSION
+  CORRECTION
+  SPOT_COUNT // arqueo del supervisor a mitad de turno; NO cierra el turno (D-CASH13)
+}
+
+/**
+ * CashierShift — turno de caja de un recepcionista (D-CASH2: por cajero, no por
+ * estación). Ciclo: OPEN (recibir + aceptar fondo) → CLOSED/RECONCILED (entregar
+ * + contar). El handover encadena actualClose del saliente → openingFloat del
+ * entrante (D-CASH14); openingAcceptedById marca la transferencia de responsabilidad.
+ */
+model CashierShift {
+  id                  String             @id @default(uuid())
+  organizationId      String             @map("organization_id")
+  propertyId          String             @map("property_id")
+  staffId             String             @map("staff_id") // cajero responsable
+  status              CashierShiftStatus @default(OPEN)
+
+  openedAt            DateTime           @default(now()) @map("opened_at")
+  closedAt            DateTime?          @map("closed_at")
+
+  // Handover / fuente del fondo (D-CASH14/15)
+  openingSource       String             @default("FRESH_BANK") @map("opening_source") // HANDOVER | SAFE | FRESH_BANK
+  handoverFromShiftId String?            @map("handover_from_shift_id")
+  openingAcceptedById String?            @map("opening_accepted_by_id") // quien cuenta + acepta el fondo (recibe)
+  closingWitnessId    String?            @map("closing_witness_id") // testigo del drop (opcional)
+
+  // Multi-divisa per-divisa (D-CASH3). Json { MXN: 2000, USD: 0 }
+  openingFloat        Json               @map("opening_float")
+  expectedClose       Json?              @map("expected_close") // calculado al cerrar (S2)
+  actualClose         Json?              @map("actual_close") // conteo físico del cajero (S2)
+  variance            Json? // { MXN: -5, USD: +20 } (S2)
+  varianceReason      String?            @map("variance_reason")
+
+  reconciledById      String?            @map("reconciled_by_id")
+  reconciledAt        DateTime?          @map("reconciled_at")
+
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+
+  @@index([propertyId, status])
+  @@index([propertyId, staffId, openedAt])
+  @@index([organizationId, propertyId])
+  @@map("cashier_shifts")
+}
+
+/**
+ * CashMovement — entrada de caja append-only ligada a un turno (paid-outs,
+ * cambio entregado, conversión de divisa, corrección, fondo de apertura,
+ * spot-count del supervisor). Reconciliación per-divisa.
+ */
+model CashMovement {
+  id                 String           @id @default(uuid())
+  organizationId     String           @map("organization_id")
+  propertyId         String           @map("property_id")
+  shiftId            String           @map("shift_id")
+  type               CashMovementType
+  currency           String           @db.VarChar(3)
+  amount             Decimal          @db.Decimal(12, 2)
+  paymentLogId       String?          @map("payment_log_id")
+  transactionGroupId String?          @map("transaction_group_id")
+  notes              String?
+  createdById        String           @map("created_by_id")
+  createdAt          DateTime         @default(now()) @map("created_at")
+
+  @@index([shiftId, createdAt])
+  @@index([transactionGroupId])
+  @@map("cash_movements")
 }
 
 // ======================= HOUSEKEEPING SCHEDULING (Sprint 8H) =======================
@@ -4617,6 +4728,55 @@ model MetricsForwardSnapshot {
   @@index([propertyId, stayDate])
   @@index([propertyId, asOfDate])
   @@map("metrics_forward_snapshots")
+}
+
+/// Reporte programado por email (Sprint REPORTS-REVAMP P4a, 2026-06-15). El
+/// estudio pms-reporting-landscape §2 DESEA documenta "scheduled email reports"
+/// como diferenciador querido (patrón Cloudbeds Drawer Closure Summary + roomMaster
+/// scheduled + QuickBooks custom report email). El scheduler corre multi-timezone
+/// (§12 patrón night-audit) y genera el MISMO reporte de la biblioteca (reusa
+/// build*ReportRows + buildReportXlsx) adjunto al email vía Resend.
+model ScheduledReport {
+  id             String   @id @default(uuid())
+  propertyId     String   @map("property_id")
+  organizationId String   @map("organization_id")
+
+  /// Clave del reporte en el catálogo (cash-shifts, no-shows, metrics, overstayed, …).
+  reportKey String @map("report_key")
+  /// DAILY | WEEKLY | MONTHLY.
+  frequency String
+  /// Hora local (0-23) a la que se envía, en la timezone de la propiedad.
+  sendHour Int @default(7) @map("send_hour")
+  /// Para WEEKLY: día de la semana 1-7 (1=lunes). Null en DAILY/MONTHLY.
+  weekday Int?
+  /// Para MONTHLY: día del mes 1-28. Null en DAILY/WEEKLY.
+  monthday Int?
+  /// Ventana de datos del reporte en días hacia atrás (ej. 1=ayer, 7=última semana).
+  rangeDays Int @default(1) @map("range_days")
+
+  /// Destinatarios (emails). Append-only conceptual; editable por SUPERVISOR.
+  recipients String[]
+  /// xlsx | csv.
+  format String @default("xlsx")
+  /// Filtros congelados del reporte (ej. { currency: 'MXN' }). Opcional.
+  filters Json?
+
+  active      Boolean @default(true)
+  /// Última fecha local (YYYY-MM-DD) en que se envió — idempotencia del cron.
+  lastRunDate String? @map("last_run_date")
+  lastRunAt   DateTime? @map("last_run_at")
+  /// Resultado del último envío: sent | no-key | api-error | network | no-data.
+  lastRunStatus String? @map("last_run_status")
+
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId])
+  @@index([active])
+  @@map("scheduled_reports")
 }
 
 // ======================= COMPSET + LOCAL EVENTS (Fase 3 RATES-METRICS) =======================

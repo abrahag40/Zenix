@@ -40,6 +40,7 @@ import { RoomTypesModule } from './pms/room-types/room-types.module'
 import { StayJourneysModule } from './pms/stay-journeys/stay-journeys.module'
 import { RatesModule } from './pms/rates/rates.module'
 import { MetricsModule } from './pms/metrics/metrics.module'
+import { CashierShiftModule } from './pms/cashier-shift/cashier-shift.module'
 import { CompsetModule } from './pms/compset/compset.module'
 import { LocalEventsModule } from './pms/local-events/local-events.module'
 import { DashboardModule } from './dashboard/dashboard.module'
@@ -123,6 +124,7 @@ import { PropertyScopeGuard } from './common/guards/property-scope.guard'
     StayJourneysModule,
     RatesModule,
     MetricsModule,
+    CashierShiftModule, // Sprint CASH-DRAWER-REPORTS — caja / arqueo por turno
     CompsetModule,
     LocalEventsModule,
     DashboardModule,

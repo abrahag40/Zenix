@@ -299,6 +299,101 @@ export class MetricsService {
     })
     return { asOfDate: asOfNow, stlyAsOfDate: asOfStly, series }
   }
+
+  // ──────────────────────────────────────────────────────────────────
+  // Reporte tabular de Métricas diarias (Estándar de Reportes).
+  // Molde idéntico a reports.service.buildNoShowReportRows / getNoShowReportTable.
+  // ──────────────────────────────────────────────────────────────────
+
+  /**
+   * Construye las filas del reporte de Métricas diarias (una fila por snapshot).
+   * Los totales agregan al estilo USALI: ocupación = Σhab.vendidas ÷ Σhab.disponibles,
+   * ADR = Σingreso ÷ Σhab.vendidas, RevPAR = Σingreso ÷ Σhab.disponibles — NO el
+   * promedio aritmético de las tasas diarias.
+   */
+  async buildMetricsReportRows(
+    propertyId: string,
+    organizationId: string,
+    params: { from: string; to: string; sort?: string; dir?: string },
+  ) {
+    const snapshots = await this.getRange(propertyId, organizationId, new Date(params.from), new Date(params.to))
+
+    // Divisa dominante (la más frecuente entre los snapshots del rango).
+    const curCount = new Map<string, number>()
+    for (const s of snapshots) curCount.set(s.baseCurrency, (curCount.get(s.baseCurrency) ?? 0) + 1)
+    const currency = [...curCount.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'USD'
+
+    const rows = snapshots.map((s) => ({
+      id: s.id,
+      date: s.date.toISOString(),
+      occupancy: Number(s.occupancyPercent),
+      roomsSold: s.roomsSold,
+      roomsAvailable: s.totalRoomsAvailable,
+      adr: Number(s.adr),
+      revpar: Number(s.revpar),
+      revenue: Number(s.roomRevenue),
+      arrivals: s.arrivalsCount,
+      departures: s.departuresCount,
+      cancellations: s.cancellationsCount,
+      noShows: s.noShowsCount,
+      currency: s.baseCurrency,
+    }))
+
+    const SORTABLE = [
+      'date', 'occupancy', 'roomsSold', 'adr', 'revpar',
+      'revenue', 'arrivals', 'departures', 'cancellations', 'noShows',
+    ] as const
+    const sortKey = (SORTABLE as readonly string[]).includes(params.sort ?? '') ? (params.sort as (typeof SORTABLE)[number]) : 'date'
+    const dir = params.dir === 'asc' ? 1 : -1
+    rows.sort((a, b) => {
+      const va = a[sortKey] as string | number
+      const vb = b[sortKey] as string | number
+      return (va < vb ? -1 : va > vb ? 1 : 0) * dir
+    })
+
+    // Totales agregados (no naive average — método USALI). Per-divisa SUM-able
+    // (D-CASH3): el total agrega solo las filas de la divisa dominante; las filas
+    // en otra divisa se muestran en el listado pero no suman (sumar montos de
+    // distinta divisa sería incorrecto). En operación normal una property usa una
+    // sola divisa → no se excluye nada.
+    const inCur = rows.filter((r) => r.currency === currency)
+    const sumRevenue = round2(inCur.reduce((s, r) => s + r.revenue, 0))
+    const sumSold = inCur.reduce((s, r) => s + r.roomsSold, 0)
+    const sumAvail = inCur.reduce((s, r) => s + r.roomsAvailable, 0)
+    const totals = {
+      days: inCur.length,
+      occupancy: sumAvail > 0 ? round2((sumSold / sumAvail) * 100) : 0,
+      roomsSold: sumSold,
+      adr: sumSold > 0 ? round2(sumRevenue / sumSold) : 0,
+      revpar: sumAvail > 0 ? round2(sumRevenue / sumAvail) : 0,
+      revenue: sumRevenue,
+      arrivals: inCur.reduce((s, r) => s + r.arrivals, 0),
+      departures: inCur.reduce((s, r) => s + r.departures, 0),
+      cancellations: inCur.reduce((s, r) => s + r.cancellations, 0),
+      noShows: inCur.reduce((s, r) => s + r.noShows, 0),
+    }
+    return { rows, totals, currency, sort: sortKey, dir: dir === 1 ? 'asc' : 'desc' }
+  }
+
+  async getMetricsReportTable(
+    propertyId: string,
+    organizationId: string,
+    params: { from: string; to: string; sort?: string; dir?: string; page?: number; pageSize?: number },
+  ) {
+    const r = await this.buildMetricsReportRows(propertyId, organizationId, params)
+    const page = Math.max(1, params.page ?? 1)
+    const pageSize = Math.min(200, Math.max(1, params.pageSize ?? 25))
+    return {
+      rows: r.rows.slice((page - 1) * pageSize, page * pageSize),
+      total: r.rows.length,
+      totals: r.totals,
+      currency: r.currency,
+      sort: r.sort,
+      dir: r.dir,
+      page,
+      pageSize,
+    }
+  }
 }
 
 function round2(n: number): number {

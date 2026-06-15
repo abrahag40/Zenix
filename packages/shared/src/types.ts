@@ -27,6 +27,9 @@ import {
   TaskLogEvent,
   TaskType,
   PropertyType,
+  CashierShiftStatus,
+  CashMovementType,
+  CashOpeningSource,
 } from './enums'
 
 // ─── Property ────────────────────────────────────────────────────────────────
@@ -381,6 +384,114 @@ export interface CashSummaryDto {
     collectorName: string
     total: string
     count: number
+  }[]
+}
+
+// ─── Cash drawer / cashier shift (Sprint CASH-DRAWER-REPORTS) ─────────────────
+
+/** Saldo de caja multi-divisa, per-divisa nunca agregado (D-CASH3). Ej: { MXN: 2000, USD: 50 }. */
+export type CashByCurrency = Record<string, number>
+
+export interface CashierShiftDto {
+  id: string
+  organizationId: string
+  propertyId: string
+  staffId: string
+  status: CashierShiftStatus
+  openedAt: string
+  closedAt: string | null
+  openingSource: CashOpeningSource
+  handoverFromShiftId: string | null
+  openingAcceptedById: string | null
+  closingWitnessId: string | null
+  openingFloat: CashByCurrency
+  expectedClose: CashByCurrency | null
+  actualClose: CashByCurrency | null
+  variance: CashByCurrency | null
+  varianceReason: string | null
+  reconciledById: string | null
+  reconciledAt: string | null
+  createdAt: string
+}
+
+export interface CashMovementDto {
+  id: string
+  shiftId: string
+  type: CashMovementType
+  currency: string
+  amount: string // Decimal serialized as string
+  paymentLogId: string | null
+  transactionGroupId: string | null
+  notes: string | null
+  createdById: string
+  createdAt: string
+}
+
+// ─── Cash reports (Sprint CASH-DRAWER-REPORTS Sprint 3) ───────────────────────
+
+export interface StaffRef {
+  id: string
+  name: string
+}
+
+/** Cashier Shift Report individual (D-CASH7). El bloque `reconciliation` se omite
+ *  para el no-supervisor (conteo a ciegas, R3). */
+export interface CashierShiftReportDto {
+  shift: {
+    id: string
+    status: CashierShiftStatus
+    openedAt: string
+    closedAt: string | null
+    openingSource: CashOpeningSource
+    openingFloat: CashByCurrency
+    cashier: StaffRef | null
+    openingAcceptedBy: StaffRef | null
+    closingWitness: StaffRef | null
+    handoverFromShiftId: string | null
+  }
+  payments: {
+    byMethodCurrency: { method: PaymentMethod; currency: string; total: number; count: number }[]
+    cashTotalByCurrency: CashByCurrency
+  }
+  movements: {
+    id: string
+    type: CashMovementType
+    currency: string
+    amount: number
+    notes: string | null
+    createdBy: StaffRef | null
+    createdAt: string
+  }[]
+  reconciliation: {
+    expected: CashByCurrency | null
+    actual: CashByCurrency | null
+    variance: CashByCurrency | null
+    varianceReason: string | null
+    reconciledBy: StaffRef | null
+    reconciledAt: string | null
+    spotCounts: {
+      currency: string
+      counted: number
+      notes: string | null
+      createdBy: StaffRef | null
+      createdAt: string
+    }[]
+  } | null
+}
+
+/** Resumen diario de caja (SUPERVISOR). */
+export interface CashDailySummaryDto {
+  date: string
+  propertyId: string
+  byCurrencyMethod: { currency: string; method: PaymentMethod; total: number; count: number }[]
+  byCollector: { collectedById: string; collectorName: string; currency: string; total: number; count: number }[]
+  shifts: {
+    id: string
+    cashier: StaffRef | null
+    status: CashierShiftStatus
+    openedAt: string
+    closedAt: string | null
+    variance: CashByCurrency | null
   }[]
 }
 

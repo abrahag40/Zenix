@@ -17,6 +17,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { format, subDays } from 'date-fns'
 import { api } from '../api/client'
+import { CashReportSection } from '../pms/cashier-shift/CashReportSection'
 import type { NoShowReportDto, ReportOverviewDto, StaffPerformanceDto } from '@zenix/shared'
 import { NoShowChargeStatus } from '@zenix/shared'
 
@@ -57,9 +58,9 @@ function toYMD(d: Date) {
 
 export function ReportsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const activeTab = (searchParams.get('tab') ?? 'housekeeping') as 'housekeeping' | 'noshow' | 'stays'
+  const activeTab = (searchParams.get('tab') ?? 'housekeeping') as 'housekeeping' | 'noshow' | 'stays' | 'cash'
 
-  function setTab(tab: 'housekeeping' | 'noshow' | 'stays') {
+  function setTab(tab: 'housekeeping' | 'noshow' | 'stays' | 'cash') {
     setSearchParams({ tab })
   }
 
@@ -168,7 +169,13 @@ export function ReportsPage() {
         <TabButton active={activeTab === 'stays'} onClick={() => setTab('stays')}>
           Estadías
         </TabButton>
+        <TabButton active={activeTab === 'cash'} onClick={() => setTab('cash')}>
+          Caja
+        </TabButton>
       </div>
+
+      {/* ── Tab: Caja ─────────────────────────────────────────────────────── */}
+      {activeTab === 'cash' && <CashReportSection />}
 
       {/* ── Tab: No Shows ─────────────────────────────────────────────────── */}
       {activeTab === 'noshow' && (

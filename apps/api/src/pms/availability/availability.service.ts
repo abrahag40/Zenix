@@ -81,6 +81,7 @@ export interface OverstayedStay {
   source: string | null
   bookingRef: string | null
   paymentStatus: string
+  currency: string
   totalCharges: number
   totalPayments: number
   outstandingBalance: number
@@ -336,6 +337,7 @@ export class AvailabilityService {
         source: true,
         bookingRef: true,
         paymentStatus: true,
+        currency: true,
         totalAmount: true,
         amountPaid: true,
       },
@@ -364,6 +366,7 @@ export class AvailabilityService {
         source: s.source,
         bookingRef: s.bookingRef,
         paymentStatus: s.paymentStatus,
+        currency: s.currency,
         totalCharges,
         totalPayments,
         outstandingBalance,
