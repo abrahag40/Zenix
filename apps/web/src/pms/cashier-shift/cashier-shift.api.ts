@@ -49,6 +49,55 @@ export interface ShiftListParams {
   status?: string
 }
 
+export interface ShiftsReportParams {
+  from: string
+  to: string
+  currency?: string
+  status?: string
+  sort?: string
+  dir?: string
+  page?: number
+  pageSize?: number
+}
+
+export interface ShiftsReportRow {
+  id: string
+  openedAt: string
+  closedAt: string | null
+  cashier: string
+  status: string
+  opening: number
+  expected: number | null
+  actual: number | null
+  variance: number | null
+  reconciledBy: string | null
+}
+
+export interface ShiftsReportResponse {
+  rows: ShiftsReportRow[]
+  total: number
+  totals: { opening: number; expected: number; actual: number; variance: number }
+  currency: string
+  availableCurrencies: string[]
+  sort: string
+  dir: string
+  page: number
+  pageSize: number
+}
+
+function shiftsReportQs(p: ShiftsReportParams): string {
+  const q = new URLSearchParams()
+  q.set('from', p.from)
+  q.set('to', p.to)
+  if (p.currency) q.set('currency', p.currency)
+  if (p.status) q.set('status', p.status)
+  if (p.sort) q.set('sort', p.sort)
+  if (p.dir) q.set('dir', p.dir)
+  if (p.page) q.set('page', String(p.page))
+  if (p.pageSize) q.set('pageSize', String(p.pageSize))
+  return q.toString()
+}
+
 /** Descarga un CSV autenticado (Blob) — `fetch` directo porque el `api` client
  *  parsea JSON. Misma resolución de base que el client (dev: relativo + proxy). */
 async function downloadCsv(path: string, filename: string): Promise<void> {
@@ -114,4 +163,9 @@ export const cashierShiftApi = {
     if (filter) q.set('filter', filter)
     return downloadCsv(`/v1/cash-reports/cash-summary/csv?${q.toString()}`, `caja-${date}.csv`)
   },
+  // ── Reporte tabular de Turnos de caja (Estándar de Reportes) ──
+  shiftsReport: (p: ShiftsReportParams) =>
+    api.get<ShiftsReportResponse>(`/v1/cash-reports/shifts?${shiftsReportQs(p)}`),
+  downloadShiftsExport: (p: ShiftsReportParams, format: 'xlsx' | 'csv') =>
+    downloadCsv(`/v1/cash-reports/shifts/export?${shiftsReportQs(p)}&format=${format}`, `turnos-caja.${format}`),
 }

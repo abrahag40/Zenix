@@ -2,12 +2,15 @@ import {
   IsDateString,
   IsEnum,
   IsIn,
+  IsInt,
   IsNumber,
   IsObject,
   IsOptional,
   IsPositive,
   IsString,
   Matches,
+  Max,
+  Min,
   MinLength,
 } from 'class-validator'
 import { CashMovementType, CashOpeningSource, CashierShiftStatus } from '@zenix/shared'
@@ -110,6 +113,49 @@ export class CashSummaryQueryDto {
   @IsOptional()
   @IsIn(['overShort', 'overages', 'shortages'])
   filter?: 'overShort' | 'overages' | 'shortages'
+}
+
+/** Query del reporte tabular de Turnos de caja (Estándar de Reportes). */
+export class ShiftsReportQueryDto {
+  @IsDateString({ strict: false })
+  from!: string
+
+  @IsDateString({ strict: false })
+  to!: string
+
+  @IsOptional()
+  @Matches(/^[A-Z]{3}$/, { message: 'currency debe ser ISO 4217' })
+  currency?: string
+
+  @IsOptional()
+  @IsIn(['OPEN', 'CLOSED', 'RECONCILED', 'DISPUTED'])
+  status?: string
+
+  @IsOptional()
+  @IsIn(['openedAt', 'cashier', 'status', 'opening', 'expected', 'actual', 'variance'])
+  sort?: string
+
+  @IsOptional()
+  @IsIn(['asc', 'desc'])
+  dir?: string
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  page?: number
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  pageSize?: number
+}
+
+/** Query del export del reporte (xlsx preferido, csv fallback). */
+export class ShiftsReportExportQueryDto extends ShiftsReportQueryDto {
+  @IsOptional()
+  @IsIn(['xlsx', 'csv'])
+  format?: 'xlsx' | 'csv'
 }
 
 /** Arqueo "spot" del supervisor (D-CASH13): conteo físico a mitad de turno SIN

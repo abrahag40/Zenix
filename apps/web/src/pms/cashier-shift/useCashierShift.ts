@@ -11,6 +11,8 @@ import {
   type ReconcileBody,
   type RecordSpotCountBody,
   type ShiftListParams,
+  type ShiftsReportParams,
+  type ShiftsReportResponse,
 } from './cashier-shift.api'
 
 /** Turno de caja activo del cajero (o null). Keyed por propiedad activa para
@@ -87,6 +89,16 @@ export function useCashSummary(date: string, filter?: string) {
     queryFn: () => cashierShiftApi.cashSummary(propertyId!, date, filter),
     enabled: !!propertyId,
     staleTime: 30 * 1000,
+  })
+}
+
+export function useShiftsReport(params: ShiftsReportParams) {
+  const propertyId = usePropertyStore((s) => s.activePropertyId)
+  return useQuery<ShiftsReportResponse>({
+    queryKey: ['cashier-shift', 'shifts-report', propertyId, params],
+    queryFn: () => cashierShiftApi.shiftsReport(params),
+    staleTime: 30 * 1000,
+    placeholderData: (prev) => prev, // mantiene la tabla mientras cambian filtros/página
   })
 }
 

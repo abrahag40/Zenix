@@ -503,6 +503,97 @@ export class CashierShiftService {
     return { date: dateStr, propertyId, byCurrencyMethod: [...byCurrencyMethod.values()], byCollector: collectors, shifts }
   }
 
+  /**
+   * Reporte tabular de Turnos de caja (Estándar de Reportes). Per-divisa (D-CASH3):
+   * el reporte se filtra por UNA divisa para que las columnas sean SUM-ables. Devuelve
+   * filas + totales (sobre TODO el set filtrado, no solo la página) + divisas disponibles.
+   * SUPERVISOR-only (contiene over/short).
+   */
+  async buildShiftReportRows(params: {
+    from: string
+    to: string
+    currency?: string
+    status?: string
+    sort?: string
+    dir?: string
+  }, actor: JwtPayload) {
+    if (actor.role !== StaffRole.SUPERVISOR) {
+      throw new ForbiddenException('El reporte de caja es para administración (supervisor).')
+    }
+    const propertyId = this.tenant.getPropertyId()
+    const where: { propertyId: string; openedAt: { gte: Date; lte: Date }; status?: CashierShiftStatus } = {
+      propertyId,
+      openedAt: { gte: new Date(params.from), lte: new Date(params.to) },
+    }
+    if (params.status) where.status = params.status as CashierShiftStatus
+    const all = await this.prisma.cashierShift.findMany({ where, orderBy: { openedAt: 'desc' } })
+
+    const curSet = new Set<string>()
+    for (const s of all) {
+      for (const k of Object.keys((s.openingFloat ?? {}) as Record<string, number>)) curSet.add(k)
+      for (const k of Object.keys((s.expectedClose ?? {}) as Record<string, number>)) curSet.add(k)
+      for (const k of Object.keys((s.actualClose ?? {}) as Record<string, number>)) curSet.add(k)
+    }
+    const availableCurrencies = [...curSet].sort()
+    const currency = params.currency || availableCurrencies[0] || 'MXN'
+
+    const names = await this.resolveStaffNames([
+      ...all.map((s) => s.staffId),
+      ...all.map((s) => s.reconciledById),
+    ])
+    const num = (j: unknown, c: string): number | null => {
+      const rec = (j ?? null) as Record<string, number> | null
+      return rec && rec[c] != null ? Number(rec[c]) : null
+    }
+    const rows = all.map((s) => ({
+      id: s.id,
+      openedAt: s.openedAt.toISOString(),
+      closedAt: s.closedAt ? s.closedAt.toISOString() : null,
+      cashier: names.get(s.staffId) ?? s.staffId,
+      status: s.status as CashierShiftStatus,
+      opening: num(s.openingFloat, currency) ?? 0,
+      expected: num(s.expectedClose, currency),
+      actual: num(s.actualClose, currency),
+      variance: num(s.variance, currency),
+      reconciledBy: s.reconciledById ? names.get(s.reconciledById) ?? s.reconciledById : null,
+    }))
+    const sum = (k: 'opening' | 'expected' | 'actual' | 'variance') =>
+      round2(rows.reduce((a, r) => a + (r[k] ?? 0), 0))
+    const totals = { opening: sum('opening'), expected: sum('expected'), actual: sum('actual'), variance: sum('variance') }
+
+    // Orden por columna (in-memory sobre el set filtrado completo, D-REPORT1).
+    const SORTABLE = ['openedAt', 'cashier', 'status', 'opening', 'expected', 'actual', 'variance'] as const
+    const sortKey = (SORTABLE as readonly string[]).includes(params.sort ?? '') ? (params.sort as (typeof SORTABLE)[number]) : 'openedAt'
+    const dir = params.dir === 'asc' ? 1 : -1
+    rows.sort((a, b) => {
+      const va = a[sortKey] as string | number | null
+      const vb = b[sortKey] as string | number | null
+      if (va == null && vb == null) return 0
+      if (va == null) return 1
+      if (vb == null) return -1
+      return (va < vb ? -1 : va > vb ? 1 : 0) * dir
+    })
+    return { rows, totals, currency, availableCurrencies, sort: sortKey, dir: dir === 1 ? 'asc' : 'desc' }
+  }
+
+  /** Versión paginada para la UI. */
+  async getShiftsReport(params: {
+    from: string
+    to: string
+    currency?: string
+    status?: string
+    sort?: string
+    dir?: string
+    page?: number
+    pageSize?: number
+  }, actor: JwtPayload) {
+    const { rows, totals, currency, availableCurrencies, sort, dir } = await this.buildShiftReportRows(params, actor)
+    const page = Math.max(1, params.page ?? 1)
+    const pageSize = Math.min(200, Math.max(1, params.pageSize ?? 25))
+    const paged = rows.slice((page - 1) * pageSize, page * pageSize)
+    return { rows: paged, total: rows.length, totals, currency, availableCurrencies, sort, dir, page, pageSize }
+  }
+
   // ── Helpers privados ───────────────────────────────────────────────────────
 
   /** Resuelve nombres de staff por id (manual join §204), ignora nulls/duplicados. */

@@ -28,6 +28,8 @@ const PmsPage = lazy(() => import('./modules/rooms/pages/RoomsPage').then(m => (
 const KanbanPage = lazy(() => import('./pages/KanbanPage').then(m => ({ default: m.KanbanPage })))
 const CheckoutsPage = lazy(() => import('./pages/CheckoutsPage').then(m => ({ default: m.CheckoutsPage })))
 const ReportsPage = lazy(() => import('./pages/ReportsPage').then(m => ({ default: m.ReportsPage })))
+const ReportsLibraryPage = lazy(() => import('./pages/ReportsLibraryPage').then(m => ({ default: m.ReportsLibraryPage })))
+const CashShiftsReportPage = lazy(() => import('./pms/cashier-shift/CashShiftsReportPage').then(m => ({ default: m.CashShiftsReportPage })))
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })))
 const DiscrepanciesPage = lazy(() => import('./pages/DiscrepanciesPage').then(m => ({ default: m.DiscrepanciesPage })))
 const ChannexConflictsPage = lazy(() => import('./pages/ChannexConflictsPage'))
@@ -149,7 +151,9 @@ export default function App() {
           <Route path="/settings/channex" element={<ProtectedLayout><ChannexAdminPage /></ProtectedLayout>} />
           <Route path="/blocks"          element={<ProtectedLayout><BlocksPage /></ProtectedLayout>} />
           <Route path="/maintenance"     element={<ProtectedLayout><MaintenancePage /></ProtectedLayout>} />
-          <Route path="/reports"         element={<ProtectedLayout><ReportsPage /></ProtectedLayout>} />
+          <Route path="/reports"         element={<ProtectedLayout><ReportsLibraryPage /></ProtectedLayout>} />
+          <Route path="/reports/cash-shifts" element={<ProtectedLayout><CashShiftsReportPage /></ProtectedLayout>} />
+          <Route path="/reports/classic" element={<ProtectedLayout><ReportsPage /></ProtectedLayout>} />
           <Route path="/settings/:section?" element={<ProtectedLayout><SettingsPage /></ProtectedLayout>} />
           <Route path="/reservations/:id"  element={<ProtectedLayout><ReservationDetailPage /></ProtectedLayout>} />
           {/* ── Nova (Day 9+) ──────────────────────────────────────────── */}

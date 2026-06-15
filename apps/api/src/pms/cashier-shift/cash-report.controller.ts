@@ -1,10 +1,33 @@
-import { Controller, Get, Header, Param, Query } from '@nestjs/common'
+import { Controller, Get, Header, Param, Query, Res } from '@nestjs/common'
+import type { Response } from 'express'
 import { JwtPayload, StaffRole } from '@zenix/shared'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { Roles } from '../../common/decorators/roles.decorator'
+import { buildReportCsv, buildReportXlsx, type ReportColumn } from '../../common/report-export'
 import { CashierShiftService } from './cashier-shift.service'
 import { cashSummaryToCsv, shiftReportToCsv } from './cash-report-csv'
-import { CashSummaryQueryDto } from './dto/cashier-shift.dto'
+import { CashSummaryQueryDto, ShiftsReportExportQueryDto, ShiftsReportQueryDto } from './dto/cashier-shift.dto'
+
+function fmtDateTime(iso: string | null): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+function shiftReportColumns(currency: string): ReportColumn[] {
+  return [
+    { key: 'openedAt', header: 'Apertura', width: 18 },
+    { key: 'closedAt', header: 'Cierre', width: 18 },
+    { key: 'cashier', header: 'Cajero', width: 24 },
+    { key: 'status', header: 'Estado', width: 14 },
+    { key: 'opening', header: `Fondo (${currency})`, width: 14, numFmt: '#,##0.00' },
+    { key: 'expected', header: `Esperado (${currency})`, width: 14, numFmt: '#,##0.00' },
+    { key: 'actual', header: `Contado (${currency})`, width: 14, numFmt: '#,##0.00' },
+    { key: 'variance', header: `Diferencia (${currency})`, width: 14, numFmt: '#,##0.00' },
+    { key: 'reconciledBy', header: 'Conciliado por', width: 24 },
+  ]
+}
 
 /**
  * Reportes de caja — Sprint CASH-DRAWER-REPORTS Sprint 3 (D-CASH7/10, R7).
@@ -28,6 +51,50 @@ export class CashReportController {
   @Header('Content-Disposition', 'attachment; filename="cashier-shift-report.csv"')
   async shiftReportCsv(@Param('id') id: string, @CurrentUser() actor: JwtPayload) {
     return shiftReportToCsv(await this.service.getShiftReport(id, actor))
+  }
+
+  /** GET /v1/cash-reports/shifts — reporte tabular paginado de Turnos de caja (SUPERVISOR). */
+  @Get('shifts')
+  @Roles(StaffRole.SUPERVISOR)
+  shiftsReport(@Query() q: ShiftsReportQueryDto, @CurrentUser() actor: JwtPayload) {
+    return this.service.getShiftsReport(q, actor)
+  }
+
+  /** GET /v1/cash-reports/shifts/export?format=xlsx|csv — export del reporte (SUPERVISOR). */
+  @Get('shifts/export')
+  @Roles(StaffRole.SUPERVISOR)
+  async shiftsExport(
+    @Query() q: ShiftsReportExportQueryDto,
+    @CurrentUser() actor: JwtPayload,
+    @Res() res: Response,
+  ) {
+    const { rows, totals, currency } = await this.service.buildShiftReportRows(q, actor)
+    const cols = shiftReportColumns(currency)
+    const exportRows = rows.map((r) => ({
+      ...r,
+      openedAt: fmtDateTime(r.openedAt),
+      closedAt: fmtDateTime(r.closedAt),
+    }))
+    const totalsRow = {
+      cashier: 'TOTALES',
+      opening: totals.opening,
+      expected: totals.expected,
+      actual: totals.actual,
+      variance: totals.variance,
+    }
+    if (q.format === 'csv') {
+      res.set({
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="turnos-caja.csv"',
+      })
+      return res.send(buildReportCsv(cols, exportRows, totalsRow))
+    }
+    const buf = await buildReportXlsx('Turnos de caja', cols, exportRows, totalsRow)
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': 'attachment; filename="turnos-caja.xlsx"',
+    })
+    return res.send(buf)
   }
 
   /** GET /v1/cash-reports/cash-summary?propertyId&date[&filter] — resumen diario (SUPERVISOR). */
