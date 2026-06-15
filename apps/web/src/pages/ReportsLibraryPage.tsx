@@ -42,11 +42,10 @@ const GROUPS: { area: string; reports: ReportCard[] }[] = [
       {
         key: 'cash-summary',
         title: 'Resumen diario de caja',
-        description: 'Totales del día por método/divisa/cajero. (Se integra al estándar en R3.)',
-        to: '/reports/classic?tab=cash',
+        description: 'Totales del día por método/divisa y por cajero. Export Excel/CSV.',
+        to: '/reports/cash-summary',
         icon: Coins,
         supervisorOnly: true,
-        legacy: true,
       },
     ],
   },

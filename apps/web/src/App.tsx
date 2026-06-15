@@ -31,6 +31,7 @@ const ReportsPage = lazy(() => import('./pages/ReportsPage').then(m => ({ defaul
 const ReportsLibraryPage = lazy(() => import('./pages/ReportsLibraryPage').then(m => ({ default: m.ReportsLibraryPage })))
 const CashShiftsReportPage = lazy(() => import('./pms/cashier-shift/CashShiftsReportPage').then(m => ({ default: m.CashShiftsReportPage })))
 const CashTransactionsReportPage = lazy(() => import('./pms/cashier-shift/CashTransactionsReportPage').then(m => ({ default: m.CashTransactionsReportPage })))
+const CashSummaryReportPage = lazy(() => import('./pms/cashier-shift/CashSummaryReportPage').then(m => ({ default: m.CashSummaryReportPage })))
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })))
 const DiscrepanciesPage = lazy(() => import('./pages/DiscrepanciesPage').then(m => ({ default: m.DiscrepanciesPage })))
 const ChannexConflictsPage = lazy(() => import('./pages/ChannexConflictsPage'))
@@ -155,6 +156,7 @@ export default function App() {
           <Route path="/reports"         element={<ProtectedLayout><ReportsLibraryPage /></ProtectedLayout>} />
           <Route path="/reports/cash-shifts" element={<ProtectedLayout><CashShiftsReportPage /></ProtectedLayout>} />
           <Route path="/reports/cash-transactions" element={<ProtectedLayout><CashTransactionsReportPage /></ProtectedLayout>} />
+          <Route path="/reports/cash-summary" element={<ProtectedLayout><CashSummaryReportPage /></ProtectedLayout>} />
           <Route path="/reports/classic" element={<ProtectedLayout><ReportsPage /></ProtectedLayout>} />
           <Route path="/settings/:section?" element={<ProtectedLayout><SettingsPage /></ProtectedLayout>} />
           <Route path="/reservations/:id"  element={<ProtectedLayout><ReservationDetailPage /></ProtectedLayout>} />

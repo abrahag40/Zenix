@@ -169,4 +169,30 @@ export class CashReportController {
   async cashSummaryCsv(@Query() q: CashSummaryQueryDto) {
     return cashSummaryToCsv(await this.service.getCashSummary(q.propertyId, q.date, q.filter))
   }
+
+  /** GET /v1/cash-reports/cash-summary/export?format=xlsx|csv — resumen diario (.xlsx preferido). */
+  @Get('cash-summary/export')
+  @Roles(StaffRole.SUPERVISOR)
+  async cashSummaryExport(@Query() q: CashSummaryQueryDto & { format?: string }, @Res() res: Response) {
+    const summary = await this.service.getCashSummary(q.propertyId, q.date, q.filter)
+    const cols: ReportColumn[] = [
+      { key: 'currency', header: 'Divisa', width: 10 },
+      { key: 'method', header: 'Método', width: 16 },
+      { key: 'total', header: 'Total', width: 14, numFmt: '#,##0.00' },
+      { key: 'count', header: 'Movimientos', width: 12 },
+    ]
+    if ((q as { format?: string }).format === 'csv') {
+      res.set({
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="resumen-caja-${q.date}.csv"`,
+      })
+      return res.send(buildReportCsv(cols, summary.byCurrencyMethod as unknown as Record<string, unknown>[]))
+    }
+    const buf = await buildReportXlsx('Resumen de caja', cols, summary.byCurrencyMethod as unknown as Record<string, unknown>[])
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="resumen-caja-${q.date}.xlsx"`,
+    })
+    return res.send(buf)
+  }
 }

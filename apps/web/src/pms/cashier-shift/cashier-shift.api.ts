@@ -218,6 +218,11 @@ export const cashierShiftApi = {
     api.get<ShiftsReportResponse>(`/v1/cash-reports/shifts?${shiftsReportQs(p)}`),
   downloadShiftsExport: (p: ShiftsReportParams, format: 'xlsx' | 'csv') =>
     downloadCsv(`/v1/cash-reports/shifts/export?${shiftsReportQs(p)}&format=${format}`, `turnos-caja.${format}`),
+  downloadSummaryExport: (propertyId: string, date: string, format: 'xlsx' | 'csv', filter?: string) => {
+    const q = new URLSearchParams({ propertyId, date, format })
+    if (filter) q.set('filter', filter)
+    return downloadCsv(`/v1/cash-reports/cash-summary/export?${q.toString()}`, `resumen-caja-${date}.${format}`)
+  },
   transactionsReport: (p: TransactionsReportParams) =>
     api.get<TransactionsReportResponse>(`/v1/cash-reports/transactions?${txReportQs(p)}`),
   downloadTransactionsExport: (p: TransactionsReportParams, format: 'xlsx' | 'csv') =>
