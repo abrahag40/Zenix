@@ -536,4 +536,70 @@ export class ReportsService {
       items,
     }
   }
+
+  /**
+   * Reporte tabular de Estadías extendidas (Estándar de Reportes). Reusa
+   * getStayJourneysReport (no duplica la query de segmentos) + pagina/ordena/totaliza.
+   * Filtro de divisa para que el ingreso extra sea SUM-able.
+   */
+  async buildStayReportRows(
+    propertyId: string,
+    params: { from: string; to: string; currency?: string; source?: string; sort?: string; dir?: string },
+  ) {
+    const base = await this.getStayJourneysReport(propertyId, params.from, params.to)
+    const availableCurrencies = [...new Set(base.items.map((i) => i.currency))].sort()
+    const availableSources = [...new Set(base.items.map((i) => i.source ?? 'DIRECTO'))].sort()
+    const currency = params.currency || availableCurrencies[0] || 'USD'
+
+    const rows = base.items
+      .filter((i) => !params.source || (i.source ?? 'DIRECTO') === params.source)
+      .map((i) => ({
+        id: i.journeyId,
+        guest: i.guestName,
+        room: i.roomNumber,
+        checkIn: i.journeyCheckIn,
+        checkOut: i.journeyCheckOut,
+        nights: i.extensionNights,
+        revenue: i.extensionRevenue,
+        currency: i.currency,
+        source: i.source ?? 'DIRECTO',
+        contact: i.guestEmail ?? i.guestPhone ?? null,
+      }))
+
+    const SORTABLE = ['guest', 'room', 'checkIn', 'nights', 'revenue', 'source'] as const
+    const sortKey = (SORTABLE as readonly string[]).includes(params.sort ?? '') ? (params.sort as (typeof SORTABLE)[number]) : 'checkIn'
+    const dir = params.dir === 'asc' ? 1 : -1
+    rows.sort((a, b) => {
+      const va = a[sortKey] as string | number | null
+      const vb = b[sortKey] as string | number | null
+      if (va == null && vb == null) return 0
+      if (va == null) return 1
+      if (vb == null) return -1
+      return (va < vb ? -1 : va > vb ? 1 : 0) * dir
+    })
+    const nights = rows.reduce((s, r) => s + r.nights, 0)
+    const revenue = Math.round(rows.filter((r) => r.currency === currency).reduce((s, r) => s + r.revenue, 0) * 100) / 100
+    return { rows, totals: { count: rows.length, nights, revenue }, currency, availableCurrencies, availableSources, sort: sortKey, dir: dir === 1 ? 'asc' : 'desc' }
+  }
+
+  async getStayReportTable(
+    propertyId: string,
+    params: { from: string; to: string; currency?: string; source?: string; sort?: string; dir?: string; page?: number; pageSize?: number },
+  ) {
+    const r = await this.buildStayReportRows(propertyId, params)
+    const page = Math.max(1, params.page ?? 1)
+    const pageSize = Math.min(200, Math.max(1, params.pageSize ?? 25))
+    return {
+      rows: r.rows.slice((page - 1) * pageSize, page * pageSize),
+      total: r.rows.length,
+      totals: r.totals,
+      currency: r.currency,
+      availableCurrencies: r.availableCurrencies,
+      availableSources: r.availableSources,
+      sort: r.sort,
+      dir: r.dir,
+      page,
+      pageSize,
+    }
+  }
 }

@@ -7,7 +7,21 @@ import { JwtPayload, StaffRole } from '@zenix/shared'
 import { ReportsService } from './reports.service'
 import { OptionalDateRangeDto } from '../common/dto/date-range.dto'
 import { NoShowReportExportQueryDto, NoShowReportQueryDto } from './dto/no-show-report-query.dto'
+import { StayReportExportQueryDto, StayReportQueryDto } from './dto/stay-report-query.dto'
 import { buildReportCsv, buildReportXlsx, type ReportColumn } from '../common/report-export'
+
+function stayColumns(currency: string): ReportColumn[] {
+  return [
+    { key: 'guest', header: 'Huésped', width: 24 },
+    { key: 'room', header: 'Habitación', width: 12 },
+    { key: 'checkIn', header: 'Llegada', width: 14 },
+    { key: 'checkOut', header: 'Salida', width: 14 },
+    { key: 'nights', header: 'Noches extra', width: 12 },
+    { key: 'revenue', header: `Ingreso extra (${currency})`, width: 16, numFmt: '#,##0.00' },
+    { key: 'source', header: 'Canal', width: 14 },
+    { key: 'contact', header: 'Contacto', width: 26 },
+  ]
+}
 
 function noShowColumns(currency: string): ReportColumn[] {
   return [
@@ -115,6 +129,40 @@ export class ReportsController {
     res.set({
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'Content-Disposition': 'attachment; filename="no-shows.xlsx"',
+    })
+    return res.send(buf)
+  }
+
+  /** GET /reports/stays-table — reporte tabular paginado de estadías extendidas (SUPERVISOR). */
+  @Get('stays-table')
+  @Roles(StaffRole.SUPERVISOR)
+  staysTable(@CurrentUser() user: JwtPayload, @Query() q: StayReportQueryDto) {
+    return this.service.getStayReportTable(user.propertyId, q)
+  }
+
+  /** GET /reports/stays-table/export?format=xlsx|csv — export del reporte (SUPERVISOR). */
+  @Get('stays-table/export')
+  @Roles(StaffRole.SUPERVISOR)
+  async staysTableExport(
+    @CurrentUser() user: JwtPayload,
+    @Query() q: StayReportExportQueryDto,
+    @Res() res: Response,
+  ) {
+    const { rows, totals, currency } = await this.service.buildStayReportRows(user.propertyId, q)
+    const cols = stayColumns(currency)
+    const exportRows = rows.map((r) => ({ ...r, checkIn: r.checkIn.slice(0, 10), checkOut: r.checkOut.slice(0, 10) }))
+    const totalsRow = { guest: 'TOTALES', nights: totals.nights, revenue: totals.revenue }
+    if (q.format === 'csv') {
+      res.set({
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="estadias-extendidas.csv"',
+      })
+      return res.send(buildReportCsv(cols, exportRows, totalsRow))
+    }
+    const buf = await buildReportXlsx('Estadías extendidas', cols, exportRows, totalsRow)
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': 'attachment; filename="estadias-extendidas.xlsx"',
     })
     return res.send(buf)
   }
