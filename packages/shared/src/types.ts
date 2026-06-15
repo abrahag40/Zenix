@@ -427,6 +427,74 @@ export interface CashMovementDto {
   createdAt: string
 }
 
+// ─── Cash reports (Sprint CASH-DRAWER-REPORTS Sprint 3) ───────────────────────
+
+export interface StaffRef {
+  id: string
+  name: string
+}
+
+/** Cashier Shift Report individual (D-CASH7). El bloque `reconciliation` se omite
+ *  para el no-supervisor (conteo a ciegas, R3). */
+export interface CashierShiftReportDto {
+  shift: {
+    id: string
+    status: CashierShiftStatus
+    openedAt: string
+    closedAt: string | null
+    openingSource: CashOpeningSource
+    openingFloat: CashByCurrency
+    cashier: StaffRef | null
+    openingAcceptedBy: StaffRef | null
+    closingWitness: StaffRef | null
+    handoverFromShiftId: string | null
+  }
+  payments: {
+    byMethodCurrency: { method: PaymentMethod; currency: string; total: number; count: number }[]
+    cashTotalByCurrency: CashByCurrency
+  }
+  movements: {
+    id: string
+    type: CashMovementType
+    currency: string
+    amount: number
+    notes: string | null
+    createdBy: StaffRef | null
+    createdAt: string
+  }[]
+  reconciliation: {
+    expected: CashByCurrency | null
+    actual: CashByCurrency | null
+    variance: CashByCurrency | null
+    varianceReason: string | null
+    reconciledBy: StaffRef | null
+    reconciledAt: string | null
+    spotCounts: {
+      currency: string
+      counted: number
+      notes: string | null
+      createdBy: StaffRef | null
+      createdAt: string
+    }[]
+  } | null
+}
+
+/** Resumen diario de caja (SUPERVISOR). */
+export interface CashDailySummaryDto {
+  date: string
+  propertyId: string
+  byCurrencyMethod: { currency: string; method: PaymentMethod; total: number; count: number }[]
+  byCollector: { collectedById: string; collectorName: string; currency: string; total: number; count: number }[]
+  shifts: {
+    id: string
+    cashier: StaffRef | null
+    status: CashierShiftStatus
+    openedAt: string
+    closedAt: string | null
+    variance: CashByCurrency | null
+  }[]
+}
+
 // ─── Check-in Confirmation ───────────────────────────────────────────────────
 
 export interface PaymentEntryInput {

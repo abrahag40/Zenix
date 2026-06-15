@@ -7,8 +7,10 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import {
+  CashDailySummaryDto,
   CashMovementType,
   CashOpeningSource,
+  CashierShiftReportDto,
   CashierShiftStatus,
   JwtPayload,
   PaymentMethod,
@@ -308,7 +310,173 @@ export class CashierShiftService {
     }
   }
 
+  // ── Reportes (Sprint 3) ─────────────────────────────────────────────────────
+
+  /**
+   * GET /v1/cash-reports/shift/:id — Cashier Shift Report individual (D-CASH7).
+   * El cajero ve su propio turno SIN el bloque de reconciliación (over/short
+   * oculto, R3); el SUPERVISOR ve todo (esperado/variance/spot-counts/conciliador).
+   */
+  async getShiftReport(shiftId: string, actor: JwtPayload): Promise<CashierShiftReportDto> {
+    const propertyId = this.tenant.getPropertyId()
+    const shift = await this.loadShiftOrThrow(shiftId, propertyId)
+    const isSup = actor.role === StaffRole.SUPERVISOR
+    if (!isSup && shift.staffId !== actor.sub) {
+      throw new ForbiddenException('Solo puedes ver el reporte de tu propio turno.')
+    }
+
+    const [payments, allMovements] = await Promise.all([
+      this.prisma.paymentLog.findMany({
+        where: { cashierShiftId: shiftId, isVoid: false },
+        select: { method: true, currency: true, amount: true },
+      }),
+      this.prisma.cashMovement.findMany({ where: { shiftId }, orderBy: { createdAt: 'asc' } }),
+    ])
+    const movements = allMovements.filter((m) => m.type !== CashMovementType.SPOT_COUNT)
+    const spotCounts = allMovements.filter((m) => m.type === CashMovementType.SPOT_COUNT)
+
+    const names = await this.resolveStaffNames([
+      shift.staffId,
+      shift.openingAcceptedById,
+      shift.closingWitnessId,
+      shift.reconciledById,
+      ...allMovements.map((m) => m.createdById),
+    ])
+    const ref = (id: string | null) => (id ? { id, name: names.get(id) ?? id } : null)
+
+    const pmc = new Map<string, { method: PaymentMethod; currency: string; total: number; count: number }>()
+    const cashTotalByCurrency: Record<string, number> = {}
+    for (const p of payments) {
+      const key = `${p.method}|${p.currency}`
+      const e = pmc.get(key) ?? { method: p.method as PaymentMethod, currency: p.currency, total: 0, count: 0 }
+      e.total = round2(e.total + Number(p.amount))
+      e.count += 1
+      pmc.set(key, e)
+      if (p.method === PaymentMethod.CASH) {
+        cashTotalByCurrency[p.currency] = round2((cashTotalByCurrency[p.currency] ?? 0) + Number(p.amount))
+      }
+    }
+
+    return {
+      shift: {
+        id: shift.id,
+        status: shift.status as CashierShiftStatus,
+        openedAt: shift.openedAt.toISOString(),
+        closedAt: shift.closedAt ? shift.closedAt.toISOString() : null,
+        openingSource: shift.openingSource as CashierShiftReportDto['shift']['openingSource'],
+        openingFloat: (shift.openingFloat ?? {}) as Record<string, number>,
+        cashier: ref(shift.staffId),
+        openingAcceptedBy: ref(shift.openingAcceptedById),
+        closingWitness: ref(shift.closingWitnessId),
+        handoverFromShiftId: shift.handoverFromShiftId,
+      },
+      payments: { byMethodCurrency: [...pmc.values()], cashTotalByCurrency },
+      movements: movements.map((m) => ({
+        id: m.id,
+        type: m.type as CashMovementType,
+        currency: m.currency,
+        amount: Number(m.amount),
+        notes: m.notes,
+        createdBy: ref(m.createdById),
+        createdAt: m.createdAt.toISOString(),
+      })),
+      reconciliation: isSup
+        ? {
+            expected: (shift.expectedClose ?? null) as Record<string, number> | null,
+            actual: (shift.actualClose ?? null) as Record<string, number> | null,
+            variance: (shift.variance ?? null) as Record<string, number> | null,
+            varianceReason: shift.varianceReason,
+            reconciledBy: ref(shift.reconciledById),
+            reconciledAt: shift.reconciledAt ? shift.reconciledAt.toISOString() : null,
+            spotCounts: spotCounts.map((s) => ({
+              currency: s.currency,
+              counted: Number(s.amount),
+              notes: s.notes,
+              createdBy: ref(s.createdById),
+              createdAt: s.createdAt.toISOString(),
+            })),
+          }
+        : null,
+    }
+  }
+
+  /**
+   * GET /v1/cash-reports/cash-summary — resumen diario de caja (SUPERVISOR).
+   * Pagos del día (no-void) por divisa×método + por colector, y los turnos del día
+   * con su variance. Filtros opcionales overages/shortages/overShort sobre los turnos.
+   */
+  async getCashSummary(
+    propertyId: string,
+    dateStr: string,
+    filter?: 'overShort' | 'overages' | 'shortages',
+  ): Promise<CashDailySummaryDto> {
+    const organizationId = this.tenant.getOrganizationId()
+    const dayStart = new Date(`${dateStr}T00:00:00.000Z`)
+    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000)
+
+    const [payments, shiftsRaw] = await Promise.all([
+      this.prisma.paymentLog.findMany({
+        where: { organizationId, propertyId, shiftDate: dayStart, isVoid: false },
+        select: { method: true, currency: true, amount: true, collectedById: true },
+      }),
+      this.prisma.cashierShift.findMany({
+        where: { propertyId, openedAt: { gte: dayStart, lt: dayEnd } },
+        orderBy: { openedAt: 'asc' },
+      }),
+    ])
+
+    const byCurrencyMethod = new Map<string, { currency: string; method: PaymentMethod; total: number; count: number }>()
+    const byCollector = new Map<string, { collectedById: string; collectorName: string; currency: string; total: number; count: number }>()
+    for (const p of payments) {
+      const k1 = `${p.currency}|${p.method}`
+      const e1 = byCurrencyMethod.get(k1) ?? { currency: p.currency, method: p.method as PaymentMethod, total: 0, count: 0 }
+      e1.total = round2(e1.total + Number(p.amount))
+      e1.count += 1
+      byCurrencyMethod.set(k1, e1)
+      const k2 = `${p.collectedById}|${p.currency}`
+      const e2 = byCollector.get(k2) ?? { collectedById: p.collectedById, collectorName: '', currency: p.currency, total: 0, count: 0 }
+      e2.total = round2(e2.total + Number(p.amount))
+      e2.count += 1
+      byCollector.set(k2, e2)
+    }
+
+    const names = await this.resolveStaffNames([
+      ...payments.map((p) => p.collectedById),
+      ...shiftsRaw.map((s) => s.staffId),
+    ])
+    const collectors = [...byCollector.values()].map((c) => ({ ...c, collectorName: names.get(c.collectedById) ?? c.collectedById }))
+
+    let shifts = shiftsRaw.map((s) => ({
+      id: s.id,
+      cashier: { id: s.staffId, name: names.get(s.staffId) ?? s.staffId },
+      status: s.status as CashierShiftStatus,
+      openedAt: s.openedAt.toISOString(),
+      closedAt: s.closedAt ? s.closedAt.toISOString() : null,
+      variance: (s.variance ?? null) as Record<string, number> | null,
+    }))
+    if (filter) {
+      const matches = (v: Record<string, number> | null): boolean => {
+        if (!v) return false
+        const vals = Object.values(v)
+        if (filter === 'overages') return vals.some((n) => n > 0)
+        if (filter === 'shortages') return vals.some((n) => n < 0)
+        return vals.some((n) => n !== 0) // overShort
+      }
+      shifts = shifts.filter((s) => matches(s.variance))
+    }
+
+    return { date: dateStr, propertyId, byCurrencyMethod: [...byCurrencyMethod.values()], byCollector: collectors, shifts }
+  }
+
   // ── Helpers privados ───────────────────────────────────────────────────────
+
+  /** Resuelve nombres de staff por id (manual join §204), ignora nulls/duplicados. */
+  private async resolveStaffNames(ids: (string | null | undefined)[]): Promise<Map<string, string>> {
+    const unique = [...new Set(ids.filter((x): x is string => !!x))]
+    if (unique.length === 0) return new Map()
+    const rows = await this.prisma.staff.findMany({ where: { id: { in: unique } }, select: { id: true, name: true } })
+    return new Map(rows.map((r) => [r.id, r.name]))
+  }
 
   private async loadShiftOrThrow(shiftId: string, propertyId: string) {
     const shift = await this.prisma.cashierShift.findFirst({ where: { id: shiftId, propertyId } })
@@ -389,6 +557,10 @@ export class CashierShiftService {
 }
 
 type CashRecord = Record<string, number>
+
+function round2(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100
+}
 
 /** Valida un saldo per-divisa `{ MXN: 2000, USD: 0 }` (ISO 4217, montos ≥ 0). */
 function assertCashByCurrency(v: unknown, field: string): void {

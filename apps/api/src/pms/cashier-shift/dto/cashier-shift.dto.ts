@@ -99,6 +99,19 @@ export class AddCashMovementDto {
   notes?: string
 }
 
+/** Query del resumen diario de caja (Sprint 3, SUPERVISOR). */
+export class CashSummaryQueryDto {
+  @IsString()
+  propertyId!: string
+
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'date debe ser YYYY-MM-DD' })
+  date!: string
+
+  @IsOptional()
+  @IsIn(['overShort', 'overages', 'shortages'])
+  filter?: 'overShort' | 'overages' | 'shortages'
+}
+
 /** Arqueo "spot" del supervisor (D-CASH13): conteo físico a mitad de turno SIN
  *  cerrarlo. No interrumpe al cajero. */
 export class RecordSpotCountDto {

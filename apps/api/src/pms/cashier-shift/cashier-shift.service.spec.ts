@@ -27,6 +27,7 @@ describe('CashierShiftService — Sprint 1 (apertura + handover + link)', () => 
     paymentLog: { findMany: jest.fn() },
     cashMovement: { findMany: jest.fn(), create: jest.fn() },
     propertySettings: { findUnique: jest.fn() },
+    staff: { findMany: jest.fn() },
     $transaction: jest.fn(),
   }
   const tenant = {
@@ -52,6 +53,7 @@ describe('CashierShiftService — Sprint 1 (apertura + handover + link)', () => 
     prisma.paymentLog.findMany.mockResolvedValue([])
     prisma.cashMovement.findMany.mockResolvedValue([])
     prisma.propertySettings.findUnique.mockResolvedValue({ cashVarianceThreshold: 50 })
+    prisma.staff.findMany.mockResolvedValue([{ id: 'staff-A', name: 'Ana' }])
     prisma.$transaction.mockImplementation((ops: any) =>
       Array.isArray(ops) ? Promise.all(ops) : ops(prisma),
     )
@@ -346,6 +348,88 @@ describe('CashierShiftService — Sprint 1 (apertura + handover + link)', () => 
       ])
       const res = await service.listShifts({}, supervisor())
       expect((res[0] as any).variance).toEqual({ MXN: -100 })
+    })
+  })
+
+  describe('reportes — Sprint 3 (D-CASH7/10, R3)', () => {
+    const reportRow = (over: any = {}) =>
+      openShiftRow({
+        status: CashierShiftStatus.RECONCILED,
+        openedAt: new Date('2026-06-14T08:00:00.000Z'),
+        closedAt: new Date('2026-06-14T16:00:00.000Z'),
+        openingSource: 'FRESH_BANK',
+        handoverFromShiftId: null,
+        openingAcceptedById: null,
+        closingWitnessId: null,
+        expectedClose: { MXN: 2700 },
+        actualClose: { MXN: 2700 },
+        variance: { MXN: 0 },
+        reconciledById: null,
+        reconciledAt: null,
+        ...over,
+      })
+
+    it('getShiftReport (cajero dueño) agrupa pagos y OMITE la reconciliación (R3)', async () => {
+      prisma.cashierShift.findFirst.mockResolvedValueOnce(reportRow())
+      prisma.paymentLog.findMany.mockResolvedValueOnce([
+        { method: PaymentMethod.CASH, currency: 'MXN', amount: 700 },
+        { method: PaymentMethod.CASH, currency: 'MXN', amount: 300 },
+      ])
+      prisma.cashMovement.findMany.mockResolvedValueOnce([
+        { id: 'm1', type: CashMovementType.PAID_OUT, currency: 'MXN', amount: -300, notes: null, createdById: 'staff-A', createdAt: new Date('2026-06-14T10:00:00Z') },
+        { id: 's1', type: CashMovementType.SPOT_COUNT, currency: 'MXN', amount: 2400, notes: 'spot', createdById: 'sup-1', createdAt: new Date('2026-06-14T12:00:00Z') },
+      ])
+      const rep = await service.getShiftReport('shift-1', recept('staff-A'))
+      expect(rep.payments.byMethodCurrency).toEqual([
+        { method: PaymentMethod.CASH, currency: 'MXN', total: 1000, count: 2 },
+      ])
+      expect(rep.payments.cashTotalByCurrency).toEqual({ MXN: 1000 })
+      // el SPOT_COUNT no aparece como movimiento normal
+      expect(rep.movements).toHaveLength(1)
+      expect(rep.movements[0].type).toBe(CashMovementType.PAID_OUT)
+      // R3 — cajero NO ve la reconciliación
+      expect(rep.reconciliation).toBeNull()
+      expect(rep.shift.cashier).toEqual({ id: 'staff-A', name: 'Ana' })
+    })
+
+    it('getShiftReport (supervisor) incluye reconciliación + spot counts', async () => {
+      prisma.cashierShift.findFirst.mockResolvedValueOnce(reportRow())
+      prisma.paymentLog.findMany.mockResolvedValueOnce([])
+      prisma.cashMovement.findMany.mockResolvedValueOnce([
+        { id: 's1', type: CashMovementType.SPOT_COUNT, currency: 'MXN', amount: 2400, notes: 'spot', createdById: 'staff-A', createdAt: new Date('2026-06-14T12:00:00Z') },
+      ])
+      const rep = await service.getShiftReport('shift-1', supervisor())
+      expect(rep.reconciliation).not.toBeNull()
+      expect(rep.reconciliation!.variance).toEqual({ MXN: 0 })
+      expect(rep.reconciliation!.spotCounts).toHaveLength(1)
+      expect(rep.reconciliation!.spotCounts[0].counted).toBe(2400)
+    })
+
+    it('getShiftReport: un cajero ajeno no ve el turno de otro', async () => {
+      prisma.cashierShift.findFirst.mockResolvedValueOnce(reportRow({ staffId: 'staff-A' }))
+      await expect(service.getShiftReport('shift-1', recept('staff-B'))).rejects.toBeInstanceOf(ForbiddenException)
+    })
+
+    it('getCashSummary agrupa por divisa/método + colector y filtra faltantes', async () => {
+      prisma.paymentLog.findMany.mockResolvedValueOnce([
+        { method: PaymentMethod.CASH, currency: 'MXN', amount: 1000, collectedById: 'staff-A' },
+        { method: PaymentMethod.CARD_TERMINAL, currency: 'MXN', amount: 500, collectedById: 'staff-A' },
+      ])
+      prisma.cashierShift.findMany.mockResolvedValueOnce([
+        { id: 'sh1', staffId: 'staff-A', status: CashierShiftStatus.RECONCILED, openedAt: new Date('2026-06-14T08:00:00Z'), closedAt: new Date('2026-06-14T16:00:00Z'), variance: { MXN: 0 } },
+        { id: 'sh2', staffId: 'staff-A', status: CashierShiftStatus.CLOSED, openedAt: new Date('2026-06-14T16:00:00Z'), closedAt: new Date('2026-06-14T23:00:00Z'), variance: { MXN: -80 } },
+      ])
+      const sum = await service.getCashSummary('prop-1', '2026-06-14', 'shortages')
+      expect(sum.byCurrencyMethod).toEqual(
+        expect.arrayContaining([
+          { currency: 'MXN', method: PaymentMethod.CASH, total: 1000, count: 1 },
+          { currency: 'MXN', method: PaymentMethod.CARD_TERMINAL, total: 500, count: 1 },
+        ]),
+      )
+      expect(sum.byCollector[0]).toMatchObject({ collectorName: 'Ana', total: 1500 })
+      // filtro shortages → solo el turno con variance negativa
+      expect(sum.shifts).toHaveLength(1)
+      expect(sum.shifts[0].id).toBe('sh2')
     })
   })
 })
