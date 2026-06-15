@@ -22,6 +22,18 @@ export function useCurrentShift() {
   })
 }
 
+/** Turno por recibir (gaveta compartida). `enabled` para fetch sólo al abrir el diálogo. */
+export function usePendingHandover(enabled = true) {
+  const propertyId = usePropertyStore((s) => s.activePropertyId)
+  return useQuery({
+    queryKey: ['cashier-shift', 'pending-handover', propertyId],
+    queryFn: () => cashierShiftApi.pendingHandover(),
+    enabled,
+    staleTime: 10 * 1000,
+    retry: false,
+  })
+}
+
 export function useOpenShift() {
   const qc = useQueryClient()
   return useMutation<CashierShiftDto, ApiError, OpenShiftBody>({

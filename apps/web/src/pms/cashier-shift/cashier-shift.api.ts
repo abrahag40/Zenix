@@ -26,8 +26,17 @@ export interface AddMovementBody {
   notes?: string
 }
 
+export interface PendingHandover {
+  id: string
+  cashier: { id: string; name: string }
+  closedAt: string | null
+  status: string
+  declaredClose: Record<string, number>
+}
+
 export const cashierShiftApi = {
   current: () => api.get<CashierShiftDto | null>('/v1/cashier-shifts/current'),
+  pendingHandover: () => api.get<PendingHandover | null>('/v1/cashier-shifts/pending-handover'),
   open: (body: OpenShiftBody) => api.post<CashierShiftDto>('/v1/cashier-shifts', body),
   close: (shiftId: string, body: CloseShiftBody) =>
     api.post<{ id: string; status: string }>(`/v1/cashier-shifts/${shiftId}/close`, body),

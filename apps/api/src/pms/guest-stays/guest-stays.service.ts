@@ -3570,6 +3570,12 @@ export class GuestStaysService {
     const newPaid     = Math.max(0, Number(original.stay.amountPaid) + voidAmount)
     const totalAmount = Number(original.stay.totalAmount)
 
+    // CASH-DRAWER (D-CASH14) — la devolución en efectivo SALE de la gaveta del
+    // turno ACTIVO (no del turno donde se cobró). Liga el void al turno abierto del
+    // cajero para que reste de SU arqueo. No-CASH → null.
+    const cashierShiftId =
+      (await this.cashierShift?.resolveShiftForCashPayment(original.stay.propertyId, actorId, original.method)) ?? null
+
     await this.prisma.$transaction([
       this.prisma.paymentLog.create({
         data: {
@@ -3586,6 +3592,7 @@ export class GuestStaysService {
           voidsLogId:     paymentLogId,
           shiftDate,
           collectedById:  actorId,
+          cashierShiftId,
         },
       }),
       this.prisma.guestStay.update({

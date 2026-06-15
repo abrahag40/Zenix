@@ -34,6 +34,12 @@ export class CashierShiftController {
     return this.service.getCurrentShift(actor)
   }
 
+  /** GET /v1/cashier-shifts/pending-handover — turno por recibir (gaveta compartida). */
+  @Get('pending-handover')
+  pendingHandover(@CurrentUser() actor: JwtPayload) {
+    return this.service.getPendingHandover(actor)
+  }
+
   /** GET /v1/cashier-shifts — listado (cajero: propios; supervisor: todos). */
   @Get()
   list(@Query() query: ListShiftsQueryDto, @CurrentUser() actor: JwtPayload) {

@@ -123,6 +123,41 @@ export class CashierShiftService {
   }
 
   /**
+   * GET /v1/cashier-shifts/pending-handover — el turno de caja que el cajero
+   * ENTRANTE debe recibir y aceptar (modelo gaveta compartida, D-CASH14/15).
+   * Es el último turno no-OPEN de la propiedad que aún NO fue traspasado (ningún
+   * turno posterior lo referencia como `handoverFromShiftId`). Cross-cajero a
+   * propósito: el que entra necesita ver el monto declarado para contarlo y
+   * aceptarlo. Devuelve sólo lo necesario para el traspaso (no el esperado/variance).
+   */
+  async getPendingHandover(actor: JwtPayload) {
+    if (actor.role !== StaffRole.SUPERVISOR && actor.role !== StaffRole.RECEPTIONIST) {
+      throw new ForbiddenException('Solo recepción/supervisor maneja la caja.')
+    }
+    const propertyId = this.tenant.getPropertyId()
+    const last = await this.prisma.cashierShift.findFirst({
+      where: { propertyId, status: { not: CashierShiftStatus.OPEN } },
+      orderBy: { closedAt: 'desc' },
+      select: { id: true, staffId: true, closedAt: true, actualClose: true, status: true },
+    })
+    if (!last) return null
+    // ¿ya fue traspasado a un turno posterior?
+    const successor = await this.prisma.cashierShift.findFirst({
+      where: { handoverFromShiftId: last.id },
+      select: { id: true },
+    })
+    if (successor) return null
+    const names = await this.resolveStaffNames([last.staffId])
+    return {
+      id: last.id,
+      cashier: { id: last.staffId, name: names.get(last.staffId) ?? last.staffId },
+      closedAt: last.closedAt ? last.closedAt.toISOString() : null,
+      status: last.status as CashierShiftStatus,
+      declaredClose: (last.actualClose ?? {}) as Record<string, number>,
+    }
+  }
+
+  /**
    * GET /v1/cashier-shifts — listado de turnos de la propiedad.
    * D-CASH10: el cajero ve sólo SUS turnos; el SUPERVISOR ve todos.
    */
@@ -499,8 +534,13 @@ export class CashierShiftService {
     threshold: number,
   ) {
     const [payments, movements] = await Promise.all([
+      // Arqueo = flujo NETO de efectivo del turno. NO se filtra isVoid: la entrada
+      // del void es negativa (`amount < 0`) y representa el efectivo que SALE de la
+      // gaveta al devolver — debe restar del esperado. Excluirla daría un falso
+      // faltante. Cobro +X (turno A) y su void −X (turno donde se devuelve) cuadran
+      // cada uno en su propia gaveta.
       this.prisma.paymentLog.findMany({
-        where: { cashierShiftId: shift.id, method: PaymentMethod.CASH, isVoid: false },
+        where: { cashierShiftId: shift.id, method: PaymentMethod.CASH },
         select: { currency: true, amount: true },
       }),
       this.prisma.cashMovement.findMany({

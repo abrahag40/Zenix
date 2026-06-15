@@ -432,4 +432,48 @@ describe('CashierShiftService — Sprint 1 (apertura + handover + link)', () => 
       expect(sum.shifts[0].id).toBe('sh2')
     })
   })
+
+  describe('handover — gaveta compartida (D-CASH14, S5a)', () => {
+    it('getPendingHandover: último turno no-OPEN sin sucesor → lo devuelve para aceptar', async () => {
+      prisma.cashierShift.findFirst
+        .mockResolvedValueOnce({ id: 'prev', staffId: 'staff-A', closedAt: new Date('2026-06-14T16:00:00Z'), actualClose: { MXN: 1700 }, status: CashierShiftStatus.RECONCILED })
+        .mockResolvedValueOnce(null) // sin sucesor
+      const res = await service.getPendingHandover(recept('staff-B'))
+      expect(res?.id).toBe('prev')
+      expect(res?.declaredClose).toEqual({ MXN: 1700 })
+      expect(res?.cashier).toEqual({ id: 'staff-A', name: 'Ana' })
+    })
+
+    it('getPendingHandover: turno ya traspasado → null', async () => {
+      prisma.cashierShift.findFirst
+        .mockResolvedValueOnce({ id: 'prev', staffId: 'staff-A', closedAt: new Date(), actualClose: { MXN: 1700 }, status: CashierShiftStatus.RECONCILED })
+        .mockResolvedValueOnce({ id: 'succ' }) // ya hay sucesor
+      expect(await service.getPendingHandover(recept('staff-B'))).toBeNull()
+    })
+
+    it('getPendingHandover: sin turnos previos → null', async () => {
+      prisma.cashierShift.findFirst.mockResolvedValueOnce(null)
+      expect(await service.getPendingHandover(recept())).toBeNull()
+    })
+
+    it('getPendingHandover: HOUSEKEEPER → Forbidden', async () => {
+      const hk = { sub: 'hk', email: 'm@z.co', role: StaffRole.HOUSEKEEPER, propertyId: PROP, organizationId: ORG } as JwtPayload
+      await expect(service.getPendingHandover(hk)).rejects.toBeInstanceOf(ForbiddenException)
+    })
+  })
+
+  describe('arqueo NETO con void (S5a) — la entrada negativa del void resta del esperado', () => {
+    it('cobro +1000 y su void −300 en el turno → esperado = fondo + 700', async () => {
+      prisma.cashierShift.findFirst.mockResolvedValueOnce(openShiftRow())
+      prisma.paymentLog.findMany.mockResolvedValueOnce([
+        { currency: 'MXN', amount: 1000 }, // cobro
+        { currency: 'MXN', amount: -300 }, // void (isVoid true, pero NO se filtra)
+      ])
+      prisma.propertySettings.findUnique.mockResolvedValueOnce({ cashVarianceThreshold: 50 })
+      await service.closeShift('shift-1', { actualClose: { MXN: 2700 } }, recept('staff-A'))
+      const upd = prisma.cashierShift.update.mock.calls[0][0].data
+      expect(upd.expectedClose).toEqual({ MXN: 2700 }) // 2000 + 1000 − 300
+      expect(upd.status).toBe(CashierShiftStatus.RECONCILED)
+    })
+  })
 })
