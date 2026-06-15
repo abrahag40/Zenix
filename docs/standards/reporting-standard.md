@@ -3,6 +3,12 @@
 > **Fecha:** 2026-06-14 · **Estado:** PROPUESTA (pendiente endorsement del owner) · **Alcance:** TODOS los módulos con reportería (caja, no-shows, estadías, métricas, overstayed, housekeeping, y futuros REPORTS-CORE / PAY-CORE / CFDI).
 >
 > **Por qué existe:** feedback del owner 2026-06-14 — *"un simple modal que muestra información es imposible considerarlo como un reporte serio… el sistema debería reducir al máximo cualquier operación de información que necesite el personal administrativo… de lo contrario el sistema solo serviría como adorno."* Este documento define qué ES un reporte en Zenix y el "deber ser" que lo justifica con data.
+>
+> **📁 Documentos hermanos (consultar para reportería):**
+> - **[report-catalog.md](./report-catalog.md)** — catálogo COMPLETO: todos los reportes definidos (área, usuario, columnas + justificación, estado de datos, país). Consultar ANTES de construir un reporte.
+> - **[../research/report-internationalization-latam.md](../research/report-internationalization-latam.md)** — internacionalización de reportes LATAM + dueño multi-país (BR/MX).
+> - **[../research/pms-reporting-landscape.md](../research/pms-reporting-landscape.md)** + **[../research/cash-card-accounting-pms-benchmark.md](../research/cash-card-accounting-pms-benchmark.md)** — estudios base (ama/odia/desea + benchmark caja/contabilidad).
+> - **[../sprints/REPORTS-REVAMP-plan.md](../sprints/REPORTS-REVAMP-plan.md) §10** — handoff + runbook de continuación (cómo activar reportes bloqueados, fast-follows).
 
 ---
 
