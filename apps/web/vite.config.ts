@@ -29,7 +29,9 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:3000',
+        // Configurable por env (default :3000) — permite levantar una instancia
+        // de preview apuntando a otra API local sin tocar el server por defecto.
+        target: process.env.VITE_API_PROXY || 'http://localhost:3000',
         changeOrigin: true,
         // Custom error handler — el spam de "AggregateError [ECONNREFUSED]"
         // explotaba la terminal cada vez que el API no estaba arriba (Sprint

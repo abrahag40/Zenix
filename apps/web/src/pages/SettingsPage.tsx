@@ -21,10 +21,11 @@ import { FxSection } from '../components/settings/FxSection'
 import { CancellationPoliciesSection } from './settings/CancellationPoliciesSection'
 import { RatesManagerSection } from './settings/RatesManagerSection'
 import { CompsetSection } from './settings/CompsetSection'
+import { CashSettingsSection } from './settings/CashSettingsSection'
 import type { UnitDto, PropertySettingsDto, RoomDto, StaffDto } from '@zenix/shared'
 import { Capability, StaffRole, RoomCategory } from '@zenix/shared'
 
-type Section = 'rooms' | 'staff' | 'scheduling' | 'property' | 'fx' | 'rates' | 'cancellation' | 'compset' | 'legal-entity' | 'support'
+type Section = 'rooms' | 'staff' | 'scheduling' | 'property' | 'fx' | 'rates' | 'cancellation' | 'compset' | 'cash' | 'legal-entity' | 'support'
 
 const TABS: { key: Section; label: string; icon: string }[] = [
   { key: 'rooms',        label: 'Habitaciones', icon: '🛏️' },
@@ -35,6 +36,7 @@ const TABS: { key: Section; label: string; icon: string }[] = [
   { key: 'rates',        label: 'Tarifas',      icon: '💲' },
   { key: 'cancellation', label: 'Cancelaciones', icon: '🚫' },
   { key: 'compset',      label: 'Compset',      icon: '📊' },
+  { key: 'cash',         label: 'Caja',         icon: '💵' },
   { key: 'legal-entity', label: 'Facturación',  icon: '🧾' },
   { key: 'support',      label: 'Soporte',      icon: '🛟' },
 ]
@@ -87,6 +89,7 @@ export function SettingsPage() {
       {section === 'rates'      && <RatesManagerSection isSupervisor={isSupervisor} />}
       {section === 'cancellation' && <CancellationPoliciesSection isSupervisor={isSupervisor} />}
       {section === 'compset'    && <CompsetSection isSupervisor={isSupervisor} />}
+      {section === 'cash'       && <CashSettingsSection isSupervisor={isSupervisor} />}
       {section === 'legal-entity' && <LegalEntitySection isSupervisor={isSupervisor} />}
       {section === 'support'    && <SupportSection isSupervisor={isSupervisor} />}
     </div>

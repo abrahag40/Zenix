@@ -1,4 +1,4 @@
-import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Matches, Max, Min } from 'class-validator'
+import { IsBoolean, IsEnum, IsIn, IsInt, IsNumber, IsOptional, IsString, Matches, Max, Min } from 'class-validator'
 import { CarryoverPolicy, StayoverFrequency } from '@zenix/shared'
 
 export class UpdateSettingsDto {
@@ -97,4 +97,33 @@ export class UpdateSettingsDto {
   @IsOptional()
   @IsEnum(StayoverFrequency)
   stayoverFrequency?: StayoverFrequency
+
+  // ── Caja / Arqueo (Sprint CASH-DRAWER-REPORTS, D-CASH4/5/6/12/15) ─────────
+  /** Si true, cobrar en efectivo exige un turno de caja abierto. Default false. */
+  @IsOptional()
+  @IsBoolean()
+  cashShiftRequired?: boolean
+
+  /** Conteo a ciegas al cerrar (el cajero no ve el esperado). Default true. */
+  @IsOptional()
+  @IsBoolean()
+  cashBlindCount?: boolean
+
+  /** Umbral de variance (moneda base) que exige razón + conciliación supervisor. */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  cashVarianceThreshold?: number
+
+  /** Alerta si un turno queda abierto más de N horas. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(72)
+  cashShiftAutoCloseHours?: number
+
+  /** Modelo de fondo: PERSONAL_IMPREST | CARRIED_BALANCE | SHARED. */
+  @IsOptional()
+  @IsIn(['PERSONAL_IMPREST', 'CARRIED_BALANCE', 'SHARED'])
+  cashBankModel?: string
 }
