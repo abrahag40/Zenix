@@ -52,7 +52,7 @@ const GROUPS: { area: string; reports: ReportCard[] }[] = [
   {
     area: 'Comercial / Revenue',
     reports: [
-      { key: 'noshow', title: 'No-shows', description: 'Reservas no presentadas, cargos e iniciador.', to: '/reports/classic?tab=noshow', icon: CalendarX, legacy: true },
+      { key: 'noshow', title: 'No-shows', description: 'Reservas no presentadas, cargo, estado y quién lo marcó. Export Excel/CSV.', to: '/reports/no-shows', icon: CalendarX, supervisorOnly: true },
       { key: 'stays', title: 'Estadías extendidas', description: 'Huéspedes que extendieron, con datos de contacto.', to: '/reports/classic?tab=stays', icon: TrendingUp, legacy: true },
     ],
   },

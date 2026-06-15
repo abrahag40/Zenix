@@ -357,6 +357,85 @@ export class ReportsService {
   }
 
   /**
+   * Reporte tabular de No-shows (Estándar de Reportes) — lista auditada operable +
+   * export. Filtro de divisa para que el total de cargos sea SUM-able; el listado
+   * muestra todas las filas (los cargos en otra divisa no suman al total).
+   */
+  async buildNoShowReportRows(
+    propertyId: string,
+    params: { from: string; to: string; currency?: string; status?: string; sort?: string; dir?: string },
+  ) {
+    const fromDate = new Date(params.from); fromDate.setHours(0, 0, 0, 0)
+    const toDate = new Date(params.to); toDate.setHours(23, 59, 59, 999)
+    const noShows = await this.prisma.guestStay.findMany({
+      where: { room: { propertyId }, noShowAt: { gte: fromDate, lte: toDate } },
+      select: {
+        id: true, guestName: true, checkinAt: true, noShowAt: true, noShowReason: true,
+        noShowFeeAmount: true, noShowFeeCurrency: true, noShowChargeStatus: true, noShowById: true,
+        source: true, room: { select: { number: true } },
+      },
+      orderBy: { noShowAt: 'desc' },
+    })
+    const availableCurrencies = [...new Set(noShows.map((n) => n.noShowFeeCurrency).filter(Boolean) as string[])].sort()
+    const availableStatuses = [...new Set(noShows.map((n) => n.noShowChargeStatus).filter(Boolean) as string[])].sort()
+    const currency = params.currency || availableCurrencies[0] || 'MXN'
+    const ids = [...new Set(noShows.map((n) => n.noShowById).filter(Boolean) as string[])]
+    const staff = ids.length ? await this.prisma.staff.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }) : []
+    const nameById = new Map(staff.map((s) => [s.id, s.name]))
+
+    const rows = noShows
+      .filter((n) => !params.status || n.noShowChargeStatus === params.status)
+      .map((n) => ({
+        id: n.id,
+        noShowAt: n.noShowAt!.toISOString(),
+        guest: n.guestName,
+        room: n.room.number,
+        scheduledCheckin: n.checkinAt.toISOString(),
+        source: n.source ?? 'DIRECTO',
+        fee: n.noShowFeeAmount ? Number(n.noShowFeeAmount) : 0,
+        feeCurrency: n.noShowFeeCurrency,
+        chargeStatus: n.noShowChargeStatus,
+        reason: n.noShowReason,
+        markedBy: n.noShowById ? nameById.get(n.noShowById) ?? n.noShowById : null,
+      }))
+
+    const SORTABLE = ['noShowAt', 'guest', 'room', 'source', 'fee', 'chargeStatus'] as const
+    const sortKey = (SORTABLE as readonly string[]).includes(params.sort ?? '') ? (params.sort as (typeof SORTABLE)[number]) : 'noShowAt'
+    const dir = params.dir === 'asc' ? 1 : -1
+    rows.sort((a, b) => {
+      const va = a[sortKey] as string | number | null
+      const vb = b[sortKey] as string | number | null
+      if (va == null && vb == null) return 0
+      if (va == null) return 1
+      if (vb == null) return -1
+      return (va < vb ? -1 : va > vb ? 1 : 0) * dir
+    })
+    const fee = Math.round(rows.filter((r) => r.feeCurrency === currency).reduce((s, r) => s + r.fee, 0) * 100) / 100
+    return { rows, totals: { count: rows.length, fee }, currency, availableCurrencies, availableStatuses, sort: sortKey, dir: dir === 1 ? 'asc' : 'desc' }
+  }
+
+  async getNoShowReportTable(
+    propertyId: string,
+    params: { from: string; to: string; currency?: string; status?: string; sort?: string; dir?: string; page?: number; pageSize?: number },
+  ) {
+    const r = await this.buildNoShowReportRows(propertyId, params)
+    const page = Math.max(1, params.page ?? 1)
+    const pageSize = Math.min(200, Math.max(1, params.pageSize ?? 25))
+    return {
+      rows: r.rows.slice((page - 1) * pageSize, page * pageSize),
+      total: r.rows.length,
+      totals: r.totals,
+      currency: r.currency,
+      availableCurrencies: r.availableCurrencies,
+      availableStatuses: r.availableStatuses,
+      sort: r.sort,
+      dir: r.dir,
+      page,
+      pageSize,
+    }
+  }
+
+  /**
    * getStayJourneysReport — Reporte de extensiones de estadía para administración.
    *
    * Fuente de datos: StaySegment WHERE reason IN (EXTENSION_SAME_ROOM, EXTENSION_NEW_ROOM)

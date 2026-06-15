@@ -1,9 +1,27 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common'
+import { Controller, Get, Query, Res, UseGuards } from '@nestjs/common'
+import type { Response } from 'express'
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard'
 import { CurrentUser } from '../common/decorators/current-user.decorator'
-import { JwtPayload } from '@zenix/shared'
+import { Roles } from '../common/decorators/roles.decorator'
+import { JwtPayload, StaffRole } from '@zenix/shared'
 import { ReportsService } from './reports.service'
 import { OptionalDateRangeDto } from '../common/dto/date-range.dto'
+import { NoShowReportExportQueryDto, NoShowReportQueryDto } from './dto/no-show-report-query.dto'
+import { buildReportCsv, buildReportXlsx, type ReportColumn } from '../common/report-export'
+
+function noShowColumns(currency: string): ReportColumn[] {
+  return [
+    { key: 'noShowAt', header: 'Marcado', width: 16 },
+    { key: 'guest', header: 'Huésped', width: 24 },
+    { key: 'room', header: 'Habitación', width: 12 },
+    { key: 'scheduledCheckin', header: 'Llegada esperada', width: 16 },
+    { key: 'source', header: 'Canal', width: 14 },
+    { key: 'fee', header: `Cargo (${currency})`, width: 12, numFmt: '#,##0.00' },
+    { key: 'chargeStatus', header: 'Estado cargo', width: 14 },
+    { key: 'reason', header: 'Razón', width: 24 },
+    { key: 'markedBy', header: 'Marcado por', width: 20 },
+  ]
+}
 
 function toYMD(d: Date) {
   return d.toISOString().slice(0, 10)
@@ -61,6 +79,44 @@ export class ReportsController {
       dto.from ?? daysAgo(29),
       dto.to ?? toYMD(new Date()),
     )
+  }
+
+  /** GET /reports/no-shows-table — reporte tabular paginado de no-shows (SUPERVISOR). */
+  @Get('no-shows-table')
+  @Roles(StaffRole.SUPERVISOR)
+  noShowTable(@CurrentUser() user: JwtPayload, @Query() q: NoShowReportQueryDto) {
+    return this.service.getNoShowReportTable(user.propertyId, q)
+  }
+
+  /** GET /reports/no-shows-table/export?format=xlsx|csv — export del reporte (SUPERVISOR). */
+  @Get('no-shows-table/export')
+  @Roles(StaffRole.SUPERVISOR)
+  async noShowTableExport(
+    @CurrentUser() user: JwtPayload,
+    @Query() q: NoShowReportExportQueryDto,
+    @Res() res: Response,
+  ) {
+    const { rows, totals, currency } = await this.service.buildNoShowReportRows(user.propertyId, q)
+    const cols = noShowColumns(currency)
+    const exportRows = rows.map((r) => ({
+      ...r,
+      noShowAt: r.noShowAt.slice(0, 10),
+      scheduledCheckin: r.scheduledCheckin.slice(0, 10),
+    }))
+    const totalsRow = { guest: 'TOTALES', fee: totals.fee }
+    if (q.format === 'csv') {
+      res.set({
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="no-shows.csv"',
+      })
+      return res.send(buildReportCsv(cols, exportRows, totalsRow))
+    }
+    const buf = await buildReportXlsx('No-shows', cols, exportRows, totalsRow)
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': 'attachment; filename="no-shows.xlsx"',
+    })
+    return res.send(buf)
   }
 
   /**
