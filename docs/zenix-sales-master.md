@@ -330,6 +330,20 @@ Ningún otro PMS del mercado hace este auto-detect en el momento del gesto. En O
 
 ---
 
+### Reprogramar fechas pre-check-in — sin cancelar ni recrear
+
+Llega la llamada más común de recepción: *"reservé para el 10 pero quiero llegar el 12"*, o *"necesito adelantar mi llegada"*, o *"me quedo dos noches más"*. En la mayoría de los PMS pequeños la única salida es **cancelar la reserva y crear una nueva** — y eso rompe el folio, el historial de pagos, el código de reserva y el vínculo con la OTA, además de ensuciar los reportes con una cancelación que nunca ocurrió.
+
+Zenix lo resuelve en **un solo gesto**. Desde el panel de la reserva, el botón "Editar fechas" abre un diálogo donde el recepcionista mueve la llegada y/o la salida libremente — adelantar, retrasar, alargar o acortar. Mientras ajusta las fechas, el sistema le muestra **en vivo**: si el rango está disponible, cuántas noches quedan, y cómo cambia el saldo. Si el nuevo rango choca con otra reserva en la misma habitación, en vez de un error ofrece **habitaciones alternativas del mismo tipo, ya verificadas libres** — el recepcionista elige una y resuelve sin salir del diálogo. La misma reserva conserva su folio, su historial y su código; el cambio queda registrado con quién lo hizo, cuándo, y el antes/después.
+
+**La tarifa, sin sorpresas.** Por defecto se respeta la tarifa que el huésped pactó (recalculando solo noches × esa tarifa). Si el hotel quiere recotizar al precio vigente del nuevo rango — útil cuando la reserva se mueve a temporada alta — un interruptor opcional lo permite, mostrando la diferencia en dinero antes de confirmar. Nunca un cambio de precio silencioso.
+
+**La garantía que protege contra overbooking (reservas de OTA).** Cuando se reprograma una reserva que vino de Booking.com o Expedia, Zenix **sincroniza la disponibilidad con el canal en tiempo real**: libera automáticamente las noches anteriores y bloquea las nuevas, de modo que la OTA no puede revender las fechas viejas ni sobre-vender las nuevas. El inventario queda protegido al instante. Lo único que requiere un toque manual es actualizar el *registro* de la reserva dentro del extranet de la OTA — y para eso Zenix avisa al supervisor con una tarea explícita, sin dejar nada al azar. *(El empuje automático de la modificación al canal llega cuando Channex habilite la escritura de reservas; mientras tanto, el diferenciador real —cero overbooking— ya está cubierto.)*
+
+Paridad con Cloudbeds, Mews, OPERA Cloud y Little Hotelier, que editan fechas de una reserva no llegada en una sola acción — pero con dos ventajas que esos no combinan: el preview de disponibilidad + alternativas **en el momento del gesto** (no al fallar la confirmación), y la honestidad operativa sobre la sincronización OTA (anti-overbooking garantizado + aviso explícito para el ajuste manual).
+
+---
+
 ### Traslado mid-stay — con trazabilidad completa
 
 Si un huésped necesita cambiar de habitación a mitad de su estadía, el sistema registra la historia completa: habitación origen, habitación destino, fecha del traslado, quién lo autorizó, y el delta de precio. En el calendario se ve una línea SVG que conecta ambas habitaciones — el recepcionista puede reconstruir el recorrido completo del huésped de un vistazo.

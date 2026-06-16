@@ -7,6 +7,7 @@ import type { GuestSearchResult } from '../api/guest-stays.api'
 import type { NewStayData } from '../components/dialogs/CheckInDialog'
 import { OTA_OPTIONS } from '../components/dialogs/CheckInDialog'
 import type { GuestStayBlock } from '../types/timeline.types'
+import type { EditDatesPreview } from '@zenix/shared'
 
 /** Converts a raw API record (Prisma GuestStay) into the frontend GuestStayBlock. */
 function adaptStay(raw: Record<string, unknown>): GuestStayBlock {
@@ -1090,5 +1091,90 @@ export function useGuestStaySearch(q: string) {
     placeholderData: keepPreviousData,
     staleTime: 15_000,
     retry: false,
+  })
+}
+
+/**
+ * RESERVATION-EDIT-PRECHECKIN — preview en vivo del impacto de reprogramar
+ * fechas (disponibilidad + alternativas + diff de noches/saldo + recotización).
+ * El caller pasa las fechas ya debounced; la query se habilita cuando ambas son
+ * válidas. keepPreviousData evita parpadeo mientras el recepcionista ajusta.
+ */
+export function useEditDatesPreview(
+  stayId: string | null,
+  checkInAt: Date | null,
+  scheduledCheckout: Date | null,
+  newRoomId?: string,
+) {
+  const enabled =
+    !!stayId &&
+    !!checkInAt &&
+    !!scheduledCheckout &&
+    !Number.isNaN(checkInAt.getTime()) &&
+    !Number.isNaN(scheduledCheckout.getTime())
+  return useQuery<EditDatesPreview>({
+    queryKey: [
+      'edit-dates-preview',
+      stayId,
+      checkInAt?.toISOString(),
+      scheduledCheckout?.toISOString(),
+      newRoomId ?? null,
+    ],
+    queryFn: () => guestStaysApi.editDatesPreview(stayId!, checkInAt!, scheduledCheckout!, newRoomId),
+    enabled,
+    placeholderData: keepPreviousData,
+    staleTime: 10_000,
+    retry: false,
+  })
+}
+
+/**
+ * RESERVATION-EDIT-PRECHECKIN — aplica la reprogramación de fechas. Refresca el
+ * calendario (guest-stays + stay-journeys-timeline + rooms) y ramifica el toast
+ * según rama OTA (D-REP-1) y códigos de error machine-readable (§39 NN/g H9).
+ */
+export function useEditReservationDates(propertyId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      stayId,
+      ...data
+    }: {
+      stayId: string
+      checkInAt: string
+      scheduledCheckout: string
+      newRoomId?: string
+      reprice?: boolean
+      reason?: string
+    }) => guestStaysApi.editDates(stayId, data),
+    onSuccess: async (result) => {
+      await qc.refetchQueries({ queryKey: ['guest-stays', propertyId], exact: false, type: 'active' })
+      await qc.refetchQueries({ queryKey: ['stay-journeys-timeline', propertyId], exact: false, type: 'active' })
+      qc.invalidateQueries({ queryKey: ['rooms', propertyId], exact: false })
+      if (result.requiresOtaManualAdjust) {
+        toast.success(
+          `Fechas actualizadas. La disponibilidad ya se sincronizó con ${result.otaName ?? 'la OTA'}; ` +
+            `ajusta el registro de la reserva en su extranet (se avisó al supervisor).`,
+          { duration: 7000 },
+        )
+      } else {
+        toast.success(
+          result.repriced ? 'Fechas actualizadas y tarifa recotizada' : 'Fechas actualizadas',
+        )
+      }
+    },
+    onError: (err: Error) => {
+      const code = err instanceof ApiError ? err.code : undefined
+      const map: Record<string, string> = {
+        NOT_PRECHECKIN:   'Solo se pueden reprogramar reservas que aún no han hecho check-in',
+        CANCELLED:        'La reserva está cancelada — restáurala primero',
+        NOSHOW_LOCKED:    'La reserva está marcada como no-show — revierte el no-show primero',
+        HAS_EXTENSIONS:   'La reserva tiene extensiones — gestiónalas por separado',
+        PAST_ARRIVAL:     'La fecha de llegada no puede ser anterior a hoy',
+        INVALID_RANGE:    'La salida debe ser posterior a la llegada',
+        RANGE_UNAVAILABLE:'La habitación no está disponible para el nuevo rango',
+      }
+      toast.error(code && map[code] ? map[code] : err.message ?? 'No se pudieron cambiar las fechas')
+    },
   })
 }

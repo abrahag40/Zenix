@@ -579,12 +579,19 @@ export class GuestStaysService {
    *   CHANNEX                    → ROOM_STATUS (HARD — room not bookable externally)
    *
    * @param excludeStayId - optional stayId to exclude (used by moveRoom to ignore the stay being moved)
+   * @param excludeJourneyId - optional journeyId to exclude. CRÍTICO para
+   *   self-exclusion completa: `excludeStayId` solo excluye la fila GuestStay,
+   *   pero los StaySegment de esa misma reserva (segmento ORIGINAL) seguirían
+   *   contando como conflicto. Pasar el journeyId excluye la stay Y sus
+   *   segmentos — sin esto, alargar/acortar el propio rango da un falso 409
+   *   contra uno mismo (RESERVATION-EDIT-PRECHECKIN bug 2026-06-16).
    */
   async checkAvailability(
     roomId: string,
     checkIn: Date,
     checkOut: Date,
     excludeStayId?: string,
+    excludeJourneyId?: string,
   ): Promise<RoomAvailabilityResult> {
     const orgId = this.tenant.getOrganizationId()
 
@@ -616,6 +623,7 @@ export class GuestStaysService {
       from: checkIn,
       to: checkOut,
       excludeStayIds: excludeStayId ? [excludeStayId] : undefined,
+      excludeJourneyId,
     })
 
     for (const c of result.conflicts) {
@@ -4154,7 +4162,7 @@ export class GuestStaysService {
     const roomChanged = targetRoomId !== stay.roomId
 
     // §35 — disponibilidad con self-exclusion (la propia reserva no es conflicto).
-    const avail = await this.checkAvailability(targetRoomId, newCheckIn, newCheckOut, stayId)
+    const avail = await this.checkAvailability(targetRoomId, newCheckIn, newCheckOut, stayId, stay.stayJourney?.id)
     if (!avail.available) {
       const hard = avail.conflicts.find((c) => c.severity === 'HARD')
       throw new ConflictException({
@@ -4400,6 +4408,7 @@ export class GuestStaysService {
     checkIn: Date,
     checkOut: Date,
     excludeStayId: string,
+    excludeJourneyId?: string,
   ): Promise<{ roomId: string; number: string | null }[]> {
     if (!roomTypeId) return []
     const orgId = this.tenant.getOrganizationId()
@@ -4417,7 +4426,7 @@ export class GuestStaysService {
     })
     const out: { roomId: string; number: string | null }[] = []
     for (const c of candidates) {
-      const a = await this.checkAvailability(c.id, checkIn, checkOut, excludeStayId)
+      const a = await this.checkAvailability(c.id, checkIn, checkOut, excludeStayId, excludeJourneyId)
       if (a.available) out.push({ roomId: c.id, number: c.number })
       if (out.length >= 8) break
     }
@@ -4493,10 +4502,10 @@ export class GuestStaysService {
     const targetRoomId = newRoomId ?? stay.roomId
     const roomChanged = targetRoomId !== stay.roomId
 
-    const avail = await this.checkAvailability(targetRoomId, newCheckIn, newCheckOut, stayId)
+    const avail = await this.checkAvailability(targetRoomId, newCheckIn, newCheckOut, stayId, stay.stayJourney?.id)
     const alternatives = avail.available
       ? []
-      : await this.findAlternativeRooms(stay.propertyId, stay.room.roomTypeId, stay.roomId, newCheckIn, newCheckOut, stayId)
+      : await this.findAlternativeRooms(stay.propertyId, stay.room.roomTypeId, stay.roomId, newCheckIn, newCheckOut, stayId, stay.stayJourney?.id)
 
     // D-REP-4 — conservar vs recotizar.
     const keptTotal = Math.round(currentRate * nights * 100) / 100

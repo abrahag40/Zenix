@@ -39,6 +39,7 @@ import {
   ChevronDown,
   Wrench,
   CalendarPlus,
+  CalendarClock,
   Split as SplitIcon,
 } from 'lucide-react'
 
@@ -88,6 +89,10 @@ interface BookingDetailSheetProps {
   onRevertNoShow: (stayId: string) => void
   onStartCheckin?: (stayId: string) => void
   onCancelReservation?: (stayId: string) => void
+  /** RESERVATION-EDIT-PRECHECKIN — reprogramar el rango de fechas de una
+   *  reserva pre-check-in. Solo se renderiza la acción cuando la reserva aún
+   *  no ha hecho check-in, no está cancelada/no-show y no tiene extensiones. */
+  onEditDates?: (stayId: string) => void
   /** Confirma la mudanza física de un segmento (entrega de nueva llave).
    *  Solo se renderiza la acción cuando segment.reason in [EXT_NEW_ROOM,
    *  ROOM_MOVE] + checkIn ≤ today + !moveConfirmedAt. */
@@ -739,6 +744,7 @@ export function BookingDetailSheet({
   onRevertNoShow,
   onStartCheckin,
   onCancelReservation,
+  onEditDates,
   onConfirmSegmentMove,
   confirmMovePending = false,
   onOpenMaintenanceTicket,
@@ -1070,6 +1076,10 @@ export function BookingDetailSheet({
   const canEarlyCheckout   = !isNoShow && status === 'IN_HOUSE' && (!isArrivalDay || !!stay.actualCheckin)
   // Cancel-Archive: solo pre-checkin, no IN_HOUSE/DEPARTED/NO_SHOW/CANCELLED.
   const canCancel = !isNoShow && !stay.actualCheckin && !stay.actualCheckout && !stay.cancelledAt
+  // RESERVATION-EDIT-PRECHECKIN — reprogramable solo pre-check-in, sin extensiones
+  // (el segmento debe ser el ORIGINAL; bloques de extensión/move/split no editan rango).
+  const canEditDates =
+    canCancel && !!onEditDates && (!stay.segmentReason || stay.segmentReason === 'ORIGINAL')
 
   const isRoomMove = stay.segmentReason === 'ROOM_MOVE'
   const isSplit    = stay.segmentReason === 'SPLIT'
@@ -2614,6 +2624,18 @@ export function BookingDetailSheet({
               >
                 <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
                 Ver folio completo →
+              </Button>
+            )}
+
+            {canEditDates && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1 text-xs border-slate-300 text-slate-700 hover:bg-slate-50"
+                onClick={() => onEditDates!(stay.id)}
+              >
+                <CalendarClock className="h-3.5 w-3.5 mr-1.5" />
+                Editar fechas
               </Button>
             )}
 

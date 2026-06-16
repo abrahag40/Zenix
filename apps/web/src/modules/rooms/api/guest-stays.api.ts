@@ -1,5 +1,11 @@
 import { api } from '@/api/client'
-import type { RoomAvailabilityResult, ConfirmCheckinInput, PaymentEntryInput } from '@zenix/shared'
+import type {
+  RoomAvailabilityResult,
+  ConfirmCheckinInput,
+  PaymentEntryInput,
+  EditDatesPreview,
+  EditReservationDatesResult,
+} from '@zenix/shared'
 
 export type { ConfirmCheckinInput, PaymentEntryInput }
 
@@ -242,6 +248,19 @@ export const guestStaysApi = {
 
   extendStay: (stayId: string, newCheckOut: Date) =>
     api.patch(`${BASE}/${stayId}/extend`, { newCheckOut: newCheckOut.toISOString() }),
+
+  // RESERVATION-EDIT-PRECHECKIN — reprogramar el rango de una reserva pre-check-in.
+  editDatesPreview: (stayId: string, checkInAt: Date, scheduledCheckout: Date, newRoomId?: string) =>
+    api.get<EditDatesPreview>(
+      `${BASE}/${stayId}/edit-dates-preview?checkInAt=${encodeURIComponent(checkInAt.toISOString())}` +
+        `&scheduledCheckout=${encodeURIComponent(scheduledCheckout.toISOString())}` +
+        (newRoomId ? `&newRoomId=${newRoomId}` : ''),
+    ),
+
+  editDates: (
+    stayId: string,
+    data: { checkInAt: string; scheduledCheckout: string; newRoomId?: string; reprice?: boolean; reason?: string },
+  ) => api.post<EditReservationDatesResult>(`${BASE}/${stayId}/edit-dates`, data),
 
   extendSameRoom: (journeyId: string, newCheckOut: Date) =>
     api.post(`/v1/stay-journeys/${journeyId}/extend-same-room`, {

@@ -176,13 +176,19 @@ describe('GuestStaysService — editReservationDates (RESERVATION-EDIT-PRECHECKI
   })
 
   // ── HU-1.2 self-exclusion ──────────────────────────────────────────────
-  it('valida disponibilidad excluyéndose a sí misma (excludeStayIds)', async () => {
+  it('valida disponibilidad excluyéndose a sí misma (stay + journey)', async () => {
     prismaMock.guestStay.findFirst.mockResolvedValue(makeStay())
 
     await service.editReservationDates(STAY_ID, dto(), ACTOR_ID)
 
+    // Excluye la fila GuestStay Y su journey — sin el journey, el segmento
+    // ORIGINAL propio contaría como conflicto al alargar/acortar el rango.
     expect(availabilityMock.check).toHaveBeenCalledWith(
-      expect.objectContaining({ roomId: ROOM_ID, excludeStayIds: [STAY_ID] }),
+      expect.objectContaining({
+        roomId: ROOM_ID,
+        excludeStayIds: [STAY_ID],
+        excludeJourneyId: 'journey-1',
+      }),
     )
   })
 

@@ -32,6 +32,7 @@ import { CheckInDialog } from '../dialogs/CheckInDialog'
 import type { NewStayData } from '../dialogs/CheckInDialog'
 import { CheckOutDialog } from '../dialogs/CheckOutDialog'
 import { ExtendConfirmDialog } from '../dialogs/ExtendConfirmDialog'
+import { EditReservationDatesDialog } from '../dialogs/EditReservationDatesDialog'
 import { MoveRoomDialog } from '../dialogs/MoveRoomDialog'
 import { MoveExtensionConfirmDialog } from '../dialogs/MoveExtensionConfirmDialog'
 import { CancelReservationDialog } from '../dialogs/CancelReservationDialog'
@@ -464,6 +465,17 @@ export function TimelineScheduler() {
 
   const [noShowDialog, setNoShowDialog] = useState<{ stayId: string } | null>(null)
   const [cancelDialog, setCancelDialog] = useState<{ stayId: string } | null>(null)
+  // RESERVATION-EDIT-PRECHECKIN — datos de la reserva que se está reprogramando.
+  const [editDatesStay, setEditDatesStay] = useState<{
+    stayId: string
+    guestName: string
+    roomNumber?: string
+    checkIn: string | Date
+    checkOut: string | Date
+    currency: string
+    source?: string | null
+    channexOtaName?: string | null
+  } | null>(null)
   const [cancelledTodayOpen, setCancelledTodayOpen] = useState(false)
   const [rateQuoteOpen, setRateQuoteOpen] = useState(false)
   const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC'
@@ -1225,6 +1237,21 @@ export function TimelineScheduler() {
           setActiveJourneyId(null)
           setCancelDialog({ stayId })
         }}
+        onEditDates={() => {
+          if (!sheetStay) return
+          setEditDatesStay({
+            stayId: sheetStay.guestStayId ?? sheetStay.id,
+            guestName: sheetStay.guestName,
+            roomNumber: sheetStay.roomNumber,
+            checkIn: sheetStay.checkIn,
+            checkOut: sheetStay.checkOut,
+            currency: sheetStay.currency,
+            source: sheetStay.source,
+            channexOtaName: sheetStay.channexOtaName,
+          })
+          closeSheet()
+          setActiveJourneyId(null)
+        }}
         onConfirmSegmentMove={(segmentId) => {
           confirmMoveMut.mutate({ segmentId })
         }}
@@ -1258,6 +1285,21 @@ export function TimelineScheduler() {
           openSheet(stayId)
         }}
       />
+
+      {editDatesStay && (
+        <EditReservationDatesDialog
+          stayId={editDatesStay.stayId}
+          propertyId={PROPERTY_ID}
+          guestName={editDatesStay.guestName}
+          roomNumber={editDatesStay.roomNumber}
+          currentCheckIn={new Date(editDatesStay.checkIn)}
+          currentCheckOut={new Date(editDatesStay.checkOut)}
+          currency={editDatesStay.currency}
+          source={editDatesStay.source}
+          channexOtaName={editDatesStay.channexOtaName}
+          onClose={() => setEditDatesStay(null)}
+        />
+      )}
 
       <CheckInDialog
         // CHECK-IN C2.3 (2026-05-29) — key fuerza remount cuando cambia

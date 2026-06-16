@@ -216,9 +216,10 @@ export class ChannexOutboundNotifService {
     const title = `Ajusta las fechas en ${display}`
     const body =
       `Se cambiaron las fechas de una reserva de ${display} en Zenix ` +
-      `(nuevas: ${args.newCheckIn} → ${args.newCheckOut}). Zenix aún no puede ` +
-      `empujar la modificación al canal automáticamente — ajusta estas fechas ` +
-      `en el extranet de ${display} para evitar que revenda la fecha anterior.`
+      `(nuevas: ${args.newCheckIn} → ${args.newCheckOut}). La disponibilidad ya se ` +
+      `sincronizó (Zenix liberó las fechas anteriores y bloqueó las nuevas, así no ` +
+      `hay riesgo de overbooking). Falta ajustar el registro de la reserva en el ` +
+      `extranet de ${display} — Zenix aún no puede empujar esa modificación al canal.`
     const notif = await this.prisma.appNotification.create({
       data: {
         organizationId: args.organizationId,
