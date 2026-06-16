@@ -1,4 +1,4 @@
-import { IsISO8601, IsOptional, IsString, MaxLength } from 'class-validator'
+import { IsBoolean, IsISO8601, IsOptional, IsString, MaxLength } from 'class-validator'
 
 /**
  * RESERVATION-EDIT-PRECHECKIN (D-REP-1..4) — editar el RANGO de fechas de una
@@ -43,4 +43,13 @@ export class EditReservationDatesDto {
   @IsOptional()
   @MaxLength(500)
   reason?: string
+
+  /**
+   * D-REP-4 — recotizar al precio vigente del nuevo rango (toggle). Default
+   * `false` = conservar la tarifa pactada. Si `true` pero no hay tarifas
+   * configurables, cae a conservar (graceful).
+   */
+  @IsBoolean()
+  @IsOptional()
+  reprice?: boolean
 }

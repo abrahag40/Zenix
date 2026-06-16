@@ -22,6 +22,7 @@ import { PushService } from '../../notifications/push.service'
 import { NotificationsService } from '../../notifications/notifications.service'
 import { AuditOutboxService } from '../../common/audit/audit-outbox.service'
 import { AvailabilityService } from '../availability/availability.service'
+import { RatesService } from '../rates/rates.service'
 import { RESERVATION_OTA_DATES_ADJUST } from '../../integrations/channex/outbound/channex-outbound-notif.service'
 
 const ORG_ID = 'org-test-1'
@@ -60,7 +61,7 @@ function makeStay(overrides: Record<string, unknown> = {}) {
       id: 'journey-1',
       segments: [{ id: 'seg-1', status: 'ACTIVE', reason: 'ORIGINAL', roomId: ROOM_ID }],
     },
-    room: { property: { settings: { timezone: 'UTC' } } },
+    room: { roomTypeId: 'rt-1', property: { settings: { timezone: 'UTC' } } },
     ...overrides,
   }
 }
@@ -77,7 +78,10 @@ describe('GuestStaysService — editReservationDates (RESERVATION-EDIT-PRECHECKI
 
   const prismaMock = {
     guestStay: { findFirst: jest.fn() },
-    room: { findUnique: jest.fn().mockResolvedValue({ status: 'AVAILABLE' }) },
+    room: {
+      findUnique: jest.fn().mockResolvedValue({ status: 'AVAILABLE', roomTypeId: 'rt-1' }),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     $transaction: jest.fn(async (cb: (t: typeof tx) => unknown) => cb(tx)),
   }
 
@@ -90,6 +94,17 @@ describe('GuestStaysService — editReservationDates (RESERVATION-EDIT-PRECHECKI
     check: jest.fn().mockResolvedValue({ available: true, conflicts: [] }),
     notifyRelease: jest.fn().mockResolvedValue(undefined),
     notifyReservation: jest.fn().mockResolvedValue(undefined),
+  }
+  // Recotización: $100/noche flat para cualquier rango (rt-1).
+  const ratesMock = {
+    getRateQuoteGrid: jest.fn(async (_pid: string, from: Date, to: Date) => {
+      const grid: Record<string, Record<string, number>> = { 'rt-1': {} }
+      const dayMs = 86400000
+      const f = Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate())
+      const t = Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), to.getUTCDate())
+      for (let x = f; x <= t; x += dayMs) grid['rt-1'][new Date(x).toISOString().slice(0, 10)] = 100
+      return { grid, currency: 'USD', roomTypes: [], dates: [], ratePlanId: null }
+    }),
   }
 
   beforeEach(async () => {
@@ -108,12 +123,14 @@ describe('GuestStaysService — editReservationDates (RESERVATION-EDIT-PRECHECKI
         { provide: NotificationsService, useValue: { emit: jest.fn() } },
         { provide: AuditOutboxService, useValue: { emit: jest.fn() } },
         { provide: AvailabilityService, useValue: availabilityMock },
+        { provide: RatesService, useValue: ratesMock },
       ],
     }).compile()
 
     service = module.get<GuestStaysService>(GuestStaysService)
     jest.clearAllMocks()
-    prismaMock.room.findUnique.mockResolvedValue({ status: 'AVAILABLE' })
+    prismaMock.room.findUnique.mockResolvedValue({ status: 'AVAILABLE', roomTypeId: 'rt-1' })
+    prismaMock.room.findMany.mockResolvedValue([])
     availabilityMock.check.mockResolvedValue({ available: true, conflicts: [] })
     prismaMock.$transaction.mockImplementation(async (cb: (t: typeof tx) => unknown) => cb(tx))
   })
@@ -280,5 +297,85 @@ describe('GuestStaysService — editReservationDates (RESERVATION-EDIT-PRECHECKI
     expect(res.nights).toBe(3)
     expect(res.totalAmount).toBe(360)
     expect(res.paymentStatus).toBe('PAID')
+  })
+
+  // ── D-REP-4 reprice (Sprint 2) ─────────────────────────────────────────
+  describe('reprice (D-REP-4)', () => {
+    it('reprice=true recotiza al precio vigente ($100/noche) y marca repriced', async () => {
+      prismaMock.guestStay.findFirst.mockResolvedValue(makeStay()) // pactada 130
+      const res = await service.editReservationDates(STAY_ID, dto({ reprice: true }), ACTOR_ID) // 5 noches
+      expect(res.repriced).toBe(true)
+      expect(res.ratePerNight).toBe(100)
+      expect(res.totalAmount).toBe(500) // 100 × 5
+      expect(tx.guestStay.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ ratePerNight: 100, totalAmount: 500 }) }),
+      )
+    })
+
+    it('reprice=true sin tarifas configurables → conserva la pactada (graceful)', async () => {
+      prismaMock.guestStay.findFirst.mockResolvedValue(makeStay())
+      ratesMock.getRateQuoteGrid.mockResolvedValueOnce({ grid: {}, currency: 'USD', roomTypes: [], dates: [], ratePlanId: null })
+      const res = await service.editReservationDates(STAY_ID, dto({ reprice: true }), ACTOR_ID)
+      expect(res.repriced).toBe(false)
+      expect(res.ratePerNight).toBe(120) // pactada conservada
+      expect(res.totalAmount).toBe(600) // 120 × 5
+    })
+
+    it('default (sin reprice) conserva la pactada — no consulta tarifas', async () => {
+      prismaMock.guestStay.findFirst.mockResolvedValue(makeStay())
+      await service.editReservationDates(STAY_ID, dto(), ACTOR_ID)
+      expect(ratesMock.getRateQuoteGrid).not.toHaveBeenCalled()
+    })
+  })
+
+  // ── HU-2.2 preview ─────────────────────────────────────────────────────
+  describe('getEditDatesPreview', () => {
+    it('elegible + disponible: nights/nightsDelta + keptTotal + repricedTotal', async () => {
+      prismaMock.guestStay.findFirst.mockResolvedValue(makeStay()) // actual 3 noches, rate 130
+
+      const p = await service.getEditDatesPreview(STAY_ID, dayFromNow(20), dayFromNow(25)) // 5 noches
+
+      expect(p.eligible).toBe(true)
+      expect(p.rangeError).toBeNull()
+      expect(p.available).toBe(true)
+      expect(p.nights).toBe(5)
+      expect(p.nightsDelta).toBe(2) // 5 − 3
+      expect(p.keptTotal).toBe(600) // 120 × 5
+      expect(p.repricedRate).toBe(100)
+      expect(p.repricedTotal).toBe(500) // 100 × 5
+      expect(p.alternatives).toEqual([])
+    })
+
+    it('ineligible (cancelada): eligible=false + ineligibleReason', async () => {
+      prismaMock.guestStay.findFirst.mockResolvedValue(makeStay({ cancelledAt: new Date() }))
+      const p = await service.getEditDatesPreview(STAY_ID, dayFromNow(20), dayFromNow(25))
+      expect(p.eligible).toBe(false)
+      expect(p.ineligibleReason?.code).toBe('CANCELLED')
+    })
+
+    it('rangeError PAST_ARRIVAL si la llegada es pasada', async () => {
+      prismaMock.guestStay.findFirst.mockResolvedValue(makeStay())
+      const p = await service.getEditDatesPreview(STAY_ID, dayFromNow(-3), dayFromNow(2))
+      expect(p.rangeError?.code).toBe('PAST_ARRIVAL')
+    })
+
+    it('conflicto: available=false + lista habitaciones alternativas del mismo tipo', async () => {
+      prismaMock.guestStay.findFirst.mockResolvedValue(makeStay())
+      availabilityMock.check
+        .mockResolvedValueOnce({ available: false, conflicts: [{ source: 'LOCAL_STAY', label: 'X', from: new Date(), to: new Date() }] }) // hab actual
+        .mockResolvedValue({ available: true, conflicts: [] }) // alternativas libres
+      prismaMock.room.findMany.mockResolvedValueOnce([
+        { id: 'room-A', number: '201' },
+        { id: 'room-B', number: '202' },
+      ])
+
+      const p = await service.getEditDatesPreview(STAY_ID, dayFromNow(20), dayFromNow(25))
+
+      expect(p.available).toBe(false)
+      expect(p.alternatives).toEqual([
+        { roomId: 'room-A', number: '201' },
+        { roomId: 'room-B', number: '202' },
+      ])
+    })
   })
 })

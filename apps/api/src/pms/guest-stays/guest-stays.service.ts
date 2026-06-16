@@ -22,7 +22,7 @@ import { EmailService } from '../../common/email/email.service'
 import { titleCase } from '../../common/utils/title-case.util'
 import { CreateGuestStayDto } from './dto/create-guest-stay.dto'
 import { MoveRoomDto } from './dto/move-room.dto'
-import type { AvailabilityConflict, RoomAvailabilityResult } from '@zenix/shared'
+import type { AvailabilityConflict, RoomAvailabilityResult, EditDatesPreview } from '@zenix/shared'
 import { PaymentMethod, StaffRole, CleaningStatus, TaskLogEvent } from '@zenix/shared'
 import { SystemRole, AuditLogStatus, AuditLogRetention } from '@prisma/client'
 import { AuditOutboxService } from '../../common/audit/audit-outbox.service'
@@ -53,6 +53,7 @@ import { VoidPaymentDto } from './dto/void-payment.dto'
 import { UpdateGuestStayDto } from './dto/update-guest-stay.dto'
 import { CreateGuestStayNoteDto, UpdateGuestStayNoteDto } from './dto/guest-stay-note.dto'
 import { StayJourneyService } from '../stay-journeys/stay-journeys.service'
+import { RatesService } from '../rates/rates.service'
 import { ChannexGateway } from '../../integrations/channex/channex.gateway'
 import { NotificationCenterService } from '../../notification-center/notification-center.service'
 import { PushService } from '../../notifications/push.service'
@@ -196,6 +197,10 @@ export class GuestStaysService {
     // del cajero. @Optional: specs legacy lo omiten → el link es no-op (cero
     // regresión); con la bandera cashShiftRequired apagada tampoco enforce.
     @Optional() private readonly cashierShift?: CashierShiftService,
+    // RESERVATION-EDIT-PRECHECKIN (D-REP-4) — recotización opcional al editar
+    // fechas. @Optional: si RatesModule no está cargado (specs legacy), el
+    // toggle "recotizar" cae a conservar la tarifa pactada (graceful).
+    @Optional() private readonly rates?: RatesService,
   ) {}
 
   /** Generates a globally unique human-readable booking reference.
@@ -4116,37 +4121,9 @@ export class GuestStaysService {
     if (!stay) throw new NotFoundException('Estadía no encontrada')
 
     // ── HU-1.1 — guards de elegibilidad (codes machine-readable §39/§110) ──
-    if (stay.actualCheckin || stay.actualCheckout) {
-      throw new BadRequestException({
-        code: 'NOT_PRECHECKIN',
-        message:
-          'Solo se pueden reprogramar reservas que aún no han hecho check-in. ' +
-          'Para huéspedes alojados usa extender / salida anticipada / mover habitación.',
-      })
-    }
-    if (stay.cancelledAt) {
-      throw new BadRequestException({
-        code: 'CANCELLED',
-        message: 'La reserva está cancelada — restáurala antes de reprogramarla.',
-      })
-    }
-    if (stay.noShowAt) {
-      throw new BadRequestException({
-        code: 'NOSHOW_LOCKED',
-        message: 'La reserva está marcada como no-show — revierte el no-show primero.',
-      })
-    }
-
-    const activeSegments = (stay.stayJourney?.segments ?? []).filter((s) => s.status === 'ACTIVE')
-    const original = activeSegments.find((s) => s.reason === 'ORIGINAL')
-    if (activeSegments.length !== 1 || !original) {
-      throw new BadRequestException({
-        code: 'HAS_EXTENSIONS',
-        message:
-          'La reserva tiene extensiones o movimientos de habitación. Reprogramar el rango ' +
-          'completo no está soportado para reservas con segmentos múltiples (cancela las extensiones primero).',
-      })
-    }
+    const elig = this.evalEditEligibility(stay)
+    if (!elig.ok) throw new BadRequestException({ code: elig.code, message: elig.message })
+    const original = elig.original
 
     // ── HU-1.2 — validación del nuevo rango ──
     const newCheckIn = new Date(dto.checkInAt)
@@ -4189,9 +4166,20 @@ export class GuestStaysService {
       })
     }
 
-    // ── HU-1.3 — D-REP-4 Sprint 1: conservar tarifa pactada ──
+    // ── HU-1.3 — D-REP-4: conservar tarifa pactada (default) o recotizar ──
     const nights = Math.max(1, Math.round((newCheckOut.getTime() - newCheckIn.getTime()) / 86400000))
-    const rate = Number(stay.ratePerNight)
+    let rate = Number(stay.ratePerNight)
+    let repriced = false
+    if (dto.reprice) {
+      const rq = await this.resolveRepricedRate(stay.propertyId, targetRoomId, newCheckIn, newCheckOut)
+      if (rq) {
+        rate = rq.rate
+        repriced = true
+      }
+      // Si no hay tarifas configurables (sin RatesService o sin RoomType con
+      // baseRate) → fallback graceful a conservar la pactada (honesto: no hay
+      // qué recotizar).
+    }
     const newTotal = Math.round(rate * nights * 100) / 100
     const paid = Number(stay.amountPaid)
     const newPaymentStatus = paid >= newTotal ? 'PAID' : paid > 0 ? 'PARTIAL' : 'PENDING'
@@ -4210,6 +4198,7 @@ export class GuestStaysService {
           checkinAt: newCheckIn,
           scheduledCheckout: newCheckOut,
           ...(roomChanged && { roomId: targetRoomId }),
+          ...(repriced && { ratePerNight: rate }),
           totalAmount: newTotal,
           paymentStatus: newPaymentStatus,
         },
@@ -4226,6 +4215,7 @@ export class GuestStaysService {
           checkIn: newCheckIn,
           checkOut: newCheckOut,
           ...(roomChanged && { roomId: targetRoomId }),
+          ...(repriced && { rateSnapshot: rate }),
         },
       })
       await tx.guestStayLog.create({
@@ -4242,7 +4232,9 @@ export class GuestStaysService {
             roomAfter: targetRoomId,
             roomChanged,
             nights,
-            rate,
+            rateBefore: Number(stay.ratePerNight),
+            rateAfter: rate,
+            repriced,
             totalBefore: before.total,
             totalAfter: newTotal,
             reason: dto.reason ?? null,
@@ -4305,10 +4297,225 @@ export class GuestStaysService {
       roomId: targetRoomId,
       roomChanged,
       ratePerNight: rate,
+      repriced,
       totalAmount: newTotal,
       paymentStatus: newPaymentStatus,
       requiresOtaManualAdjust,
       otaName: stay.channexOtaName ?? null,
+    }
+  }
+
+  // ── RESERVATION-EDIT-PRECHECKIN helpers (Sprint 2) ──────────────────────
+
+  /**
+   * Elegibilidad para reprogramar fechas (HU-1.1) — no-throw. Compartido entre
+   * el POST (lanza) y el preview (lo retorna en el shape). El segmento ORIGINAL
+   * activo se devuelve para no re-buscarlo.
+   */
+  private evalEditEligibility(stay: {
+    actualCheckin: Date | null
+    actualCheckout: Date | null
+    cancelledAt: Date | null
+    noShowAt: Date | null
+    stayJourney: { segments: { id: string; status: string; reason: string }[] } | null
+  }):
+    | { ok: true; original: { id: string; status: string; reason: string } }
+    | { ok: false; code: string; message: string } {
+    if (stay.actualCheckin || stay.actualCheckout) {
+      return {
+        ok: false,
+        code: 'NOT_PRECHECKIN',
+        message:
+          'Solo se pueden reprogramar reservas que aún no han hecho check-in. ' +
+          'Para huéspedes alojados usa extender / salida anticipada / mover habitación.',
+      }
+    }
+    if (stay.cancelledAt) {
+      return { ok: false, code: 'CANCELLED', message: 'La reserva está cancelada — restáurala antes de reprogramarla.' }
+    }
+    if (stay.noShowAt) {
+      return { ok: false, code: 'NOSHOW_LOCKED', message: 'La reserva está marcada como no-show — revierte el no-show primero.' }
+    }
+    const active = (stay.stayJourney?.segments ?? []).filter((s) => s.status === 'ACTIVE')
+    const original = active.find((s) => s.reason === 'ORIGINAL')
+    if (active.length !== 1 || !original) {
+      return {
+        ok: false,
+        code: 'HAS_EXTENSIONS',
+        message:
+          'La reserva tiene extensiones o movimientos de habitación. Reprogramar el rango ' +
+          'completo no está soportado para reservas con segmentos múltiples (cancela las extensiones primero).',
+      }
+    }
+    return { ok: true, original }
+  }
+
+  /**
+   * D-REP-4 — recotiza el rango al precio vigente del RoomType de la habitación
+   * destino (suma las noches half-open [checkIn, checkOut), promedia para el
+   * `ratePerNight` plano del modelo aditivo §28). Devuelve `null` si no hay
+   * RatesService o el RoomType no tiene tarifa → el caller conserva la pactada.
+   */
+  private async resolveRepricedRate(
+    propertyId: string,
+    roomId: string,
+    checkIn: Date,
+    checkOut: Date,
+  ): Promise<{ rate: number; total: number } | null> {
+    if (!this.rates) return null
+    const room = await this.prisma.room.findUnique({ where: { id: roomId }, select: { roomTypeId: true } })
+    if (!room?.roomTypeId) return null
+    const grid = await this.rates.getRateQuoteGrid(propertyId, checkIn, checkOut)
+    const rtGrid = grid.grid[room.roomTypeId]
+    if (!rtGrid) return null
+
+    // Sumar SOLO las noches: días de checkIn (incl.) a checkOut (excl.).
+    const dayMs = 86400000
+    const fromUtc = Date.UTC(checkIn.getUTCFullYear(), checkIn.getUTCMonth(), checkIn.getUTCDate())
+    const toUtc = Date.UTC(checkOut.getUTCFullYear(), checkOut.getUTCMonth(), checkOut.getUTCDate())
+    let total = 0
+    let counted = 0
+    for (let t = fromUtc; t < toUtc; t += dayMs) {
+      const key = new Date(t).toISOString().slice(0, 10)
+      const r = rtGrid[key]
+      if (typeof r === 'number') {
+        total += r
+        counted++
+      }
+    }
+    if (counted === 0) return null
+    const rate = Math.round((total / counted) * 100) / 100
+    return { rate, total: Math.round(total * 100) / 100 }
+  }
+
+  /**
+   * Habitaciones libres del MISMO RoomType para el nuevo rango (HU-2.2) — sólo
+   * se ofrecen como alternativa cuando la habitación actual entra en conflicto
+   * (D-REP-3). Cap a 8 (Hick 1952: no saturar la decisión del recepcionista).
+   */
+  private async findAlternativeRooms(
+    propertyId: string,
+    roomTypeId: string | null,
+    excludeRoomId: string,
+    checkIn: Date,
+    checkOut: Date,
+    excludeStayId: string,
+  ): Promise<{ roomId: string; number: string | null }[]> {
+    if (!roomTypeId) return []
+    const orgId = this.tenant.getOrganizationId()
+    const candidates = await this.prisma.room.findMany({
+      where: {
+        organizationId: orgId,
+        propertyId,
+        roomTypeId,
+        id: { not: excludeRoomId },
+        status: { notIn: ['MAINTENANCE', 'OUT_OF_SERVICE'] },
+      },
+      select: { id: true, number: true },
+      orderBy: { number: 'asc' },
+      take: 20,
+    })
+    const out: { roomId: string; number: string | null }[] = []
+    for (const c of candidates) {
+      const a = await this.checkAvailability(c.id, checkIn, checkOut, excludeStayId)
+      if (a.available) out.push({ roomId: c.id, number: c.number })
+      if (out.length >= 8) break
+    }
+    return out
+  }
+
+  /**
+   * GET preview (HU-2.2) — read-only: elegibilidad + disponibilidad + alternativas
+   * + diff de noches/saldo + tarifa conservada vs recotizada (D-REP-4). Alimenta
+   * el EditReservationDatesDialog (Sprint 3) para mostrar el impacto antes de
+   * confirmar (NN/g H1 visibilidad del estado del sistema).
+   */
+  async getEditDatesPreview(
+    stayId: string,
+    checkInAt: string,
+    scheduledCheckout: string,
+    newRoomId?: string,
+  ) {
+    const stay = await this.prisma.guestStay.findFirst({
+      where: this.stayScope(stayId),
+      include: {
+        stayJourney: { include: { segments: true } },
+        room: { select: { roomTypeId: true, property: { select: { settings: { select: { timezone: true } } } } } },
+      },
+    })
+    if (!stay) throw new NotFoundException('Estadía no encontrada')
+
+    const elig = this.evalEditEligibility(stay)
+    const currency = stay.currency
+    const currentRate = Number(stay.ratePerNight)
+    const amountPaid = Number(stay.amountPaid)
+
+    // Shape uniforme (mismo contrato para el frontend en todos los caminos).
+    const full: EditDatesPreview = {
+      eligible: elig.ok,
+      ineligibleReason: elig.ok ? null : { code: elig.code, message: elig.message },
+      currency,
+      currentTotal: Number(stay.totalAmount),
+      amountPaid,
+      ratePerNight: currentRate,
+      requiresOtaManualAdjust: !!(stay.channexBookingId && stay.channexOtaName),
+      otaName: stay.channexOtaName ?? null,
+      rangeError: null,
+      available: false,
+      conflicts: [],
+      alternatives: [],
+      roomChanged: false,
+      nights: 0,
+      nightsDelta: 0,
+      keptTotal: 0,
+      keptBalance: 0,
+      repricedRate: null,
+      repricedTotal: null,
+      repricedBalance: null,
+    }
+
+    // Validación del rango (no-throw — se reporta en el shape).
+    const newCheckIn = new Date(checkInAt)
+    const newCheckOut = new Date(scheduledCheckout)
+    if (Number.isNaN(newCheckIn.getTime()) || Number.isNaN(newCheckOut.getTime())) {
+      return { ...full, rangeError: { code: 'INVALID_DATE', message: 'Fechas inválidas.' } }
+    }
+    if (newCheckOut.getTime() <= newCheckIn.getTime()) {
+      return { ...full, rangeError: { code: 'INVALID_RANGE', message: 'La salida debe ser posterior a la llegada.' } }
+    }
+    const tz = stay.room.property.settings?.timezone ?? 'UTC'
+    if (toLocalDate(newCheckIn, tz) < toLocalDate(new Date(), tz)) {
+      return { ...full, rangeError: { code: 'PAST_ARRIVAL', message: 'La fecha de llegada no puede ser anterior a hoy.' } }
+    }
+
+    const nights = Math.max(1, Math.round((newCheckOut.getTime() - newCheckIn.getTime()) / 86400000))
+    const currentNights = Math.max(1, Math.round((stay.scheduledCheckout.getTime() - stay.checkinAt.getTime()) / 86400000))
+    const targetRoomId = newRoomId ?? stay.roomId
+    const roomChanged = targetRoomId !== stay.roomId
+
+    const avail = await this.checkAvailability(targetRoomId, newCheckIn, newCheckOut, stayId)
+    const alternatives = avail.available
+      ? []
+      : await this.findAlternativeRooms(stay.propertyId, stay.room.roomTypeId, stay.roomId, newCheckIn, newCheckOut, stayId)
+
+    // D-REP-4 — conservar vs recotizar.
+    const keptTotal = Math.round(currentRate * nights * 100) / 100
+    const rq = await this.resolveRepricedRate(stay.propertyId, targetRoomId, newCheckIn, newCheckOut)
+    const repricedTotal = rq ? Math.round(rq.rate * nights * 100) / 100 : null
+
+    return {
+      ...full,
+      available: avail.available,
+      conflicts: avail.conflicts,
+      alternatives,
+      roomChanged,
+      nights,
+      nightsDelta: nights - currentNights,
+      keptTotal,
+      keptBalance: Math.round((keptTotal - amountPaid) * 100) / 100,
+      repricedRate: rq ? rq.rate : null,
+      repricedTotal,
+      repricedBalance: repricedTotal === null ? null : Math.round((repricedTotal - amountPaid) * 100) / 100,
     }
   }
 

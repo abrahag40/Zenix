@@ -280,6 +280,25 @@ export class GuestStaysController {
   }
 
   /**
+   * GET /v1/guest-stays/:id/edit-dates-preview — RESERVATION-EDIT-PRECHECKIN
+   * (HU-2.2). Read-only: elegibilidad + disponibilidad del nuevo rango +
+   * habitaciones alternativas si hay conflicto + diff de noches/saldo + tarifa
+   * conservada vs recotizada (D-REP-4). Alimenta el EditReservationDatesDialog.
+   */
+  @Get(':id/edit-dates-preview')
+  getEditDatesPreview(
+    @Param('id') id: string,
+    @Query('checkInAt') checkInAt: string,
+    @Query('scheduledCheckout') scheduledCheckout: string,
+    @Query('newRoomId') newRoomId?: string,
+  ) {
+    if (!checkInAt || !scheduledCheckout) {
+      throw new BadRequestException('checkInAt y scheduledCheckout son requeridos (ISO).')
+    }
+    return this.service.getEditDatesPreview(id, checkInAt, scheduledCheckout, newRoomId)
+  }
+
+  /**
    * GET /v1/guest-stays/:id/payments
    * Sprint EDIT-RESERVATION — lista PaymentLogs (incluye voided + void
    * entries para que la UI muestre la línea original tachada + la anulación).
