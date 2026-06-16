@@ -38,6 +38,11 @@ import { ConfirmCheckinDto } from './dto/confirm-checkin.dto'
 import { RegisterPaymentDto } from './dto/register-payment.dto'
 import { BulkCheckinDto } from './dto/bulk-checkin.dto'
 import { RegisterCancelRefundDto } from './dto/register-cancel-refund.dto'
+import { EditReservationDatesDto } from './dto/edit-reservation-dates.dto'
+import {
+  RESERVATION_OTA_DATES_ADJUST,
+  type ReservationOtaDatesAdjustEvent,
+} from '../../integrations/channex/outbound/channex-outbound-notif.service'
 import {
   computeCancellationOutcome,
   DEFAULT_FREE_WINDOW_HOURS,
@@ -4082,6 +4087,229 @@ export class GuestStaysService {
     })
 
     return { ok: true, changed: true, phase, changedFields: Object.keys(changes) }
+  }
+
+  /**
+   * RESERVATION-EDIT-PRECHECKIN (D-REP-1..4) — reprograma el RANGO de fechas de
+   * una reserva que aún NO ha hecho check-in (adelantar / retrasar / alargar /
+   * acortar), sin cancelar + recrear. Estándar de industria (6/6 PMS).
+   *
+   *   - D-REP-1: si es OTA (`channexBookingId`), se aplica local + se levanta
+   *     notif al SUPERVISOR para ajustar el extranet (push MODIFY no existe aún,
+   *     §157). El frontend muestra el aviso ámbar con `requiresOtaManualAdjust`.
+   *   - D-REP-2: rango libre; la llegada NUNCA antes de hoy (tz propiedad, §12).
+   *     Recepcionista autónomo; todo queda en `GuestStayLog DATES_EDITED` (§11).
+   *   - D-REP-3: `newRoomId` SÓLO para resolver conflicto del nuevo rango.
+   *   - D-REP-4: Sprint 1 conserva la tarifa pactada (recalcula noches × rate).
+   *     El toggle "recotizar" llega en Sprint 2 con preview del diff.
+   */
+  async editReservationDates(stayId: string, dto: EditReservationDatesDto, actorId: string) {
+    const orgId = this.tenant.getOrganizationId()
+
+    const stay = await this.prisma.guestStay.findFirst({
+      where: this.stayScope(stayId),
+      include: {
+        stayJourney: { include: { segments: true } },
+        room: { select: { property: { select: { settings: { select: { timezone: true } } } } } },
+      },
+    })
+    if (!stay) throw new NotFoundException('Estadía no encontrada')
+
+    // ── HU-1.1 — guards de elegibilidad (codes machine-readable §39/§110) ──
+    if (stay.actualCheckin || stay.actualCheckout) {
+      throw new BadRequestException({
+        code: 'NOT_PRECHECKIN',
+        message:
+          'Solo se pueden reprogramar reservas que aún no han hecho check-in. ' +
+          'Para huéspedes alojados usa extender / salida anticipada / mover habitación.',
+      })
+    }
+    if (stay.cancelledAt) {
+      throw new BadRequestException({
+        code: 'CANCELLED',
+        message: 'La reserva está cancelada — restáurala antes de reprogramarla.',
+      })
+    }
+    if (stay.noShowAt) {
+      throw new BadRequestException({
+        code: 'NOSHOW_LOCKED',
+        message: 'La reserva está marcada como no-show — revierte el no-show primero.',
+      })
+    }
+
+    const activeSegments = (stay.stayJourney?.segments ?? []).filter((s) => s.status === 'ACTIVE')
+    const original = activeSegments.find((s) => s.reason === 'ORIGINAL')
+    if (activeSegments.length !== 1 || !original) {
+      throw new BadRequestException({
+        code: 'HAS_EXTENSIONS',
+        message:
+          'La reserva tiene extensiones o movimientos de habitación. Reprogramar el rango ' +
+          'completo no está soportado para reservas con segmentos múltiples (cancela las extensiones primero).',
+      })
+    }
+
+    // ── HU-1.2 — validación del nuevo rango ──
+    const newCheckIn = new Date(dto.checkInAt)
+    const newCheckOut = new Date(dto.scheduledCheckout)
+    if (Number.isNaN(newCheckIn.getTime()) || Number.isNaN(newCheckOut.getTime())) {
+      throw new BadRequestException({ code: 'INVALID_DATE', message: 'Fechas inválidas.' })
+    }
+    if (newCheckOut.getTime() <= newCheckIn.getTime()) {
+      throw new BadRequestException({
+        code: 'INVALID_RANGE',
+        message: 'La fecha de salida debe ser posterior a la de llegada.',
+      })
+    }
+
+    // D-REP-2 — la llegada nunca puede caer en un día anterior a hoy (tz de la
+    // propiedad, §12). Comparación por día-calendario local (YYYY-MM-DD).
+    const tz = stay.room.property.settings?.timezone ?? 'UTC'
+    if (toLocalDate(newCheckIn, tz) < toLocalDate(new Date(), tz)) {
+      throw new BadRequestException({
+        code: 'PAST_ARRIVAL',
+        message: 'La fecha de llegada no puede ser anterior a hoy.',
+      })
+    }
+
+    // D-REP-3 — habitación destino: la actual, salvo alternativa explícita para
+    // resolver un conflicto del nuevo rango.
+    const targetRoomId = dto.newRoomId ?? stay.roomId
+    const roomChanged = targetRoomId !== stay.roomId
+
+    // §35 — disponibilidad con self-exclusion (la propia reserva no es conflicto).
+    const avail = await this.checkAvailability(targetRoomId, newCheckIn, newCheckOut, stayId)
+    if (!avail.available) {
+      const hard = avail.conflicts.find((c) => c.severity === 'HARD')
+      throw new ConflictException({
+        code: 'RANGE_UNAVAILABLE',
+        message: hard?.guestName
+          ? `La habitación tiene una reserva de "${hard.guestName}" que se solapa con el nuevo rango.`
+          : 'La habitación no está disponible para el nuevo rango.',
+        conflicts: avail.conflicts,
+      })
+    }
+
+    // ── HU-1.3 — D-REP-4 Sprint 1: conservar tarifa pactada ──
+    const nights = Math.max(1, Math.round((newCheckOut.getTime() - newCheckIn.getTime()) / 86400000))
+    const rate = Number(stay.ratePerNight)
+    const newTotal = Math.round(rate * nights * 100) / 100
+    const paid = Number(stay.amountPaid)
+    const newPaymentStatus = paid >= newTotal ? 'PAID' : paid > 0 ? 'PARTIAL' : 'PENDING'
+
+    const before = {
+      checkIn: stay.checkinAt.toISOString(),
+      checkOut: stay.scheduledCheckout.toISOString(),
+      roomId: stay.roomId,
+      total: Number(stay.totalAmount),
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.guestStay.update({
+        where: { id: stayId },
+        data: {
+          checkinAt: newCheckIn,
+          scheduledCheckout: newCheckOut,
+          ...(roomChanged && { roomId: targetRoomId }),
+          totalAmount: newTotal,
+          paymentStatus: newPaymentStatus,
+        },
+      })
+      if (stay.stayJourney) {
+        await tx.stayJourney.update({
+          where: { id: stay.stayJourney.id },
+          data: { journeyCheckIn: newCheckIn, journeyCheckOut: newCheckOut },
+        })
+      }
+      await tx.staySegment.update({
+        where: { id: original.id },
+        data: {
+          checkIn: newCheckIn,
+          checkOut: newCheckOut,
+          ...(roomChanged && { roomId: targetRoomId }),
+        },
+      })
+      await tx.guestStayLog.create({
+        data: {
+          stayId,
+          event: 'DATES_EDITED',
+          actorId,
+          metadata: {
+            checkInBefore: before.checkIn,
+            checkInAfter: newCheckIn.toISOString(),
+            checkOutBefore: before.checkOut,
+            checkOutAfter: newCheckOut.toISOString(),
+            roomBefore: before.roomId,
+            roomAfter: targetRoomId,
+            roomChanged,
+            nights,
+            rate,
+            totalBefore: before.total,
+            totalAfter: newTotal,
+            reason: dto.reason ?? null,
+          } as Prisma.InputJsonValue,
+        },
+      })
+    })
+
+    // D-REP-1 — reserva OTA: aplicar local + avisar (push MODIFY no existe, §157).
+    let requiresOtaManualAdjust = false
+    if (stay.channexBookingId && stay.channexOtaName) {
+      requiresOtaManualAdjust = true
+      const payload: ReservationOtaDatesAdjustEvent = {
+        organizationId: orgId,
+        propertyId: stay.propertyId,
+        stayId,
+        otaName: stay.channexOtaName,
+        newCheckIn: toLocalDate(newCheckIn, tz),
+        newCheckOut: toLocalDate(newCheckOut, tz),
+      }
+      this.events.emit(RESERVATION_OTA_DATES_ADJUST, payload)
+    }
+
+    // Channex ARI best-effort (§31, fail-soft): liberar rango viejo + ocupar nuevo.
+    void this.availability.notifyRelease({
+      roomId: stay.roomId,
+      from: stay.checkinAt,
+      to: stay.scheduledCheckout,
+      reason: 'CANCELLATION',
+      traceId: `edit-rel-${stayId}-${Date.now()}`,
+    })
+    void this.availability.notifyReservation({
+      roomId: targetRoomId,
+      from: newCheckIn,
+      to: newCheckOut,
+      reason: 'RESERVATION',
+      traceId: `edit-res-${stayId}-${Date.now()}`,
+    })
+
+    // SSE refresco del calendario + sesiones concurrentes (§124).
+    this.events.emit('stay.updated', {
+      stayId,
+      propertyId: stay.propertyId,
+      orgId,
+      changedFields: ['checkinAt', 'scheduledCheckout', ...(roomChanged ? ['roomId'] : [])],
+      actorId,
+    })
+
+    this.logger.log(
+      `[EditDates] stayId=${stayId} ${before.checkIn}→${newCheckIn.toISOString()} ` +
+        `room=${roomChanged ? targetRoomId : 'same'} ota=${requiresOtaManualAdjust}`,
+    )
+
+    return {
+      ok: true as const,
+      stayId,
+      nights,
+      checkinAt: newCheckIn,
+      scheduledCheckout: newCheckOut,
+      roomId: targetRoomId,
+      roomChanged,
+      ratePerNight: rate,
+      totalAmount: newTotal,
+      paymentStatus: newPaymentStatus,
+      requiresOtaManualAdjust,
+      otaName: stay.channexOtaName ?? null,
+    }
   }
 
   // ─── GuestStayNote — bitácora humana ────────────────────────────────────

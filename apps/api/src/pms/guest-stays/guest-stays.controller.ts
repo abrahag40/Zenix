@@ -15,6 +15,7 @@ import { ConfirmCheckinDto } from './dto/confirm-checkin.dto'
 import { RegisterPaymentDto } from './dto/register-payment.dto'
 import { BulkCheckinDto } from './dto/bulk-checkin.dto'
 import { RegisterCancelRefundDto } from './dto/register-cancel-refund.dto'
+import { EditReservationDatesDto } from './dto/edit-reservation-dates.dto'
 import { GroupCancelDto } from './dto/group-cancel.dto'
 import { VoidPaymentDto } from './dto/void-payment.dto'
 import { UpdateGuestStayDto } from './dto/update-guest-stay.dto'
@@ -431,6 +432,21 @@ export class GuestStaysController {
     @CurrentUser() actor: JwtPayload,
   ) {
     return this.service.earlyCheckout(id, actor.sub, dto.notes)
+  }
+
+  /**
+   * RESERVATION-EDIT-PRECHECKIN (D-REP-1..4) — reprograma el rango de fechas de
+   * una reserva pre-check-in (adelantar / retrasar / alargar / acortar). El
+   * recepcionista es autónomo (rol heredado SUPERVISOR/RECEPTIONIST a nivel
+   * clase); la edición queda auditada en GuestStayLog. Body: EditReservationDatesDto.
+   */
+  @Post(':id/edit-dates')
+  editReservationDates(
+    @Param('id') id: string,
+    @Body() dto: EditReservationDatesDto,
+    @CurrentUser() actor: JwtPayload,
+  ) {
+    return this.service.editReservationDates(id, dto, actor.sub)
   }
 
   /**
