@@ -1078,6 +1078,62 @@ export interface RoomAvailabilityResult {
   conflicts: AvailabilityConflict[]
 }
 
+// ── RESERVATION-EDIT-PRECHECKIN — reprogramar fechas de una reserva pre-check-in
+export interface EditDatesAlternativeRoom {
+  roomId: string
+  number: string | null
+}
+
+/** Contrato de GET /v1/guest-stays/:id/edit-dates-preview (shape uniforme). */
+export interface EditDatesPreview {
+  /** La reserva es reprogramable (pre-check-in, no cancelada/no-show, 1 segmento). */
+  eligible: boolean
+  ineligibleReason: { code: string; message: string } | null
+  currency: string
+  currentTotal: number
+  amountPaid: number
+  /** Tarifa pactada actual (por noche). */
+  ratePerNight: number
+  /** Es reserva OTA → al confirmar habrá que ajustar el extranet (D-REP-1). */
+  requiresOtaManualAdjust: boolean
+  otaName: string | null
+  /** Rango inválido (INVALID_DATE / INVALID_RANGE / PAST_ARRIVAL). */
+  rangeError: { code: string; message: string } | null
+  /** El nuevo rango está libre en la habitación destino. */
+  available: boolean
+  conflicts: AvailabilityConflict[]
+  /** Habitaciones libres del mismo tipo, sólo si hay conflicto (D-REP-3). */
+  alternatives: EditDatesAlternativeRoom[]
+  roomChanged: boolean
+  nights: number
+  /** Δ noches vs el rango actual (+ alarga, − acorta). */
+  nightsDelta: number
+  /** Total conservando la tarifa pactada × nuevas noches (D-REP-4 default). */
+  keptTotal: number
+  keptBalance: number
+  /** Tarifa/total recotizados al precio vigente (null si no hay tarifas). */
+  repricedRate: number | null
+  repricedTotal: number | null
+  repricedBalance: number | null
+}
+
+/** Respuesta de POST /v1/guest-stays/:id/edit-dates. */
+export interface EditReservationDatesResult {
+  ok: true
+  stayId: string
+  nights: number
+  checkinAt: string
+  scheduledCheckout: string
+  roomId: string
+  roomChanged: boolean
+  ratePerNight: number
+  repriced: boolean
+  totalAmount: number
+  paymentStatus: string
+  requiresOtaManualAdjust: boolean
+  otaName: string | null
+}
+
 // Slim Property payload returned by GET /properties. Feeds the
 // PropertySwitcher dropdown — needs name for the label, region for
 // grouping multiple properties in the same chain (Mews/Opera multi-

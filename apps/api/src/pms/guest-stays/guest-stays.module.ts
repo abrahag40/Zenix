@@ -13,9 +13,10 @@ import { NotificationCenterModule } from '../../notification-center/notification
 import { AssignmentModule } from '../../assignment/assignment.module'
 import { UploadsModule } from '../../uploads/uploads.module'
 import { CashierShiftModule } from '../cashier-shift/cashier-shift.module'
+import { RatesModule } from '../rates/rates.module'
 
 @Module({
-  imports: [StayJourneysModule, NotificationsModule, ChannexModule, NotificationCenterModule, AssignmentModule, UploadsModule, CashierShiftModule],
+  imports: [StayJourneysModule, NotificationsModule, ChannexModule, NotificationCenterModule, AssignmentModule, UploadsModule, CashierShiftModule, RatesModule],
   controllers: [GuestStaysController],
   providers: [
     GuestStaysService,

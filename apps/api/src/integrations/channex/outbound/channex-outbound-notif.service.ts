@@ -1,9 +1,26 @@
 import { Injectable, Logger } from '@nestjs/common'
+import { OnEvent } from '@nestjs/event-emitter'
 import { Prisma } from '@prisma/client'
 import { humanizeOtaName } from '@zenix/shared'
 import { PrismaService } from '../../../prisma/prisma.service'
 import { NotificationsService } from '../../../notifications/notifications.service'
 import { PushService } from '../../../notifications/push.service'
+
+/**
+ * RESERVATION-EDIT-PRECHECKIN (D-REP-1) — payload del evento de dominio que
+ * guest-stays emite cuando se editan las fechas de una reserva OTA pre-check-in.
+ * Desacopla guest-stays (bounded context) del módulo Channex outbound (§141):
+ * en vez de inyectar el servicio cruzando módulos, se reacciona vía evento.
+ */
+export const RESERVATION_OTA_DATES_ADJUST = 'reservation.ota-dates-adjust'
+export interface ReservationOtaDatesAdjustEvent {
+  organizationId: string
+  propertyId: string
+  stayId: string
+  otaName: string
+  newCheckIn: string
+  newCheckOut: string
+}
 
 /**
  * ChannexOutboundNotifService — persiste AppNotification cuando un row del
@@ -161,6 +178,79 @@ export class ChannexOutboundNotifService {
     void this.firePushToSupervisors(args.organizationId, args.propertyId, title, body, { stayId: args.stayId, notificationId: notif.id })
       .catch(() => {})
     this.logger.warn(`[Channex outbound notif] manual OTA cancel notif=${notif.id} stay=${args.stayId} ota=${args.otaName}`)
+    return { notificationId: notif.id }
+  }
+
+  /**
+   * RESERVATION-EDIT-PRECHECKIN (D-REP-1) — recepción editó las FECHAS de una
+   * reserva OTA pre-check-in. El push MODIFY a Channex todavía no existe
+   * (§157 / D-GRP-C6 lo dejó pendiente), por lo que el cambio se aplica local y
+   * se levanta esta notif ACTION_REQUIRED al SUPERVISOR para que ajuste las
+   * fechas en el extranet del canal manualmente (mismo manejo gracioso que
+   * `raiseManualOtaCancel` para Airbnb / Booking CRS 403). NUNCA silencioso: el
+   * canal podría revender la fecha vieja si nadie ajusta el extranet.
+   */
+  /**
+   * Listener desacoplado (§141): guest-stays emite el evento al editar fechas de
+   * una reserva OTA; aquí se traduce a la notif de ajuste manual. Fail-soft —
+   * un fallo de notif NUNCA revierte la edición ya commiteada.
+   */
+  @OnEvent(RESERVATION_OTA_DATES_ADJUST, { async: true })
+  async onReservationOtaDatesAdjust(payload: ReservationOtaDatesAdjustEvent): Promise<void> {
+    try {
+      await this.raiseManualOtaAdjust(payload)
+    } catch (err) {
+      this.logger.error(`onReservationOtaDatesAdjust failed stay=${payload.stayId}: ${(err as Error).message}`)
+    }
+  }
+
+  async raiseManualOtaAdjust(args: {
+    organizationId: string
+    propertyId: string
+    stayId: string
+    otaName: string
+    newCheckIn: string // YYYY-MM-DD
+    newCheckOut: string // YYYY-MM-DD
+  }): Promise<{ notificationId: string }> {
+    const display = humanizeOtaName(args.otaName)
+    const title = `Ajusta las fechas en ${display}`
+    const body =
+      `Se cambiaron las fechas de una reserva de ${display} en Zenix ` +
+      `(nuevas: ${args.newCheckIn} → ${args.newCheckOut}). La disponibilidad ya se ` +
+      `sincronizó (Zenix liberó las fechas anteriores y bloqueó las nuevas, así no ` +
+      `hay riesgo de overbooking). Falta ajustar el registro de la reserva en el ` +
+      `extranet de ${display} — Zenix aún no puede empujar esa modificación al canal.`
+    const notif = await this.prisma.appNotification.create({
+      data: {
+        organizationId: args.organizationId,
+        propertyId: args.propertyId,
+        type: 'ACTION_REQUIRED',
+        category: 'SYSTEM',
+        priority: 'HIGH',
+        title,
+        body,
+        metadata: {
+          stayId: args.stayId,
+          otaName: args.otaName,
+          newCheckIn: args.newCheckIn,
+          newCheckOut: args.newCheckOut,
+          reason: 'ota_dates_changed_no_programmatic_modify',
+        } as Prisma.InputJsonValue,
+        actionUrl: `/reservations/${args.stayId}`,
+        recipientType: 'ROLE',
+        recipientRole: 'SUPERVISOR',
+        triggeredById: null,
+        expiresAt: null,
+      },
+      select: { id: true },
+    })
+    this.sse.emit(args.propertyId, 'notification:new', {
+      id: notif.id, type: 'ACTION_REQUIRED', category: 'SYSTEM', priority: 'HIGH',
+      title, body, metadata: { stayId: args.stayId }, actionUrl: `/reservations/${args.stayId}`, createdAt: new Date(),
+    })
+    void this.firePushToSupervisors(args.organizationId, args.propertyId, title, body, { stayId: args.stayId, notificationId: notif.id })
+      .catch(() => {})
+    this.logger.warn(`[Channex outbound notif] manual OTA adjust notif=${notif.id} stay=${args.stayId} ota=${args.otaName}`)
     return { notificationId: notif.id }
   }
 
