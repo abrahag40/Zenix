@@ -80,6 +80,7 @@ describe('GuestStaysService — editReservationDates (RESERVATION-EDIT-PRECHECKI
     guestStay: { findFirst: jest.fn() },
     room: {
       findUnique: jest.fn().mockResolvedValue({ status: 'AVAILABLE', roomTypeId: 'rt-1' }),
+      findFirst: jest.fn().mockResolvedValue({ id: 'room-9' }), // validación de property OK por default
       findMany: jest.fn().mockResolvedValue([]),
     },
     $transaction: jest.fn(async (cb: (t: typeof tx) => unknown) => cb(tx)),
@@ -130,6 +131,7 @@ describe('GuestStaysService — editReservationDates (RESERVATION-EDIT-PRECHECKI
     service = module.get<GuestStaysService>(GuestStaysService)
     jest.clearAllMocks()
     prismaMock.room.findUnique.mockResolvedValue({ status: 'AVAILABLE', roomTypeId: 'rt-1' })
+    prismaMock.room.findFirst.mockResolvedValue({ id: 'room-9' })
     prismaMock.room.findMany.mockResolvedValue([])
     availabilityMock.check.mockResolvedValue({ available: true, conflicts: [] })
     prismaMock.$transaction.mockImplementation(async (cb: (t: typeof tx) => unknown) => cb(tx))
@@ -257,6 +259,29 @@ describe('GuestStaysService — editReservationDates (RESERVATION-EDIT-PRECHECKI
   it('NotFoundException si la reserva no existe', async () => {
     prismaMock.guestStay.findFirst.mockResolvedValue(null)
     await expect(service.editReservationDates(STAY_ID, dto(), ACTOR_ID)).rejects.toBeInstanceOf(NotFoundException)
+  })
+
+  // ── Bug-hunt fixes ─────────────────────────────────────────────────────
+  it('overbooking: re-check DENTRO del lock atrapa la race (disponible al pre-check, ocupado al re-check)', async () => {
+    prismaMock.guestStay.findFirst.mockResolvedValue(makeStay())
+    // 1ª llamada (pre-check) disponible; 2ª (re-check dentro del lock) ocupado.
+    availabilityMock.check
+      .mockResolvedValueOnce({ available: true, conflicts: [] })
+      .mockResolvedValueOnce({
+        available: false,
+        conflicts: [{ source: 'LOCAL_STAY', severity: 'HARD', guestName: 'Otro', from: new Date(), to: new Date() }],
+      })
+    await expect(service.editReservationDates(STAY_ID, dto(), ACTOR_ID)).rejects.toBeInstanceOf(ConflictException)
+    // No se escribió nada: la tx abortó en el re-check.
+    expect(tx.guestStay.update).not.toHaveBeenCalled()
+  })
+
+  it('ROOM_NOT_IN_PROPERTY si la habitación alternativa no pertenece a la propiedad', async () => {
+    prismaMock.guestStay.findFirst.mockResolvedValue(makeStay())
+    prismaMock.room.findFirst.mockResolvedValueOnce(null) // newRoomId de otra property
+    await expect(
+      service.editReservationDates(STAY_ID, dto({ newRoomId: 'room-otra-prop' }), ACTOR_ID),
+    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'ROOM_NOT_IN_PROPERTY' }) })
   })
 
   // ── D-REP-1 rama OTA ───────────────────────────────────────────────────

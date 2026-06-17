@@ -29,7 +29,8 @@ interface EditReservationDatesDialogProps {
   onSaved?: () => void
 }
 
-const money = (n: number, ccy: string) => `${ccy} ${Math.round(n).toLocaleString()}`
+const money = (n: number, ccy: string) =>
+  `${ccy} ${n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
 const toDayStr = (d: Date) => format(d, 'yyyy-MM-dd')
 
 /** Construye una Date con el día elegido preservando la hora original del rango. */

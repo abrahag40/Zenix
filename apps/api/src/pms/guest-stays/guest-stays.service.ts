@@ -4161,7 +4161,26 @@ export class GuestStaysService {
     const targetRoomId = dto.newRoomId ?? stay.roomId
     const roomChanged = targetRoomId !== stay.roomId
 
+    // Bug-hunt fix — la habitación destino DEBE pertenecer a la misma propiedad
+    // que la reserva. `checkAvailability` valida sólo el org; sin esto, un
+    // newRoomId de otra property de la misma org mudaría la reserva a una
+    // habitación física de otra sede (GuestStay.propertyId ≠ Room.propertyId).
+    if (roomChanged) {
+      const targetRoom = await this.prisma.room.findFirst({
+        where: { id: targetRoomId, propertyId: stay.propertyId, organizationId: orgId },
+        select: { id: true },
+      })
+      if (!targetRoom) {
+        throw new BadRequestException({
+          code: 'ROOM_NOT_IN_PROPERTY',
+          message: 'La habitación destino no pertenece a esta propiedad.',
+        })
+      }
+    }
+
     // §35 — disponibilidad con self-exclusion (la propia reserva no es conflicto).
+    // Pre-check fuera de tx (fail-fast + mensaje con alternativas); el guard real
+    // anti-overbooking es el re-check DENTRO del lock de la transacción (abajo).
     const avail = await this.checkAvailability(targetRoomId, newCheckIn, newCheckOut, stayId, stay.stayJourney?.id)
     if (!avail.available) {
       const hard = avail.conflicts.find((c) => c.severity === 'HARD')
@@ -4200,6 +4219,39 @@ export class GuestStaysService {
     }
 
     await this.prisma.$transaction(async (tx) => {
+      // Bug-hunt fix (overbooking) — paridad con create() BUG #9 §. El pre-check
+      // de disponibilidad corría FUERA de la tx y sin lock: dos ediciones (o un
+      // edit + un walk-in/move) concurrentes sobre la misma habitación podían
+      // pasar el check y commitear → overbooking real. Fix: advisory lock por
+      // habitación destino (misma key `walk-in:<roomId>` que create/move, para
+      // que TODOS los flujos de reserva sobre esa habitación serialicen) +
+      // re-check de disponibilidad DENTRO del lock antes de escribir.
+      try {
+        await tx.$executeRawUnsafe(
+          `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`,
+          `walk-in:${targetRoomId}`,
+        )
+      } catch (e) {
+        if (!(e instanceof TypeError)) throw e // tests con $transaction mockeado
+      }
+      const recheck = await this.checkAvailability(
+        targetRoomId,
+        newCheckIn,
+        newCheckOut,
+        stayId,
+        stay.stayJourney?.id,
+      )
+      if (!recheck.available) {
+        const hard = recheck.conflicts.find((c) => c.severity === 'HARD')
+        throw new ConflictException({
+          code: 'RANGE_UNAVAILABLE',
+          message: hard?.guestName
+            ? `La habitación tiene una reserva de "${hard.guestName}" que se solapa con el nuevo rango (conflicto detectado al adquirir lock).`
+            : 'La habitación no está disponible para el nuevo rango (race condition).',
+          conflicts: recheck.conflicts,
+        })
+      }
+
       await tx.guestStay.update({
         where: { id: stayId },
         data: {
