@@ -1399,6 +1399,22 @@ housekeeping3/
 
 ---
 
+### Overbooking hardening — Sprint OVERBOOKING-HARDENING (CERRADO en rama `fix/overbooking-hardening`, 2026-06-17, SIN merge)
+
+> Auditoría sistémica de TODOS los puntos de escritura de inventario (recepción, journeys, Channex/OTA, estados terminales). Un hueco crítico **secuencial** fue confirmado con E2E (`lateCheckout` extendía la salida sobre la noche de la reserva back-to-back → noche vendida 2 veces) y otros validaban disponibilidad pero sin lock transaccional (race check→write, posible incluso single-instance porque el event loop intercala otra request durante el `await`). Solo `create` y `editReservationDates` tenían el patrón seguro. Plan: [docs/sprints/OVERBOOKING-HARDENING-plan.md](docs/sprints/OVERBOOKING-HARDENING-plan.md).
+
+- **D-OB-1 — Patrón canónico único: lock + re-check DENTRO de la tx.** Toda escritura que ocupe/extienda inventario abre `$transaction`, toma `pg_advisory_xact_lock(hashtext('walk-in:'+roomId)::bigint)` — **misma key en TODOS los flujos** para que recepción, OTA, extensiones, moves, restore/revert y swap serialicen entre sí sobre la misma habitación — re-valida con self-exclusión bajo el lock, y recién entonces escribe. Helper compartido `GuestStaysService.lockAndAssertAvailable(tx, checks[])` (lock multi-habitación ordenado por roomId para evitar deadlocks + re-check per-rango). `AvailabilityCheckDto.excludeJourneyIds` (array) nuevo para el swap (excluir 2 journeys).
+
+- **D-OB-2 — Graves que NO validaban → ahora validan.** `lateCheckout` valida el rango extendido (un late checkout que cruza a la siguiente noche la ocupa; same-day no añade noche y pasa). `swapStayRooms` valida que cada reserva quepa en la habitación de la otra (excluyendo A y B), con lock dual — antes una 3ª reserva en la habitación destino producía overbooking.
+
+- **D-OB-3 — Race (validaban sin lock) → check movido dentro de la tx con lock.** `moveRoom`, `restoreStay`, `revertNoShow` (este conserva su guard manual como fail-fast). En `stay-journeys`, `assertRoomAvailable` acepta `tx` y toma el lock; sus callers (`extendSameRoom`/`extendNewRoom`/`executeMidStayRoomMove`/`initJourneyAndExtend`/`moveExtensionRoom`) llaman el check DENTRO de su `$transaction`; `splitReservation` toma el lock por habitación dentro de la tx.
+
+- **D-OB-4 — Channex inbound usa el MISMO lock que recepción.** `booking-new` (single + multi-room) y `booking-modify` re-validan bajo `walk-in:<roomId>` dentro de su tx; si pierden la carrera contra un walk-in que ocupó la habitación entre el check y el commit, **persisten como conflicto** (`channexConflict=true` / `AVAILABILITY_OVERLAP`, revisión humana D-CHX5) en vez de crear overbooking. Cierra la race staff↔OTA (antes el inbound y recepción usaban locks distintos / ninguno).
+
+> **Verificación:** typecheck api verde · suite guest-stays+stay-journeys+availability+channex **339/339** (incl. test de regresión `lateCheckout`→ConflictException + ajuste booking-new) · **E2E real:** A(mar1-3)+B(mar3-5) back-to-back; `lateCheckout(A→mar4)` → **409** "se solapa con Reg Bbb (conflicto al adquirir lock)"; `lateCheckout(A→mar3 16:00)` mismo día → éxito. Pendiente: PR + merge tras autorización owner. **Out of scope (deuda separada, no overbooking):** validación cross-property de `newRoomId` en `moveRoom` (compartida con el patrón ya cerrado en editReservationDates).
+
+---
+
 ### Channex cancel round-trip — Sprint CHANNEX-CANCEL-FIX (EN CURSO, branch `fix/channex-cancel-roundtrip`)
 
 > Arrancado 2026-06-03 tras descubrir en un test e2e en vivo (contra `staging.channex.io`) que el flujo de cancelación PMS→Channex→OTA NO funcionaba. Los 93 tests unitarios no lo detectaban porque mockean el HTTP del gateway. **NO mergear** sin autorización del owner. Fase C ya está en main (PR #74).

@@ -71,7 +71,7 @@ function makeExistingStay(overrides: Record<string, unknown> = {}) {
 }
 
 function makePrismaMock() {
-  return {
+  const m: Record<string, unknown> = {
     // CHECK-IN C2.2 — multi-room lookup. Default null = single-room legacy path.
     reservationGroup: { findUnique: jest.fn().mockResolvedValue(null) },
     guestStay: {
@@ -80,6 +80,16 @@ function makePrismaMock() {
       update: jest.fn().mockResolvedValue({}),
     },
     property: { findUnique: jest.fn() },
+    // OVERBOOKING-HARDENING — el modify re-valida bajo lock dentro de una tx.
+    $executeRawUnsafe: jest.fn().mockResolvedValue(undefined),
+  }
+  m.$transaction = jest.fn(async (cb: (tx: unknown) => unknown) => cb(m))
+  return m as {
+    guestStay: { findUnique: jest.Mock; findMany: jest.Mock; update: jest.Mock }
+    property: { findUnique: jest.Mock }
+    reservationGroup: { findUnique: jest.Mock }
+    $transaction: jest.Mock
+    $executeRawUnsafe: jest.Mock
   }
 }
 
@@ -93,7 +103,7 @@ describe('BookingModifyHandler', () => {
 
   beforeEach(async () => {
     prisma = makePrismaMock()
-    availability = { check: jest.fn() }
+    availability = { check: jest.fn().mockResolvedValue({ available: true, conflicts: [], checkedChannex: false }) }
     notifications = { emit: jest.fn() }
     systemStaff = { getOrCreate: jest.fn().mockResolvedValue('staff-system-1') }
     bookingNew = {

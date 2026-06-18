@@ -171,7 +171,10 @@ describe('GuestStaysService — no-show', () => {
     sendBatch: jest.fn().mockResolvedValue(undefined),
   }
   const notifMock = { emit: jest.fn().mockResolvedValue(undefined) }
-  const availabilityMock = { checkAvailability: jest.fn().mockResolvedValue([]) }
+  const availabilityMock = {
+    checkAvailability: jest.fn().mockResolvedValue([]),
+    check: jest.fn().mockResolvedValue({ available: true, conflicts: [] }),
+  }
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({

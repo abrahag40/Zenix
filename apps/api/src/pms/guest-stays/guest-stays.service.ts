@@ -658,6 +658,64 @@ export class GuestStaysService {
   }
 
   /**
+   * OVERBOOKING-HARDENING — toma el advisory lock de una habitación DENTRO de la
+   * transacción y re-valida disponibilidad antes de escribir. Es la ÚNICA
+   * garantía real contra el race check→write: el gap entre `await check` y
+   * `await write` permite que otra petición se intercale (el event loop de Node
+   * procesa otra request durante el await), incluso en single-instance. La key
+   * `walk-in:<roomId>` es la MISMA que usa create() para que TODOS los flujos
+   * de reserva sobre la misma habitación serialicen entre sí. Lanza
+   * ConflictException(RANGE_UNAVAILABLE) si el rango ya no está libre.
+   *
+   * Debe llamarse al inicio del callback de un `$transaction` (el lock se libera
+   * al commit/rollback). `roomIds` permite bloquear varias habitaciones (swap).
+   */
+  private async lockAndAssertAvailable(
+    tx: Prisma.TransactionClient,
+    checks: Array<{
+      roomId: string
+      from: Date
+      to: Date
+      excludeStayIds?: string[]
+      excludeJourneyIds?: string[]
+    }>,
+  ): Promise<void> {
+    // 1) Tomar TODOS los locks primero, en orden estable (por roomId) para
+    //    evitar deadlocks entre dos swaps cruzados.
+    const roomIds = [...new Set(checks.map((c) => c.roomId))].sort()
+    for (const roomId of roomIds) {
+      try {
+        await tx.$executeRawUnsafe(
+          `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`,
+          `walk-in:${roomId}`,
+        )
+      } catch (e) {
+        if (!(e instanceof TypeError)) throw e // tests con $transaction mockeado
+      }
+    }
+    // 2) Re-validar cada rango bajo los locks.
+    for (const c of checks) {
+      const recheck = await this.availability.check({
+        roomId: c.roomId,
+        from: c.from,
+        to: c.to,
+        excludeStayIds: c.excludeStayIds,
+        excludeJourneyIds: c.excludeJourneyIds,
+      })
+      if (!recheck.available) {
+        const hard = recheck.conflicts.find((x) => x.source === 'LOCAL_STAY' || x.source === 'LOCAL_SEGMENT')
+        throw new ConflictException({
+          code: 'RANGE_UNAVAILABLE',
+          message: hard?.label
+            ? `La habitación tiene una reserva de "${hard.label}" que se solapa con el rango (conflicto al adquirir lock).`
+            : 'La habitación no está disponible para el rango (race condition).',
+          conflicts: recheck.conflicts,
+        })
+      }
+    }
+  }
+
+  /**
    * BUG #8 fix 2026-06-04 — IDOR cross-property en findUnique.
    *
    * Hasta hoy, los 25+ `guestStay.findUnique` del módulo scoped sólo por
@@ -1513,6 +1571,7 @@ export class GuestStaysService {
     const stay = await this.prisma.guestStay.findUnique({
       where: this.stayScope(stayId),
       include: {
+        stayJourney: { select: { id: true } },
         room: {
           select: {
             id: true,
@@ -1551,6 +1610,20 @@ export class GuestStaysService {
     const updatedTaskIds: string[] = []
 
     await this.prisma.$transaction(async (tx) => {
+      // OVERBOOKING-HARDENING — un late checkout que cruza a la siguiente noche
+      // (hasta 24h) podía ocupar una noche que ya tiene la reserva back-to-back
+      // → overbooking (confirmado e2e). Validamos el rango extendido bajo el lock
+      // de la habitación, excluyéndose a sí misma. Same-day (no añade noche) pasa.
+      await this.lockAndAssertAvailable(tx, [
+        {
+          roomId: stay.roomId,
+          from: stay.checkinAt,
+          to: newCheckoutTime,
+          excludeStayIds: [stayId],
+          excludeJourneyIds: stay.stayJourney ? [stay.stayJourney.id] : [],
+        },
+      ])
+
       // 1. Actualizar GuestStay
       await tx.guestStay.update({
         where: { id: stayId },
@@ -1760,6 +1833,7 @@ export class GuestStaysService {
     const orgId = this.tenant.getOrganizationId()
     const stay = await this.prisma.guestStay.findUnique({
       where: this.stayScope(stayId),
+      include: { stayJourney: { select: { id: true } } },
     })
     if (!stay) throw new NotFoundException()
 
@@ -1780,11 +1854,13 @@ export class GuestStaysService {
     // StaySegment, RoomBlock and Channex (CLAUDE.md §35). Replaces the previous
     // GuestStay-only query that ignored maintenance blocks and journey segments
     // belonging to other guests already assigned to the destination room.
+    const exJourneyIds = stay.stayJourney ? [stay.stayJourney.id] : []
     const avail = await this.availability.check({
       roomId: dto.newRoomId,
       from: stay.checkinAt,
       to: stay.scheduledCheckout,
       excludeStayIds: [stayId],
+      excludeJourneyIds: exJourneyIds,
     })
     if (!avail.available) {
       const c = avail.conflicts[0]
@@ -1805,21 +1881,32 @@ export class GuestStaysService {
       },
     })
 
-    await this.prisma.$transaction([
+    // OVERBOOKING-HARDENING — el pre-check de arriba corría fuera de la tx (race).
+    // Re-validamos la habitación destino bajo su lock antes de mover.
+    await this.prisma.$transaction(async (tx) => {
+      await this.lockAndAssertAvailable(tx, [
+        {
+          roomId: dto.newRoomId,
+          from: stay.checkinAt,
+          to: stay.scheduledCheckout,
+          excludeStayIds: [stayId],
+          excludeJourneyIds: exJourneyIds,
+        },
+      ])
       // Only mark old room available if no other active guests remain in it
-      this.prisma.room.update({
+      await tx.room.update({
         where: { id: stay.roomId },
         data: { status: otherStaysInOldRoom > 0 ? 'OCCUPIED' : 'AVAILABLE' },
-      }),
-      this.prisma.room.update({
+      })
+      await tx.room.update({
         where: { id: dto.newRoomId },
         data: { status: 'OCCUPIED' },
-      }),
-      this.prisma.guestStay.update({
+      })
+      await tx.guestStay.update({
         where: { id: stayId },
         data: { roomId: dto.newRoomId },
-      }),
-    ])
+      })
+    })
 
     this.events.emit('room.moved', {
       stayId,
@@ -1878,9 +1965,11 @@ export class GuestStaysService {
     const [stayA, stayB] = await Promise.all([
       this.prisma.guestStay.findUnique({
         where: { id: stayIdA, organizationId: orgId },
+        include: { stayJourney: { select: { id: true } } },
       }),
       this.prisma.guestStay.findUnique({
         where: { id: stayIdB, organizationId: orgId },
+        include: { stayJourney: { select: { id: true } } },
       }),
     ])
 
@@ -1916,8 +2005,18 @@ export class GuestStaysService {
 
     const oldRoomIdA = stayA.roomId
     const oldRoomIdB = stayB.roomId
+    const exJourneys = [stayA.stayJourney?.id, stayB.stayJourney?.id].filter(Boolean) as string[]
 
     await this.prisma.$transaction(async (tx) => {
+      // OVERBOOKING-HARDENING — el swap no validaba que cada reserva quepa en la
+      // habitación de la otra: si una TERCERA reserva ocupa la habitación destino
+      // en fechas solapadas, el swap creaba overbooking. Validamos ambos destinos
+      // bajo lock de ambas habitaciones, excluyendo A y B (que se intercambian).
+      await this.lockAndAssertAvailable(tx, [
+        { roomId: oldRoomIdB, from: stayA.checkinAt, to: stayA.scheduledCheckout, excludeStayIds: [stayA.id, stayB.id], excludeJourneyIds: exJourneys },
+        { roomId: oldRoomIdA, from: stayB.checkinAt, to: stayB.scheduledCheckout, excludeStayIds: [stayA.id, stayB.id], excludeJourneyIds: exJourneys },
+      ])
+
       // Step 1 — swap roomId en las stays
       await tx.guestStay.update({
         where: { id: stayA.id },
@@ -2307,6 +2406,18 @@ export class GuestStaysService {
     const now = new Date()
 
     await this.prisma.$transaction(async (tx) => {
+      // OVERBOOKING-HARDENING — el guard `bloqueante` de arriba corre fuera de la
+      // tx (race TOCTOU). Re-validamos bajo el lock de la habitación antes de
+      // reactivar la reserva, excluyéndose a sí misma (sigue marcada no-show).
+      await this.lockAndAssertAvailable(tx, [
+        {
+          roomId: stay.roomId,
+          from: stay.checkinAt,
+          to: stay.scheduledCheckout,
+          excludeStayIds: [stayId],
+          excludeJourneyIds: stay.stayJourney ? [stay.stayJourney.id] : [],
+        },
+      ])
       await tx.guestStay.update({
         where: { id: stayId },
         data: {
@@ -5834,12 +5945,14 @@ export class GuestStaysService {
     }
 
     // Verificar disponibilidad excluyendo este mismo stay (que está cancelled
-    // pero aún tiene los datos de fechas originales).
+    // pero aún tiene los datos de fechas originales). Pre-check fail-fast.
+    const exJourneyIds = stay.stayJourney ? [stay.stayJourney.id] : []
     const avail = await this.availability.check({
       roomId: stay.roomId,
       from:   stay.checkinAt,
       to:     stay.scheduledCheckout,
       excludeStayIds: [stayId],
+      excludeJourneyIds: exJourneyIds,
     })
     if (!avail.available) {
       const c = avail.conflicts[0]
@@ -5850,6 +5963,18 @@ export class GuestStaysService {
     }
 
     await this.prisma.$transaction(async (tx) => {
+      // OVERBOOKING-HARDENING — el pre-check corría fuera de la tx (race TOCTOU):
+      // entre el check y la reactivación, otra reserva podía ocupar la habitación
+      // liberada. Re-validamos bajo el lock antes de reactivar.
+      await this.lockAndAssertAvailable(tx, [
+        {
+          roomId: stay.roomId,
+          from: stay.checkinAt,
+          to: stay.scheduledCheckout,
+          excludeStayIds: [stayId],
+          excludeJourneyIds: exJourneyIds,
+        },
+      ])
       await tx.guestStay.update({
         where: { id: stayId },
         data: {

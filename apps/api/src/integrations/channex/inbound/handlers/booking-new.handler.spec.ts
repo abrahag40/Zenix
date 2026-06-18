@@ -93,7 +93,7 @@ describe('BookingNewHandler', () => {
 
   beforeEach(async () => {
     prisma = makePrismaMock()
-    availability = { check: jest.fn() }
+    availability = { check: jest.fn().mockResolvedValue({ available: true, conflicts: [], checkedChannex: false }) }
     notifications = { emit: jest.fn() }
     systemStaff = { getOrCreate: jest.fn().mockResolvedValue('staff-system-1') }
     channexNotif = { raiseConflict: jest.fn().mockResolvedValue({ notificationId: 'notif-1' }) }
@@ -323,8 +323,9 @@ describe('BookingNewHandler', () => {
       { id: 'room-a2', number: 'A2' },
     ])
     availability.check
-      .mockResolvedValueOnce({ available: false, conflicts: [], checkedChannex: false })
-      .mockResolvedValueOnce({ available: true, conflicts: [], checkedChannex: false })
+      .mockResolvedValueOnce({ available: false, conflicts: [], checkedChannex: false }) // loop: room-a1 ocupada
+      .mockResolvedValueOnce({ available: true, conflicts: [], checkedChannex: false }) // loop: room-a2 libre
+      .mockResolvedValueOnce({ available: true, conflicts: [], checkedChannex: false }) // re-check bajo lock
     prisma._tx.txGuestStayCreate.mockResolvedValue({
       id: 'stay-2',
       roomId: 'room-a2',
@@ -335,6 +336,7 @@ describe('BookingNewHandler', () => {
     const result = await handler.handle(makeRevision())
 
     expect(result).toEqual({ kind: 'created', stayId: 'stay-2', roomId: 'room-a2' })
-    expect(availability.check).toHaveBeenCalledTimes(2)
+    // OVERBOOKING-HARDENING — loop (2) + re-check bajo lock dentro de la tx (1).
+    expect(availability.check).toHaveBeenCalledTimes(3)
   })
 })
