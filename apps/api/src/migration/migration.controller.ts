@@ -19,6 +19,7 @@ import {
   Delete,
   ForbiddenException,
   Get,
+  Header,
   Param,
   Patch,
   Post,
@@ -143,6 +144,29 @@ export class MigrationController {
     const orgId = this.requireOrg(req)
     await this.migration.assertJobInOrg(jobId, orgId)
     return this.migration.deleteJob(jobId, orgId)
+  }
+
+  @Post('migration/jobs/:jobId/load')
+  @RequireActingOrg()
+  async load(@Param('jobId') jobId: string, @Req() req: Request & { user?: JwtPayload }) {
+    const orgId = this.requireOrg(req)
+    await this.migration.assertJobInOrg(jobId, orgId)
+    // Mismo patrón que wizard.controller: el JWT de un actor Nova lleva el
+    // systemRole real en `role` (usado como actorRealRole del AuditLog).
+    const actor = {
+      sub: (req.user?.sub as string) ?? 'unknown',
+      role: (req.user?.role as unknown as string) ?? 'PLATFORM_ADMIN',
+    }
+    return this.migration.load(jobId, orgId, actor)
+  }
+
+  @Get('migration/jobs/:jobId/report')
+  @RequireActingOrg()
+  @Header('Content-Type', 'text/html; charset=utf-8')
+  async report(@Param('jobId') jobId: string, @Req() req: Request & { user?: JwtPayload }) {
+    const orgId = this.requireOrg(req)
+    await this.migration.assertJobInOrg(jobId, orgId)
+    return this.migration.getReport(jobId, orgId)
   }
 
   // ─── helpers ──────────────────────────────────────────────────────────────
