@@ -12,7 +12,7 @@
  *   - SSE 'task.rescheduled' se emite con el actor + payload correcto
  *   - TaskLog con event=LATE_CHECKOUT_RESCHEDULED + metadata
  */
-import { BadRequestException, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 import { EventEmitter2 } from '@nestjs/event-emitter'
 import { CleaningStatus } from '@zenix/shared'
@@ -72,7 +72,10 @@ describe('GuestStaysService.lateCheckout (EC-3)', () => {
   const assignmentMock = { autoAssign: jest.fn() }
   const pushMock = { sendToStaff: jest.fn(), sendBatch: jest.fn() }
   const notifMock = { emit: jest.fn() }
-  const availabilityMock = { checkAvailability: jest.fn() }
+  const availabilityMock = {
+    checkAvailability: jest.fn(),
+    check: jest.fn().mockResolvedValue({ available: true, conflicts: [] }),
+  }
 
   beforeEach(async () => {
     const moduleRef: TestingModule = await Test.createTestingModule({
@@ -143,6 +146,23 @@ describe('GuestStaysService.lateCheckout (EC-3)', () => {
     // 30 horas después del scheduledCheckout actual
     const tooFar = new Date('2026-05-05T17:00:00Z')
     await expect(service.lateCheckout(STAY_ID, tooFar, ACTOR_ID)).rejects.toThrow(/24h/i)
+  })
+
+  // ─── OVERBOOKING-HARDENING (regresión del hueco confirmado e2e) ────────────
+  it('ConflictException si la noche extendida ya está ocupada por otra reserva (anti-overbooking)', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-05-04T08:00:00Z'))
+    prismaMock.guestStay.findUnique.mockResolvedValue(
+      makeStayActive({ scheduledCheckout: new Date('2026-05-04T11:00:00Z') }),
+    )
+    // El late checkout cruza a la noche siguiente, que ya tiene la reserva
+    // back-to-back → el re-check bajo lock la detecta y rechaza (antes: overbooking).
+    availabilityMock.check.mockResolvedValueOnce({
+      available: false,
+      conflicts: [{ source: 'LOCAL_STAY', label: 'Huésped back-to-back', from: new Date(), to: new Date() }],
+    })
+    const nextNight = new Date('2026-05-05T09:00:00Z') // +22h, añade la noche del 4
+    await expect(service.lateCheckout(STAY_ID, nextNight, ACTOR_ID)).rejects.toThrow(ConflictException)
+    expect(prismaMock.guestStay.update).not.toHaveBeenCalled()
   })
 
   // ─── Happy path ──────────────────────────────────────────────────────────

@@ -278,31 +278,75 @@ export class BookingModifyHandler {
     })
     const pmsHasCollected = stay ? new Prisma.Decimal(stay.amountPaid).greaterThan(0) : false
 
-    await this.prisma.guestStay.update({
-      where: { id: existing.id },
-      data: {
-        ...guestPatch, // guest-verified fields excluidos (§D-AC6)
-        paxCount: desired.paxCount,
-        checkinAt: desired.checkinAt,
-        scheduledCheckout: desired.scheduledCheckout,
-        notes: desired.notes,
-        channexLastSyncAt: incomingTs ?? new Date(),
-        channexOtaName: desired.channexOtaName,
-        ...(pmsHasCollected
-          ? {}
-          : {
-              ratePerNight: desired.ratePerNight,
-              totalAmount: desired.totalAmount,
-              currency: desired.currency,
-              paymentModel: desired.paymentModel,
-              ...(desired.paymentModel === 'OTA_COLLECT'
-                ? { paymentStatus: 'PAID', amountPaid: desired.totalAmount }
-                : {}),
-            }),
-        // Lead days re-computed by mapper, refresh
-        bookingLeadDays: desired.bookingLeadDays,
-      },
-    })
+    const updateData: Prisma.GuestStayUpdateInput = {
+      ...guestPatch, // guest-verified fields excluidos (§D-AC6)
+      paxCount: desired.paxCount,
+      checkinAt: desired.checkinAt,
+      scheduledCheckout: desired.scheduledCheckout,
+      notes: desired.notes,
+      channexLastSyncAt: incomingTs ?? new Date(),
+      channexOtaName: desired.channexOtaName,
+      ...(pmsHasCollected
+        ? {}
+        : {
+            ratePerNight: desired.ratePerNight,
+            totalAmount: desired.totalAmount,
+            currency: desired.currency,
+            paymentModel: desired.paymentModel,
+            ...(desired.paymentModel === 'OTA_COLLECT'
+              ? { paymentStatus: 'PAID', amountPaid: desired.totalAmount }
+              : {}),
+          }),
+      // Lead days re-computed by mapper, refresh
+      bookingLeadDays: desired.bookingLeadDays,
+    }
+
+    // OVERBOOKING-HARDENING — si cambian fechas, el pre-check de arriba corría
+    // fuera de la tx (race staff↔OTA en el gap check→update). Re-validamos el
+    // nuevo rango bajo el MISMO lock `walk-in:<roomId>` que recepción DENTRO de
+    // la tx del update. Si recepción ocupó el rango entre el check y el commit,
+    // marcamos channexConflict en vez de aplicar (no overbooking).
+    if (dateChanged && existing.roomId) {
+      const lost = await this.prisma.$transaction(async (tx) => {
+        try {
+          await tx.$executeRawUnsafe(
+            `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`,
+            `walk-in:${existing.roomId}`,
+          )
+        } catch (e) {
+          if (!(e instanceof TypeError)) throw e
+        }
+        const recheck = await this.availability.check({
+          roomId: existing.roomId,
+          from: newCheckIn,
+          to: newCheckOut,
+          excludeStayIds: [existing.id],
+        })
+        if (!recheck.available) {
+          await tx.guestStay.update({
+            where: { id: existing.id },
+            data: { channexConflict: true, channexLastSyncAt: incomingTs ?? new Date() },
+          })
+          return true
+        }
+        await tx.guestStay.update({ where: { id: existing.id }, data: updateData })
+        return false
+      })
+      if (lost) {
+        await this.emitReviewRequired(
+          existing.propertyId,
+          existing.id,
+          revision,
+          'DATE_CHANGE_OVERLAPS_OTHER_STAY',
+        )
+        this.logger.warn(
+          `[Channex modify] race: room=${existing.roomId} ocupada entre el check y el commit — marcado channexConflict`,
+        )
+        return { kind: 'updated', stayId: existing.id, restrictedToSafeFields: false }
+      }
+    } else {
+      await this.prisma.guestStay.update({ where: { id: existing.id }, data: updateData })
+    }
 
     this.notifications.emit(existing.propertyId, 'channex:stay:modified', {
       stayId: existing.id,

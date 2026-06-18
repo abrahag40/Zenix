@@ -253,41 +253,74 @@ export class BookingNewHandler {
     //   · NO se puede extender via extendNewRoom (necesita journey)
     //   · BookingCancelHandler journey cascade no se ejecuta
     // Day 3 audit gap detectado por la pregunta del owner 2026-05-22.
-    const stay = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.guestStay.create({
-        data: { ...data, checkedInById },
-        select: { id: true, roomId: true, checkinAt: true, scheduledCheckout: true },
-      })
+    let stay: { id: string; roomId: string; checkinAt: Date; scheduledCheckout: Date }
+    try {
+      stay = await this.prisma.$transaction(async (tx) => {
+        // OVERBOOKING-HARDENING — el pre-check (loop arriba) corría fuera de la
+        // tx y con un lock distinto al de recepción → un walk-in podía ocupar la
+        // habitación entre el check y el commit (race staff↔OTA), creando
+        // overbooking. Tomamos el MISMO lock `walk-in:<roomId>` que create() y
+        // re-validamos bajo el lock. Si perdió la carrera → NO creamos encima:
+        // persistimos como conflicto para revisión humana (D-CHX5).
+        try {
+          await tx.$executeRawUnsafe(
+            `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`,
+            `walk-in:${chosenRoomId}`,
+          )
+        } catch (e) {
+          if (!(e instanceof TypeError)) throw e
+        }
+        const recheck = await this.availability.check({ roomId: chosenRoomId, from: checkIn, to: checkOut })
+        if (!recheck.available) {
+          const err = new Error('AVAILABILITY_RACE') as Error & { __availabilityRace?: boolean }
+          err.__availabilityRace = true
+          throw err
+        }
 
-      // StayJourney (1:1 con GuestStay para flujos uniformes)
-      const journey = await tx.stayJourney.create({
-        data: {
-          organizationId,
-          propertyId: property.id,
-          guestName: data.guestName,
-          guestEmail: data.guestEmail,
-          guestStayId: created.id,
-          journeyCheckIn: created.checkinAt,
-          journeyCheckOut: created.scheduledCheckout,
-        },
-      })
+        const created = await tx.guestStay.create({
+          data: { ...data, checkedInById },
+          select: { id: true, roomId: true, checkinAt: true, scheduledCheckout: true },
+        })
 
-      // ORIGINAL segment (status ACTIVE, reason ORIGINAL — mismo enum del flow manual)
-      await tx.staySegment.create({
-        data: {
-          journeyId: journey.id,
-          roomId: created.roomId,
-          guestStayId: created.id,
-          checkIn: created.checkinAt,
-          checkOut: created.scheduledCheckout,
-          status: 'ACTIVE',
-          reason: 'ORIGINAL',
-          rateSnapshot: new Prisma.Decimal(data.ratePerNight as Prisma.Decimal),
-        },
-      })
+        // StayJourney (1:1 con GuestStay para flujos uniformes)
+        const journey = await tx.stayJourney.create({
+          data: {
+            organizationId,
+            propertyId: property.id,
+            guestName: data.guestName,
+            guestEmail: data.guestEmail,
+            guestStayId: created.id,
+            journeyCheckIn: created.checkinAt,
+            journeyCheckOut: created.scheduledCheckout,
+          },
+        })
 
-      return created
-    })
+        // ORIGINAL segment (status ACTIVE, reason ORIGINAL — mismo enum del flow manual)
+        await tx.staySegment.create({
+          data: {
+            journeyId: journey.id,
+            roomId: created.roomId,
+            guestStayId: created.id,
+            checkIn: created.checkinAt,
+            checkOut: created.scheduledCheckout,
+            status: 'ACTIVE',
+            reason: 'ORIGINAL',
+            rateSnapshot: new Prisma.Decimal(data.ratePerNight as Prisma.Decimal),
+          },
+        })
+
+        return created
+      })
+    } catch (e) {
+      if ((e as { __availabilityRace?: boolean })?.__availabilityRace) {
+        this.logger.warn(
+          `[Channex bookingNew] race: room=${chosenRoomId} ocupada entre el check y el commit ` +
+            `→ se persiste como conflicto en vez de crear overbooking`,
+        )
+        return this.persistConflict(revision, property, timezone, 'AVAILABILITY_OVERLAP', chosenRoomId)
+      }
+      throw e
+    }
 
     // 7. SSE — calendar listener (useRoomSSE) refresca al recibir esto
     this.notifications.emit(property.id, 'channex:stay:created', {
@@ -478,6 +511,29 @@ export class BookingNewHandler {
     let hasConflicts = false
     try {
       const txResult = await this.prisma.$transaction(async (tx) => {
+        // OVERBOOKING-HARDENING — el check de habitación (arriba) corría fuera de
+        // la tx con un lock distinto al de recepción (race staff↔OTA). Tomamos el
+        // MISMO lock `walk-in:<roomId>` de cada habitación elegida y re-validamos
+        // bajo el lock; si recepción la ocupó entre el check y el commit,
+        // degradamos esa habitación a conflicto (AVAILABILITY_OVERLAP) en vez de
+        // crear overbooking — la hija queda con channexConflict=true para revisión.
+        const chosenIds = [...new Set(resolutions.filter((r) => r.conflict === null).map((r) => r.roomId))].sort()
+        for (const rid of chosenIds) {
+          try {
+            await tx.$executeRawUnsafe(
+              `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`,
+              `walk-in:${rid}`,
+            )
+          } catch (e) {
+            if (!(e instanceof TypeError)) throw e
+          }
+        }
+        for (const r of resolutions) {
+          if (r.conflict !== null) continue
+          const recheck = await this.availability.check({ roomId: r.roomId, from: checkIn, to: checkOut })
+          if (!recheck.available) r.conflict = 'AVAILABILITY_OVERLAP'
+        }
+
         const group = await tx.reservationGroup.create({
           data: {
             organizationId: property.organizationId,

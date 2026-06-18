@@ -37,6 +37,8 @@ export interface AvailabilityCheckDto {
   excludeStayIds?: string[]
   /** When the journey is being rearranged (split/move), all of its segments are excluded */
   excludeJourneyId?: string
+  /** OVERBOOKING-HARDENING — excluir varios journeys a la vez (p.ej. swap de 2 reservas) */
+  excludeJourneyIds?: string[]
 }
 
 export interface AvailabilityConflict {
@@ -174,6 +176,11 @@ export class AvailabilityService {
     // Sin este filtro, extender Kevin Park en su propia habitación → 409 contra
     // su propio nombre, regresión observada tras la migración a este servicio.
     const excludeStayIds = dto.excludeStayIds ?? []
+    // OVERBOOKING-HARDENING — combinar el journey singular (legacy) con el array.
+    const excludeJourneyIds = [
+      ...(dto.excludeJourneyIds ?? []),
+      ...(dto.excludeJourneyId ? [dto.excludeJourneyId] : []),
+    ]
     const staysOnRoom = await this.prisma.guestStay.findMany({
       where: {
         roomId: dto.roomId,
@@ -185,8 +192,8 @@ export class AvailabilityService {
         // NOT { stayJourney: { id } } (en vez de stayJourney.id: { not }) para
         // que stays SIN journey (legacy/seed) NO sean excluidas — Prisma trata
         // la ausencia de relación como "no matchea el filtro positivo".
-        ...(dto.excludeJourneyId
-          ? { NOT: { stayJourney: { id: dto.excludeJourneyId } } }
+        ...(excludeJourneyIds.length
+          ? { NOT: { stayJourney: { id: { in: excludeJourneyIds } } } }
           : {}),
         // Day-level overlap + zombie filter (combined en `effectiveCheckoutCutoff`).
         checkinAt: { lt: newCheckOutDay },
@@ -216,8 +223,8 @@ export class AvailabilityService {
         roomId: dto.roomId,
         id: { notIn: excludeSegmentIds },
         status: { in: ['ACTIVE', 'PENDING'] },
-        ...(dto.excludeJourneyId
-          ? { journeyId: { not: dto.excludeJourneyId } }
+        ...(excludeJourneyIds.length
+          ? { journeyId: { notIn: excludeJourneyIds } }
           : {}),
         // Day-level overlap + zombie filter, mismo razonamiento que GuestStay arriba.
         // El stay padre del journey también debe pasar el cutoff de overstayed:

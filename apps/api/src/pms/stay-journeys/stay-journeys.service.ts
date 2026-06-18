@@ -125,15 +125,17 @@ export class StayJourneyService {
       throw new BadRequestException('newCheckOut must be after the current segment checkOut')
     }
 
-    await this.assertRoomAvailable(
-      activeSegment.roomId,
-      activeSegment.checkOut,
-      newCheckOut,
-      activeSegment.id,
-      dto.journeyId,
-    )
-
     const newSegment = await this.prisma.$transaction(async (tx) => {
+      // OVERBOOKING-HARDENING — check dentro de la tx con lock (antes corría fuera).
+      await this.assertRoomAvailable(
+        activeSegment.roomId,
+        activeSegment.checkOut,
+        newCheckOut,
+        activeSegment.id,
+        dto.journeyId,
+        undefined,
+        tx,
+      )
       const segment = await tx.staySegment.create({
         data: {
           journeyId: dto.journeyId,
@@ -221,9 +223,9 @@ export class StayJourneyService {
     // que excluirla explícitamente del check porque sus fechas raw (checkinAt
     // con hora 15:00, scheduledCheckout 12:00) extienden levemente más allá del
     // startOfDay normalizado y se contarían como conflicto consigo misma.
-    await this.assertRoomAvailable(roomId, origCheckOut, extCheckOut, undefined, undefined, [guestStayId])
-
     const extSegment = await this.prisma.$transaction(async (tx) => {
+      // OVERBOOKING-HARDENING — check dentro de la tx con lock (antes corría fuera).
+      await this.assertRoomAvailable(roomId, origCheckOut, extCheckOut, undefined, undefined, [guestStayId], tx)
       const journey = await tx.stayJourney.create({
         data: {
           organizationId,
@@ -301,15 +303,17 @@ export class StayJourneyService {
       throw new BadRequestException('newCheckOut must be after the current segment checkOut')
     }
 
-    await this.assertRoomAvailable(
-      dto.newRoomId,
-      activeSegment.checkOut,
-      newCheckOut,
-      undefined,
-      dto.journeyId,
-    )
-
     const newSegment = await this.prisma.$transaction(async (tx) => {
+      // OVERBOOKING-HARDENING — check dentro de la tx con lock (antes corría fuera).
+      await this.assertRoomAvailable(
+        dto.newRoomId,
+        activeSegment.checkOut,
+        newCheckOut,
+        undefined,
+        dto.journeyId,
+        undefined,
+        tx,
+      )
       const segment = await tx.staySegment.create({
         data: {
           journeyId: dto.journeyId,
@@ -402,17 +406,19 @@ export class StayJourneyService {
       throw new BadRequestException('newRoomId must be different from the current room')
     }
 
-    await this.assertRoomAvailable(
-      dto.newRoomId,
-      effectiveDate,
-      activeSegment.checkOut,
-      undefined,
-      dto.journeyId,
-    )
-
     const originalCheckOut = activeSegment.checkOut
 
     const newSegment = await this.prisma.$transaction(async (tx) => {
+      // OVERBOOKING-HARDENING — check dentro de la tx con lock (antes corría fuera).
+      await this.assertRoomAvailable(
+        dto.newRoomId,
+        effectiveDate,
+        activeSegment.checkOut,
+        undefined,
+        dto.journeyId,
+        undefined,
+        tx,
+      )
       await tx.segmentNight.updateMany({
         where: {
           segmentId: activeSegment.id,
@@ -586,32 +592,39 @@ export class StayJourneyService {
       }
     }
 
-    // Validación de disponibilidad vía AvailabilityService — cubre local DB
-    // (GuestStay + StaySegment + RoomBlock) Y Channex.io (channel manager).
-    // Sprint 8+: un split rechaza si Channex reporta stop-sell o allotment=0.
-    // Ver CLAUDE.md §29 — toda operación de inventario pasa por este servicio.
-    for (let i = 0; i < parts.length; i++) {
-      const part = parts[i]
-      const result = await this.availability.check({
-        roomId: part.roomId,
-        from: part.checkIn,
-        to: part.checkOut,
-        // Los segmentos del propio journey se van a cancelar/reemplazar — excluirlos.
-        excludeJourneyId: dto.journeyId,
-      })
-      if (!result.available) {
-        const c = result.conflicts[0]
-        throw new ConflictException(
-          `Parte ${i + 1}: habitación no disponible — ${c.label}` +
-            (c.source === 'CHANNEX' ? ' (canal externo)' : ''),
-        )
-      }
-    }
-
     const rateSnapshot =
       activeSegment?.rateSnapshot ?? activeSegments[0]?.rateSnapshot ?? null
 
     const createdSegments = await this.prisma.$transaction(async (tx) => {
+      // OVERBOOKING-HARDENING — validación de disponibilidad + advisory lock por
+      // habitación DENTRO de la tx (antes el loop corría fuera → race check→write).
+      // Cubre local DB (GuestStay + StaySegment + RoomBlock) Y Channex (§29).
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i]
+        try {
+          await tx.$executeRawUnsafe(
+            `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`,
+            `walk-in:${part.roomId}`,
+          )
+        } catch (e) {
+          if (!(e instanceof TypeError)) throw e
+        }
+        const result = await this.availability.check({
+          roomId: part.roomId,
+          from: part.checkIn,
+          to: part.checkOut,
+          // Los segmentos del propio journey se van a cancelar/reemplazar — excluirlos.
+          excludeJourneyId: dto.journeyId,
+        })
+        if (!result.available) {
+          const c = result.conflicts[0]
+          throw new ConflictException(
+            `Parte ${i + 1}: habitación no disponible — ${c.label}` +
+              (c.source === 'CHANNEX' ? ' (canal externo)' : ''),
+          )
+        }
+      }
+
       // Lock noches pasadas, borrar noches futuras de cada segmento ACTIVE
       for (const seg of activeSegments) {
         await tx.segmentNight.updateMany({
@@ -797,14 +810,6 @@ export class StayJourneyService {
       )
     }
 
-    await this.assertRoomAvailable(
-      newRoomId,
-      segment.checkIn,
-      segment.checkOut,
-      segmentId,
-      segment.journeyId,
-    )
-
     const originalRoomId = segment.journey.segments[0]?.roomId
     // ORIGINAL → ORIGINAL (siempre). ROOM_MOVE → ROOM_MOVE (sigue siendo una
     // mudanza, sólo cambia el destino). EXTENSION_* → recalcular según si el
@@ -819,6 +824,16 @@ export class StayJourneyService {
             : 'EXTENSION_NEW_ROOM'
 
     const updated = await this.prisma.$transaction(async (tx) => {
+      // OVERBOOKING-HARDENING — check dentro de la tx con lock (antes corría fuera).
+      await this.assertRoomAvailable(
+        newRoomId,
+        segment.checkIn,
+        segment.checkOut,
+        segmentId,
+        segment.journeyId,
+        undefined,
+        tx,
+      )
       const seg = await tx.staySegment.update({
         where: { id: segmentId },
         data: { roomId: newRoomId, reason: newReason },
@@ -1371,7 +1386,23 @@ export class StayJourneyService {
     excludeSegmentId?: string,
     excludeJourneyId?: string,
     excludeStayIds?: string[],
+    // OVERBOOKING-HARDENING — cuando se pasa el `tx` de la transacción, se toma
+    // el advisory lock de la habitación (misma key `walk-in:<roomId>` que
+    // create/editReservationDates) ANTES del check, cerrando el race check→write.
+    // Debe llamarse DENTRO del $transaction del caller para que el lock proteja
+    // la escritura subsiguiente.
+    tx?: Prisma.TransactionClient,
   ) {
+    if (tx) {
+      try {
+        await tx.$executeRawUnsafe(
+          `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`,
+          `walk-in:${roomId}`,
+        )
+      } catch (e) {
+        if (!(e instanceof TypeError)) throw e // tests con $transaction mockeado
+      }
+    }
     const result = await this.availability.check({
       roomId,
       from,
