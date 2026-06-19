@@ -39,7 +39,7 @@ export function NovaMigrationPage() {
   const qc = useQueryClient()
 
   const [propertyId, setPropertyId] = useState('')
-  const [sourceSystem, setSourceSystem] = useState('CLOUDBEDS')
+  const [sourceSystem, setSourceSystem] = useState('ZENIX_TEMPLATE')
   const [file, setFile] = useState<File | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
   const [acceptingRow, setAcceptingRow] = useState<number | null>(null)
@@ -67,7 +67,7 @@ export function NovaMigrationPage() {
     queryKey: ['mig-job', jobId],
     queryFn: () => migrationApi.getJob(jobId!),
     enabled: !!jobId,
-    refetchInterval: (q) => (q.state.data?.status === 'VALIDATING' || q.state.data?.status === 'PARSING' ? 1500 : false),
+    refetchInterval: (q) => (['VALIDATING', 'PARSING', 'LOADING'].includes(q.state.data?.status ?? '') ? 1500 : false),
   })
   const conflicts = useQuery({
     queryKey: ['mig-conflicts', jobId],
@@ -103,11 +103,52 @@ export function NovaMigrationPage() {
     onError: (e: Error) => toast.error(e.message ?? 'No se pudo descartar'),
   })
 
+  // Sprint 4 — load idempotente a producción.
+  const loadMut = useMutation({
+    mutationFn: () => migrationApi.load(jobId!),
+    onSuccess: (j) => {
+      qc.invalidateQueries({ queryKey: ['mig-job', jobId] })
+      const c = j.counts ?? {}
+      if ((c.failed ?? 0) > 0) toast.warning(`Importación parcial: ${c.loaded ?? 0} cargadas, ${c.failed} fallidas`)
+      else toast.success(`Importación completa: ${c.loaded ?? 0} reservas cargadas`)
+    },
+    onError: (e: Error) => toast.error(e.message ?? 'No se pudo importar'),
+  })
+
+  // Descarga la plantilla oficial Zenix (CSV) — patrón SuccessFactors.
+  const downloadTemplate = async () => {
+    try {
+      const csv = await migrationApi.template()
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'zenix-import-template.csv'
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(url), 5_000)
+    } catch (e) {
+      toast.error((e as Error).message ?? 'No se pudo descargar la plantilla')
+    }
+  }
+
+  // Abre el reporte HTML en una pestaña nueva (fetch con auth → blob).
+  const openReport = async () => {
+    try {
+      const html = await migrationApi.report(jobId!)
+      const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }))
+      window.open(url, '_blank')
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch (e) {
+      toast.error((e as Error).message ?? 'No se pudo abrir el reporte')
+    }
+  }
+
   useEffect(() => { if (properties.data && !propertyId && properties.data[0]) setPropertyId(properties.data[0].id) }, [properties.data, propertyId])
 
   const counts = job.data?.counts ?? {}
   const blocking = counts.blocking ?? 0
-  const canImport = job.data?.status === 'PREVIEW_READY' && blocking === 0
+  const status = job.data?.status
+  const canImport = status === 'PREVIEW_READY' && blocking === 0
+  const isLoaded = status === 'COMPLETED' || status === 'PARTIAL'
 
   // Solo refs numéricas (filas del import) son resolubles; `existing:` no.
   const firstResolvableRef = (c: MigrationConflict): number | null => {
@@ -143,6 +184,19 @@ export function NovaMigrationPage() {
           Sube el export de reservas del PMS actual del cliente{actingOrgName ? ` (${actingOrgName})` : ''}. Te mostramos
           un <strong>preview con los empalmes y errores</strong> antes de cargar nada a producción.
         </Caption>
+
+        {/* Paso 0: plantilla Zenix (patrón SuccessFactors) */}
+        {!jobId && (
+          <Surface variant="raised" radius="lg" padding="md" tone="info">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <Body><strong>¿Usas la plantilla Zenix?</strong> Exporta las reservas del PMS del cliente, pégalas en nuestra plantilla (Excel → Guardar como CSV) y súbela. Sin mapear columnas.</Body>
+                <Caption className="mt-1">Formato ISO de fechas (YYYY-MM-DD). Los datos de tarjeta NUNCA se migran (PCI).</Caption>
+              </div>
+              <Button variant="ghost" iconLeft={FileSpreadsheet} onClick={downloadTemplate}>Descargar plantilla</Button>
+            </div>
+          </Surface>
+        )}
 
         {/* Paso 1: subir */}
         {!jobId && (
@@ -181,10 +235,40 @@ export function NovaMigrationPage() {
         {/* Paso 2: preview */}
         {jobId && job.data && (
           <>
-            {(job.data.status === 'PARSING' || job.data.status === 'VALIDATING') && (
+            {(job.data.status === 'PARSING' || job.data.status === 'VALIDATING' || job.data.status === 'LOADING') && (
               <Surface variant="raised" radius="lg" padding="lg">
-                <Body>Analizando el archivo… ({job.data.status})</Body>
+                <Body>{job.data.status === 'LOADING' ? 'Importando a producción…' : 'Analizando el archivo…'} ({job.data.status})</Body>
               </Surface>
+            )}
+
+            {/* Paso 3: resultado del load (COMPLETED / PARTIAL) */}
+            {isLoaded && (
+              <>
+                <Surface variant="raised" radius="lg" padding="lg" tone={status === 'PARTIAL' ? 'warning' : undefined}>
+                  <div className="flex items-center gap-3">
+                    {status === 'PARTIAL'
+                      ? <AlertTriangle className="h-6 w-6 text-amber-500 flex-shrink-0" />
+                      : <CheckCircle2 className="h-6 w-6 text-emerald-500 flex-shrink-0" />}
+                    <div>
+                      <Headline as="h2">{status === 'PARTIAL' ? 'Importación parcial' : 'Migración completada'}</Headline>
+                      <Caption>
+                        {counts.loaded ?? 0} cargadas · {counts.existing ?? 0} ya existían · {counts.skipped ?? 0} omitidas · {counts.failed ?? 0} fallidas
+                      </Caption>
+                    </div>
+                  </div>
+                </Surface>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <StatTile icon={CheckCircle2} accent="emerald" label="Cargadas" value={counts.loaded ?? 0} />
+                  <StatTile icon={FileSpreadsheet} accent="indigo" label="Ya existían" value={counts.existing ?? 0} />
+                  <StatTile icon={SkipForward} accent="amber" label="Omitidas" value={counts.skipped ?? 0} />
+                  <StatTile icon={AlertTriangle} accent={(counts.failed ?? 0) > 0 ? 'red' : 'emerald'} label="Fallidas" value={counts.failed ?? 0} />
+                </div>
+                <div className="flex items-center gap-3">
+                  <Button iconLeft={FileSpreadsheet} onClick={openReport}>Ver reporte</Button>
+                  <div className="flex-1" />
+                  <Button variant="ghost" onClick={() => { setJobId(null); setFile(null) }}>Nueva migración</Button>
+                </div>
+              </>
             )}
 
             {job.data.status === 'PREVIEW_READY' && (
@@ -198,11 +282,11 @@ export function NovaMigrationPage() {
                 </div>
 
                 <div className="flex items-center gap-3">
-                  <Button iconLeft={ArrowUpFromLine} disabled={!canImport}
-                    onClick={() => toast('Importar a producción llega en el Sprint 4', { icon: '🛠️' })}>
-                    Importar a producción
+                  <Button iconLeft={ArrowUpFromLine} disabled={!canImport || loadMut.isPending}
+                    onClick={() => loadMut.mutate()}>
+                    {loadMut.isPending ? 'Importando…' : 'Importar a producción'}
                   </Button>
-                  {!canImport && <Caption>Resuelve los {blocking} conflicto(s) bloqueante(s) para habilitar la importación.</Caption>}
+                  {!canImport && blocking > 0 && <Caption>Resuelve los {blocking} conflicto(s) bloqueante(s) para habilitar la importación.</Caption>}
                   <div className="flex-1" />
                   <Button variant="ghost" iconLeft={Trash2} onClick={() => deleteMut.mutate()} disabled={deleteMut.isPending}>
                     Descartar

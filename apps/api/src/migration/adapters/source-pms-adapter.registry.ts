@@ -5,6 +5,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import type { MigrationSource } from '@zenix/shared'
 import type { ISourcePmsAdapter } from './source-pms-adapter.interface'
+import { ZenixTemplateAdapter } from './zenix-template.adapter'
 import { GenericCsvAdapter } from './generic-csv.adapter'
 import { CloudbedsAdapter } from './cloudbeds.adapter'
 
@@ -13,11 +14,12 @@ export class SourcePmsAdapterRegistry {
   private readonly adapters: ISourcePmsAdapter[]
 
   constructor(
+    zenixTemplate: ZenixTemplateAdapter,
     generic: GenericCsvAdapter,
     cloudbeds: CloudbedsAdapter,
   ) {
-    // Orden de construcción: genérico (motor) → dedicados (pre-mapeos).
-    this.adapters = [generic, cloudbeds]
+    // Orden: plantilla Zenix (camino recomendado) → genérico (motor) → dedicados.
+    this.adapters = [zenixTemplate, generic, cloudbeds]
   }
 
   get(source: MigrationSource | string): ISourcePmsAdapter {

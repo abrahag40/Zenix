@@ -7,6 +7,7 @@ import { matchRoom, type ZenixRoomLite } from './validation/room-matcher'
 import { findDuplicateGuests } from './validation/guest-dedup'
 import { MigrationRowStatus } from '@zenix/shared'
 import type { MigrationReservationDto } from '@zenix/shared'
+import { MigrationService } from './migration.service'
 
 const claim = (ref: string, key: string, ci: string, co: string, shared = false): OccupancyClaim =>
   ({ ref, resourceKey: key, shared, checkIn: ci, checkOut: co })
@@ -159,5 +160,45 @@ describe('findDuplicateGuests', () => {
     const groups = findDuplicateGuests(rows, (_r, i) => String(i))
     expect(groups).toHaveLength(1)
     expect(groups[0].refs).toEqual(['0', '1'])
+  })
+})
+
+// Sprint 4 — gate de seguridad del load (no cargar con ERRORes sin resolver).
+describe('MigrationService.load — gate', () => {
+  const makeService = (job: unknown) => {
+    const prisma = { migrationJob: { findUnique: jest.fn().mockResolvedValue(job) } }
+    return new MigrationService(prisma as never, {} as never, {} as never, {} as never)
+  }
+  const actor = { sub: 'u1', role: 'PLATFORM_ADMIN' }
+
+  it('rechaza el load cuando quedan conflictos bloqueantes (blocking > 0)', async () => {
+    const svc = makeService({
+      id: 'j1', organizationId: 'org1', propertyId: 'p1',
+      status: 'PREVIEW_READY', counts: { blocking: 2 },
+    })
+    await expect(svc.load('j1', 'org1', actor)).rejects.toThrow(/bloqueante/i)
+  })
+
+  it('rechaza el load si el job no está en PREVIEW_READY/PARTIAL', async () => {
+    const svc = makeService({
+      id: 'j1', organizationId: 'org1', propertyId: 'p1',
+      status: 'VALIDATING', counts: { blocking: 0 },
+    })
+    await expect(svc.load('j1', 'org1', actor)).rejects.toThrow(/PREVIEW_READY/i)
+  })
+
+  it('es idempotente: un job ya COMPLETED no recarga (devuelve el resumen)', async () => {
+    const job = { id: 'j1', organizationId: 'org1', propertyId: 'p1', status: 'COMPLETED', counts: { loaded: 5 } }
+    const prisma = {
+      migrationJob: { findUnique: jest.fn().mockResolvedValue(job) },
+      migrationStagingReservation: { count: jest.fn().mockResolvedValue(0), findMany: jest.fn().mockResolvedValue([]) },
+    }
+    const svc = new MigrationService(prisma as never, {} as never, {} as never, {} as never)
+    await expect(svc.load('j1', 'org1', actor)).resolves.toMatchObject({ status: 'COMPLETED' })
+  })
+
+  it('IDOR: un job de otra org no es accesible', async () => {
+    const svc = makeService({ id: 'j1', organizationId: 'OTHER', propertyId: 'p1', status: 'PREVIEW_READY', counts: { blocking: 0 } })
+    await expect(svc.load('j1', 'org1', actor)).rejects.toThrow(/no encontrado/i)
   })
 })
