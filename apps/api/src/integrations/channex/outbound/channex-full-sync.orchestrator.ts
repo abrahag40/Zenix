@@ -314,6 +314,12 @@ export class ChannexFullSyncOrchestrator {
           status: 'ACTIVE',
           checkIn: { lt: endDate },
           checkOut: { gt: startDate },
+          // CHANNEX-CERT-FIX (2026-06-20): excluir el segmento ORIGINAL — duplica
+          // al GuestStay (cada reserva crea GuestStay + StaySegment ORIGINAL §137).
+          // Sin esto se contaba la misma reserva 2 veces → disponibilidad sub-
+          // contada (p.ej. 3 en vez de 4 con 5 cuartos y 1 reserva). Los
+          // segmentos de extensión/move (no-ORIGINAL) sí son ocupación adicional.
+          reason: { not: 'ORIGINAL' },
         },
         select: { roomId: true, checkIn: true, checkOut: true },
       }),
@@ -405,22 +411,77 @@ export class ChannexFullSyncOrchestrator {
    */
   private async buildRestrictionEntries(
     propertyId: string,
-    _channexPropertyId: string,
-    _days: number,
+    channexPropertyId: string,
+    days: number,
   ): Promise<ChannexRestrictionEntry[]> {
-    // Detect schema feature flag: if Prisma client lacks `ratePlan`, return [].
-    // Compile-safe — usamos any cast porque el model está commented en schema.
-    const ratePlanClient = (this.prisma as unknown as { ratePlan?: { findMany: () => Promise<unknown[]> } }).ratePlan
-    if (!ratePlanClient || typeof ratePlanClient.findMany !== 'function') {
-      return []
+    // CHANNEX-CERT-RESTRICTIONS (2026-06-20). Test 1 mensaje 2: rates +
+    // restrictions de 500 días por rate plan. Resuelve el channex rate_plan_id
+    // por el link preciso (roomType × ratePlan). rate = override del día ??
+    // baseRate del plan ?? baseRate del room type. Restricciones de las filas
+    // RateRestriction que solapan el día (mlos/maxLos/cta/ctd/stop_sell).
+    const links = await this.prisma.channexRatePlanLink.findMany({
+      where: { propertyId },
+      select: { roomTypeId: true, ratePlanId: true, channexRatePlanId: true },
+    })
+    if (links.length === 0) return []
+
+    const roomTypeIds = Array.from(new Set(links.map((l) => l.roomTypeId)))
+    const ratePlanIds = Array.from(new Set(links.map((l) => l.ratePlanId)))
+
+    const startDate = startOfDayUtc(new Date())
+    const endDate = new Date(startDate.getTime() + days * 86_400_000)
+
+    const [roomTypes, ratePlans, overrides, restrictions] = await Promise.all([
+      this.prisma.roomType.findMany({ where: { id: { in: roomTypeIds } }, select: { id: true, baseRate: true } }),
+      this.prisma.ratePlan.findMany({ where: { id: { in: ratePlanIds } }, select: { id: true, baseRate: true } }),
+      this.prisma.rateOverride.findMany({
+        where: { propertyId, roomTypeId: { in: roomTypeIds }, ratePlanId: { in: ratePlanIds }, date: { gte: startDate, lt: endDate } },
+        select: { roomTypeId: true, ratePlanId: true, date: true, overrideRate: true },
+      }),
+      this.prisma.rateRestriction.findMany({
+        where: { ratePlanId: { in: ratePlanIds }, validFrom: { lt: endDate }, validTo: { gte: startDate } },
+        select: { ratePlanId: true, roomTypeId: true, validFrom: true, validTo: true, mlos: true, maxLos: true, cta: true, ctd: true, stopSell: true },
+      }),
+    ])
+    const rtRate = new Map(roomTypes.map((r) => [r.id, Number(r.baseRate ?? 0)]))
+    const planRate = new Map(ratePlans.map((p) => [p.id, p.baseRate != null ? Number(p.baseRate) : null]))
+    const overrideMap = new Map<string, number>()
+    for (const o of overrides) {
+      overrideMap.set(`${o.roomTypeId}|${o.ratePlanId}|${toIsoDate(o.date)}`, Number(o.overrideRate))
     }
-    // Cuando RATES sprint exista, el código real se implementa aquí.
-    // Por ahora retornamos [] aunque el client exista (sin lógica completa).
-    this.logger.debug(
-      `[Channex full-sync] buildRestrictionEntries scaffold — property=${propertyId} ` +
-        `awaiting RATES-METRICS-COMPSET-CORE sprint`,
+
+    const entries: ChannexRestrictionEntry[] = []
+    for (const link of links) {
+      const baseRate = planRate.get(link.ratePlanId) ?? rtRate.get(link.roomTypeId) ?? 0
+      const planRestrictions = restrictions.filter(
+        (r) => r.ratePlanId === link.ratePlanId && (r.roomTypeId == null || r.roomTypeId === link.roomTypeId),
+      )
+      for (let i = 0; i < days; i++) {
+        const date = new Date(startDate.getTime() + i * 86_400_000)
+        const dateStr = toIsoDate(date)
+        const entry: ChannexRestrictionEntry = {
+          propertyId: channexPropertyId,
+          ratePlanId: link.channexRatePlanId,
+          date: dateStr,
+          rate: overrideMap.get(`${link.roomTypeId}|${link.ratePlanId}|${dateStr}`) ?? baseRate,
+        }
+        const rule = planRestrictions.find((r) => r.validFrom <= date && r.validTo >= date)
+        if (rule) {
+          // min_stay_through (no min_stay) — la propiedad no soporta el plano.
+          if (rule.mlos != null) entry.minStayThrough = rule.mlos
+          if (rule.maxLos != null) entry.maxStay = rule.maxLos
+          if (rule.cta) entry.closedToArrival = true
+          if (rule.ctd) entry.closedToDeparture = true
+          if (rule.stopSell) entry.stopSell = true
+        }
+        entries.push(entry)
+      }
+    }
+    this.logger.log(
+      `[Channex full-sync] buildRestrictionEntries property=${propertyId} ` +
+        `links=${links.length} days=${days} entries=${entries.length}`,
     )
-    return []
+    return entries
   }
 }
 

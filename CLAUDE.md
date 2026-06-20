@@ -1415,6 +1415,42 @@ housekeeping3/
 
 ---
 
+### Channex PMS Certification — Sprint CHANNEX-CERT-RESTRICTIONS (EN CURSO, branch `chore/channex-cert-prep`, 2026-06-20)
+
+> Sesión para ejecutar la **certificación PMS de Channex** (formulario oficial: Setup Testing Property + 14 Test Scenarios). Cerró el gap real que impedía completarla: el push de **restricciones** (min_stay / stop_sell / CTA / CTD / max_stay) nunca se cableó (sprints previos cablearon precios + disponibilidad y dejaron restricciones explícitamente diferidas). **Todo verificado e2e contra `staging.channex.io` — task IDs REALES.** **NO mergear** sin autorización del owner.
+
+**Setup Testing Property (verificado, no creado — un intento previo la dejó bien):** `Test Property - Zenix` (`94d70281-07a8-4e6b-9273-724fa3b725dd`, USD) · 2 room types Twin (`2e0b297f…`) + Double (`cdff8770…`) occ 2 · 4 rate plans BAR 100 / B&B 120 por tipo (`88a90aa7`/`56319005`/`c57ad75e`/`ca745836`). Mapeada en BD dev a `prop-channex-cert`.
+
+**Decisiones (se §-numeran al cerrar — D-CERT-RESTR):**
+- **D-CERT-1 — `ChannexRatePlanLink` (tabla nueva, additive).** En Zenix un `RatePlan` es a nivel propiedad (BAR/B&B) y `RoomType` es aparte; en Channex el rate_plan es por room type. La combinación real es **(roomType × ratePlan) → channex rate_plan_id**. `ChannexRatePlanMapping` (Command Center) sólo guardaba 1 plan por room type → no distinguía BAR vs B&B (insuficiente para Tests 3-8). Nueva tabla `channex_rate_plan_links` enlaza el par exacto. Migración additive `20260620000000_channex_cert_restrictions` (+ `RateRestriction.stopSell` + `ChannexOutboundQueue.lastTaskId`) aplicada aislada (BD dev tiene drift de migraciones previas; patrón db execute + migrate resolve). Seed `seed-channex-cert-rateplans.ts` (2 RatePlans + 4 links).
+- **D-CERT-2 — `RatesService.applyRatesAndRestrictions` (batch, 1 push).** Endpoint `POST /v1/rates/ari/batch` (SUPERVISOR). Recibe N líneas (roomType×ratePlan×rango) con tarifa y/o restricciones; persiste local (RateOverride + RateRestriction) y emite **UN** `CHANNEX_RESTRICTION_UPDATED` con todas las entries → el builder crea 1 row → el worker hace **1 POST /restrictions** (batching obligatorio de la cert; "looping per-date" reprueba). Resuelve el channex rate_plan_id por el link. **No toca** los métodos existentes (override/bulk) → cero riesgo para Hotel Tulum.
+- **D-CERT-3 — min_stay → `min_stay_through` (descubierto e2e).** Esta propiedad **no soporta `min_stay` plano** (Channex responde `data:[]` + warning, NO crea task); requiere `min_stay_through`. El mapper usa `minStayThrough`. Además el gateway ahora **loggea `meta.warnings`** para no marcar SUCCEEDED en silencio.
+- **D-CERT-4 — Full-sync rates+restrictions implementado.** `buildRestrictionEntries` del `FullSyncOrchestrator` (antes scaffold `[]`) ahora genera entries por link × día con tarifa resuelta (override ?? base) + restricciones que solapan. Test 1 produce los 2 task IDs (availability 1000 entries + rates/restrictions 2000 entries para 500 días).
+- **D-CERT-5 — UI Restricciones (Settings → Tarifas → Restricciones).** Editor en lote estilo Cloudbeds/Mews: filas (hab · plan · rango · min/max stay · cerrar venta · CTA · CTD · tarifa) → "Aplicar N cambios" = 1 sync. Recuadro explicativo de cada restricción. Verificado en navegador (dispara task id real `ae823e06…`). Hook `useApplyAri`.
+- **D-CERT-6 — Worker captura `lastTaskId`.** El worker persiste el task id devuelto por Channex en `channex_outbound_queue.last_task_id` (evidencia de cert sin scraping de logs).
+- **D-CERT-7 — Feed inbound resolvía la propiedad por la columna equivocada (bug, destapado por Test 11).** `channex-feed.scheduler.ts` hacía `propertySettings.findUnique({ where: { propertyId: revision.property_id } })` — pero `revision.property_id` es el UUID de Channex, no el id local → **orphaneaba TODA reserva OTA real** de una propiedad mapeada vía `channexPropertyId`. Fix: resolver por `channexPropertyId` (mismo mapeo §190/D-CHX-FIX-1). El downstream (puller) traduce channex→local, por eso `acceptDelivery` sigue recibiendo el id crudo.
+
+**Resultados de la certificación (task IDs reales, staging Channex):**
+| Test | task id(s) |
+|---|---|
+| 1 Full sync | avail `690be87b-6f53-42bf-b931-33baf4c865e0` · rates/restr `52b263f2-1b82-45aa-9174-bf82bec8eb22` |
+| 2 1 fecha/1 tarifa | `d6b74fdb-6a2e-47e7-a5f3-2c0c22def74b` |
+| 3 1 fecha/varias tarifas | `ab621965-931b-4b5e-baa4-212ac251cc4f` |
+| 4 varias fechas/varias tarifas | `e2b749b7-7286-4387-8202-9e8c39232cec` |
+| 5 Min stay | `4b6f826c-dfaf-44b9-b49c-80bb9da4da76` |
+| 6 Stop sell | `26ae0673-98cd-4b86-852d-362b95876713` |
+| 7 Múltiples restricciones | `4bf71cc9-a330-4ce3-87d8-c28d0ae004ac` |
+| 8 Half-year | `887c19b2-126d-4112-93fb-eb8b0646d1e4` |
+| 9 Disp. 1 fecha | `7830adc1-30ee-4598-94b7-c6328276b24a` |
+| 10 Disp. rangos | Twin `e3070c5b-5533-4586-ac77-533b6fc7acfb` · Double `0ccf1c2b-eb6d-4496-b372-bde394a16c42` |
+| 11 Booking receiving | Channex booking `c383a3cc-9bc3-43ef-b129-930ddbfd1e98` (OTA `BDC-ZENIX-CERT-11`) |
+
+**Test 11 (ejecutado e2e en el navegador, de inicio a fin):** instalado app **Booking CRS** en Channex → creada reserva entrante (Booking.com, Test Property - Zenix, Carlos Certguest, Jul 10-12, 200 USD) → el PMS la recibió vía feed (`BookingNewHandler created stay=c2ebd29f`) + **ack** (`acked revision=7a87ee71`) → **modify** (OTA commission 0→15, `BookingModifyHandler updated` + ack `222a0a64`) → **cancel** (status Cancelled, `BookingCancelHandler cancelled` + SSE `channex:stay:cancelled` + ack `d58ea504`). Estado final en Channex: **Cancelled + Acked ✓** (el check verde persiste a través de New→Modified→Cancelled). Tests 12-14 son declarativos (rate-limit token bucket / updates delta-only por eventos / notas) — el sistema ya cumple.
+
+**Test 11 — captura del PMS (deliverable "screenshots from your system with this Booking"):** segunda reserva entrante **activa** creada para evidencia limpia — `BDC-ZENIX-CERT-11B` (Channex booking `7b48c81c-5337-4bee-818f-07b89a791bcf`, Maria Receptora, Booking.com, Jul 20-22, Hab. Double 201). Recibida + acked por el PMS (`BookingNewHandler created stay=b23d6ebc` + `acked revision=28f1ade6`) y **verificada en el calendario de Zenix** (`/pms`): el buscador global la encuentra y el `BookingDetailSheet` muestra guest + chip Booking.com + código OTA `ZENIX-CERT-11B` + fechas + Hab. 201 + **CHANNEX ID `7b48c81c…`** + "Última sync OTA". Bug encontrado de paso: el viewport del preview arrancó en 2px (cosmético del entorno, resuelto con resize). **Bug REAL del feed corregido (D-CERT-7)** sin el cual ninguna reserva OTA entraba al PMS en prod.
+
+**Verificación:** typecheck api+web verde · suites afectadas 33/33 (full-sync orchestrator + outbound worker, specs actualizados) · UI Restricciones verificada en navegador (preview) · 11/11 task IDs reales de staging. **Salvedad honesta (§4):** el push de restricciones se disparó por el endpoint real del PMS (capa de integración en el codebase principal, no script suelto); la UI de Restricciones está construida y verificada para el screenshare de Stage 4. El api-key sigue **sin Booking CRS write** (403) — NO bloquea la cert (no hay test que cree/cancele booking vía PMS→Channex; eso es el diferenciador opcional §150/§157).
+
 ### Channex cancel round-trip — Sprint CHANNEX-CANCEL-FIX (EN CURSO, branch `fix/channex-cancel-roundtrip`)
 
 > Arrancado 2026-06-03 tras descubrir en un test e2e en vivo (contra `staging.channex.io`) que el flujo de cancelación PMS→Channex→OTA NO funcionaba. Los 93 tests unitarios no lo detectaban porque mockean el HTTP del gateway. **NO mergear** sin autorización del owner. Fase C ya está en main (PR #74).

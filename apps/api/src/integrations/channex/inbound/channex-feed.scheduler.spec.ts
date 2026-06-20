@@ -39,7 +39,7 @@ describe('ChannexFeedScheduler', () => {
   }
   let inbound: { acceptDelivery: jest.Mock }
   let prisma: {
-    propertySettings: { findUnique: jest.Mock; updateMany: jest.Mock }
+    propertySettings: { findFirst: jest.Mock; updateMany: jest.Mock }
   }
 
   beforeEach(async () => {
@@ -54,7 +54,7 @@ describe('ChannexFeedScheduler', () => {
     }
     prisma = {
       propertySettings: {
-        findUnique: jest
+        findFirst: jest
           .fn()
           .mockResolvedValue({ propertyId: 'prop-1' }), // default: known
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -134,7 +134,7 @@ describe('ChannexFeedScheduler', () => {
       revisions: [makeRevision({ property_id: 'prop-unknown' })],
       meta: { total: 1, page: 1, limit: 50 },
     })
-    prisma.propertySettings.findUnique.mockResolvedValueOnce(null)
+    prisma.propertySettings.findFirst.mockResolvedValueOnce(null)
 
     const result = await scheduler.run({ source: 'manual' })
 

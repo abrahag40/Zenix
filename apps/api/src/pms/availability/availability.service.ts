@@ -427,35 +427,124 @@ export class AvailabilityService {
       })
       if (!settings?.channexPropertyId) return
 
-      // Sprint CHANNEX-OUTBOUND-CERT Day 3 — refactor AP-2.2.
-      // Antes: `await this.channex.pushInventory(...)` direct desde el save
-      // handler (violación cert AP-2.2 — Channex caído bloqueaba el save).
-      // Ahora: emit domain event → OutboxBuilder enqueue → Worker drain.
-      // Save handler retorna inmediato; resiliente a outages de Channex.
-      //
-      // Absolute model (hotel: 1 unit per room_type):
-      //   delta=+1 (release)    → availability=1 absolute
-      //   delta=-1 (reservation) → availability=0 absolute
-      // Para hostel dorms con multi-unit, computeAndPushInventory ya usa el
-      // path correcto con compute absoluto per date.
-      const event: ChannexAvailabilityChangedEvent = {
-        propertyId: room.propertyId,
-        entries: [
-          {
-            propertyId: settings.channexPropertyId,
-            roomTypeId: room.channexRoomTypeId,
-            dateFrom: n.from.toISOString().slice(0, 10),
-            dateTo: n.to.toISOString().slice(0, 10),
-            availability: delta > 0 ? 1 : 0,
-          },
-        ],
-      }
-      this.events.emit(CHANNEX_AVAILABILITY_CHANGED, event)
+      // CHANNEX-CERT-FIX (2026-06-20). Antes este push hardcodeaba
+      // `availability: delta>0 ? 1 : 0` asumiendo "1 cuarto por room type".
+      // BUG real: un room type con N cuartos físicos (p.ej. Twin con 5)
+      // reportaba 0 ("agotado") tras UNA reserva — bloqueando la venta de los
+      // otros 4 en todas las OTAs. Ahora recalculamos la disponibilidad
+      // ABSOLUTA del room type agregando TODOS sus cuartos para las noches
+      // afectadas (misma lógica que el full-sync §buildAvailabilityEntries,
+      // acotada al room type + rango). `delta` ya no se usa: un recompute
+      // absoluto es idempotente y correcto tanto para reservar como liberar.
+      void delta
+      await this.pushRoomTypeAvailabilityAbsolute(
+        room.propertyId,
+        settings.channexPropertyId,
+        room.channexRoomTypeId,
+        n.from,
+        n.to,
+      )
     } catch (err) {
       this.logger.error(
         `notifyChannex (delta=${delta}) failed trace=${n.traceId}: ${(err as Error).message}`,
       )
     }
+  }
+
+  /**
+   * Recalcula y empuja la disponibilidad ABSOLUTA de un room type Channex
+   * agregando TODOS los cuartos físicos de ese tipo en la propiedad, por noche
+   * del rango [from, to) (checkout exclusivo). Modelo absoluto: Channex espera
+   * "cuántos cuartos libres hay" por room_type × fecha, no deltas. Sirve para
+   * hotel (N cuartos × 1 unidad) y hostal (1 cuarto × N camas) por igual.
+   * Emite el evento → OutboxBuilder → Worker (rate-limit + retry). Best-effort.
+   */
+  private async pushRoomTypeAvailabilityAbsolute(
+    propertyId: string,
+    channexPropertyId: string,
+    channexRoomTypeId: string,
+    from: Date,
+    to: Date,
+  ): Promise<void> {
+    const rooms = await this.prisma.room.findMany({
+      where: { propertyId, channexRoomTypeId, deletedAt: null },
+      select: { id: true },
+    })
+    if (rooms.length === 0) return
+    const roomIds = rooms.map((r) => r.id)
+    // Modelo hotel: cada cuarto físico = 1 slot vendible. La disponibilidad del
+    // room type = #cuartos − #cuartos ocupados (distintos). Contamos cuartos
+    // DISTINTOS ocupados (Set), NO la suma de stays+segments: una reserva existe
+    // como GuestStay Y como StaySegment ORIGINAL (§137) → sumarlos duplicaría.
+    const totalRooms = rooms.length
+
+    const startOfUtc = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+    const startDate = startOfUtc(from)
+    const endExclusive = startOfUtc(to) // checkout day, exclusive
+    const dates: Date[] = []
+    for (let t = startDate.getTime(); t < endExclusive.getTime(); t += 86_400_000) dates.push(new Date(t))
+    if (dates.length === 0) dates.push(startDate) // same-day safety
+
+    const lastDate = dates[dates.length - 1]
+    const dayAfterLast = new Date(lastDate)
+    dayAfterLast.setUTCDate(dayAfterLast.getUTCDate() + 1)
+
+    const [stays, segments, blocks] = await Promise.all([
+      this.prisma.guestStay.findMany({
+        where: {
+          roomId: { in: roomIds },
+          cancelledAt: null,
+          noShowAt: null,
+          actualCheckout: null,
+          checkinAt: { lt: dayAfterLast },
+          scheduledCheckout: { gt: startDate },
+        },
+        select: { roomId: true, checkinAt: true, scheduledCheckout: true },
+      }),
+      this.prisma.staySegment.findMany({
+        where: {
+          roomId: { in: roomIds },
+          status: { in: ['ACTIVE', 'PENDING'] },
+          checkIn: { lt: dayAfterLast },
+          checkOut: { gt: startDate },
+          journey: { guestStay: { cancelledAt: null, noShowAt: null, actualCheckout: null } },
+        },
+        select: { roomId: true, checkIn: true, checkOut: true },
+      }),
+      this.prisma.roomBlock.findMany({
+        where: {
+          status: 'ACTIVE',
+          startDate: { lte: lastDate },
+          AND: [
+            { OR: [{ endDate: null }, { endDate: { gt: startDate } }] },
+            { OR: [{ roomId: { in: roomIds } }, { unit: { roomId: { in: roomIds } } }] },
+          ],
+        },
+        select: { roomId: true, startDate: true, endDate: true, unit: { select: { roomId: true } } },
+      }),
+    ])
+
+    const entries = dates.map((date) => {
+      const dEnd = new Date(date)
+      dEnd.setUTCDate(dEnd.getUTCDate() + 1)
+      // Set de cuartos NO disponibles ese día (dedupe: stay + su segmento ORIGINAL
+      // sobre el mismo cuarto cuentan UNA vez).
+      const unavailable = new Set<string>()
+      for (const s of stays) if (s.roomId && s.checkinAt < dEnd && s.scheduledCheckout > date) unavailable.add(s.roomId)
+      for (const seg of segments) if (seg.roomId && seg.checkIn < dEnd && seg.checkOut > date) unavailable.add(seg.roomId)
+      for (const b of blocks) {
+        const bEnd = b.endDate ?? dayAfterLast
+        if (b.startDate <= date && bEnd > date) {
+          const rid = b.roomId ?? b.unit?.roomId
+          if (rid) unavailable.add(rid)
+        }
+      }
+      const availability = Math.max(0, totalRooms - unavailable.size)
+      return { propertyId: channexPropertyId, roomTypeId: channexRoomTypeId, date: date.toISOString().slice(0, 10), availability }
+    })
+
+    const event: ChannexAvailabilityChangedEvent = { propertyId, entries }
+    this.events.emit(CHANNEX_AVAILABILITY_CHANGED, event)
   }
 
   /**

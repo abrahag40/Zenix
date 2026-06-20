@@ -657,6 +657,144 @@ export class RatesService {
     if (start.getTime() > end.getTime()) throw new BadRequestException('La fecha inicial no puede ser mayor que la final')
   }
 
+  // ── ARI batch (rates + restrictions) → Channex en UNA sola llamada ──────────
+  //
+  // CHANNEX-CERT-RESTRICTIONS (2026-06-20). Recibe N líneas (roomType × ratePlan
+  // × rango) cada una con tarifa y/o restricciones (min_stay / max_stay / CTA /
+  // CTD / stop_sell). Persiste localmente (RateOverride + RateRestriction) y
+  // emite UN solo CHANNEX_RESTRICTION_UPDATED con todas las entries — el builder
+  // crea 1 row outbox y el worker hace 1 POST /restrictions (batching obligatorio
+  // de la certificación; "looping per-date" reprueba). Resuelve el rate plan
+  // Channex preciso vía ChannexRatePlanLink (par roomType×ratePlan) — distingue
+  // BAR vs B&B (lo que el mapping legacy por-roomType no podía).
+  async applyRatesAndRestrictions(
+    propertyId: string,
+    actorId: string,
+    updates: Array<{
+      roomTypeId: string
+      ratePlanId: string
+      dateFrom: Date
+      dateTo: Date
+      rate?: number | null
+      minStay?: number | null
+      maxStay?: number | null
+      cta?: boolean | null
+      ctd?: boolean | null
+      stopSell?: boolean | null
+    }>,
+  ) {
+    const orgId = this.tenant.getOrganizationId()
+    await this.assertPropertyInOrg(propertyId, orgId)
+    if (!updates || updates.length === 0) throw new BadRequestException('Se requiere al menos una actualización')
+
+    const settings = await this.prisma.propertySettings.findUnique({
+      where: { propertyId },
+      select: { channexPropertyId: true },
+    })
+
+    // Resolver (roomType × ratePlan) → channex rate_plan_id vía link preciso.
+    const links = await this.prisma.channexRatePlanLink.findMany({
+      where: { propertyId },
+      select: { roomTypeId: true, ratePlanId: true, channexRatePlanId: true },
+    })
+    const linkMap = new Map(links.map((l) => [`${l.roomTypeId}|${l.ratePlanId}`, l.channexRatePlanId]))
+
+    type Entry = ChannexRestrictionUpdatedEvent['entries'][number]
+    const entries: Entry[] = []
+
+    for (const u of updates) {
+      this.validateDateRange(u.dateFrom, u.dateTo)
+      const hasRate = u.rate != null
+      const hasRestriction =
+        u.minStay != null || u.maxStay != null || u.cta != null || u.ctd != null || u.stopSell != null
+      if (!hasRate && !hasRestriction) {
+        throw new BadRequestException('Cada línea debe traer al menos una tarifa o una restricción')
+      }
+      if (hasRate && (u.rate as number) < 0) throw new BadRequestException('La tarifa debe ser ≥ 0')
+
+      const from = startOfUtcDay(u.dateFrom)
+      const to = startOfUtcDay(u.dateTo)
+      const fromIso = from.toISOString().slice(0, 10)
+      const toIso = to.toISOString().slice(0, 10)
+
+      // ── Persistencia local (PMS truthful) ──
+      if (hasRate) {
+        const dayMs = 86400000
+        const ops: ReturnType<typeof this.prisma.rateOverride.upsert>[] = []
+        for (let t = from.getTime(); t <= to.getTime(); t += dayMs) {
+          const date = new Date(t)
+          ops.push(
+            this.prisma.rateOverride.upsert({
+              where: {
+                propertyId_roomTypeId_ratePlanId_date: {
+                  propertyId, roomTypeId: u.roomTypeId, ratePlanId: u.ratePlanId, date,
+                },
+              },
+              create: {
+                propertyId, roomTypeId: u.roomTypeId, ratePlanId: u.ratePlanId,
+                date, overrideRate: u.rate as number, reason: 'cert-batch', createdById: actorId,
+              },
+              update: { overrideRate: u.rate as number, createdById: actorId },
+            }),
+          )
+        }
+        if (ops.length > 0) await this.prisma.$transaction(ops)
+      }
+      if (hasRestriction) {
+        await this.prisma.rateRestriction.create({
+          data: {
+            ratePlanId: u.ratePlanId,
+            roomTypeId: u.roomTypeId,
+            validFrom: from,
+            validTo: to,
+            mlos: u.minStay ?? null,
+            maxLos: u.maxStay ?? null,
+            cta: u.cta ?? false,
+            ctd: u.ctd ?? false,
+            stopSell: u.stopSell ?? false,
+          },
+        })
+      }
+
+      // ── Entry Channex (solo si la combinación está mapeada) ──
+      const channexRatePlanId = linkMap.get(`${u.roomTypeId}|${u.ratePlanId}`)
+      if (!settings?.channexPropertyId || !channexRatePlanId) continue
+
+      const entry: Entry = {
+        propertyId: settings.channexPropertyId,
+        ratePlanId: channexRatePlanId,
+        dateFrom: fromIso,
+        dateTo: toIso,
+      }
+      if (hasRate) entry.rate = u.rate as number
+      // Esta propiedad (y la mayoría en Channex) NO soporta `min_stay` plano —
+      // requiere `min_stay_through` (verificado contra staging 2026-06-20: con
+      // min_stay devuelve data:[] + warning; con min_stay_through crea task).
+      if (u.minStay != null) entry.minStayThrough = u.minStay
+      if (u.maxStay != null) entry.maxStay = u.maxStay
+      if (u.cta != null) entry.closedToArrival = u.cta
+      if (u.ctd != null) entry.closedToDeparture = u.ctd
+      if (u.stopSell != null) entry.stopSell = u.stopSell
+      entries.push(entry)
+    }
+
+    if (entries.length > 0) {
+      const event: ChannexRestrictionUpdatedEvent = { propertyId, entries }
+      this.events.emit(CHANNEX_RESTRICTION_UPDATED, event)
+      this.logger.log(
+        `[Rates→Channex] applyRatesAndRestrictions property=${propertyId} ` +
+          `lines=${updates.length} entries=${entries.length} — outbound enqueue requested`,
+      )
+    } else {
+      this.logger.warn(
+        `[Rates→Channex] applyRatesAndRestrictions property=${propertyId} — ` +
+          `0 entries mapeables (sin channexPropertyId o sin ChannexRatePlanLink). Persistido local, Channex skip.`,
+      )
+    }
+
+    return { ok: true as const, lines: updates.length, channexEntries: entries.length }
+  }
+
   private validateRateOrMultiplier(overrideRate?: number | null, multiplier?: number | null) {
     if (overrideRate == null && multiplier == null) {
       throw new BadRequestException('Define overrideRate (precio fijo) o multiplier (sobre la base)')

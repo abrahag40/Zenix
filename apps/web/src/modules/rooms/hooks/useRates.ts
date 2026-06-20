@@ -137,6 +137,39 @@ export function useBulkOverride(propertyId: string) {
   })
 }
 
+// ── ARI batch (rates + restricciones) → 1 push a Channex ────────────────────
+// Una línea por (tipo hab × plan × rango). El backend persiste + emite UN
+// evento → el canal manager recibe 1 sola llamada (batching de la cert).
+export interface ApplyAriLine {
+  roomTypeId: string
+  ratePlanId: string
+  dateFrom: string // YYYY-MM-DD
+  dateTo: string // YYYY-MM-DD
+  rate?: number | null
+  minStay?: number | null
+  maxStay?: number | null
+  cta?: boolean | null
+  ctd?: boolean | null
+  stopSell?: boolean | null
+}
+export interface ApplyAriResult { ok: true; lines: number; channexEntries: number }
+
+export function useApplyAri(propertyId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (updates: ApplyAriLine[]) =>
+      api.post<ApplyAriResult>(`/v1/rates/ari/batch`, { propertyId, updates }),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['rate-quote', propertyId] })
+      const synced = res.channexEntries > 0
+        ? `Sincronizado con el canal (${res.channexEntries}).`
+        : 'Guardado (sin canal conectado para estas combinaciones).'
+      toast.success(`${res.lines} cambio(s) aplicados. ${synced}`)
+    },
+    onError: (e: Error) => toast.error(e.message ?? 'No se pudieron aplicar las restricciones'),
+  })
+}
+
 export function useSetDayOfWeek(propertyId: string) {
   const qc = useQueryClient()
   return useMutation({

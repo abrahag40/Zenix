@@ -179,13 +179,18 @@ export class ChannexOutboundWorker {
     })
 
     // 3. Dispatch a Gateway según kind
+    // taskId: el id que Channex devuelve en cada push ARI ({ data: [{ id,
+    // type: 'task' }] }). Se persiste para recolectar evidencia de la cert.
+    let taskId: string | null = null
     try {
       if (row.kind === 'AVAILABILITY') {
         const payload = row.payload as { entries: unknown[] }
-        await this.gateway.pushAvailability(payload.entries as ChannexAvailabilityEntry[])
+        const res = await this.gateway.pushAvailability(payload.entries as ChannexAvailabilityEntry[])
+        taskId = res?.taskId ?? null
       } else if (row.kind === 'RATES_RESTRICTIONS') {
         const payload = row.payload as { entries: unknown[] }
-        await this.gateway.pushRestrictions(payload.entries as ChannexRestrictionEntry[])
+        const res = await this.gateway.pushRestrictions(payload.entries as ChannexRestrictionEntry[])
+        taskId = res?.taskId ?? null
       } else if (row.kind === 'BOOKING_CANCEL') {
         // Sprint CHANNEX-UX-E2-E3 §150 — propaga manual cancel a OTA via CRS.
         const payload = row.payload as {
@@ -231,12 +236,13 @@ export class ChannexOutboundWorker {
           status: 'SUCCEEDED',
           processedAt: new Date(),
           lastError: null,
+          lastTaskId: taskId,
           lockedAt: null,
           lockedBy: null,
         },
       })
       this.logger.log(
-        `[Channex outbound worker] SUCCEEDED row=${id} kind=${row.kind} attempts=${attempts}`,
+        `[Channex outbound worker] SUCCEEDED row=${id} kind=${row.kind} attempts=${attempts} taskId=${taskId ?? '∅'}`,
       )
       return 'SUCCEEDED'
     } catch (err) {

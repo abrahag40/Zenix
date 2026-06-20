@@ -475,8 +475,19 @@ export class ChannexGateway {
 
     // Channex responde { data: [{ id, type: 'task' }], meta: { message } }.
     // El `id` es el task id que la certificación pide reportar por escenario.
-    const json = (await res.json().catch(() => ({}))) as { data?: Array<{ id?: string }> }
+    const json = (await res.json().catch(() => ({}))) as {
+      data?: Array<{ id?: string }>
+      meta?: { warnings?: unknown[] }
+    }
     const taskId = json.data?.[0]?.id ?? null
+    // Channex puede responder 200 con data:[] + meta.warnings cuando descarta
+    // valores (p.ej. min_stay no soportado, rate decimal como número). No crea
+    // task → lo elevamos a warning para no marcar SUCCEEDED en silencio.
+    if (json.meta?.warnings && json.meta.warnings.length > 0) {
+      this.logger.warn(
+        `[Channex] pushRestrictions warnings (taskId=${taskId ?? '∅'}): ${JSON.stringify(json.meta.warnings)}`,
+      )
+    }
     this.logger.log(`[Channex] pushRestrictions OK entries=${entries.length} taskId=${taskId ?? '∅'}`)
     return { taskId }
   }
