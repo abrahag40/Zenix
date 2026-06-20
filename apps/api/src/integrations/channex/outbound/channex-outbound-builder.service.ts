@@ -55,6 +55,10 @@ export class ChannexOutboundBuilderService {
    * activar/expirar Block, etc. El payload trae el delta exacto (no full
    * recompute) — alineado con AP-3 (delta-only).
    */
+  // ━━ CHANNEX-CERT ▸ AP-2.2 + AP-2.1 ▸ outbox, no llamada directa ━━━━━━━━━━━
+  // QUÉ MOSTRAR: los cambios de inventario emiten un EVENTO (no llaman a Channex
+  // directo desde el guardado); este listener los convierte en filas de la cola
+  // y el worker las manda. No hay polling de BD. Guía §3 (AP-2.1/2.2) / §7-Q14.
   @OnEvent(CHANNEX_AVAILABILITY_CHANGED)
   async onAvailabilityChanged(args: ChannexAvailabilityChangedEvent): Promise<void> {
     if (!args.entries || args.entries.length === 0) return

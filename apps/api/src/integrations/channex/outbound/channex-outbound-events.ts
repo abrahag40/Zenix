@@ -88,6 +88,10 @@ export interface ChannexBookingCancelRequestedEvent {
  *
  * Evita typos en el event name (que Nest no chequea en runtime).
  */
+// ━━ CHANNEX-CERT ▸ AP-2.1 ▸ eventos de dominio (no polling de BD) ━━━━━━━━━━━
+// QUÉ MOSTRAR: el outbound se dispara por estos eventos en memoria, emitidos al
+// guardar un cambio. NO consultamos la BD en bucle ("WHERE updated_at > X").
+// Guía §3 (AP-2.1) / §5 (flujo outbound).
 export const CHANNEX_AVAILABILITY_CHANGED = 'channex.availability.changed' as const
 export const CHANNEX_RESTRICTION_UPDATED = 'channex.restriction.updated' as const
 export const CHANNEX_BOOKING_CANCEL_REQUESTED = 'channex.booking.cancel.requested' as const

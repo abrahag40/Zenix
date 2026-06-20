@@ -104,22 +104,44 @@ valores iguales). Reviewer espera ver heterogeneidad.
 
 ---
 
-## Script Bash para automatizar el seed (post-Stage 4)
+## Script automatizado del seed — ✅ LISTO (2026-06-18)
 
-> TODO: una vez RATES sprint exista, agregar `apps/api/prisma/seed-channex-sandbox.ts`
-> que genere los rate plans + restrictions con variación realista
-> automáticamente via Channex API. Por ahora, manual setup en extranet.
+> Ya NO es manual. `apps/api/prisma/scripts/seed-channex-sandbox.ts` crea los
+> room types + rate plans con precios variados + empuja disponibilidad y
+> restricciones variadas (anti-AP-2.4) **vía la API del sandbox**, idempotente,
+> y descubre los UUIDs. Tiene una guarda que aborta si `CHANNEX_BASE_URL` no es
+> `staging.channex.io` (nunca toca producción).
+
+```bash
+cd apps/api
+set -a && source .env && set +a
+npx ts-node -r tsconfig-paths/register prisma/scripts/seed-channex-sandbox.ts
+```
+
+Imprime las 3 líneas `CHANNEX_SANDBOX_*` para pegar en `.env`. Ejecutado contra
+`ef0bdedf-…` el 2026-06-18 → room types Twin/Double + 4 rate plans ($100/$122/
+$135/$158) + 120 entries availability + 12 restrictions, todo HTTP 200.
+
+UUIDs descubiertos (sandbox "Hotel Boutique Test Tulum"):
+- `CHANNEX_SANDBOX_PROPERTY_ID="ef0bdedf-e7fb-43fd-8664-a4dfb6bcec13"`
+- `CHANNEX_SANDBOX_ROOM_TYPE_ID="10844914-07ef-47f0-82e8-2f6857c57166"` (Twin Room)
+- `CHANNEX_SANDBOX_RATE_PLAN_ID="14a7353c-f3cf-4d99-ab1b-0d0cf9015e7a"` (Twin BAR)
+
+**Lo único pendiente (acción owner, requiere extranet):** conectar una OTA de
+prueba (Booking.com test) y crear ~20 reservas para huecos de availability
+reales + para demostrar el Test 11 (recibir reserva) en vivo durante la
+screenshare.
 
 ---
 
 ## Verificación final pre-live-screenshare
 
-- [ ] Property ID seteado en `.env`
-- [ ] Al menos 2 room types creados
-- [ ] Al menos 4 rate plans con precios distintos
-- [ ] ~20 reservas test creadas (puede ser via Booking.com test acct
-  conectado al sandbox o creando manualmente en extranet)
-- [ ] Min stay configurado en algunas fechas
-- [ ] Stop sell configurado en al menos 1 fecha
-- [ ] Correr `npx jest channex.cert-tests.integration --runInBand` →
-  ≥11 tests verde (los 9 skipped solo si RATES sprint sigue pending)
+- [x] Property ID seteado en `.env` ✅ (2026-06-18)
+- [x] Al menos 2 room types creados ✅ (Twin + Double + 5 previos)
+- [x] Al menos 4 rate plans con precios distintos ✅ ($100/$122/$135/$158 + previos)
+- [ ] ~20 reservas test creadas (acción owner — requiere Booking.com test acct
+  conectado al sandbox o creación manual en extranet)
+- [x] Min stay configurado en algunas fechas ✅ (fin de semana, vía seed)
+- [x] Stop sell configurado en al menos 1 fecha ✅ (vía seed)
+- [x] **`npx jest channex.cert-tests.integration --runInBand` → 21/21 verde** ✅
+  (2026-06-18, con las 3 vars `CHANNEX_SANDBOX_*` seteadas)

@@ -85,6 +85,11 @@ export class BookingNewHandler {
       }
     }
 
+    // ━━ CHANNEX-CERT ▸ Idempotencia + anti-overbooking ━━━━━━━━━━━━━━━━━━━━━━
+    // QUÉ MOSTRAR: channexBookingId es UNIQUE → si el webhook llega 2 veces no
+    // duplicamos (devolvemos la reserva existente). Si la habitación ya está
+    // ocupada (carrera con un walk-in) NO hacemos overbooking: marcamos
+    // channexConflict=true para revisión humana. Guía §5 / §7-Q2 y Q4.
     // 1b. Idempotency — single-room GuestStay (legacy path).
     const existing = await this.prisma.guestStay.findUnique({
       where: { channexBookingId: revision.booking_id },

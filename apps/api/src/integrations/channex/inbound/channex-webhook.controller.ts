@@ -40,6 +40,10 @@ export class ChannexWebhookController {
     private readonly puller: ChannexRevisionPullerService,
   ) {}
 
+  // ━━ CHANNEX-CERT ▸ Test 11 (recibir reserva) ▸ webhook receipt ━━━━━━━━━━━━
+  // QUÉ MOSTRAR: respondemos 200 en <100ms y encolamos en el outbox; el
+  // procesamiento (guardar + ack) corre async. Channex exige acuse rápido para
+  // liberar su cola interna. Guía de estudio §5 (flujo inbound) / §7-Q1.
   @Public()
   @UseGuards(ChannexAuthGuard)
   @Post('channex')
