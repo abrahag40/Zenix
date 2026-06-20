@@ -16,7 +16,15 @@ import { CHANNEX_AVAILABILITY_CHANGED } from '../../integrations/channex/outboun
 function makePrismaMock(opts: {
   channexRoomTypeId?: string | null
   channexPropertyId?: string | null
+  // CHANNEX-CERT-FIX: el push ahora agrega TODOS los cuartos del room type.
+  // Default: 3 cuartos (1 unidad c/u) → totalUnits=3, sin reservas → avail=3.
+  rooms?: Array<{ id: string; units: { id: string }[] }>
 }) {
+  const rooms = opts.rooms ?? [
+    { id: 'room-1', units: [{ id: 'u1' }] },
+    { id: 'room-2', units: [{ id: 'u2' }] },
+    { id: 'room-3', units: [{ id: 'u3' }] },
+  ]
   return {
     room: {
       findUnique: jest.fn().mockResolvedValue(
@@ -27,6 +35,7 @@ function makePrismaMock(opts: {
               channexRoomTypeId: opts.channexRoomTypeId,
             },
       ),
+      findMany: jest.fn().mockResolvedValue(rooms),
     },
     propertySettings: {
       findUnique: jest.fn().mockResolvedValue(
@@ -35,6 +44,9 @@ function makePrismaMock(opts: {
           : { channexPropertyId: opts.channexPropertyId },
       ),
     },
+    guestStay: { findMany: jest.fn().mockResolvedValue([]) },
+    staySegment: { findMany: jest.fn().mockResolvedValue([]) },
+    roomBlock: { findMany: jest.fn().mockResolvedValue([]) },
   }
 }
 
@@ -63,7 +75,7 @@ describe('AvailabilityService.notifyReservation/Release (Day 3 event-driven)', (
     traceId: 'trace-1',
   }
 
-  it('notifyReservation: emite channex.availability.changed con availability=0', async () => {
+  it('notifyReservation: emite disponibilidad ABSOLUTA agregada del room type (por noche)', async () => {
     const prisma = makePrismaMock({
       channexRoomTypeId: 'chx-rt-1',
       channexPropertyId: 'chx-prop-1',
@@ -73,23 +85,21 @@ describe('AvailabilityService.notifyReservation/Release (Day 3 event-driven)', (
 
     await svc.notifyReservation(baseNotif)
 
+    // CHANNEX-CERT-FIX: 3 cuartos del tipo, sin reservas mockeadas → avail=3
+    // (NO 0). Una entry por NOCHE del rango [01,04) = Jun 1, 2, 3.
     expect(emitSpy).toHaveBeenCalledWith(CHANNEX_AVAILABILITY_CHANGED, {
       propertyId: 'prop-1',
       entries: [
-        {
-          propertyId: 'chx-prop-1',
-          roomTypeId: 'chx-rt-1',
-          dateFrom: '2026-06-01',
-          dateTo: '2026-06-04',
-          availability: 0, // -1 delta → 0 absolute (hotel model)
-        },
+        { propertyId: 'chx-prop-1', roomTypeId: 'chx-rt-1', date: '2026-06-01', availability: 3 },
+        { propertyId: 'chx-prop-1', roomTypeId: 'chx-rt-1', date: '2026-06-02', availability: 3 },
+        { propertyId: 'chx-prop-1', roomTypeId: 'chx-rt-1', date: '2026-06-03', availability: 3 },
       ],
     })
     // AP-2.2 mitigation: Gateway.pushInventory NUNCA se llama desde aquí
     expect(channex.pushInventory).not.toHaveBeenCalled()
   })
 
-  it('notifyRelease: emite con availability=1', async () => {
+  it('notifyRelease: recalcula absoluto (mismo path idempotente, no delta)', async () => {
     const prisma = makePrismaMock({
       channexRoomTypeId: 'chx-rt-1',
       channexPropertyId: 'chx-prop-1',
@@ -101,7 +111,8 @@ describe('AvailabilityService.notifyReservation/Release (Day 3 event-driven)', (
 
     const call = emitSpy.mock.calls[0]
     expect(call[0]).toBe(CHANNEX_AVAILABILITY_CHANGED)
-    expect(call[1].entries[0].availability).toBe(1) // +1 delta → 1 absolute
+    // 3 cuartos, sin ocupación → 3 disponibles (absoluto correcto, no "1")
+    expect(call[1].entries[0].availability).toBe(3)
   })
 
   it('skip silencioso si Channex disabled (sin api-key)', async () => {

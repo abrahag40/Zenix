@@ -314,6 +314,12 @@ export class ChannexFullSyncOrchestrator {
           status: 'ACTIVE',
           checkIn: { lt: endDate },
           checkOut: { gt: startDate },
+          // CHANNEX-CERT-FIX (2026-06-20): excluir el segmento ORIGINAL — duplica
+          // al GuestStay (cada reserva crea GuestStay + StaySegment ORIGINAL §137).
+          // Sin esto se contaba la misma reserva 2 veces → disponibilidad sub-
+          // contada (p.ej. 3 en vez de 4 con 5 cuartos y 1 reserva). Los
+          // segmentos de extensión/move (no-ORIGINAL) sí son ocupación adicional.
+          reason: { not: 'ORIGINAL' },
         },
         select: { roomId: true, checkIn: true, checkOut: true },
       }),
