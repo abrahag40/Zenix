@@ -139,6 +139,11 @@ export class ChannexRevisionPullerService {
         )
       }
 
+      // ━━ CHANNEX-CERT ▸ Test 11 + AP-2.5 ▸ ack DESPUÉS de guardar ━━━━━━━━━━━
+      // QUÉ MOSTRAR: el orden es getBookingRevision → handler.save → ack. El
+      // ack SOLO se llama si el guardado tuvo éxito (si falla, NO ack → el
+      // outbox reintenta). Usamos /booking_revisions, no el legacy /bookings
+      // (AP-2.6). Guía §3 (AP-2.5/2.6) / §7-Q3.
       // 3. Dispatch to status-specific handler.
       //    Per Channex official: ack ONLY after we successfully saved the
       //    booking. If the handler throws, do NOT ack — the retry comes in

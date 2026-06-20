@@ -90,6 +90,10 @@ export class ChannexOutboundWorker {
    * Pick rows ready to drain. Worker-safe via FOR UPDATE SKIP LOCKED.
    * priority DESC → AVAILABILITY (100) antes que RATES_RESTRICTIONS (50).
    */
+  // ━━ CHANNEX-CERT ▸ Resiliencia ▸ FOR UPDATE SKIP LOCKED ━━━━━━━━━━━━━━━━━━━
+  // QUÉ MOSTRAR: dos workers nunca toman la misma fila; el primero la bloquea,
+  // el segundo la salta. Si el servidor cae a mitad, la fila queda en la cola y
+  // el próximo tick la retoma (nada se pierde). Guía §7-Q12 y Q13.
   private async pickReadyRows(limit: number): Promise<string[]> {
     type Row = { id: string }
     // `next_attempt_at` es Prisma DateTime → columna `timestamp` SIN timezone que
@@ -287,6 +291,10 @@ export class ChannexOutboundWorker {
       return 'DEAD_LETTER'
     }
 
+    // ━━ CHANNEX-CERT ▸ Test 12 + AP-2.3 ▸ 429 (NUNCA descarte silente) ━━━━━━━
+    // QUÉ MOSTRAR: ante 429 respetamos el header Retry-After (piso 60s); 5xx →
+    // backoff exponencial; tras 5 intentos → DEAD_LETTER + notif al supervisor.
+    // Doc Channex: 429 = "minimum 1 minute pause". Guía §3 (AP-2.3) / §7-Q7 y Q11.
     // Sprint CHANNEX-CERT-B1 (2026-05-29) — backoff strategy:
     //
     // 429 RATE LIMIT — respetar `Retry-After` que Channex provee. El gateway

@@ -42,6 +42,10 @@ export class ChannexTokenBucketService {
    * El worker usa el `retryAfterMs` para programar `nextAttemptAt` del row
    * (en vez de reintentar inmediato y saturar el bucket).
    */
+  // ━━ CHANNEX-CERT ▸ Test 12 + AP-2.3 ▸ rate limit (10/min) ━━━━━━━━━━━━━━━━━
+  // QUÉ MOSTRAR: 10 fichas por (propiedad, tipo) en ventana de 60s. Antes de
+  // cada llamada pedimos una ficha; si no hay, diferimos (sin contar como
+  // fallo). Imposible pasar de 10/min por diseño. Guía §3 (AP-2.3) / §7-Q6.
   consume(propertyId: string, kind: 'AVAILABILITY' | 'RATES_RESTRICTIONS' | 'BOOKING_CANCEL'): TokenConsumeResult {
     const key = `${propertyId}::${kind}`
     const now = Date.now()

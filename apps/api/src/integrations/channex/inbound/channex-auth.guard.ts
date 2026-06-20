@@ -38,6 +38,10 @@ export class ChannexAuthGuard implements CanActivate {
 
   constructor(private readonly prisma: PrismaService) {}
 
+  // ━━ CHANNEX-CERT ▸ Auth del webhook (NO HMAC) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // QUÉ MOSTRAR: Channex NO firma con HMAC. Configura un bearer token en un
+  // header al registrar el webhook; lo validamos timing-safe contra el secret
+  // guardado. En producción es obligatorio (401 si falta). Guía §1 (HMAC)/§7-Q5.
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<Request & { channexAuth?: ChannexAuthContext }>()
 

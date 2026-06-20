@@ -104,6 +104,11 @@ export class ChannexFullSyncOrchestrator {
     const now = new Date()
     const localHour = toLocalHour(now, p.timezone)
 
+    // ━━ CHANNEX-CERT ▸ Test 1/13 + AP-3 ▸ full sync con 2 guardas ━━━━━━━━━━━━
+    // QUÉ MOSTRAR: el full sync (500 días) SOLO corre 1×/día — guarda de ventana
+    // (03:00-05:00 local) + guarda de 23h. El día a día es delta; un timer NO
+    // puede saltar estas guardas. Datos reales de Prisma, no uniformes (AP-2.4).
+    // Doc Channex: "schedule on off peak hours". Guía §3 (AP-3) / §7-Q10.
     // Guard 1: dentro del window off-peak
     const inWindow =
       localHour >= p.channexFullSyncWindowStart &&

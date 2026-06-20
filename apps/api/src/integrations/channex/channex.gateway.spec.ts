@@ -223,7 +223,8 @@ describe('ChannexGateway.pushRestrictions (Sprint OUTBOUND-CERT)', () => {
       property_id: 'p1',
       rate_plan_id: 'rp-bar',
       date: '2026-11-22',
-      rate: 333,
+      // rate va como STRING — Channex descarta decimales enviados como número (fix 2026-06-19)
+      rate: '333',
     })
   })
 
@@ -269,7 +270,7 @@ describe('ChannexGateway.pushRestrictions (Sprint OUTBOUND-CERT)', () => {
       rate_plan_id: 'rp1',
       date_from: '2026-12-20',
       date_to: '2027-01-05',
-      rate: 250,
+      rate: '250',
       min_stay_through: 3,
       max_stay: 14,
       closed_to_arrival: true,

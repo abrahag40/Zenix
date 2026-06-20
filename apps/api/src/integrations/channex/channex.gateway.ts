@@ -353,9 +353,14 @@ export class ChannexGateway {
    * Best-effort §31: el caller maneja retry/backoff (outbox pattern).
    * Lanza ChannexHttpError si Channex responde no-200.
    */
-  async pushAvailability(entries: ChannexAvailabilityEntry[]): Promise<void> {
+  async pushAvailability(entries: ChannexAvailabilityEntry[]): Promise<ChannexAriPushResult> {
+    // ━━ CHANNEX-CERT ▸ AP-4 + AP-2.8 ▸ arrays (no loops) + avail separado ━━━━
+    // QUÉ MOSTRAR: recibe un ARRAY de entries → todas las fechas en UNA llamada
+    // (no un loop por fecha). availability y rates van por métodos separados
+    // (AP-2.8). Doc Channex: "send availability and rates separately".
+    // Guía §3 (AP-4/AP-2.8) / §7-Q8 y Q9.
     this.requireEnabled('pushAvailability')
-    if (entries.length === 0) return
+    if (entries.length === 0) return { taskId: null }
 
     const values = entries.map((e) => {
       const base = {
@@ -386,7 +391,12 @@ export class ChannexGateway {
 
     await this.throwIfNotOk(res, `pushAvailability entries=${entries.length}`)
 
-    this.logger.log(`[Channex] pushAvailability OK entries=${entries.length}`)
+    // Channex responde { data: [{ id, type: 'task' }], meta: { message } }.
+    // El `id` es el task id que la certificación pide reportar por escenario.
+    const json = (await res.json().catch(() => ({}))) as { data?: Array<{ id?: string }> }
+    const taskId = json.data?.[0]?.id ?? null
+    this.logger.log(`[Channex] pushAvailability OK entries=${entries.length} taskId=${taskId ?? '∅'}`)
+    return { taskId }
   }
 
   /**
@@ -402,9 +412,9 @@ export class ChannexGateway {
    * Esto cumple los Tests 2-8 oficiales (todos baten "1 API call" porque
    * agrupamos batched entries dentro del array values).
    */
-  async pushRestrictions(entries: ChannexRestrictionEntry[]): Promise<void> {
+  async pushRestrictions(entries: ChannexRestrictionEntry[]): Promise<ChannexAriPushResult> {
     this.requireEnabled('pushRestrictions')
-    if (entries.length === 0) return
+    if (entries.length === 0) return { taskId: null }
 
     const values = entries.map((e) => {
       const row: Record<string, unknown> = {
@@ -417,7 +427,11 @@ export class ChannexGateway {
         row.date_to = e.dateTo
       }
       if (e.days && e.days.length > 0) row.days = e.days
-      if (e.rate !== undefined) row.rate = e.rate
+      // Channex DESCARTA silenciosamente tarifas decimales enviadas como número
+      // JSON (p.ej. 456.23 → no crea task). Deben ir como STRING ("456.23").
+      // Enviamos SIEMPRE el rate como string (Channex acepta "100" y "456.23").
+      // Verificado 2026-06-19 contra staging.channex.io.
+      if (e.rate !== undefined) row.rate = typeof e.rate === 'number' ? String(e.rate) : e.rate
       if (e.rates && e.rates.length > 0) row.rates = e.rates
       if (e.minStayThrough !== undefined) row.min_stay_through = e.minStayThrough
       if (e.minStayArrival !== undefined) row.min_stay_arrival = e.minStayArrival
@@ -459,7 +473,12 @@ export class ChannexGateway {
 
     await this.throwIfNotOk(res, `pushRestrictions entries=${entries.length}`)
 
-    this.logger.log(`[Channex] pushRestrictions OK entries=${entries.length}`)
+    // Channex responde { data: [{ id, type: 'task' }], meta: { message } }.
+    // El `id` es el task id que la certificación pide reportar por escenario.
+    const json = (await res.json().catch(() => ({}))) as { data?: Array<{ id?: string }> }
+    const taskId = json.data?.[0]?.id ?? null
+    this.logger.log(`[Channex] pushRestrictions OK entries=${entries.length} taskId=${taskId ?? '∅'}`)
+    return { taskId }
   }
 
   // ─── Booking revisions API (Sprint CHANNEX-INBOUND) ─────────────────────────
@@ -477,6 +496,9 @@ export class ChannexGateway {
    * Lanza si HTTP != 200 — el caller debe manejar retry/backoff (outbox).
    */
   async getBookingRevision(revisionId: string): Promise<ChannexBookingRevision> {
+    // ━━ CHANNEX-CERT ▸ Test 11 + AP-2.6 ▸ leer la revisión (no /bookings) ━━━━
+    // QUÉ MOSTRAR: usamos /booking_revisions/:id (moderno), no el legacy
+    // /bookings. El caller hace ack solo tras guardar. Guía §3 (AP-2.6)/§7-Q1.
     this.requireEnabled('getBookingRevision')
     const url = `${this.baseUrl}/booking_revisions/${revisionId}`
     const res = await fetch(url, {
@@ -502,6 +524,10 @@ export class ChannexGateway {
    * Channex — un ack duplicado responde 422 (Unprocessable Entity), no error.
    */
   async ackBookingRevision(revisionId: string): Promise<{ acked: boolean; alreadyAcked: boolean }> {
+    // ━━ CHANNEX-CERT ▸ Test 11 + AP-2.5 ▸ acuse de recibo (idempotente) ━━━━━━
+    // QUÉ MOSTRAR: confirmamos la reserva a Channex con POST /ack, SOLO después
+    // de guardarla. Un ack duplicado responde 422 y lo tratamos como
+    // alreadyAcked (no error). Guía §3 (AP-2.5) / §7-Q3.
     this.requireEnabled('ackBookingRevision')
     const url = `${this.baseUrl}/booking_revisions/${revisionId}/ack`
     const res = await fetch(url, {
@@ -1433,6 +1459,10 @@ export class ChannexRateLimitError extends ChannexHttpError {
  *
  * Exported for unit tests (Sprint CHANNEX-CERT-B1).
  */
+// ━━ CHANNEX-CERT ▸ AP-2.3 ▸ parseo de Retry-After (RFC 7231) ━━━━━━━━━━━━━━━━
+// QUÉ MOSTRAR: respetamos el valor EXACTO que Channex pide en el header del 429
+// (segundos o fecha HTTP). El worker aplica piso de 60s. Doc Channex: 429 =
+// "minimum 1 minute pause". Guía §3 (AP-2.3) / §7-Q7.
 export function parseRetryAfter(headerValue: string | null | undefined): number | null {
   if (!headerValue) return null
   const trimmed = headerValue.trim()
@@ -1462,6 +1492,15 @@ export function parseRetryAfter(headerValue: string | null | undefined): number 
  * OR (`dateFrom` + `dateTo`) for a range. `availability` is the absolute count.
  * Validated at runtime by `pushAvailability`.
  */
+/**
+ * Resultado de un push ARI (availability o restrictions). Channex responde
+ * `{ data: [{ id, type: 'task' }], meta: { message } }` — `taskId` es ese `id`,
+ * el que la certificación pide reportar por cada escenario ejecutado.
+ */
+export interface ChannexAriPushResult {
+  taskId: string | null
+}
+
 export interface ChannexAvailabilityEntry {
   propertyId: string
   roomTypeId: string
