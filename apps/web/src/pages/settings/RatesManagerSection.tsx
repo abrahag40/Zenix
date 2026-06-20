@@ -9,16 +9,17 @@
  * Reusa los hooks de `modules/rooms/hooks/useRates` (extendidos, no duplicados).
  */
 import { useMemo, useState } from 'react'
-import { Plus, Trash2, Pencil, Calendar, Tag, Check, AlertTriangle } from 'lucide-react'
+import { Plus, Trash2, Pencil, Calendar, Tag, Check, AlertTriangle, Lock } from 'lucide-react'
 import { usePropertyStore } from '../../store/property'
 import {
   useRatePlans, useSaveRatePlan, useDeactivateRatePlan, useSeasonMutations, useSetDayOfWeek,
-  useRateQuoteGrid, useBulkOverride, type RatePlan, type BulkOverridePreviewRow,
+  useRateQuoteGrid, useBulkOverride, useApplyAri, type RatePlan, type BulkOverridePreviewRow,
+  type ApplyAriLine,
 } from '../../modules/rooms/hooks/useRates'
 
 const DOW_LABELS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
 
-type Tab = 'plans' | 'calendar'
+type Tab = 'plans' | 'calendar' | 'restrictions'
 
 export function RatesManagerSection({ isSupervisor }: { isSupervisor: boolean }) {
   const propertyId = usePropertyStore((s) => s.activePropertyId) ?? ''
@@ -36,7 +37,7 @@ export function RatesManagerSection({ isSupervisor }: { isSupervisor: boolean })
       </div>
 
       <div className="flex gap-1 border-b border-slate-200">
-        {([['plans', 'Planes', Tag], ['calendar', 'Calendario de tarifas', Calendar]] as const).map(([k, label, Icon]) => (
+        {([['plans', 'Planes', Tag], ['calendar', 'Calendario de tarifas', Calendar], ['restrictions', 'Restricciones', Lock]] as const).map(([k, label, Icon]) => (
           <button
             key={k}
             onClick={() => setTab(k)}
@@ -51,8 +52,10 @@ export function RatesManagerSection({ isSupervisor }: { isSupervisor: boolean })
 
       {tab === 'plans' ? (
         <PlansTab propertyId={propertyId} isSupervisor={isSupervisor} />
-      ) : (
+      ) : tab === 'calendar' ? (
         <CalendarTab propertyId={propertyId} isSupervisor={isSupervisor} />
+      ) : (
+        <RestrictionsTab propertyId={propertyId} isSupervisor={isSupervisor} />
       )}
     </div>
   )
@@ -375,6 +378,169 @@ function CalendarTab({ propertyId, isSupervisor }: { propertyId: string; isSuper
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Restricciones ───────────────────────────────────────────────────────────
+//
+// Reglas de venta por (tipo de habitación × plan × rango de fechas) que se
+// sincronizan con las OTAs vía el canal manager. Patrón de editor en lote
+// (Cloudbeds "Bulk Edit" / Mews "Restrictions"): se arman N líneas y se
+// aplican en UNA sola operación.
+type RestrictionRow = {
+  roomTypeId: string
+  ratePlanId: string
+  dateFrom: string
+  dateTo: string
+  rate: string
+  minStay: string
+  maxStay: string
+  cta: boolean
+  ctd: boolean
+  stopSell: boolean
+}
+
+const emptyRow = (roomTypeId = '', ratePlanId = ''): RestrictionRow => ({
+  roomTypeId, ratePlanId, dateFrom: '', dateTo: '', rate: '', minStay: '', maxStay: '', cta: false, ctd: false, stopSell: false,
+})
+
+function rowHasValue(r: RestrictionRow): boolean {
+  return r.rate !== '' || r.minStay !== '' || r.maxStay !== '' || r.cta || r.ctd || r.stopSell
+}
+function rowValid(r: RestrictionRow): boolean {
+  return !!r.roomTypeId && !!r.ratePlanId && !!r.dateFrom && !!r.dateTo && r.dateFrom <= r.dateTo && rowHasValue(r)
+}
+
+function RestrictionsTab({ propertyId, isSupervisor }: { propertyId: string; isSupervisor: boolean }) {
+  // Lista de tipos de habitación (del grid base) + planes activos.
+  const from = useMemo(() => { const d = new Date(); d.setUTCHours(12, 0, 0, 0); return d }, [])
+  const to = useMemo(() => { const d = new Date(from); d.setUTCDate(d.getUTCDate() + 1); return d }, [from])
+  const { data: grid } = useRateQuoteGrid(propertyId, from, to)
+  const { data: plans = [] } = useRatePlans(propertyId)
+  const apply = useApplyAri(propertyId)
+
+  const roomTypes = grid?.roomTypes ?? []
+  const activePlans = plans.filter((p) => p.isActive)
+  const [rows, setRows] = useState<RestrictionRow[]>([emptyRow()])
+
+  const setRow = (i: number, patch: Partial<RestrictionRow>) =>
+    setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)))
+  const addRow = () => setRows((prev) => [...prev, emptyRow(roomTypes[0]?.id, activePlans[0]?.id)])
+  const removeRow = (i: number) => setRows((prev) => prev.filter((_, idx) => idx !== i))
+
+  const validRows = rows.filter(rowValid)
+  const canApply = isSupervisor && validRows.length > 0 && !apply.isPending
+
+  function applyAll() {
+    const updates: ApplyAriLine[] = validRows.map((r) => ({
+      roomTypeId: r.roomTypeId,
+      ratePlanId: r.ratePlanId,
+      dateFrom: r.dateFrom,
+      dateTo: r.dateTo,
+      rate: r.rate !== '' ? Number(r.rate) : null,
+      minStay: r.minStay !== '' ? Number(r.minStay) : null,
+      maxStay: r.maxStay !== '' ? Number(r.maxStay) : null,
+      cta: r.cta || null,
+      ctd: r.ctd || null,
+      stopSell: r.stopSell || null,
+    }))
+    apply.mutate(updates, { onSuccess: () => setRows([emptyRow(roomTypes[0]?.id, activePlans[0]?.id)]) })
+  }
+
+  if (roomTypes.length === 0 || activePlans.length === 0) {
+    return (
+      <div className="rounded-lg border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">
+        Necesitas al menos un tipo de habitación y un plan de tarifa activo (pestaña “Planes”) para definir restricciones.
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2.5">
+        <p className="text-xs text-slate-600 leading-relaxed">
+          Las <strong>restricciones</strong> son reglas de venta que se envían a las OTAs (Booking, Expedia…) a través del canal.
+          Defínelas por habitación, plan y rango de fechas, y aplica todo de una vez.
+        </p>
+        <ul className="mt-1.5 grid sm:grid-cols-2 gap-x-4 gap-y-0.5 text-[11px] text-slate-500">
+          <li><strong>Estancia mín.</strong> — noches mínimas para reservar esas fechas.</li>
+          <li><strong>Estancia máx.</strong> — tope de noches.</li>
+          <li><strong>Cerrar venta</strong> — no se vende ese día (sin borrar inventario).</li>
+          <li><strong>Cerr. llegada</strong> — no se permite que la reserva empiece ese día.</li>
+          <li><strong>Cerr. salida</strong> — no se permite que la reserva termine ese día.</li>
+          <li><strong>Tarifa</strong> — opcional, cambia también el precio de esas fechas.</li>
+        </ul>
+      </div>
+
+      <div className="overflow-x-auto rounded-lg border border-slate-200">
+        <table className="text-xs w-full">
+          <thead>
+            <tr className="bg-slate-50 text-slate-500">
+              <th className="px-2 py-2 text-left font-medium">Habitación</th>
+              <th className="px-2 py-2 text-left font-medium">Plan</th>
+              <th className="px-2 py-2 text-left font-medium">Desde</th>
+              <th className="px-2 py-2 text-left font-medium">Hasta</th>
+              <th className="px-2 py-2 text-center font-medium">Est. mín.</th>
+              <th className="px-2 py-2 text-center font-medium">Est. máx.</th>
+              <th className="px-2 py-2 text-center font-medium">Cerrar venta</th>
+              <th className="px-2 py-2 text-center font-medium">Cerr. lleg.</th>
+              <th className="px-2 py-2 text-center font-medium">Cerr. sal.</th>
+              <th className="px-2 py-2 text-center font-medium">Tarifa</th>
+              <th className="px-1 py-2"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => {
+              const invalid = rowHasValue(r) && !rowValid(r)
+              return (
+                <tr key={i} className={`border-t border-slate-100 ${invalid ? 'bg-rose-50/40' : ''}`}>
+                  <td className="px-2 py-1.5">
+                    <select value={r.roomTypeId} onChange={(e) => setRow(i, { roomTypeId: e.target.value })}
+                      className="h-8 rounded border border-slate-200 px-1.5 text-xs max-w-[9rem]">
+                      <option value="">—</option>
+                      {roomTypes.map((rt) => <option key={rt.id} value={rt.id}>{rt.name}</option>)}
+                    </select>
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <select value={r.ratePlanId} onChange={(e) => setRow(i, { ratePlanId: e.target.value })}
+                      className="h-8 rounded border border-slate-200 px-1.5 text-xs max-w-[9rem]">
+                      <option value="">—</option>
+                      {activePlans.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </td>
+                  <td className="px-2 py-1.5"><input type="date" value={r.dateFrom} onChange={(e) => setRow(i, { dateFrom: e.target.value })} className="h-8 rounded border border-slate-200 px-1.5 text-xs" /></td>
+                  <td className="px-2 py-1.5"><input type="date" value={r.dateTo} onChange={(e) => setRow(i, { dateTo: e.target.value })} className="h-8 rounded border border-slate-200 px-1.5 text-xs" /></td>
+                  <td className="px-2 py-1.5 text-center"><input type="number" min={1} value={r.minStay} onChange={(e) => setRow(i, { minStay: e.target.value })} className="h-8 w-14 rounded border border-slate-200 px-1.5 text-xs text-center tabular-nums" /></td>
+                  <td className="px-2 py-1.5 text-center"><input type="number" min={1} value={r.maxStay} onChange={(e) => setRow(i, { maxStay: e.target.value })} className="h-8 w-14 rounded border border-slate-200 px-1.5 text-xs text-center tabular-nums" /></td>
+                  <td className="px-2 py-1.5 text-center"><input type="checkbox" checked={r.stopSell} onChange={(e) => setRow(i, { stopSell: e.target.checked })} className="h-4 w-4 accent-rose-600" /></td>
+                  <td className="px-2 py-1.5 text-center"><input type="checkbox" checked={r.cta} onChange={(e) => setRow(i, { cta: e.target.checked })} className="h-4 w-4 accent-amber-600" /></td>
+                  <td className="px-2 py-1.5 text-center"><input type="checkbox" checked={r.ctd} onChange={(e) => setRow(i, { ctd: e.target.checked })} className="h-4 w-4 accent-amber-600" /></td>
+                  <td className="px-2 py-1.5 text-center"><input type="number" min={0} step="0.01" value={r.rate} onChange={(e) => setRow(i, { rate: e.target.value })} className="h-8 w-20 rounded border border-slate-200 px-1.5 text-xs text-center tabular-nums" /></td>
+                  <td className="px-1 py-1.5 text-center">
+                    {rows.length > 1 && <button onClick={() => removeRow(i)} className="text-slate-400 hover:text-rose-500"><Trash2 className="h-3.5 w-3.5" /></button>}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <button onClick={addRow} className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs">
+          <Plus className="h-3.5 w-3.5" /> Agregar fila
+        </button>
+        {isSupervisor && (
+          <button onClick={applyAll} disabled={!canApply}
+            className="inline-flex items-center gap-1.5 h-9 px-4 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold disabled:opacity-50">
+            <Check className="h-3.5 w-3.5" /> {apply.isPending ? 'Aplicando…' : `Aplicar ${validRows.length} cambio(s)`}
+          </button>
+        )}
+      </div>
+      <p className="text-[11px] text-slate-400">
+        Todas las filas válidas se envían al canal en <strong>una sola</strong> sincronización.
+      </p>
     </div>
   )
 }

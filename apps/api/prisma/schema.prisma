@@ -2267,6 +2267,10 @@ model ChannexOutboundQueue {
   priority      Int                   @default(50)
   attempts      Int                   @default(0)
   lastError     String?               @map("last_error")
+  // Task id devuelto por Channex en el último push exitoso de esta fila
+  // ({ data: [{ id, type: 'task' }] }). Se persiste para recolectar evidencia
+  // de la certificación PMS sin depender de scraping de logs.
+  lastTaskId    String?               @map("last_task_id")
   // Backoff: tras 429 respeta Retry-After; tras 5xx 2^attempts seconds
   nextAttemptAt DateTime              @default(now()) @map("next_attempt_at")
   // Lock holder identifier (hostname:pid) para multi-worker debug
@@ -4605,6 +4609,9 @@ model RateRestriction {
   maxLos     Int?     @map("max_los")
   cta        Boolean  @default(false)
   ctd        Boolean  @default(false)
+  // stop_sell — cierra la venta de ese rate plan en el rango (Channex stop_sell).
+  // Additive 2026-06-20 (CHANNEX-CERT-RESTRICTIONS) — cert Test 6.
+  stopSell   Boolean  @default(false) @map("stop_sell")
   createdAt  DateTime @default(now()) @map("created_at")
 
   ratePlan RatePlan? @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
@@ -4612,6 +4619,35 @@ model RateRestriction {
   @@index([ratePlanId, validFrom, validTo])
   @@index([roomTypeId, validFrom, validTo])
   @@map("rate_restrictions")
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CHANNEX RATE PLAN LINK — enlace preciso (roomType × ratePlan local) → channex
+// ═════════════════════════════════════════════════════════════════════════════
+//
+// En Zenix un RatePlan es a nivel PROPIEDAD (BAR, B&B…) y un RoomType es aparte.
+// En Channex el rate_plan es POR room type. Por eso la combinación real que hay
+// que empujar es (roomType × ratePlan) → un channex rate_plan_id concreto.
+// ChannexRatePlanMapping (Command Center) sólo guarda 1 rate plan por room type
+// y no distingue BAR vs B&B — insuficiente para la certificación PMS (los tests
+// 3-8 apuntan a rate plans específicos). Este enlace explícito lo resuelve.
+//
+// Additive 2026-06-20 (CHANNEX-CERT-RESTRICTIONS). No reemplaza ChannexRatePlan
+// Mapping; el push resuelve primero por este link y cae al mapping legacy.
+model ChannexRatePlanLink {
+  id                String   @id @default(uuid())
+  propertyId        String   @map("property_id")
+  // Local RoomType + local RatePlan que forman la combinación.
+  roomTypeId        String   @map("room_type_id")
+  ratePlanId        String   @map("rate_plan_id")
+  // channex rate_plan_id correspondiente a esa combinación.
+  channexRatePlanId String   @unique @map("channex_rate_plan_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@unique([roomTypeId, ratePlanId])
+  @@index([propertyId])
+  @@map("channex_rate_plan_links")
 }
 
 model Promotion {

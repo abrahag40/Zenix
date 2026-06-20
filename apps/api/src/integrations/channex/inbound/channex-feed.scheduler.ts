@@ -172,8 +172,14 @@ export class ChannexFeedScheduler {
     try {
       // Verify the property is known to Zenix. If not, orphan — the api-key
       // sees a property we don't have a mapping for. Log + skip (manual op).
-      const settings = await this.prisma.propertySettings.findUnique({
-        where: { propertyId: revision.property_id },
+      // CHANNEX-CERT-FIX (2026-06-20): `revision.property_id` es el UUID de
+      // Channex, NO el id local. Hay que resolver por `channexPropertyId`
+      // (mismo mapeo que §190/D-CHX-FIX-1). Antes usaba `propertyId:` →
+      // orphaneaba TODA reserva OTA real de una propiedad mapeada vía Channex.
+      // El downstream (puller) traduce channex→local, por eso acceptDelivery
+      // sigue recibiendo `revision.property_id` crudo.
+      const settings = await this.prisma.propertySettings.findFirst({
+        where: { channexPropertyId: revision.property_id },
         select: { propertyId: true },
       })
       if (!settings) {

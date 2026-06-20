@@ -114,3 +114,24 @@ export class SetDayOfWeekDto {
   @IsString() @MinLength(1) propertyId: string
   @IsArray() rules: DayOfWeekRuleItem[]
 }
+
+// ── ARI batch (rates + restrictions) → 1 push a Channex ─────────────────────
+// CHANNEX-CERT-RESTRICTIONS. Cada línea: (roomType × ratePlan × rango) con
+// tarifa y/o restricciones. Validación liviana (como SetDayOfWeekDto).
+export interface ApplyAriItem {
+  roomTypeId: string
+  ratePlanId: string
+  dateFrom: string // YYYY-MM-DD
+  dateTo: string // YYYY-MM-DD (inclusive)
+  rate?: number | null
+  minStay?: number | null
+  maxStay?: number | null
+  cta?: boolean | null // closed_to_arrival
+  ctd?: boolean | null // closed_to_departure
+  stopSell?: boolean | null
+}
+
+export class ApplyAriDto {
+  @IsString() @MinLength(1) propertyId: string
+  @IsArray() updates: ApplyAriItem[]
+}

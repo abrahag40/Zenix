@@ -32,6 +32,12 @@ function makePrismaMock() {
     guestStay: { findMany: jest.fn().mockResolvedValue([]) },
     staySegment: { findMany: jest.fn().mockResolvedValue([]) },
     roomBlock: { findMany: jest.fn().mockResolvedValue([]) },
+    // CHANNEX-CERT-RESTRICTIONS — buildRestrictionEntries resuelve por links.
+    channexRatePlanLink: { findMany: jest.fn().mockResolvedValue([]) },
+    roomType: { findMany: jest.fn().mockResolvedValue([]) },
+    ratePlan: { findMany: jest.fn().mockResolvedValue([]) },
+    rateOverride: { findMany: jest.fn().mockResolvedValue([]) },
+    rateRestriction: { findMany: jest.fn().mockResolvedValue([]) },
   }
 }
 
@@ -340,7 +346,7 @@ describe('ChannexFullSyncOrchestrator', () => {
       jest.restoreAllMocks()
     })
 
-    it('RatePlan model no existe → restrictions skipped con warning', async () => {
+    it('sin ChannexRatePlanLink → restrictions skipped con warning', async () => {
       prisma.propertySettings.findUnique.mockResolvedValue({
         propertyId: 'p1',
         channexPropertyId: 'chx-p1',
@@ -348,7 +354,8 @@ describe('ChannexFullSyncOrchestrator', () => {
       prisma.room.findMany.mockResolvedValue([
         { id: 'r1', channexRoomTypeId: 'chx-rt', category: 'PRIVATE', units: [{ id: 'u1' }] },
       ])
-      // No ratePlan property en prisma mock — feature flag detection skip
+      // channexRatePlanLink.findMany → [] (default mock) ⇒ buildRestrictionEntries
+      // retorna [] ⇒ mensaje RATES_RESTRICTIONS skipped (sólo AVAILABILITY).
 
       await svc.runForProperty('p1', { manual: true })
 

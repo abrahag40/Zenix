@@ -6,6 +6,7 @@ import { RatesService } from './rates.service'
 import {
   CreateRatePlanDto, UpdateRatePlanDto, CreateSeasonDto, UpdateSeasonDto,
   CreateRestrictionDto, UpsertOverrideDto, BulkOverrideDto, SetDayOfWeekDto,
+  ApplyAriDto,
 } from './dto/rate-plan.dto'
 import { RateQuoteDto, ResolvePriceDto, PropertyIdQueryDto } from './dto/rate-query.dto'
 import { PropertyDateRangeDto } from '../../common/dto/date-range.dto'
@@ -137,5 +138,30 @@ export class RatesController {
   bulkOverride(@Body() dto: BulkOverrideDto, @CurrentUser() actor: JwtPayload) {
     const { propertyId, from, to, ...rest } = dto
     return this.service.bulkUpdateOverrides(propertyId, { ...rest, from: new Date(from), to: new Date(to), createdById: actor.sub })
+  }
+
+  // ── ARI batch (rates + restrictions) → 1 push a Channex ───────────────────
+  // CHANNEX-CERT-RESTRICTIONS — disparado por la UI de Tarifas. Cada línea es
+  // (roomType × ratePlan × rango) con tarifa y/o restricciones; el service emite
+  // UN evento → el outbound hace 1 POST /restrictions (batching de la cert).
+  @Post('ari/batch')
+  @Roles(StaffRole.SUPERVISOR)
+  applyAri(@Body() dto: ApplyAriDto, @CurrentUser() actor: JwtPayload) {
+    return this.service.applyRatesAndRestrictions(
+      dto.propertyId,
+      actor.sub,
+      dto.updates.map((u) => ({
+        roomTypeId: u.roomTypeId,
+        ratePlanId: u.ratePlanId,
+        dateFrom: new Date(`${u.dateFrom}T12:00:00.000Z`),
+        dateTo: new Date(`${u.dateTo}T12:00:00.000Z`),
+        rate: u.rate,
+        minStay: u.minStay,
+        maxStay: u.maxStay,
+        cta: u.cta,
+        ctd: u.ctd,
+        stopSell: u.stopSell,
+      })),
+    )
   }
 }
