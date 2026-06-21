@@ -767,10 +767,14 @@ export class RatesService {
         dateTo: toIso,
       }
       if (hasRate) entry.rate = u.rate as number
-      // Esta propiedad (y la mayoría en Channex) NO soporta `min_stay` plano —
-      // requiere `min_stay_through` (verificado contra staging 2026-06-20: con
-      // min_stay devuelve data:[] + warning; con min_stay_through crea task).
-      if (u.minStay != null) entry.minStayThrough = u.minStay
+      // CHANNEX-CERT-FIX2 (2026-06-21): la propiedad tiene min_stay_type="both",
+      // así que soporta y ESPERA min_stay_through Y min_stay_arrival (el revisor
+      // marcó warning por mandar solo through). Enviamos ambos con el mismo valor.
+      // (El `min_stay` plano virtual NO sirve con type="both" — es ambiguo.)
+      if (u.minStay != null) {
+        entry.minStayThrough = u.minStay
+        entry.minStayArrival = u.minStay
+      }
       if (u.maxStay != null) entry.maxStay = u.maxStay
       if (u.cta != null) entry.closedToArrival = u.cta
       if (u.ctd != null) entry.closedToDeparture = u.ctd
