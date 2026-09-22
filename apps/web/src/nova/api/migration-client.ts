@@ -19,7 +19,7 @@ export interface MigrationRoomOption { id: string; number: string; category: 'PR
 export interface MigrationCounts {
   parsed?: number; ok?: number; warn?: number; error?: number
   skipped?: number; conflicts?: number; overlaps?: number; blocking?: number; loaded?: number
-  mapped?: number
+  mapped?: number; existing?: number; failed?: number
 }
 
 export interface MigrationJobDetail {
@@ -91,4 +91,12 @@ export const migrationApi = {
 
   deleteJob: (jobId: string) =>
     api.delete<{ deleted: boolean }>(`${BASE}/jobs/${jobId}`, { headers: actingOrgHeader() }),
+
+  /** Sprint 4 — dispara el load idempotente a producción (crea las reservas reales). */
+  load: (jobId: string) =>
+    api.post<MigrationJobDetail>(`${BASE}/jobs/${jobId}/load`, {}, { headers: actingOrgHeader() }),
+
+  /** Reporte post-migración (HTML imprimible). Devuelve el HTML — la UI lo abre en blob. */
+  report: (jobId: string) =>
+    api.get<string>(`${BASE}/jobs/${jobId}/report`, { headers: actingOrgHeader(), responseType: 'text' }),
 }
