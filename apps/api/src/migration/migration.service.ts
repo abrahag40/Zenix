@@ -9,17 +9,28 @@
  * reservation-mapper); el adapter solo aporta el columnMapping (Strategy).
  */
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
 import { createHash } from 'crypto'
 import { MigrationJobStatus, MigrationRowStatus, MigrationSource } from '@zenix/shared'
 import type { MigrationColumnMapping, MigrationReservationDto } from '@zenix/shared'
 import { PrismaService } from '../prisma/prisma.service'
+import { AvailabilityService } from '../pms/availability/availability.service'
+import { AuditLogService } from '../nova/audit/audit-log.service'
 import { SourcePmsAdapterRegistry } from './adapters/source-pms-adapter.registry'
+import { buildZenixTemplateCsv } from './adapters/zenix-template.adapter'
 import { parseCsv } from './adapters/csv-parser'
 import { mapRows } from './adapters/reservation-mapper'
 import { normalizeReservation, type NormalizeIssue } from './validation/normalize-reservation'
 import { matchRoom, type ZenixRoomLite } from './validation/room-matcher'
 import { findDuplicateGuests } from './validation/guest-dedup'
 import { detectCollisions, type OccupancyClaim } from './collision/collision-detector'
+
+/** Una fila que no se pudo cargar (para el reporte post-migración). */
+interface LoadFailure {
+  rowIndex: number
+  sourceId: string
+  reason: string
+}
 
 @Injectable()
 export class MigrationService {
@@ -28,11 +39,18 @@ export class MigrationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly registry: SourcePmsAdapterRegistry,
+    private readonly availability: AvailabilityService,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   /** Lista los PMS de origen soportados (para el dropdown del wizard). */
   listSources() {
     return this.registry.list()
+  }
+
+  /** Plantilla oficial Zenix (CSV) descargable — patrón SuccessFactors. */
+  getTemplateCsv(): string {
+    return buildZenixTemplateCsv()
   }
 
   /** Properties de la acting org (para elegir destino de la migración en la UI). */
@@ -414,6 +432,333 @@ export class MigrationService {
     }
     await this.prisma.migrationJob.delete({ where: { id: jobId } })
     return { deleted: true, jobId }
+  }
+
+  /**
+   * Sprint 4 — LOAD idempotente. Convierte el staging aprobado en reservas
+   * REALES en Zenix: `GuestStay` + `StayJourney` + `StaySegment(ORIGINAL)` con
+   * `source='MIGRATED'` (mirror del path canónico §137). Reglas:
+   *   · Gate: si quedan conflictos ERROR (`blocking > 0`) → 400 (NN/g H5).
+   *   · Idempotencia: UNIQUE `(migrationJobId, migrationSourceId)` → re-correr el
+   *     load del mismo job NO duplica (P2002 → cuenta "ya existente").
+   *   · Tolerancia por fila: una fila que falla NO aborta el job — se reporta y
+   *     el job termina `COMPLETED` (todo ok) o `PARTIAL` (con fallos).
+   *   · Anti-overbook (§35): re-check `AvailabilityService` dentro de la tx por
+   *     fila, salvo reservas históricas (CHECKED_OUT) o empalmes ACEPTADOS por el
+   *     consultor (decisión informada con razón en audit).
+   *
+   * NO emite eventos operativos (checkin.completed / SSE de housekeeping): la
+   * migración es histórica/masiva; disparar N eventos de check-in spamearía
+   * notificaciones y housekeeping. El calendario refleja las reservas migradas
+   * en su próximo refetch. (SSE de refresco dedicado = follow-up.)
+   */
+  async load(jobId: string, organizationId: string, actor: { sub: string; role: string }) {
+    const job = await this.prisma.migrationJob.findUnique({ where: { id: jobId } })
+    if (!job) throw new NotFoundException(`MigrationJob ${jobId} no encontrado`)
+    if (job.organizationId !== organizationId) throw new NotFoundException(`MigrationJob ${jobId} no encontrado`)
+
+    // Idempotencia a nivel job: ya cargado → devuelve el resumen sin re-correr.
+    if (job.status === MigrationJobStatus.COMPLETED) {
+      this.logger.log(`[Migration] load idempotente job=${jobId} ya COMPLETED`)
+      return this.getJob(jobId)
+    }
+    if (job.status !== MigrationJobStatus.PREVIEW_READY && job.status !== MigrationJobStatus.PARTIAL) {
+      throw new BadRequestException('El job debe estar en PREVIEW_READY (corre la validación primero).')
+    }
+
+    const counts = (job.counts as Record<string, number> | null) ?? {}
+    if ((counts.blocking ?? 0) > 0) {
+      throw new BadRequestException(
+        `Resuelve los ${counts.blocking} conflicto(s) bloqueante(s) antes de importar a producción.`,
+      )
+    }
+
+    // Inventario + prefijo del bookingRef.
+    const property = await this.prisma.property.findUnique({
+      where: { id: job.propertyId },
+      select: { propCode: true, legalEntity: { select: { baseCurrency: true, countryCode: true } } },
+    })
+    if (!property) throw new NotFoundException('Property del job no encontrada.')
+    const defaultCurrency = property.legalEntity?.baseCurrency ?? 'MXN'
+    const countryCode = property.legalEntity?.countryCode ?? 'MX'
+    const propCode = property.propCode ?? '000'
+
+    const roomsRaw = await this.prisma.room.findMany({
+      where: { propertyId: job.propertyId },
+      select: { id: true, number: true, category: true, roomType: { select: { name: true, code: true } } },
+    })
+    const rooms: ZenixRoomLite[] = roomsRaw.map((r) => ({
+      id: r.id, number: r.number, category: r.category as 'PRIVATE' | 'SHARED',
+      roomTypeName: r.roomType?.name ?? null, roomTypeCode: r.roomType?.code ?? null,
+    }))
+
+    await this.prisma.migrationJob.update({ where: { id: jobId }, data: { status: MigrationJobStatus.LOADING } })
+
+    const stagingRows = await this.prisma.migrationStagingReservation.findMany({
+      where: { jobId }, orderBy: { rowIndex: 'asc' },
+    })
+
+    let loaded = 0, skipped = 0, existing = 0, failed = 0
+    const failures: LoadFailure[] = []
+
+    for (const row of stagingRows) {
+      const mapped = row.mapped as MigrationReservationDto | null
+      const sourceId = mapped?.sourceId ?? `row-${row.rowIndex}`
+
+      if (row.resolution === 'SKIP') { skipped++; continue }
+      if (!mapped) { failed++; failures.push({ rowIndex: row.rowIndex, sourceId, reason: 'Fila sin mapear.' }); continue }
+
+      const norm = normalizeReservation(mapped, { defaultCurrency })
+      // Filas con ERROR de fechas no son cargables. El gate (blocking=0) garantiza
+      // que solo llegan aquí si fueron SKIP; defensa por si acaso.
+      if (norm.status === MigrationRowStatus.ERROR) {
+        skipped++
+        failures.push({ rowIndex: row.rowIndex, sourceId, reason: norm.issues.map((i) => i.message).join('; ') || 'Fila inválida.' })
+        continue
+      }
+
+      // Habitación efectiva: REASSIGN gana; si no, el match del origen.
+      const match = matchRoom(mapped.roomLabel, mapped.roomTypeLabel, rooms)
+      const reassigned = row.resolution === 'REASSIGN' && row.targetRoomId
+        ? rooms.find((r) => r.id === row.targetRoomId)
+        : undefined
+      const roomId = reassigned?.id ?? (match.matched ? match.roomId : null)
+      if (!roomId) {
+        failed++
+        failures.push({ rowIndex: row.rowIndex, sourceId, reason: `Sin habitación destino para "${mapped.roomLabel ?? '—'}" — reasigna en el preview.` })
+        continue
+      }
+
+      const checkIn = new Date(mapped.checkIn)
+      const checkOut = new Date(mapped.checkOut)
+      const status = norm.canonicalStatus
+      const accepted = row.resolution === 'ACCEPT'
+
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          // Serializa contra reservas concurrentes (recepción / otra carga) en la property.
+          try {
+            await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, `migrate:${job.propertyId}`)
+          } catch (e) { if (!(e instanceof TypeError)) throw e }
+
+          // Anti-overbook (§35): solo para reservas que ocupan inventario hoy/futuro.
+          // Las históricas (CHECKED_OUT) y los empalmes ACEPTADOS se omiten del guard.
+          if (norm.occupies && status !== 'CHECKED_OUT' && !accepted) {
+            const avail = await this.availability.check({ roomId, from: checkIn, to: checkOut })
+            if (!avail.available) {
+              const c = avail.conflicts[0]
+              throw new BadRequestException(
+                `Empalme al cargar: ${c?.label ? `choca con "${c.label}"` : 'habitación no disponible'}.`,
+              )
+            }
+          }
+
+          const bookingRef = await this.generateMigratedRef(propCode, countryCode, checkIn, tx)
+          const nights = Math.max(1, Math.round((checkOut.getTime() - checkIn.getTime()) / 86400000))
+          const ratePerNight = mapped.ratePerNight ?? (mapped.totalAmount != null ? mapped.totalAmount / nights : 0)
+          const totalAmount = mapped.totalAmount ?? ratePerNight * nights
+          const amountPaid = mapped.amountPaid ?? 0
+          const paymentStatus = amountPaid >= totalAmount ? 'PAID' : amountPaid > 0 ? 'PARTIAL' : 'PENDING'
+
+          const stay = await tx.guestStay.create({
+            data: {
+              organizationId,
+              propertyId: job.propertyId,
+              roomId,
+              bookingRef,
+              guestName: mapped.guestName,
+              guestFirstName: mapped.guestFirstName ?? null,
+              guestLastName: mapped.guestLastName ?? null,
+              guestEmail: mapped.guestEmail ?? null,
+              guestPhone: mapped.guestPhone ?? null,
+              nationality: mapped.guestCountry ?? null,
+              documentNumber: mapped.guestDocument ?? null,
+              otaReservationCode: mapped.otaReservationCode ?? null,
+              paxCount: Math.max(1, (mapped.adults ?? 1) + (mapped.children ?? 0)),
+              checkinAt: checkIn,
+              scheduledCheckout: checkOut,
+              ratePerNight,
+              currency: norm.reservation.currency ?? defaultCurrency,
+              totalAmount,
+              amountPaid,
+              paymentStatus,
+              source: 'MIGRATED',
+              migrationSourceId: sourceId,
+              migrationJobId: jobId,
+              notes: mapped.notes ?? null,
+              checkedInById: actor.sub,
+              // Estados terminales: marcan la reserva sin que ocupe inventario activo.
+              actualCheckout: status === 'CHECKED_OUT' ? checkOut : null,
+              noShowAt: status === 'NO_SHOW' ? checkIn : null,
+              cancelledAt: status === 'CANCELLED' ? new Date() : null,
+            },
+          })
+
+          const journey = await tx.stayJourney.create({
+            data: {
+              organizationId,
+              propertyId: job.propertyId,
+              guestName: mapped.guestName,
+              guestEmail: mapped.guestEmail ?? null,
+              guestStayId: stay.id,
+              journeyCheckIn: checkIn,
+              journeyCheckOut: checkOut,
+            },
+          })
+          await tx.staySegment.create({
+            data: {
+              journeyId: journey.id,
+              roomId,
+              guestStayId: stay.id,
+              checkIn,
+              checkOut,
+              status: status === 'CANCELLED' ? 'CANCELLED' : 'ACTIVE',
+              reason: 'ORIGINAL',
+              rateSnapshot: mapped.ratePerNight ?? null,
+            },
+          })
+        })
+        loaded++
+      } catch (err) {
+        // P2002 sobre (migrationJobId, migrationSourceId) → ya cargada antes
+        // (re-corrida idempotente). Otros P2002 / errores → fila fallida.
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+          const target = String(err.meta?.target ?? '')
+          if (target.includes('migration')) { existing++; continue }
+        }
+        failed++
+        failures.push({ rowIndex: row.rowIndex, sourceId, reason: err instanceof Error ? err.message : String(err) })
+      }
+    }
+
+    const finalStatus = failed > 0 ? MigrationJobStatus.PARTIAL : MigrationJobStatus.COMPLETED
+    await this.prisma.migrationJob.update({
+      where: { id: jobId },
+      data: {
+        status: finalStatus,
+        counts: { ...counts, loaded, skipped, existing, failed, failures: failures.slice(0, 200) } as object,
+      },
+    })
+
+    // AuditLog append-only (§165). Retención PERMANENT — evidencia de migración.
+    await this.auditLog.write({
+      organizationId,
+      actorRealId: actor.sub,
+      actorRealRole: actor.role as never,
+      action: 'DATA_MIGRATED',
+      target: jobId,
+      payload: {
+        jobId,
+        sourceSystem: job.sourceSystem,
+        fileName: job.fileName,
+        fileHash: job.fileHash,
+        loaded, skipped, existing, failed,
+        failures: failures.slice(0, 50),
+      },
+      status: failed > 0 ? 'PARTIAL' : 'SUCCESS',
+      retentionPolicy: 'PERMANENT' as never,
+    })
+
+    this.logger.log(`[Migration] load job=${jobId} loaded=${loaded} skipped=${skipped} existing=${existing} failed=${failed} → ${finalStatus}`)
+    return this.getJob(jobId)
+  }
+
+  /**
+   * Reporte post-migración (HTML imprimible, sin Puppeteer — patrón §183).
+   * Resumen + reservas cargadas (con su bookingRef Zenix) + filas descartadas
+   * con su razón. Sirve como handover/evidencia de la migración.
+   */
+  async getReport(jobId: string, organizationId: string): Promise<string> {
+    const job = await this.prisma.migrationJob.findUnique({ where: { id: jobId } })
+    if (!job) throw new NotFoundException(`MigrationJob ${jobId} no encontrado`)
+    if (job.organizationId !== organizationId) throw new NotFoundException(`MigrationJob ${jobId} no encontrado`)
+
+    const counts = (job.counts as Record<string, unknown> | null) ?? {}
+    const failures = (counts.failures as LoadFailure[] | undefined) ?? []
+    const loadedStays = await this.prisma.guestStay.findMany({
+      where: { migrationJobId: jobId },
+      select: { bookingRef: true, guestName: true, checkinAt: true, scheduledCheckout: true, migrationSourceId: true },
+      orderBy: { checkinAt: 'asc' },
+    })
+    const skippedRows = await this.prisma.migrationStagingReservation.findMany({
+      where: { jobId, resolution: 'SKIP' },
+      select: { rowIndex: true, mapped: true, resolutionReason: true },
+      orderBy: { rowIndex: 'asc' },
+    })
+
+    const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!))
+    const fmtDate = (d: Date) => d.toISOString().slice(0, 10)
+    const num = (k: string) => Number(counts[k] ?? 0)
+
+    const loadedRows = loadedStays.map((s) =>
+      `<tr><td>${esc(s.bookingRef)}</td><td>${esc(s.guestName)}</td><td>${fmtDate(s.checkinAt)} → ${fmtDate(s.scheduledCheckout)}</td><td class="mono">${esc(s.migrationSourceId)}</td></tr>`,
+    ).join('')
+    const failedRows = failures.map((f) =>
+      `<tr><td>${f.rowIndex}</td><td class="mono">${esc(f.sourceId)}</td><td>${esc(f.reason)}</td></tr>`,
+    ).join('')
+    const skippedHtml = skippedRows.map((r) => {
+      const m = r.mapped as MigrationReservationDto | null
+      return `<tr><td>${r.rowIndex}</td><td>${esc(m?.guestName ?? '—')}</td><td>${esc(r.resolutionReason ?? 'Omitida por el consultor')}</td></tr>`
+    }).join('')
+
+    return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Reporte de migración — Zenix Onboard</title>
+<style>
+  :root{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#0f172a}
+  body{margin:0;padding:0;background:#f8fafc}
+  .wrap{max-width:880px;margin:0 auto;padding:32px}
+  .hero{background:linear-gradient(135deg,#059669,#047857);color:#fff;border-radius:16px;padding:28px 32px;margin-bottom:24px}
+  .hero h1{margin:0 0 4px;font-size:22px}
+  .hero p{margin:0;opacity:.85;font-size:13px}
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
+  .tile{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px}
+  .tile .n{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums}
+  .tile .l{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#64748b;margin-top:2px}
+  .ok .n{color:#059669}.warn .n{color:#d97706}.err .n{color:#dc2626}
+  h2{font-size:15px;margin:24px 0 8px}
+  table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;font-size:13px}
+  th,td{text-align:left;padding:8px 12px;border-bottom:1px solid #f1f5f9}
+  th{background:#f8fafc;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#64748b}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:#475569}
+  .empty{color:#94a3b8;font-size:13px;padding:8px 0}
+  .print{margin:24px 0;text-align:right}
+  button{background:#059669;color:#fff;border:0;border-radius:8px;padding:8px 16px;font-size:13px;cursor:pointer}
+  @media print{.print{display:none}body{background:#fff}}
+</style></head><body><div class="wrap">
+  <div class="hero"><h1>Reporte de migración</h1><p>Zenix Onboard · ${esc(job.sourceSystem)} · ${esc(job.fileName ?? '')} · ${fmtDate(job.createdAt)} · estado ${esc(job.status)}</p></div>
+  <div class="tiles">
+    <div class="tile ok"><div class="n">${num('loaded')}</div><div class="l">Cargadas</div></div>
+    <div class="tile"><div class="n">${num('existing')}</div><div class="l">Ya existían</div></div>
+    <div class="tile warn"><div class="n">${num('skipped')}</div><div class="l">Omitidas</div></div>
+    <div class="tile err"><div class="n">${num('failed')}</div><div class="l">Fallidas</div></div>
+  </div>
+  <div class="print"><button onclick="window.print()">Imprimir / Guardar PDF</button></div>
+  <h2>Reservas cargadas (${loadedStays.length})</h2>
+  ${loadedStays.length ? `<table><thead><tr><th>Booking ref (Zenix)</th><th>Huésped</th><th>Fechas</th><th>ID origen</th></tr></thead><tbody>${loadedRows}</tbody></table>` : '<div class="empty">Ninguna reserva cargada.</div>'}
+  <h2>Filas omitidas (${skippedRows.length})</h2>
+  ${skippedRows.length ? `<table><thead><tr><th>Fila</th><th>Huésped</th><th>Razón</th></tr></thead><tbody>${skippedHtml}</tbody></table>` : '<div class="empty">Ninguna fila omitida.</div>'}
+  <h2>Filas fallidas (${failures.length})</h2>
+  ${failures.length ? `<table><thead><tr><th>Fila</th><th>ID origen</th><th>Razón</th></tr></thead><tbody>${failedRows}</tbody></table>` : '<div class="empty">Ninguna fila falló. ✅</div>'}
+</div></body></html>`
+  }
+
+  /** bookingRef de reserva migrada: `[CC]-M-[propCode]-[YYMM]-[SEQ]`. SRC='M'. */
+  private async generateMigratedRef(
+    propCode: string,
+    countryCode: string,
+    checkIn: Date,
+    tx: Prisma.TransactionClient,
+  ): Promise<string> {
+    const raw = (countryCode ?? '').toUpperCase().trim()
+    const cc = /^[A-Z]{2}$/.test(raw) ? raw : 'MX'
+    const yy = String(checkIn.getFullYear()).slice(-2)
+    const mm = String(checkIn.getMonth() + 1).padStart(2, '0')
+    const prefix = `${cc}-M-${propCode}-${yy}${mm}-`
+    // Lock per (property-prefix) para serializar el contador en cargas concurrentes.
+    try {
+      await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, `migrate:ref:${prefix}`)
+    } catch (e) { if (!(e instanceof TypeError)) throw e }
+    const count = await tx.guestStay.count({ where: { bookingRef: { startsWith: prefix } } })
+    return `${prefix}${String(count + 1).padStart(4, '0')}`
   }
 
   /** Detalle del job + counts + headers detectados + muestra de filas mapeadas. */

@@ -2,7 +2,7 @@
 
 > **Módulo comercial:** **Zenix Onboard** — migración de datos desde cualquier PMS (Cloudbeds primero) hacia Zenix.
 > **Versión objetivo:** v1.1.x (DLC / servicio de onboarding). No bloquea v1.0.0.
-> **Estado:** **Sprints 0-3 CERRADOS** (2026-06-13/14). S0: DTO + schema staging + migración + export sintético. S1: módulo NestJS + `GenericCsvAdapter`/`CloudbedsAdapter` + parser CSV + endpoints upload/parse/mapping. S2: normalize + room-matcher + **CollisionDetector ★** (empalmes room/bed) + dedup → job a `PREVIEW_READY` + endpoint `/conflicts`. S3: **Preview UI en Nova** (`/nova/migration`) + resolución por fila (SKIP/ACCEPT-con-razón/REASSIGN) + gate de ERRORes + endpoints `properties`/`rooms`/`resolution`/`delete`. Sprints 4-6 pendientes. **Próximo: Sprint 4 (Load idempotente + AuditLog → reservas reales `source='MIGRATED'`).**
+> **Estado:** **Sprints 0-5 CERRADOS** (2026-06-13/14). S0: DTO + schema staging + migración + export sintético. S1: módulo NestJS + `GenericCsvAdapter`/`CloudbedsAdapter` + parser CSV + endpoints upload/parse/mapping. S2: normalize + room-matcher + **CollisionDetector ★** (empalmes room/bed) + dedup → job a `PREVIEW_READY` + endpoint `/conflicts`. S3: **Preview UI en Nova** (`/nova/migration`) + resolución por fila (SKIP/ACCEPT-con-razón/REASSIGN) + gate de ERRORes. S4: **Load idempotente** (`POST …/load` → crea `GuestStay`+`StayJourney`+`StaySegment` reales `source='MIGRATED'`, anti-overbook §35, tolerancia por fila → COMPLETED/PARTIAL) + AuditLog `DATA_MIGRATED` + **reporte HTML**. S5: **Plantilla Zenix (patrón SuccessFactors)** — `ZenixTemplateAdapter` (mapeo identidad) + `GET …/template` descargable + UI banner/botón + doc diccionario; el consultor descarga la plantilla CSV, la rellena y la sube sin mapear columnas. Sprints 6-7 pendientes. **NO mergeado a main** (deploy a prod = al final del desarrollo, instrucción owner). **Importación masiva funcionalmente completa tras S6.** **Próximo: Sprint 6 (wizard de mapeo para exports no-plantilla + runbook servicio asistido + spike Mews).**
 > **Origen:** estudio de migración Cloudbeds→Zenix (sesión 2026-06-13). Pregunta del prospecto: "¿puedo migrar todos mis datos de Cloudbeds (años de uso)?".
 > **Documentos hermanos:** [zenix-sales-master.md](../zenix-sales-master.md) Módulo 9 · [CLAUDE.md](../../CLAUDE.md) §MIGRATION-CORE · **[migration/pms-export-landscape.md](migration/pms-export-landscape.md)** (estudio verificado de qué exporta cada PMS — fundamenta la estrategia de adapters).
 
@@ -270,6 +270,19 @@ El estudio verificó que **casi todo PMS exporta reservas/huéspedes a CSV/Excel
 ### Sprint 4 — E5 Load idempotente + AuditLog (4-5 días-dev)
 **Sprint Goal:** convertir el staging aprobado en **reservas reales** en Zenix, sin duplicar y sin generar overbooking.
 
+> **✅ CERRADO 2026-06-14 (rama `feat/migration-sprint4`):**
+> - **`MigrationService.load(jobId, orgId, actor)`** — crea `GuestStay`+`StayJourney`+`StaySegment(ORIGINAL)` por fila aprobada con `source='MIGRATED'` + `migrationSourceId` + `migrationJobId` + `bookingRef` SRC `'M'` (`[CC]-M-[propCode]-[YYMM]-[SEQ]`, helper propio con advisory lock del contador). Estados terminales mapeados (`actualCheckout` si CHECKED_OUT · `noShowAt` si NO_SHOW · `cancelledAt` si CANCELLED) → la reserva no ocupa inventario activo cuando corresponde.
+> - **Gate (US-4.x):** `blocking > 0` → **400** ("resuelve los N conflictos bloqueantes"); estado debe ser `PREVIEW_READY`/`PARTIAL`.
+> - **Idempotencia (US-4.2):** por fila dentro de `$transaction`; `P2002` sobre la UNIQUE `(migrationJobId, migrationSourceId)` → cuenta `existing`, no aborta. Re-correr el load NO duplica (verificado: 2ª corrida `loaded=0`). Job ya `COMPLETED` → devuelve el resumen sin recargar.
+> - **Anti-overbook (US-4.3, §35):** re-check `AvailabilityService.check` **dentro de la tx** bajo `pg_advisory_xact_lock(hashtext('migrate:'+propertyId))` — salvo históricas (CHECKED_OUT) o empalmes ACEPTADOS por el consultor (decisión informada con razón en audit).
+> - **Tolerancia por fila (US-4.4):** una fila que falla (sin habitación / empalme físico) NO aborta el job → se reporta y el job termina `COMPLETED` (todo ok) o `PARTIAL` (con fallos + razones).
+> - **AuditLog `DATA_MIGRATED`** append-only, `retentionPolicy='PERMANENT'` (actor, jobId, fileHash, counts, primeras fallas).
+> - **Reporte (US-4.5):** `GET …/jobs/:id/report` → HTML imprimible (sin Puppeteer, patrón §183): hero + 4 StatTiles + tabla de cargadas (con su `bookingRef` Zenix) + omitidas + fallidas con razón. Sirve el cliente HTTP central web con `responseType:'text'` (§122, sin raw fetch) → blob en pestaña nueva.
+> - **Frontend:** `NovaMigrationPage` botón "Importar a producción" → `migrationApi.load`; bloque de resultado (COMPLETED/PARTIAL) con StatTiles + "Ver reporte" + "Nueva migración"; refetch durante `LOADING`. SSE de refresco del calendario = **NO** disparado (la migración es histórica/masiva; emitir N eventos operativos spamearía housekeeping/notifs — decisión honesta, follow-up).
+> - **Tests:** **41/41** (4 nuevos del gate: blocking>0 / estado inválido / idempotente COMPLETED / IDOR) + typecheck api+web verdes. **e2e BD dev** (Hotel Cancún): subir sample → resolver bloqueantes (gate 2→0) → **LOAD 201** (2 cargadas con `MX-M-…` + journey + segmento ORIGINAL/ACTIVE; 12 fallidas con razón "sin habitación destino" — las habitaciones del sample sintético 101-107 no existen en Cancún 201-208, exactamente el caso REASSIGN; 1 omitida) → **re-load idempotente** (0 nuevas) → reporte 200 con refs `M-`. Dato de prueba limpiado de la BD.
+> - **Salvedad honesta (§4):** el load se verificó end-to-end vía HTTP+JWT (BD real), NO en navegador (el Vite del dueño ocupa :5173 y el preview tool no se adjunta a server externo). La UI es binding directo a endpoints verificados + design-system que typecheckea. El test unit del load real (creación dentro de tx) queda como integración futura — misma razón que `guest-stays.create` se apoya en cobertura e2e; el **gate** sí tiene unit tests.
+> - **NO mergeado a main** (instrucción del owner: el deploy a prod es al final del desarrollo; mergear a main dispara el auto-deploy Render+Vercel). Rama lista + PR + CI para revisión.
+
 | # | Historia | Criterios de aceptación | SP |
 |---|---|---|---|
 | US-4.1 | Como consultor, quiero **disparar el load** y que cree `GuestStay`+`StayJourney`+`StaySegment(ORIGINAL)` por cada reserva aprobada. | `POST …/jobs/:id/load`; crea entidades con `source='MIGRATED'`, `migrationSourceId`, `migrationJobId`; mirror del path canónico (§137). | 5 |
@@ -292,19 +305,39 @@ El estudio verificó que **casi todo PMS exporta reservas/huéspedes a CSV/Excel
 
 ---
 
-### Sprint 5 — E6 Servicio asistido + spike 2º adapter (3-4 días-dev, opcional/posterior)
-**Sprint Goal:** empaquetar la migración como **servicio vendible** + probar que el motor es genérico con un segundo PMS.
+### Sprint 5 — Plantilla Zenix (patrón SuccessFactors) — ✅ CERRADO 2026-06-14 (rama `feat/migration-sprint5`, NO mergeado)
+**Sprint Goal:** el camino más simple de carga masiva — el consultor descarga **nuestra plantilla CSV**, la rellena (exportando del PMS del cliente) y la sube. **Sin mapear columnas.**
 
-| # | Historia | Criterios de aceptación | SP |
-|---|---|---|---|
-| US-5.1 | Como ZaharDev, quiero un **runbook de migración asistida** (white-glove) para ofrecerla como servicio de cierre. | `docs/ops/migration-assisted-runbook.md`: pre-checks, fecha de congelamiento en el PMS origen, parallel-run, import del delta final, sign-off. | 3 |
-| US-5.2 | Como dev, quiero un **spike `MewsAdapter`** (parse mínimo) para validar que agregar un PMS no requiere tocar el motor. | `MewsAdapter` registrado que parsea un export de muestra de Mews a `MigrationReservationDto`; confirma que E3-E5 funcionan sin cambios. | 5 |
+> **Reorientación (decisión owner 2026-06-14):** el owner pidió explícitamente el patrón SuccessFactors (plantilla CSV de carga masiva). Se subió de prioridad por encima del runbook de servicio + spike Mews (que pasan a Sprint 6) porque **es el onramp real** que usa el consultor. CSV elegido sobre XLSX para la ingesta (cero dependencia, ya parseamos CSV, universal, patrón SuccessFactors/SAP/Salesforce; XLSX-con-dropdowns = mejora UX v2). La plantilla **no elimina la validación** (empalmes/dupes/fechas igual ocurren en un archivo a mano) — solo simplifica la *entrada*.
+>
+> **✅ Entregado:**
+> - **`ZenixTemplateAdapter`** (`MigrationSource.ZENIX_TEMPLATE`, primero en el registry) con **mapeo identidad** (encabezado === campo canónico) + `dateFormat='YYYY-MM-DD'`. Reusa el motor existente — la plantilla es "otro pre-mapeo" como Cloudbeds.
+> - **`TEMPLATE_FIELDS`** = única fuente de verdad de las 22 columnas (campo + obligatoriedad + ayuda); la usan el `defaultMapping()` y el generador del archivo. `buildZenixTemplateCsv()` genera la plantilla (encabezados + 2 filas de ejemplo, CSV RFC 4180).
+> - **Endpoint `GET /v1/nova/migration/template`** (Nova-guarded, sin acting-org — archivo estático) → `text/csv` + `Content-Disposition attachment`.
+> - **Frontend:** banner "¿Usas la plantilla Zenix?" + botón **"Descargar plantilla"** (fetch con auth → blob → descarga `zenix-import-template.csv`); source default = `ZENIX_TEMPLATE`; cliente `migrationApi.template()` (`responseType:'text'`).
+> - **Doc** [zenix-import-template.md](migration/zenix-import-template.md) — diccionario de datos por columna (formato, valores, obligatoriedad) + alcance honesto.
+> - **Tests 44/44** (3 nuevos del adapter: identidad / CSV round-trip / plantilla llenada → DTO) + typecheck shared/api/web verdes.
+> - **e2e BD dev** (Hotel Cancún): `sources[0]=ZENIX_TEMPLATE` ✓; descargar plantilla 200 `text/csv` 22 cols ✓; llenar con cuartos reales (201/202) → subir como `ZENIX_TEMPLATE` → **PREVIEW_READY 0 conflictos** (identidad emparejó ambos) → **LOAD COMPLETED 2 cargadas** (`MX-M-2609-0001/0002`) ✓; BD limpiada (117 stays, 0 MIGRATED).
+> - **Incidente registrado (§4 honestidad):** el primer intento e2e falló porque la API consume `@zenix/shared` desde **dist compilado** — el enum `ZENIX_TEMPLATE` nuevo no estaba en dist → `MigrationSource.ZENIX_TEMPLATE=undefined` → upload 400 + un script de cleanup con `jobId=undefined` intentó borrar TODO (lo frenó el FK `segment_nights`, **cero pérdida de datos**, verificado 117→117). Fix: `npm run build` en `packages/shared` antes de reiniciar la API. **Lección:** tras tocar enums/tipos de shared, rebuildear shared antes del runtime e2e.
 
-**Entregables Sprint 5:** runbook de servicio + prueba de genericidad. **Demo:** correr el mismo pipeline con un adapter distinto.
+**Salvedad (§4):** render de la UI nueva NO capturado en navegador (Vite del dueño en :5173); banner+botón son binding directo a endpoint verificado e2e + design-system que typecheckea.
 
 ---
 
-### Sprint 6 — E7 QA + Piloto real (incluido en la venta, no estimado aquí)
+### Sprint 6 — Servicio asistido + wizard de mapeo + spike 2º adapter (3-4 días-dev)
+**Sprint Goal:** el camino flexible (exports sin nuestra plantilla) + empaquetar como **servicio vendible** + probar genericidad.
+
+| # | Historia | Criterios de aceptación | SP |
+|---|---|---|---|
+| US-6.1 | Como consultor, quiero un **wizard de mapeo de columnas** para exports que NO usan la plantilla Zenix (origen genérico). | UI que mapea cada campo canónico ↔ encabezado del archivo, con preview de 5 filas; usa el `GenericCsvAdapter` (`defaultMapping()=null`) ya existente. | 5 |
+| US-6.2 | Como ZaharDev, quiero un **runbook de migración asistida** (white-glove). | `docs/ops/migration-assisted-runbook.md`: pre-checks, congelamiento del PMS origen, parallel-run, import del delta final, sign-off. | 3 |
+| US-6.3 | Como dev, quiero un **spike `MewsAdapter`** para validar que agregar un PMS no toca el motor. | `MewsAdapter` registrado que parsea una muestra de Mews; confirma E3-E5 sin cambios. | 5 |
+
+**Entregables Sprint 6:** camino flexible + runbook + prueba de genericidad.
+
+---
+
+### Sprint 7 — E7 QA + Piloto real (incluido en la venta, no estimado aquí)
 - Migración end-to-end con un **export real del prospecto** (cuando exista).
 - Validación de cutover (congelar Cloudbeds → migrar → reconectar OTAs vía Channex → arrancar en Zenix).
 - Acuerdo escrito de alcance (qué migró / qué no — PCI, OTA live, pace/STLY), reusando la práctica de "acuerdo de alcance" del deploy.
