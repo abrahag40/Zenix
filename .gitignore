@@ -47,4 +47,8 @@ android
 ios
 apps/web/.claude/
 .claire/
-.claude/
+.claude/*
+# …salvo las reglas por ruta, que SON instrucciones del proyecto y deben viajar con el
+# repositorio: la documentación oficial las describe como algo que «keeps instructions
+# modular and easier for teams to maintain». Lo demás de .claude/ sigue fuera.
+!.claude/rules/
