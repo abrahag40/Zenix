@@ -1,5 +1,14 @@
 # 03 · Roadmap Zenix — v1.0 → v2.0
 
+> 🔴 **PLAN SUPERSEDIDO — 2026-09-22.** Las fechas de este documento están caducadas: el último
+> commit de producto es del **2026-06-21** y el plan de trabajo vigente es
+> [**17 · Puertos abiertos y plan del primer hotel real**](17-puertos-abiertos-y-plan-piloto.md),
+> escrito sobre la auditoría multi-sombrero del código (148 hallazgos, 40 verificados
+> adversarialmente, 0 refutados).
+>
+> **Este documento NO se borra:** conserva el alcance comprometido por versión, que sigue siendo
+> la referencia de qué se prometió. Lo que deja de valer son sus fechas y su orden.
+
 > Ladder de versionado **por bloques temáticos** con justificación, dependencias, y métricas de éxito por bloque.
 > Cada bloque (v1.x) es vendible independientemente. v2.0 se reserva para rewrite arquitectónico real.
 > **Última revisión:** 2026-05-14 — refactor de versionado de "versiones individuales" a "bloques temáticos" tras análisis comparativo con Mews/Stripe/Salesforce/Cloudbeds.
