@@ -772,7 +772,7 @@ Existing `NotificationPanel` (§99) extends para mostrar market intel alerts:
 
 - Tests integration per adapter (con mocked APIs)
 - E2E pipeline: cron daily → ingest → dedup → curator queue → approve → visible en dashboard
-- Smoke test con fixture multi-property (Monica Tulum + ficticio Guadalajara)
+- Smoke test con fixture multi-property (Hotel Boutique Tulum + ficticio Guadalajara)
 
 ### Día 20 — Polish + Docs
 

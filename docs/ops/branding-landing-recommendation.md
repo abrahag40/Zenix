@@ -26,7 +26,7 @@ zenix.app/
 ├── /demand-intel             ← Demand Intelligence Premium DLC
 ├── /booking-engine           ← Direct Booking Engine
 ├── /pricing                  ← single page con tiers + bundles + ROI calculator
-├── /case-studies             ← Monica Tulum, Azúcar, etc.
+├── /case-studies             ← Hotel Boutique Tulum, Azúcar, etc.
 ├── /docs                     ← documentación técnica + manual usuario
 ├── /activate                 ← wizard de onboarding landing
 └── /partners                 ← ZaharDev partner network landing
@@ -253,7 +253,7 @@ src/pages/
 - [ ] Deploy + analytics setup
 
 ### Medio plazo (post-v1.1.0 SIGN-DLC release)
-- [ ] Case study Monica Tulum publicado
+- [ ] Case study Hotel Boutique Tulum publicado
 - [ ] Demo videos cortos (60s) per módulo
 - [ ] ROI calculator interactivo funcional
 - [ ] Tally form embeds para demo requests

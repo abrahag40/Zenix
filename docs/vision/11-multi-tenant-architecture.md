@@ -139,17 +139,17 @@ Lectura: un consultor (`PartnerMember`) gana acceso a un `Property` no por relac
 
 ## 3. Casos de uso reales
 
-### Caso 1 — Hotel boutique independiente (Hotel Monica Tulum)
+### Caso 1 — Hotel boutique independiente (Hotel Boutique Tulum)
 
 ```
 Brand           = NULL
-Organization    = "Hotel Monica Tulum"
-LegalEntity     = "Hotel Monica Tulum S.A. de C.V."
+Organization    = "Hotel Boutique Tulum"
+LegalEntity     = "Hotel Boutique Tulum S.A. de C.V."
                   · RFC: HMT840923ABC
                   · Régimen: MX_CFDI4
                   · Currency: MXN
                   · PAC: Facturama
-  └─ Property   = "Hotel Monica Tulum"
+  └─ Property   = "Hotel Boutique Tulum"
                   · Timezone: America/Cancun (UTC-5)
                   · 23 habitaciones
 ```
@@ -184,16 +184,16 @@ Organization    = "Selina Group Holdings"
       └─ Property = "Selina Cartagena"
 ```
 
-### Caso 3 — "Growing into a brand" (Hotel Monica expande)
+### Caso 3 — "Growing into a brand" (Hotel Boutique expande)
 
-Después de 2 años, Hotel Monica abre 3 propiedades más. Cuatro escenarios distintos:
+Después de 2 años, Hotel Boutique abre 3 propiedades más. Cuatro escenarios distintos:
 
 | Escenario | Cambio en schema |
 |-----------|------------------|
-| Abren Hotel Monica Cancún, **misma razón social MX** | Crear nuevo `Property` con `legalEntityId` = misma "Hotel Monica Tulum SA". Sin tocar nada más. |
-| Abren Hotel Monica Mérida, **distinta razón social MX** (separación fiscal) | Crear nueva `LegalEntity` "Hotel Monica Mérida SA" + Property bajo ella. Sigue siendo la misma Organization. |
-| Abren Hotel Monica San José, **Costa Rica** | Crear nueva `LegalEntity` "Hotel Monica CR SRL" (NIT CR, Tribu-CR, CRC) + Property. Misma Organization. |
-| Deciden formalizar marca "Monica Boutique Collection" | Crear `Brand` + asignar `Organization.brandId`. **Sin migración de datos, sin downtime.** |
+| Abren Hotel Boutique Cancún, **misma razón social MX** | Crear nuevo `Property` con `legalEntityId` = misma "Hotel Boutique Tulum SA". Sin tocar nada más. |
+| Abren Hotel Boutique Mérida, **distinta razón social MX** (separación fiscal) | Crear nueva `LegalEntity` "Hotel Boutique Mérida SA" + Property bajo ella. Sigue siendo la misma Organization. |
+| Abren Hotel Boutique San José, **Costa Rica** | Crear nueva `LegalEntity` "Hotel Boutique CR SRL" (NIT CR, Tribu-CR, CRC) + Property. Misma Organization. |
+| Deciden formalizar marca "Boutique Collection" | Crear `Brand` + asignar `Organization.brandId`. **Sin migración de datos, sin downtime.** |
 
 ---
 
@@ -504,7 +504,7 @@ Esto significa: **ningún query org-scoped existente requiere refactor**. Solo l
 
 **Justificación:**
 - 70-85% del mercado boutique LATAM son hoteles independientes (sin chain)
-- Forzar brand = "Hotel Monica" duplica info redundantemente
+- Forzar brand = "Hotel Boutique" duplica info redundantemente
 - Pattern Mews: *"Portfolio (= brand) is an optional grouping above chains"*
 - Cuando un cliente "se vuelve marca", agregar la fila Brand y un FK es trivial
 
@@ -717,7 +717,7 @@ Solo accesible para users del partner tier o ZaharDev internos. Consume datos ag
 - [ ] Sembrado FiscalRegime 10 países LATAM (1 día)
 - [ ] TenantContextService 3-level (1 día)
 - [ ] Tests aislamiento Brand/LegalEntity/Property (0.5 días)
-- [ ] Migration de Hotel Monica Tulum data piloto (validación) (0.5 días)
+- [ ] Migration de Hotel Boutique Tulum data piloto (validación) (0.5 días)
 
 **Total: 4.5 días de trabajo backend**
 
@@ -748,4 +748,4 @@ Solo accesible para users del partner tier o ZaharDev internos. Consume datos ag
 ## 11. Bitácora de revisiones
 
 - **2026-05-23** — Extensión 5-tier aprobada tras sprint Zenix Nova. Cambios clave: (1) título actualizado a "5-tier (Platform → Partner → Brand → Organization → LegalEntity → Property)" con aclaración que es 4-level cliente + 1 cross-cutting partner — el partner no es padre del cliente sino capa lateral. (2) Nueva §2.1 diagrama ASCII 5-tier completo con ambos ejes (Platform/Partner + Cliente). (3) Nueva §2.2 diagrama lateral mostrando cadena de assignments `PartnerMember → PartnerMemberAssignment → PartnerClientAssignment → Organization`. (4) §2.3 conserva el diagrama 4-level legacy para perspectiva cliente. (5) §5 reformulada como "User access — niveles de scope (3 cliente + 2 partner)" con sub-secciones 5.1 (cliente) y 5.2 (partner). Combinatoria explícita: un mismo user puede tener scope ambos ejes simultáneamente, audit log lo distingue. (6) §5.3 query SQL canónica extendida con 2 UNION ALL adicionales (PLATFORM_ADMIN via `Partner.isInternal=true`, PARTNER_MEMBER via cadena assignments). (7) Nueva §5.4 TenantContextService extendido: interface con `partnerMemberId`, `partnerId`, `actorTier` enum, `assignedOrgIds[]` cache, `onBehalfOfUserId` para impersonation. Resolución del contexto en orden de precedencia documentado. (8) Nueva §5.5 JWT shape extendido con 3 nuevos campos (`actorTier`, `partnerMemberId`, `assignedOrgIds[]`) + estrategia size-control (max 20 ids inline, lookup server-side si más). (9) Nueva §5.6 backwards-compat explícito: endpoints org-scoped existentes funcionan sin refactor — el middleware inyecta `X-Acting-Organization-Id` validado contra `assignedOrgIds` para partner actors. Schema técnico autoritativo movido a [docs/architecture/NOVA-architecture.md §3](../architecture/NOVA-architecture.md#3-schema-completo-prisma) — este doc es la vista conceptual.
-- **2026-05-15** — Documento creado tras conversación de visión arquitectónica multi-tenant. Modelo 4-level Brand→Organization→LegalEntity→Property aprobado por Abraham. Migration plan v1.0.5 ORG-HIERARCHY-SEED + FISCAL-ADAPTER-SEED + TENANT-CTX-3LEVEL definido. 10 fiscal regimes LATAM identificados (MX/CO/CR/PE/PA/GT/BR/SV/HN/AR). Selina + Hotel Monica Tulum como casos de uso canónicos. Fuentes citadas: Mews Connector API docs, Opera Cloud Enterprise Topologies, Bytebase 2026 multi-tenant patterns, Microsoft Citus SaaS docs, Crunchy Data Postgres multi-tenancy.
+- **2026-05-15** — Documento creado tras conversación de visión arquitectónica multi-tenant. Modelo 4-level Brand→Organization→LegalEntity→Property aprobado por Abraham. Migration plan v1.0.5 ORG-HIERARCHY-SEED + FISCAL-ADAPTER-SEED + TENANT-CTX-3LEVEL definido. 10 fiscal regimes LATAM identificados (MX/CO/CR/PE/PA/GT/BR/SV/HN/AR). Selina + Hotel Boutique Tulum como casos de uso canónicos. Fuentes citadas: Mews Connector API docs, Opera Cloud Enterprise Topologies, Bytebase 2026 multi-tenant patterns, Microsoft Citus SaaS docs, Crunchy Data Postgres multi-tenancy.

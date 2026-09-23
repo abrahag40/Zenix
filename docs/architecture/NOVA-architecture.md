@@ -1051,7 +1051,7 @@ Esta tabla es **consultada en runtime** vía `NovaAccessControlService.canDoActi
 │ 🟣 ZENIX NOVA   [logo]                              [👤 Abraham · ZaharDev ▼]  │
 ├────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                 │
-│  🏢 Hotel Monica Tulum ▼  [Switch tenant]    📋 AuditLog  🔔 3   ⚙️ Settings   │
+│  🏢 Hotel Boutique Tulum ▼  [Switch tenant]    📋 AuditLog  🔔 3   ⚙️ Settings   │
 │  ─────────────────────────────────────────────────────────────────────────────  │
 │                                                                                 │
 │  ┌──────────────────┐  ┌────────────────────────────────────────────────────┐ │
@@ -1081,7 +1081,7 @@ Esta tabla es **consultada en runtime** vía `NovaAccessControlService.canDoActi
 
 Top-bar persistente:
 - Logo ZENIX NOVA (link a /nova landing)
-- Tenant Chip "Hotel Monica Tulum ▼" → dropdown con switcher
+- Tenant Chip "Hotel Boutique Tulum ▼" → dropdown con switcher
 - AuditLog quick-access (relevante en Nova, no oculto)
 - Notifications (limited to Nova-specific: ticket alerts, wizard reminders)
 - User menu (cambiar password, 2FA, log out)
@@ -1116,7 +1116,7 @@ Switch context:
 │  Filtros: [Todos ▼] [Status: Todos ▼] [Buscar: ___________________]            │
 │                                                                                 │
 │  ┌─────────────────────────────────────────────────────────────────────────┐  │
-│  │ 🏨 Hotel Monica Tulum                                                    │  │
+│  │ 🏨 Hotel Boutique Tulum                                                    │  │
 │  │ MX · CFDI 4.0 · 1 property · STARTER tier · Active 6m                   │  │
 │  │ Channex ✅ · Stripe ⚠️ test mode · PAC ✅ · NPS 78                      │  │
 │  │                                              [Abrir →] [Wizard] [Audit] │  │
@@ -1321,7 +1321,7 @@ Cuando un consultor necesita actuar en nombre del cliente (típicamente para res
 ### 7.2 UI flow
 
 ```
-Nova Workspace de Hotel Monica Tulum
+Nova Workspace de Hotel Boutique Tulum
 ├── User clicks "Switch context: Acting as ORG_OWNER"
 │
 ▼
@@ -1344,7 +1344,7 @@ Confirmation: AuditLog entry created
 ▼
 UI re-renders:
 - Banner orange persistente top of screen:
-  "🔒 Actuando como Carlos García (Hotel Monica Tulum) ·
+  "🔒 Actuando como Carlos García (Hotel Boutique Tulum) ·
    razón: Resolver ticket #4521 · termina en 28:42 · [Finalizar ahora]"
 - Toda la UI cambia a la PERSPECTIVA del target user
 - Sidebar muestra navigation as if logged in as Carlos García
@@ -1377,7 +1377,7 @@ app.zenix.com (perspectiva del cliente Carlos García)
 │   │   • [Solicitar finalización inmediata]
 │
 ├── Email (one-shot, at start of session):
-│   Subject: "ZaharDev está revisando tu cuenta — Hotel Monica Tulum"
+│   Subject: "ZaharDev está revisando tu cuenta — Hotel Boutique Tulum"
 │   Body: Razón + Duration + Quién + Cómo cancelar + Link to AuditLog
 │
 └── AuditLog viewable: /audit en su propia app
@@ -1393,7 +1393,7 @@ app.zenix.com (perspectiva del cliente Carlos García)
 ### 7.4 Audit queries
 
 ```sql
--- Toda intervención consultor sobre Hotel Monica Tulum en últimos 30 días
+-- Toda intervención consultor sobre Hotel Boutique Tulum en últimos 30 días
 SELECT
   timestamp,
   actor_real_name AS consultor,
@@ -1464,7 +1464,7 @@ Zenix adopta el **híbrido SuccessFactors-style**:
 ┌──────────────────────────────────────────────────────────┐
 │ Top-bar tenant chip dropdown:                            │
 │                                                           │
-│ 🏨 Hotel Monica Tulum ▼          (current — highlighted) │
+│ 🏨 Hotel Boutique Tulum ▼          (current — highlighted) │
 │   ──────────────────────────                              │
 │   🔍 [Buscar cliente_________________]                    │
 │   ──────────────────────────                              │
@@ -1808,7 +1808,7 @@ Ver doc 10 para detalle completo.
 
 **R7 — 2FA fatigue:** require2FA en LEAD_CONSULTANT + SUPPORT_L2 + SUPPORT_L3 + PARTNER_ADMIN + PLATFORM_ADMIN puede causar friction. Mitigación: trust devices 30 días + WebAuthn passkeys preferred over SMS/TOTP.
 
-**R8 — Tenant switcher confusion:** consultor cree estar viewing cliente A pero está en cliente B (mistake costoso). Mitigación: tenant chip persistente always-visible + color coding del workspace (hash del orgId → border color) + confirmation modal para destructive actions ("Confirmá que querés modificar Hotel Monica Tulum").
+**R8 — Tenant switcher confusion:** consultor cree estar viewing cliente A pero está en cliente B (mistake costoso). Mitigación: tenant chip persistente always-visible + color coding del workspace (hash del orgId → border color) + confirmation modal para destructive actions ("Confirmá que querés modificar Hotel Boutique Tulum").
 
 **R9 — Impersonation abuse:** consultor abusing impersonation para acceder a guest PII sin causa legítima. Mitigación: PLATFORM_ADMIN dashboard "Top impersonators this month" (§7.4) + threshold alerts + monthly random audit of 10% impersonation sessions + contractual NDAs.
 

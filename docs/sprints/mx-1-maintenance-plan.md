@@ -4,7 +4,7 @@ Estado: Plan de trabajo aprobado para ejecución
 Branch: feature/sprint-mx1-maintenance
 Última actualización: 2026-05-09
 Sprint anterior cerrado: PR #8 (Sprint 9-HK ext + KP-01)
-Disparador del sprint: caso real Hotel Monica Tulum (Bongaloo B2 vendido en encerado)
+Disparador del sprint: caso real Hotel Boutique Tulum (la habitación B2 vendido en encerado)
 ---
 
 # Sprint Mx-1 — Módulo de Mantenimiento (Plan Maestro)
@@ -15,9 +15,9 @@ Disparador del sprint: caso real Hotel Monica Tulum (Bongaloo B2 vendido en ence
 
 ## 1. Contexto y motivación
 
-### El caso disparador (Hotel Monica Tulum, abril 2026)
+### El caso disparador (Hotel Boutique Tulum, abril 2026)
 
-Mantenimiento inició el encerado de la habitación Bongaloo B2 sin bloquear el inventario en el PMS. La habitación se vendió en Booking.com mientras el piso estaba pegajoso. El hotel asumió la pérdida reubicando al huésped a una habitación superior. El manager declaró textualmente:
+Mantenimiento inició el encerado de la habitación la habitación B2 sin bloquear el inventario en el PMS. La habitación se vendió en Booking.com mientras el piso estaba pegajoso. El hotel asumió la pérdida reubicando al huésped a una habitación superior. El manager declaró textualmente:
 
 > *"No hay una lista de actividades que se esté revisando de lo que la gente está haciendo. Solamente se le dan instrucciones y no hay un seguimiento."*
 
@@ -47,7 +47,7 @@ Cualquier feature de housekeeping/PMS pierde credibilidad si una habitación en 
 - **Cloudbeds**: el bloque OOS y el work order son entidades **separadas**; el usuario debe crear ambos. ([Cloudbeds Help Center](https://myfrontdesk.cloudbeds.com/hc/en-us/articles/220747288-Overbooking-types-in-Cloudbeds-PMS) confirma: *"el sistema aún permite a los usuarios crear un bloqueo de habitación o marcar una habitación como out-of-service, lo que puede llevar a un overbooking"*).
 - **Mews / Flexkeeping**: no documentado público.
 
-**La decisión D-Mx2 de Zenix (auto-bloqueo síncrono dentro de la transacción) es defendible como ventaja competitiva** — resuelve exactamente el caso Hotel Monica Tulum.
+**La decisión D-Mx2 de Zenix (auto-bloqueo síncrono dentro de la transacción) es defendible como ventaja competitiva** — resuelve exactamente el caso Hotel Boutique Tulum.
 
 ### 2.3 Comparativa de features clave (resumen)
 
@@ -288,7 +288,7 @@ Las 7 decisiones D-Mx1..D-Mx7 ya documentadas en CLAUDE.md §47-§53 se mantiene
 ### Fase 5 — Integración E2E + Documentación (día 11)
 
 **Entregables:**
-1. Test E2E manual del caso Hotel Monica Tulum:
+1. Test E2E manual del caso Hotel Boutique Tulum:
    - Housekeeper crea ticket CRITICAL desde tarea HK
    - Verificar habitación BLOQUEADA en calendario PMS en <2 segundos
    - Verificar push al manager
@@ -342,7 +342,7 @@ Cada métrica se verifica en staging antes de merge a `main`:
 | Mobile parity | Featureset mobile = featureset web técnico | Checklist manual cara a cara |
 | Tests unitarios | ≥25 nuevos en `maintenance.service.spec.ts` | `cd apps/api && npx jest --testPathPattern=maintenance` |
 | TypeScript strict | 0 errors en api/web/mobile | `tsc --noEmit` |
-| Time-to-value | Manager nuevo crea su primer ticket en <5 minutos sin entrenamiento | UAT con stakeholder Hotel Monica Tulum |
+| Time-to-value | Manager nuevo crea su primer ticket en <5 minutos sin entrenamiento | UAT con stakeholder Hotel Boutique Tulum |
 | SSE end-to-end | Evento creado en backend visible en web Kanban en <5 segundos | Inspección con DevTools |
 
 ---
@@ -368,7 +368,7 @@ Cada métrica se verifica en staging antes de merge a `main`:
 **"Mews, Opera y HotSOS resuelven mantenimiento hotelero — pero a precio enterprise. Cloudbeds y Little Hotelier no lo resuelven en absoluto. Quore y Flexkeeping son excelentes pero requieren una segunda suscripción. Zenix es el único PMS para hostales y boutique LATAM con módulo de mantenimiento que bloquea automáticamente la habitación al detectar trabajo crítico — en la misma transacción, sin checkbox manual, sin posibilidad de venta paralela en Booking.com."**
 
 **3 puntos de venta:**
-1. **Auto-bloqueo atómico CRITICAL** — diferenciador único validado en investigación. Resuelve caso Hotel Monica Tulum.
+1. **Auto-bloqueo atómico CRITICAL** — diferenciador único validado en investigación. Resuelve caso Hotel Boutique Tulum.
 2. **Mismo PMS, sin segunda suscripción** — competidores requieren PMS + CMMS separados (Cloudbeds + Quore = $200+/mes). Zenix unificado.
 3. **Audit trail fiscal-grade USALI 12** — `MaintenanceTicketLog` append-only + foto antes/después + actor en cada cambio. Cumple exigencias de cadenas medianas.
 

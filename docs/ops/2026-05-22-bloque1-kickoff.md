@@ -317,7 +317,7 @@ zenix.app/                           ← portada con value prop principal + mód
 ├── /demand-intel                    ← Demand Intelligence Premium DLC (flight APIs, recommendations)
 ├── /booking-engine                  ← Direct Booking Engine + WordPress plugin
 ├── /pricing                         ← single page con tiers + bundles + ROI calculator
-├── /case-studies                    ← cases reales (Monica Tulum, Azúcar, etc.)
+├── /case-studies                    ← cases reales (Hotel Boutique Tulum, Azúcar, etc.)
 ├── /docs                            ← documentación técnica y usuario final
 ├── /activate                        ← landing del wizard de onboarding
 └── /partners                        ← ZaharDev partner network

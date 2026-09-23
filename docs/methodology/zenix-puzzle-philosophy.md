@@ -99,7 +99,7 @@ Esta filosofía es opuesta al "MVP iterativo Lean Startup". Lean MVP optimiza pa
 ### Owner (Abraham — ZaharDev CEO)
 - **Visión estratégica + intuición de negocio** (experiencia consultor SuccessFactors)
 - **Decisión final** en arquitectura, naming, prioridades de sprint
-- **Validación de pain real** con piloto Monica Tulum + research de mercado LATAM boutique
+- **Validación de pain real** con piloto Hotel Boutique Tulum + research de mercado LATAM boutique
 - **Aprobación de PRs** antes de merge a main
 - **Storytelling comercial** al cliente final + inversores futuros
 

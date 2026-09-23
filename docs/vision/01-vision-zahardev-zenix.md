@@ -112,7 +112,7 @@ Cada versión activa nuevos streams. Ver [03-roadmap-v1-v2.md](03-roadmap-v1-v2.
 
 | Versión | Streams activos | Hito |
 |---------|----------------|------|
-| v1.0 | R1, R14 | Piloto comercial (Hotel Monica Tulum) |
+| v1.0 | R1, R14 | Piloto comercial (Hotel Boutique Tulum) |
 | v1.0.x | + R1 estable | Revenue enablement (PAY + CHX) |
 | v1.1 | + R10 semilla | Multi-tenant maduro + DATA-CONSENT |
 | v1.2 | + R10, R13, R14 reforzado | Partner network activo + Insights tier-1 |
@@ -180,7 +180,7 @@ L4 atrae reguladores. **Abogado de privacidad especializado contratado antes de 
 L5 puede generar partners que quieran hacer fork del producto. Cláusulas anti-fork + acceso de partners solo a "su vista" de datos (no BD completa).
 
 ### Riesgo 4 — Calidad del primer piloto
-Si Hotel Monica Tulum falla en v1.0, la red de partners colapsa antes de existir. **Aceptar máximo 2-3 propiedades piloto** y obsesionarse con su éxito antes de abrir v1.1.
+Si Hotel Boutique Tulum falla en v1.0, la red de partners colapsa antes de existir. **Aceptar máximo 2-3 propiedades piloto** y obsesionarse con su éxito antes de abrir v1.1.
 
 ### Riesgo 5 — Scope creep durante v1.0-v1.1
 Visión amplia tienta a empezar features avanzados. **Disciplina: v1.0 es PMS estable, v1.1 es multi-tenant + partner foundations. Nada de POS/NFC/Books hasta v1.3+.**

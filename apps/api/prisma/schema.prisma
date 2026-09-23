@@ -432,8 +432,8 @@ enum PropertyType {
 //
 // Sistema completo de tickets de mantenimiento que reemplaza al modelo legacy
 // `MaintenanceIssue` (lightweight, vinculado a CleaningTask). Caso de uso real
-// que motivó el módulo (Hotel Monica Tulum, 2026-04-09): el área de mantenimiento
-// inició encerado de Bongaloo B2 sin bloquear la habitación → la habitación se
+// que motivó el módulo (Hotel Boutique Tulum, 2026-04-09): el área de mantenimiento
+// inició encerado de la habitación B2 sin bloquear la habitación → la habitación se
 // vendió en Booking.com → el hotel asumió pérdidas reubicando al huésped.
 //
 // El módulo MaintenanceModule es MONOLÍTICO con el resto del PMS (mismo NestJS,
@@ -661,7 +661,7 @@ model UserPropertyRole {
 //
 // Modelo aprobado 2026-05-15. Ver docs/vision/11-multi-tenant-architecture.md
 // para análisis arquitectónico completo y casos de uso (Selina-like
-// multi-country, Hotel Monica Tulum independiente, "growing into a brand").
+// multi-country, Hotel Boutique Tulum independiente, "growing into a brand").
 //
 // Decisiones no-negociables §63-§72 CLAUDE.md:
 //  · Brand opcional (independent hotels = NULL)
@@ -3677,8 +3677,8 @@ model ChannelProductionDaily {
 //                  ↓
 //   [CLOSED — readonly, archivo histórico]
 //
-// Caso de uso real (Hotel Monica Tulum, 2026-04-09):
-//   Mantenimiento inició encerado de Bongaloo B2 sin bloquear la habitación.
+// Caso de uso real (Hotel Boutique Tulum, 2026-04-09):
+//   Mantenimiento inició encerado de la habitación B2 sin bloquear la habitación.
 //   La habitación se vendió en Booking.com → pérdida + reubicación de huésped.
 //   Con este módulo: encerado se levanta como TicketCategory.DEEP_CLEANING +
 //   priority=CRITICAL → auto-bloqueo → Channex.io recibe pushInventory →
