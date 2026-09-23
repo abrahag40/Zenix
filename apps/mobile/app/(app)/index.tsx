@@ -61,7 +61,7 @@ import {
 // SpecialRequestsCard + PendingApprovalsCard intentionally not imported
 // here — deferred to a non-essential sprint per user feedback. The
 // components still exist in src/features/dashboard/components/ for
-// future re-activation. See docs/dashboard-deferred.md.
+// future re-activation. See docs/archive/dashboard-deferred.md.
 import {
   MOCKS_DASHBOARD_ENABLED,
   MOCK_OCCUPANCY_DONUT,
@@ -304,7 +304,7 @@ function DashboardScreenLegacy() {
             src/features/dashboard/components/ and the routes
             /approvals + /special-requests stay registered, so a future
             sprint can re-enable them without rebuilding from scratch.
-            See docs/dashboard-deferred.md for the deferral notes. */}
+            See docs/archive/dashboard-deferred.md for the deferral notes. */}
 
         {/* ── 2.B ACTION: bloqueos ─────────────────────────────── */}
         <Animated.View style={cardsStyle}>
