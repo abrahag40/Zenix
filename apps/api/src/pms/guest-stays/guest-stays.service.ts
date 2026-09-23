@@ -720,8 +720,8 @@ export class GuestStaysService {
    *
    * Hasta hoy, los 25+ `guestStay.findUnique` del módulo scoped sólo por
    * `organizationId`. Para customers chain/brand con N properties en la
-   * misma Organization (Selina con 24, próximo cliente Hotel Monica con 1
-   * pero piloto multi-prop futuro), un SUPERVISOR de la Property A podía
+   * misma Organization (una cadena con 24 properties, y un hotel individual
+   * con 1 pero con piloto multi-prop futuro), un SUPERVISOR de la Property A podía
    * leer/modificar stays de Property B.
    *
    * CLAUDE.md MT-5 audit pensó que `PropertyScopeGuard` cerraba esto, pero

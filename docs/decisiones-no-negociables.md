@@ -157,7 +157,7 @@
 
 61. **D-Mx1: `MaintenanceTicket` reemplaza a `MaintenanceIssue`** — modelo legacy preservado por compatibilidad pero no usado en flujos nuevos.
 
-62. **D-Mx2: CRITICAL ticket auto-bloquea inventario** — `SmartBlockService.createBlock(OUT_OF_ORDER, MAINTENANCE, maintenanceTicketId)` síncrono en misma transacción. **Resuelve caso Hotel Monica Tulum (encerado vs venta OTA).**
+62. **D-Mx2: CRITICAL ticket auto-bloquea inventario** — `SmartBlockService.createBlock(OUT_OF_ORDER, MAINTENANCE, maintenanceTicketId)` síncrono en misma transacción. **Resuelve caso Hotel Boutique Tulum (encerado vs venta OTA).**
 
 **Notas adicionales Mx-1:** D-Mx3 (auto-release en VERIFIED), D-Mx4 (audit trail `MaintenanceTicketLog`), D-Mx5 (técnicos son `Staff` con `department=MAINTENANCE`), D-Mx6 (módulo NestJS monolítico), D-Mx7 (foto antes/después opcional pero recomendada).
 
@@ -805,7 +805,7 @@
 
 ### Mobile Dashboard role-aware + HK realtime sync — Sprints MOBILE-DASHBOARD + HK-CHX-REALTIME (2026-06-08)
 
-> Sprints **Etapa A** (HK-CHX-REALTIME, PR #97) + **Etapa B** (MOBILE-DASHBOARD §B1-§B5, PR #98) cerrados 2026-06-08. Resuelven los 2 gaps operativos verificados en código que owner identificó como bloqueantes del piloto Hotel Monica Tulum + audit visual del mobile (4 screenshots 2026-06-08).
+> Sprints **Etapa A** (HK-CHX-REALTIME, PR #97) + **Etapa B** (MOBILE-DASHBOARD §B1-§B5, PR #98) cerrados 2026-06-08. Resuelven los 2 gaps operativos verificados en código que owner identificó como bloqueantes del piloto Hotel Boutique Tulum + audit visual del mobile (4 screenshots 2026-06-08).
 
 **Etapa A — Real-time HK ↔ Channex sync:**
 

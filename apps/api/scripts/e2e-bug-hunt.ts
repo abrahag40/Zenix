@@ -235,7 +235,7 @@ async function bug4_hostelDormUnits(): Promise<void> {
       description: 'RoomMovedHkListener usa round-robin mod-length para unit mapping en hostal dorm',
       severity: 'medium',
       status: 'CONFIRMED',
-      details: 'El mapping `toUnits[migrated % toUnits.length]` no preserva bed identity. En PRIVATE rooms (caso piloto Hotel Monica Tulum) no aplica, pero en HOSTAL con dorms mixtos el huésped que se movió pierde su bed_index. ' +
+      details: 'El mapping `toUnits[migrated % toUnits.length]` no preserva bed identity. En PRIVATE rooms (caso del hotel piloto) no aplica, pero en HOSTAL con dorms mixtos el huésped que se movió pierde su bed_index. ' +
         'Fix: el listener debería respetar el `Unit.bedNumber` o `Unit.position` original. Schema actual no garantiza orden de Unit.findMany. Hoy hostales no son piloto v1.0.0, pero documenta para v1.0.1+.',
     })
   }

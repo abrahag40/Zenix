@@ -2,7 +2,7 @@
 
 **Status**: borrador para aprobación owner · 2026-06-08
 **Estimación total**: 8-11 días-dev secuencial 1 dev · ~2 semanas calendar
-**Bloquea**: v1.0.0 piloto (cualquier supervisor móvil del piloto Hotel Monica Tulum tendrá esta UX)
+**Bloquea**: v1.0.0 piloto (cualquier supervisor móvil del piloto Hotel Boutique Tulum tendrá esta UX)
 **Branch propuesto**: `feat/mobile-dashboard-role-aware`
 
 ---
@@ -51,7 +51,7 @@
 - **NO existe listener que mueva `CleaningTask.roomId` o haga el carryover task antigua → nueva.**
 - **Resultado**: recamarista limpia la habitación equivocada si no se entera del move.
 
-Ambos gaps son **bloqueantes operativos para el piloto** (Hotel Monica Tulum tiene 22 habitaciones, 1 recamarista turno mañana, alto turnover OTA durante temporada alta). Sin esto, escalan tickets de cliente.
+Ambos gaps son **bloqueantes operativos para el piloto** (Hotel Boutique Tulum tiene 22 habitaciones, 1 recamarista turno mañana, alto turnover OTA durante temporada alta). Sin esto, escalan tickets de cliente.
 
 ---
 
@@ -236,7 +236,7 @@ Si no está configurado, NO se muestra en dashboard. Vive en /settings/fx solame
 |--------|-----------|
 | Migración Hub Recamarista vivo durante piloto | Etapa A NO toca Hub UI — solo agrega listeners backend + nuevos eventos SSE que el Hub ya escucha. Backward-compat 100%. |
 | Push notifs spam si OTA arriva multi-room | Throttle por rol + dedup por roomId+timestamp en NotificationCenterService (ya implementado §99-§101) |
-| Mobile dashboard cambia layout drásticamente para usuarios actuales del piloto | Etapa B se entrega con feature flag `MOBILE_DASHBOARD_V2` per Organization. Owner Hotel Monica Tulum activa cuando esté listo. |
+| Mobile dashboard cambia layout drásticamente para usuarios actuales del piloto | Etapa B se entrega con feature flag `MOBILE_DASHBOARD_V2` per Organization. Owner Hotel Boutique Tulum activa cuando esté listo. |
 | Performance mobile con 22 rooms + 3 dashboards | Endpoints cache 30s server + React Query staleTime 60s mobile. Probado con seed 10k stays en sprint PERF-1 §9. |
 
 ---

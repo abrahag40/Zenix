@@ -249,7 +249,7 @@ export class ChannexFullSyncOrchestrator {
     channexPropertyId: string,
     days: number,
   ): Promise<ChannexAvailabilityEntry[]> {
-    // Cert audit C8 fix (2026-05-22) — CRÍTICO Monica Tulum:
+    // Cert audit C8 fix (2026-05-22) — CRÍTICO para hostales con dormitorio:
     // Antes: contábamos 1 unit/room (hotel model). Hostal con dorm 4 camas
     // reportaba `availability=1` en vez de `availability=4` → revenue lost.
     // Ahora: incluimos `category` + `units` para distinguir:

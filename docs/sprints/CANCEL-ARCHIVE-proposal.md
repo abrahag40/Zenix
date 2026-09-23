@@ -263,7 +263,7 @@ Checklist del plan técnico ([CANCEL-ARCHIVE-plan.md §8](CANCEL-ARCHIVE-plan.md
 - 5/5 PMS estudiados lo tienen — paridad de mercado no negociable.
 - 4/5 tienen gaps documentados de meses-años — ventana competitiva real.
 - USALI 12 mandatory 2026-01-01 — deadline regulatoria con menos de 8 meses de buffer.
-- Cliente piloto (Hotel Monica Tulum) opera 80% via OTAs con `cancellation_collected` flag — sin cancel correcto, una cancelación de Booking.com = pelea con tarjeta el cliente directo.
+- Cliente piloto (Hotel Boutique Tulum) opera 80% via OTAs con `cancellation_collected` flag — sin cancel correcto, una cancelación de Booking.com = pelea con tarjeta el cliente directo.
 
 Implementación estimada: **4-6 días enfocados, 1 desarrollador**.
 

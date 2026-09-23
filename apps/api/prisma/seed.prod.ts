@@ -8,7 +8,7 @@
  *
  *   cd apps/api
  *   DATABASE_URL='<tu DATABASE_URL de Neon>' \
- *   HOTEL_NAME='Hotel Monica' CITY='Tulum' COUNTRY=MX CURRENCY=MXN \
+ *   HOTEL_NAME='Hotel Ejemplo' CITY='Tulum' COUNTRY=MX CURRENCY=MXN \
  *   OWNER_NAME='Abraham García' OWNER_EMAIL='owner@hotel.com' OWNER_PASSWORD='CambiaEsto123' \
  *   ROOM_COUNT=12 \
  *   npx ts-node -r tsconfig-paths/register prisma/seed.prod.ts

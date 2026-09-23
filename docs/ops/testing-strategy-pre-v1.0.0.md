@@ -52,7 +52,7 @@ Algunos textbooks listan 15-20 categorías. Las que omitimos:
 | 9 | Chaos | **NICE** post-piloto | Vale el esfuerzo cuando tienes >10 clientes — antes es over-engineering |
 | 10 | Security | **MUST** | Una vulnerabilidad de auth = chargeback masivo + reputational damage irreparable |
 | 11 | Accessibility | **SHOULD** | LATAM regulatoria liviana; WCAG 2.1 AA es target marketing diferenciador |
-| 12 | UAT | **MUST** | Hotel piloto Monica Tulum opera la beta — esto YA está pasando |
+| 12 | UAT | **MUST** | Hotel piloto Hotel Boutique Tulum opera la beta — esto YA está pasando |
 
 **Lo que NO hace falta antes de v1.0.0** (post-launch):
 - Mutation testing
@@ -81,7 +81,7 @@ Algunos textbooks listan 15-20 categorías. Las que omitimos:
 | Chaos | ⚫ N/A | Post-launch |
 | Security | 🟡 Bug audit 2026-05-13 (manual) — SEC-α sprint cerrado | Falta: scanner automatizado en CI |
 | Accessibility | 🟡 Algunos componentes diseñados HIG/WCAG | Falta: axe-core en CI |
-| UAT | 🟢 Hotel Boutique Test Tulum sandbox conectado a Channex | Hotel Monica Tulum piloto en pipeline |
+| UAT | 🟢 Hotel Boutique Test Tulum sandbox conectado a Channex | Hotel Boutique Tulum piloto en pipeline |
 
 ### Gaps críticos a cubrir pre-v1.0.0
 
@@ -369,10 +369,10 @@ export const options = {
 
 ### 4.12 UAT — User Acceptance Testing (MUST)
 
-**Status**: hotel piloto Monica Tulum acordado, sandbox conectado a Channex sandbox.
+**Status**: hotel piloto Hotel Boutique Tulum acordado, sandbox conectado a Channex sandbox.
 
 **Protocol pre-v1.0.0 GA**:
-1. **Beta semana 1-2**: solo recepción Monica usa Zenix en paralelo con su PMS actual. Reportan bugs.
+1. **Beta semana 1-2**: solo recepción Hotel Boutique usa Zenix en paralelo con su PMS actual. Reportan bugs.
 2. **Beta semana 3-4**: switch total a Zenix (PMS actual archivado). Soporte 24/7 owner.
 3. **Sign-off form**: recepcionista + supervisor + dueño firman documento "operamos con Zenix sin regresar al anterior".
 

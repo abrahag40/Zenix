@@ -252,7 +252,7 @@ Patrón base por estado (`MX-AGU` = Aguascalientes, ISO 3166-2):
   legalReference: 'Decreto 191 (Cap. XXVIII Ley Hacienda Municipal Tulum, 22-dic-2021)',
   status: 'AMBIGUOUS',
   verifiedBy: null,
-  verificationNotes: 'Fuentes secundarias se contradicen: sitio oficial Riviera Maya (Playa del Carmen Ayuntamiento) describe per-room; Reporte Quintana Roo 2026 describe per-person tiered. Decreto 191 texto literal NO accesible públicamente. Pendiente: confirmar con Tesorería Municipal Tulum o con declaración del contador del Hotel Monica Tulum. Default: UMA_MULTIPLIER per-room (modalidad soportada por fuente oficial municipal).',
+  verificationNotes: 'Fuentes secundarias se contradicen: sitio oficial Riviera Maya (Playa del Carmen Ayuntamiento) describe per-room; Reporte Quintana Roo 2026 describe per-person tiered. Decreto 191 texto literal NO accesible públicamente. Pendiente: confirmar con Tesorería Municipal Tulum o con declaración del contador del Hotel Boutique Tulum. Default: UMA_MULTIPLIER per-room (modalidad soportada por fuente oficial municipal).',
 }
 ```
 
@@ -478,7 +478,7 @@ Antes de ejecutar `prisma db seed`:
 
 - [ ] Validar tarifas ISH 2026 de las 32 entradas MX contra **Periódico Oficial del Estado** (no solo blog fiscal). Prioridad alta: QR, Yucatán, CDMX, Jalisco, Guerrero, Querétaro (los que tienen tarifa diferenciada plataformas).
 - [ ] Confirmar IVA frontera norte municipios elegibles (lista actualizada SAT) — el seed solo tiene un ejemplo.
-- [ ] Confirmar DSA Tulum modalidad real con Tesorería Municipal Tulum o declaración del contador Hotel Monica Tulum.
+- [ ] Confirmar DSA Tulum modalidad real con Tesorería Municipal Tulum o declaración del contador Hotel Boutique Tulum.
 - [ ] Confirmar DSA Cozumel — actualmente AMBIGUOUS por analogía sin verificación directa.
 - [ ] Confirmar Yucatán impuesto ambiental — actualmente AMBIGUOUS (probablemente incluido en ISH 4.5%).
 - [ ] Validar tarifas LATAM 8 países con fuentes primarias (Hacienda, DIAN, SUNAT, DGI, ICT, ATP, INGUAT, CORSATUR, AFIP).
@@ -562,13 +562,13 @@ async computeForStay(stayId: string) {
 3. **Día 6-7**: Seed LATAM 8 países (CO, CR, PE, PA, GT, AR, SV, HN). Validación contra fuentes primarias.
 4. **Día 8-10**: Refactor `TaxBreakdownService.computeForStay` → catalog-driven. Mantener interface backward-compat para no romper frontend.
 5. **Día 11-12**: `TaxCatalogOverride` UI en Settings (TAX_CURATOR + LegalEntity admin). Wizard Activate §94 carga overrides si DSA modalidad confirmada por Tesorería.
-6. **Día 13-14**: Tests integración (catalog resolution per-jurisdiction). Migration data de Hotel Monica Tulum (validation real).
+6. **Día 13-14**: Tests integración (catalog resolution per-jurisdiction). Migration data de Hotel Boutique Tulum (validation real).
 7. **Día 15**: `IFiscalAdapter` Strategy pattern (`MxCfdi40Adapter` baseline). FacturAdapter + SW Sapien fallback.
 8. **Día 16-20**: CFDI 4.0 issuance (CFDI I emisión al cobrar, CFDI E al cancelar, CFDI REP al recibir pago tardío). Sandbox test con PAC.
 
 **Riesgos identificados**:
 - **TAX_CURATOR role contratación es bottleneck** — sin contador externo, founder se vuelve cuello de botella. Resolver ANTES de iniciar v1.0.2.
-- **Wizard Activate verifica DSA Tulum/Cozumel** — modalidad per-room vs per-person debe quedar confirmada antes de migrar Hotel Monica Tulum a v1.0.2. Si Tesorería no responde, marcar `status=AMBIGUOUS` y bloquear emisión CFDI para ese caso (fail-closed).
+- **Wizard Activate verifica DSA Tulum/Cozumel** — modalidad per-room vs per-person debe quedar confirmada antes de migrar Hotel Boutique Tulum a v1.0.2. Si Tesorería no responde, marcar `status=AMBIGUOUS` y bloquear emisión CFDI para ese caso (fail-closed).
 - **Brasil out-of-scope** — flag warning en cualquier reserva con Channex `country=BR` hasta v1.2.
 
 ---

@@ -261,7 +261,7 @@ describe('ChannexFullSyncOrchestrator', () => {
     })
 
     it('cert audit C8 ⭐ hostel dorm: SHARED room con 4 units → availability=4', async () => {
-      // Monica Tulum scenario: dorm de 4 camas mapped a 1 Channex room_type.
+      // Escenario de hostal: dorm de 4 camas mapped a 1 Channex room_type.
       // ANTES (bug): availability=1 (hotel model)
       // AHORA (C8 fix): availability=4 (sum of units)
       prisma.propertySettings.findUnique.mockResolvedValue({

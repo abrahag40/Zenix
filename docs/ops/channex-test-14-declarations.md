@@ -23,7 +23,7 @@ Padre: docs/sprints/CHANNEX-OUTBOUND-CERT-plan.md
 | PMS name | Zenix PMS |
 | Vendor | ZaharDev S.A. de C.V. |
 | Country of operation | México (HQ) — multi-country LATAM |
-| First production target | Tulum, Quintana Roo (Hotel Monica) |
+| First production target | Tulum, Quintana Roo (Hotel Boutique) |
 | Contact | abrahag40@gmail.com |
 | Repo branch | `feature/channex-inbound` (será merged a `main` antes de cert) |
 | Sandbox property tested | `ef0bdedf-e7fb-43fd-8664-a4dfb6bcec13` (Hotel Boutique Test Tulum) |

@@ -171,7 +171,7 @@ Mews tiene esto como **feature request abierto desde hace años**. Cloudbeds lo 
 
 ## C · Cash drawer multi-divisa + Shift reconciliation
 
-### Problema (caso real Hotel Monica Tulum)
+### Problema (caso real Hotel Boutique Tulum)
 
 Cajero abre turno con float de 2 000 MXN. Durante el turno:
 - Cobra 100 USD a huésped A
@@ -1112,7 +1112,7 @@ Se propone agregar §81–§94:
 
 1. **Tarifa ISH QR 2026 (6 %)** — fuentes secundarias. Validar contra Periódico Oficial del Estado y Ley del Impuesto al Hospedaje vigente antes de hardcodear seed.
 2. **UMA 2026 (117.31 MXN)** — confirmado INEGI pero re-validar 1 feb anual.
-3. **DSA Tulum per-room vs per-person** — fuentes hablan de 30 % UMA pero no aclaran modalidad exacta. Confirmar con tesorería municipal Tulum o con Hotel Monica Tulum directamente antes del piloto.
+3. **DSA Tulum per-room vs per-person** — fuentes hablan de 30 % UMA pero no aclaran modalidad exacta. Confirmar con tesorería municipal Tulum o con Hotel Boutique Tulum directamente antes del piloto.
 4. **Perú IGV MYPE** — transición legislativa activa. Revalidar trimestralmente. Adapter PE puede quedar stub en v1.0.2.
 5. **CFDI 4.0 TipoCambio para REP** cuando factura y pago son monedas distintas — caso documentado por SAT que requiere validación adicional con el PAC integrado en testing.
 6. **Cifras "73 % de quejas por extra fees"** y "40-60 % guests pagan USD en Tulum" — observaciones de campo y community threads, no estudios formales verificables. Usar como guía direccional, no como assertion académica.
