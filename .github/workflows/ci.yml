@@ -30,6 +30,29 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # El CLAUDE.md se carga ENTERO al inicio de cada sesión, y la documentación
+      # oficial de Claude Code es literal: «target under 200 lines per CLAUDE.md
+      # file. Longer files consume more context and REDUCE ADHERENCE».
+      #
+      # Por qué hace falta un gate: este archivo llegó a 2292 líneas — 11,5× el
+      # objetivo. No pasó de golpe: creció una línea a la vez, y cada línea añadida
+      # parecía razonable. Al final los cuatro principios no negociables competían
+      # por atención con bitácoras de sprints cerrados hacía cuatro meses.
+      #
+      # El trinquete no obliga a arreglar nada: impide que crezca.
+      #
+      # La versión completa —que mide además MEMORY.md, los SKILL.md y las reglas
+      # sin «paths:»— vive en el plugin zahardev-metodo. Aquí va la comprobación
+      # autosuficiente, porque el plugin no está en el runner.
+      - name: Presupuesto de contexto (CLAUDE.md ≤ 200 líneas)
+        run: |
+          n=$(wc -l < CLAUDE.md | tr -d ' ')
+          echo "CLAUDE.md: $n/200 líneas"
+          if [ "$n" -gt 200 ]; then
+            echo "::error file=CLAUDE.md::Tiene $n líneas y el objetivo son 200. Mueve el relato a docs/ y las reglas por carpeta a .claude/rules/ con «paths:». Ojo: los imports con @ruta NO ahorran nada, también cargan al inicio."
+            exit 1
+          fi
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
