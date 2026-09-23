@@ -1,8 +1,15 @@
 name: CI
 
 on:
+  # 🔴 Sin `branches`, a propósito: el CI corre en TODO pull request, apunte a
+  # donde apunte.
+  #
+  # Con `branches: [main]` un PR apilado sobre otra rama NO se verificaba NUNCA
+  # —medido el 2026-09-23: los PR #145, #146 y #147 llegaron a estar listos para
+  # fusionar sin una sola corrida de «Lint & Test»—. Y reapuntarlos a main
+  # tampoco lo dispara, porque el evento es `edited` y no está en los tipos por
+  # defecto. Es decir: apilar PRs equivalía a saltarse el CI en silencio.
   pull_request:
-    branches: [main]
   push:
     branches: [main]
 
