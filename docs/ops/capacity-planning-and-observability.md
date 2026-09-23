@@ -1,5 +1,23 @@
 # Capacity Planning + CEO Observability Dashboard — Zenix
 
+> 🔴 **AVISO DE EXACTITUD — 2026-09-23. Buena parte de este documento describe instrumentación que
+> NO está instalada.**
+>
+> Verificado contra el código: **Sentry no es una dependencia del proyecto** —cero en los
+> `package.json`—, y la única mención en el código dice *«cuando se wire»*. Aun así este documento
+> tabula umbrales de «Sentry error rate» (línea 150), planifica su alta (línea 325) y proyecta su
+> costo (línea 374) como si estuviera corriendo.
+>
+> Tampoco existen los **respaldos probados** ni el **health check contra la base** que se dan por
+> supuestos aquí; el health check real es de 21 líneas y omite la base a propósito.
+>
+> **Lo que sí conserva su valor** son el dimensionamiento, los umbrales propuestos y el análisis
+> de costo: son trabajo de diseño válido. **Lo que hay que leer con cuidado es todo lo escrito en
+> presente**, porque describe un sistema que se quiso construir y no el que hay.
+>
+> El plan vigente es [`docs/vision/17-puertos-abiertos-y-plan-piloto.md`](../vision/17-puertos-abiertos-y-plan-piloto.md).
+
+
 > **Pregunta del owner (2026-05-24)**:
 > *"Si tenemos 100 hoteles en temporada alta enviando muchas peticiones al mismo tiempo, ¿estamos preparados? ¿Cómo voy a saber cuándo ampliar disco/RAM/CPU?"*
 >

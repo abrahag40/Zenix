@@ -1,3 +1,9 @@
+> 🗄️ **ARCHIVADO el 2026-09-23.** Venía de `docs/sprints/HK-ROOM-CHANGE-SYNC-plan.md`. Sin referencias entrantes y sin
+> tocarse desde el 2026-05-25. Se conserva porque registra qué se decidió y qué se midió;
+> ya no guía trabajo. El plan vigente es `docs/vision/17-puertos-abiertos-y-plan-piloto.md`.
+
+---
+
 # Sprint HK-ROOM-CHANGE-SYNC — plan v1.0.0
 
 > **Origen**: caso real recepción 2026-05-25 — "Llegó un huésped, le entregué

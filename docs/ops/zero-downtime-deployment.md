@@ -1,5 +1,25 @@
 # Zero-Downtime Deployment — Zenix v1.0.0+ Production Releases
 
+> 🔴 **AVISO DE EXACTITUD — 2026-09-23. Este documento manda comprobar cosas que no existen.**
+>
+> Verificado contra el código:
+>
+> - **Su línea 230 exige que `/health` «incluya DB ping».** El controlador real
+>   (`apps/api/src/health/health.controller.ts`, **21 líneas**) **no lo hace, y lo omite a
+>   propósito**: su propio comentario dice *«Público + sin DB (responde aunque la BD esté
+>   lenta)»*, porque en el plan gratuito de Render sirve de keep-alive contra el sueño del
+>   servicio. **El equivocado es este documento, no el código.**
+> - **Sentry no es una dependencia del proyecto.** La única mención en el código
+>   (`booking-same-day.listener.ts:186`) dice literalmente *«Reportamos a logs + Sentry (cuando
+>   se wire)»*. El código sabe que no existe.
+>
+> **Por qué el aviso va aquí y no se archiva el documento:** archivarlo esconde el problema; el
+> aviso lo arregla. Quien lea el procedimiento tiene que saber **qué parte describe el sistema y
+> qué parte describe un sistema que se quiso construir**. Una garantía falsa es peor que ninguna.
+>
+> El plan vigente es [`docs/vision/17-puertos-abiertos-y-plan-piloto.md`](../vision/17-puertos-abiertos-y-plan-piloto.md).
+
+
 > **Escenario base**: ya lanzaste v1.0.0. Tienes 5 clientes × 2 hoteles = 10 properties operando.
 > Reservas entrando por Channex en tiempo real, check-ins activos, pagos en proceso, tareas de limpieza en mobile.
 > **Pregunta del owner**: ¿cómo subes v1.0.1 sin que ningún recepcionista se entere?
