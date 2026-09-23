@@ -19,7 +19,7 @@
  *     Listing-driven (Airbnb/VRBO model). No front desk, no shared
  *     inventory. Check-in via code. Different dashboard set; some
  *     screens (Hub Recamarista per-bed) don't apply.
- *     See docs/research-airbnb.md for full viability + scoping.
+ *     See docs/archive/research-airbnb.md for full viability + scoping.
  *
  * Why this hook exists
  * --------------------

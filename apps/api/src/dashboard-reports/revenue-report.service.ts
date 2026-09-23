@@ -1,6 +1,6 @@
 /**
  * RevenueReportService — builds the 7 frames consumed by the mobile
- * RevenueCarouselCard. See `docs/revenue-data-mapping.md` for the
+ * RevenueCarouselCard. See `docs/archive/revenue-data-mapping.md` for the
  * detailed BD-to-frame mapping for each metric (ADR, RevPAR, etc.).
  *
  * Privacy:

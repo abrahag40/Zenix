@@ -109,7 +109,7 @@ export interface AuthResponse {
      *   BOUTIQUE       → behaves like HOTEL.
      *   GLAMPING/ECO_LODGE → behaves like HOTEL (1 unit per "room").
      *   VACATION_RENTAL → listing-driven; no front desk; check-in by code.
-     *                    Different dashboard set (CLAUDE.md docs/research-airbnb.md).
+     *                    Different dashboard set (CLAUDE.md docs/archive/research-airbnb.md).
      */
     propertyType:
       | 'HOTEL'

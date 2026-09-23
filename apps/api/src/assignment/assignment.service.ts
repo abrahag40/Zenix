@@ -128,7 +128,7 @@ export class AssignmentService {
       roomNumber: task.unit.room.number,
     })
 
-    // FIX gap auditado en docs/alarm-flow-audit.md §4:
+    // FIX gap auditado en docs/archive/alarm-flow-audit.md §4:
     // Cuando UNASSIGNED→READY, el housekeeper asignado debe recibir el
     // mismo trato que recibe en confirmDeparture: SSE task:ready (alarma
     // en mobile) + push notification para background. Sin esto, el
