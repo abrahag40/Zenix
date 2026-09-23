@@ -222,6 +222,37 @@ export class PublicReservationsService {
           let chosen: { id: string; number: string | null } | null = null
           for (const room of pre.candidateRooms) {
             if (usedRoomIds.has(room.id)) continue
+
+            // 🔴 Serializa contra RECEPCIÓN y contra las OTAs, no sólo contra otras
+            // reservas web. El lock de arriba es `booking:<propertyId>`, que protege
+            // el contador del bookingRef y serializa el motor público consigo mismo —
+            // pero recepción (`guest-stays.service.ts`) y Channex
+            // (`booking-new.handler.ts`) toman `walk-in:<roomId>`, que es OTRA familia
+            // de claves. Dos familias distintas NO se bloquean entre sí, así que el
+            // único camino abierto a internet era el que no se serializaba con el
+            // mostrador. Lo encontró la auditoría del 2026-09-22.
+            //
+            // La regla canónica ya estaba escrita —OVERBOOKING-HARDENING-plan.md:11,
+            // «misma key en TODOS los flujos»— y este flujo se había quedado fuera.
+            //
+            // Va DENTRO del bucle porque el motor público no sabe qué habitación va a
+            // ocupar hasta que la encuentra: se toma el lock de la candidata y se
+            // comprueba su disponibilidad YA bajo ese lock.
+            //
+            // Sin riesgo de interbloqueo: el lock de property de arriba serializa
+            // todas las reservas web entre sí, y recepción toma una sola habitación
+            // por transacción, así que no hay ciclo de espera posible.
+            //
+            // try/catch TypeError → no rompe los tests unitarios con $transaction mockeado.
+            try {
+              await tx.$executeRawUnsafe(
+                `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`,
+                `walk-in:${room.id}`,
+              )
+            } catch (e) {
+              if (!(e instanceof TypeError)) throw e
+            }
+
             const res = await this.availability.check({ roomId: room.id, from: pre.checkIn, to: pre.checkOut })
             if (res.available) { chosen = room; break }
           }

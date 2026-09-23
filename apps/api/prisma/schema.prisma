@@ -2600,6 +2600,15 @@ model StayJourney {
   @@map("stay_journeys")
 }
 
+/// 🔴 Esta tabla lleva una restricción que Prisma NO modela: `stay_segments_sin_solape`,
+/// un EXCLUDE con btree_gist que hace IMPOSIBLE vender dos veces la misma habitación
+/// en las mismas noches (migración 20260923000000_stay_segments_sin_solape).
+///
+/// Es por FECHA y no por hora —el inventario hotelero se vende por noche—, semiabierta
+/// `[check_in, check_out)` —la noche de salida no se vende— y parcial sobre
+/// `status IN ('ACTIVE','PENDING')`, que es el mismo criterio de AvailabilityService.
+///
+/// ⚠️ `prisma db push` puede eliminarla porque no está en este esquema. Usa migraciones.
 model StaySegment {
   id           String        @id @default(uuid())
   journeyId    String        @map("journey_id")

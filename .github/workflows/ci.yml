@@ -119,6 +119,21 @@ jobs:
       # cubiertos cuando se ejecute Channex Stage 4 walkthrough (§148):
       #   - channex-crud-schema.spec.ts
       #   - channex-management/channex-management.spec.ts
+      # 🔴 El e2e de sobreventa. La auditoría del 2026-09-22 midió que en los 105
+      # specs el advisory lock está SIEMPRE mockeado y que no existía un solo
+      # archivo e2e: borrar la línea del lock dejaba 1316 pruebas en verde.
+      #
+      # Un lock no se puede probar con un cliente mockeado, porque lo que se prueba
+      # es que DOS transacciones distintas se excluyen. Hacen falta dos conexiones.
+      #
+      # Es BLOQUEANTE a propósito: el caso que cubre —la web y el mostrador
+      # vendiendo la misma cama— es el único fallo de este sistema que se cobra en
+      # un huésped de pie en la recepción, y no se puede deshacer.
+      - name: Test e2e — sobreventa (dos conexiones reales)
+        run: npx turbo test:e2e --filter=@zenix/api
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+
       - name: Test
         run: npx turbo test -- --runInBand --testPathIgnorePatterns="channex-crud-schema" --testPathIgnorePatterns="channex-management/channex-management"
         env:
