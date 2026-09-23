@@ -1,3 +1,9 @@
+> 🗄️ **ARCHIVADO el 2026-09-23.** Venía de `docs/architecture/multi-country-wizard.md`. Sin referencias entrantes y sin
+> tocarse desde el 2026-05-25. Se conserva porque registra qué se decidió y qué se midió;
+> ya no guía trabajo. El plan vigente es `docs/vision/17-puertos-abiertos-y-plan-piloto.md`.
+
+---
+
 # Multi-country wizard architecture
 
 > **Origen**: pregunta owner 2026-05-25 — "¿Qué pasa si un hostal tiene unidades

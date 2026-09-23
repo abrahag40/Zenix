@@ -1,3 +1,9 @@
+> 🗄️ **ARCHIVADO el 2026-09-23.** Venía de `docs/ops/executive-summary-2026-05-24.md`. Sin referencias entrantes y sin
+> tocarse desde el 2026-05-24. Se conserva porque registra qué se decidió y qué se midió;
+> ya no guía trabajo. El plan vigente es `docs/vision/17-puertos-abiertos-y-plan-piloto.md`.
+
+---
+
 # Executive Summary — Decisiones Operativas Zenix v1.0.0
 
 > **Audiencia**: Abraham (owner/CEO) — referencia rápida sin leer los 4 docs de 2000+ líneas.
