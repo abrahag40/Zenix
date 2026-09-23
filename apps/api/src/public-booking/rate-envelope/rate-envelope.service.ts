@@ -166,6 +166,32 @@ export class RateEnvelopeService {
   }
 
   /**
+   * Emite el sobre de una propiedad por su id, no por su slug.
+   *
+   * Es la puerta que usa el disparador automático: cuando alguien cambia una
+   * tarifa en Zenix sabemos el `propertyId`, no el slug del motor público.
+   * Si la propiedad no tiene motor publicado, NO es un error — simplemente no
+   * hay a quién mandarle nada.
+   */
+  async publishForProperty(propertyId: string): Promise<{ envelopeId: string; roomTypes: number } | null> {
+    const config = await this.prisma.bookingEngineConfig.findUnique({
+      where: { propertyId },
+      select: { slug: true, enabled: true },
+    })
+    if (!config?.enabled) return null
+    try {
+      return await this.publish(config.slug)
+    } catch (e) {
+      // 🔴 Emitir el sobre NO puede tumbar el cambio de tarifa que lo disparó.
+      // El gerente subió el precio; que el sitio no se entere todavía es un
+      // problema menor y recuperable —el siguiente sobre lo arregla— frente a
+      // que la subida de precio falle.
+      this.logger.error(`No se pudo emitir el sobre de ${propertyId}: ${(e as Error).message}`)
+      return null
+    }
+  }
+
+  /**
    * Arma y encola la entrega a los suscriptores de `rates.envelope`.
    * La entrega en sí —reintentos, cola de muertos— la hace el despachador que
    * ya existe.

@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, Logger, NotFoundExc
 import { EventEmitter2 } from '@nestjs/event-emitter'
 import { AuditLogService } from '../../nova/audit/audit-log.service'
 import { AuditLogStatus } from '@prisma/client'
+import { TARIFA_CAMBIADA } from '../../public-booking/rate-envelope/rate-envelope.listener'
 import { PrismaService } from '../../prisma/prisma.service'
 import { TenantContextService } from '../../common/tenant-context.service'
 import {
@@ -613,6 +614,11 @@ export class RatesService {
       },
       update: { overrideRate: dto.overrideRate, reason: dto.reason ?? null, createdById: dto.createdById },
     })
+    // Un sobre por OPERACIÓN, no por fila: ver el comentario de
+    // `rate-envelope.listener.ts`. Aquí la operación es una tarifa, así que es
+    // uno a uno; en el masivo son 720 filas y un solo evento.
+    this.events.emit(TARIFA_CAMBIADA, { propertyId, origen: 'upsertOverride' })
+
     await this.auditarTarifa({
       actorId: dto.createdById,
       action: 'RATE_OVERRIDE_UPSERT',
@@ -716,6 +722,27 @@ export class RatesService {
       propertyId,
       preview.map((p) => ({ roomTypeId: p.roomTypeId, ratePlanId: dto.ratePlanId, date: p.date, newRate: dto.newRate })),
     )
+
+    // 🔑 UN evento para las N filas. Aquí se ve por qué el evento va en la
+    // operación y no en el upsert: un cambio de 90 noches × 8 tipos son 720
+    // filas, y saldrían 720 sobres —y 720 reconstrucciones del sitio del
+    // hotel— si esto estuviera un nivel más abajo.
+    this.events.emit(TARIFA_CAMBIADA, { propertyId, origen: 'bulkUpdateOverrides' })
+
+    await this.auditarTarifa({
+      actorId: dto.createdById,
+      action: 'RATE_OVERRIDE_BULK',
+      target: `${dto.from.toISOString().slice(0, 10)}..${dto.to.toISOString().slice(0, 10)}`,
+      payload: {
+        propertyId,
+        roomTypeIds: dto.roomTypeIds,
+        ratePlanId: dto.ratePlanId ?? null,
+        nueva: dto.newRate,
+        filas: preview.length,
+        reason: dto.reason ?? null,
+      },
+    })
+
     return { dryRun: false as const, affectedCount: preview.length, preview }
   }
 

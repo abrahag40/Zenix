@@ -21,6 +21,7 @@ import { NovaActingOrgGuard, RequireActingOrg } from '../nova/guards/nova-acting
 import { BookingEngineConfigService } from './booking-engine-config.service'
 import { BookingApiKeyService } from './booking-api-key.service'
 import { WebhookSubscriptionService } from './webhooks/webhook-subscription.service'
+import { RateEnvelopeService } from './rate-envelope/rate-envelope.service'
 import {
   CreateWebhookDto,
   GenerateApiKeyDto,
@@ -52,6 +53,7 @@ export class BookingEngineManagementController {
     private readonly configService: BookingEngineConfigService,
     private readonly apiKeys: BookingApiKeyService,
     private readonly webhooks: WebhookSubscriptionService,
+    private readonly envelopes: RateEnvelopeService,
   ) {}
 
   /** Valida que la property pertenezca a la acting org. Devuelve el orgId. */
@@ -64,6 +66,40 @@ export class BookingEngineManagementController {
       throw new ForbiddenException(`Property ${propertyId} no pertenece a la organización en contexto`)
     }
     return orgId
+  }
+
+  /**
+   * Previsualiza el sobre SIN mandarlo.
+   *
+   * Es la pantalla que contesta «¿qué va a ver el sitio del hotel?» antes de
+   * que lo vea. La conexión de un hotel nuevo empieza aquí: si lo que sale no
+   * es lo que el gerente espera, el problema está en Zenix y no en su web —y se
+   * descubre en dos segundos en vez de en una llamada.
+   */
+  @Get(':propertyId/rate-envelope/preview')
+  async previewRateEnvelope(@Param('propertyId') propertyId: string, @Req() req: Request & { user?: JwtPayload }) {
+    await this.assertPropertyInActingOrg(propertyId, req)
+    const config = await this.prisma.bookingEngineConfig.findUnique({
+      where: { propertyId }, select: { slug: true },
+    })
+    if (!config) throw new BadRequestException('Esta property no tiene motor de reservas configurado')
+    return this.envelopes.build(config.slug)
+  }
+
+  /**
+   * Emite el sobre AHORA, a mano.
+   *
+   * El camino normal es automático —cambiar una tarifa lo dispara—, pero hace
+   * falta un botón para tres cosas: dar de alta un hotel nuevo, comprobar la
+   * conexión después de tocar la suscripción, y reponer el sobre cuando el
+   * sitio estuvo caído más tiempo que su `validUntil`.
+   */
+  @Post(':propertyId/rate-envelope')
+  async publishRateEnvelope(@Param('propertyId') propertyId: string, @Req() req: Request & { user?: JwtPayload }) {
+    await this.assertPropertyInActingOrg(propertyId, req)
+    const r = await this.envelopes.publishForProperty(propertyId)
+    if (!r) throw new BadRequestException('El motor de reservas de esta property no está publicado')
+    return r
   }
 
   /** Lista todas las properties de la acting org + su estado de motor on/off. */
