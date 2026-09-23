@@ -20,6 +20,25 @@ interface PropertyInfo {
   branding: { primaryColor: string | null; logoUrl: string | null }
   paymentPolicy: string
 }
+/**
+ * Precio resuelto por Zenix. Todo en CENTAVOS enteros.
+ *
+ * 🔴 `firm` es la única señal que decide si se puede pintar una cifra y
+ * llamarla total. La calcula el API a propósito: esta página, el sitio del
+ * hotel y cualquier consumidor futuro tienen que tomar la MISMA decisión, y si
+ * cada uno la reimplementa el huésped acaba viendo dos números distintos del
+ * mismo hotel.
+ */
+interface Pricing {
+  currency: string
+  nights: number
+  netCents: number
+  taxesCents: number
+  totalCents: number
+  taxes: { code: string; label: string; rateBp: number | null; amountCents: number }[]
+  firm: boolean
+  notes: string[]
+}
 interface RoomTypeAvail {
   roomTypeId: string
   name: string
@@ -30,6 +49,8 @@ interface RoomTypeAvail {
   nights: number
   totalRate: number
   currency: string
+  /** Opcional: una instalación de Zenix anterior a C2 no lo manda. */
+  pricing?: Pricing
 }
 interface AvailResp { nights: number; currency: string; roomTypes: RoomTypeAvail[] }
 interface ReservationResp {
@@ -42,6 +63,22 @@ interface ReservationResp {
 
 type Step = 'search' | 'results' | 'checkout' | 'done'
 
+/** Centavos enteros -> importe. La conversión ocurre AQUÍ y en ningún otro sitio. */
+function centavos(n: number, ccy: string) {
+  return money(n / 100, ccy)
+}
+/**
+ * El precio firme de un tipo, o `null` si no lo hay.
+ *
+ * Devolver `null` es un resultado legítimo y frecuente: si Zenix no puede
+ * garantizar el total —porque falta el desglose fiscal o porque la jurisdicción
+ * no está verificada contra su ley— esta página NO inventa una cifra. Enseñar
+ * un precio que cambia en el mostrador es exactamente la queja que este motor
+ * existe para curar.
+ */
+function precioFirme(rt: RoomTypeAvail): Pricing | null {
+  return rt.pricing?.firm ? rt.pricing : null
+}
 function money(n: number, ccy: string) {
   try { return new Intl.NumberFormat('es-MX', { style: 'currency', currency: ccy }).format(n) }
   catch { return `${ccy} ${n.toFixed(2)}` }
@@ -185,8 +222,18 @@ export function BookingPage() {
                     <p className="text-xs text-slate-500">Hasta {rt.maxOccupancy} huéspedes · {rt.availableRooms} disponibles</p>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold text-slate-900">{money(rt.totalRate, rt.currency)}</p>
-                    <p className="text-xs text-slate-400">{money(rt.nightlyRate, rt.currency)} × {rt.nights} noches</p>
+                    {precioFirme(rt) ? (
+                      <>
+                        <p className="font-bold text-slate-900">{centavos(precioFirme(rt)!.totalCents, rt.currency)}</p>
+                        <p className="text-xs font-medium text-emerald-700">Impuestos incluidos</p>
+                        <p className="text-xs text-slate-400">{rt.nights} noche{rt.nights > 1 ? 's' : ''}</p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="font-semibold text-slate-700">Precio a confirmar</p>
+                        <p className="text-xs text-slate-400">{rt.nights} noche{rt.nights > 1 ? 's' : ''}</p>
+                      </>
+                    )}
                   </div>
                 </div>
                 <button onClick={() => { setSelected(rt); setStep('checkout') }} className="btn-primary mt-3 w-full" style={{ background: primary }}>Reservar</button>
@@ -202,7 +249,35 @@ export function BookingPage() {
           <div className="w-full max-w-lg rounded-t-3xl bg-white p-5 sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-bold text-slate-900">Confirmar reserva</h2>
             <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm">
-              <div className="flex justify-between"><span className="text-slate-600">{selected.name}</span><strong>{money(selected.totalRate, selected.currency)}</strong></div>
+              <div className="flex justify-between">
+                <span className="text-slate-600">{selected.name}</span>
+                {precioFirme(selected)
+                  ? <strong>{centavos(precioFirme(selected)!.netCents, selected.currency)}</strong>
+                  : <span className="text-slate-500">a confirmar</span>}
+              </div>
+              {/* El desglose completo, no un «+ impuestos» al final. Que el
+                  huésped vea de qué se compone el total ANTES de confirmar es
+                  lo contrario de la sorpresa del mostrador. */}
+              {precioFirme(selected) && (
+                <>
+                  {precioFirme(selected)!.taxes.map((t) => (
+                    <div key={t.code} className="mt-1 flex justify-between text-xs text-slate-500">
+                      <span>{t.label}{t.rateBp !== null && ` (${(t.rateBp / 100).toFixed(2)}%)`}</span>
+                      <span>{centavos(t.amountCents, selected.currency)}</span>
+                    </div>
+                  ))}
+                  <div className="mt-2 flex justify-between border-t border-slate-200 pt-2">
+                    <strong className="text-slate-800">Total a pagar</strong>
+                    <strong className="text-slate-900">{centavos(precioFirme(selected)!.totalCents, selected.currency)}</strong>
+                  </div>
+                </>
+              )}
+              {!precioFirme(selected) && (
+                <p className="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-800">
+                  El hotel te confirmará el total antes de tu llegada. No te vamos a enseñar una
+                  cifra que después cambie.
+                </p>
+              )}
               <p className="mt-1 text-xs text-slate-400">{checkIn} → {checkOut} · {adults + children} huéspedes</p>
             </div>
             <div className="mt-4 space-y-3">

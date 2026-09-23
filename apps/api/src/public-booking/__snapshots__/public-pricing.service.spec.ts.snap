@@ -3,6 +3,7 @@
 exports[`PublicPricingService 🔒 SNAPSHOT DE CONTRATO — la forma que el website va a leer 1`] = `
 {
   "currency": "MXN",
+  "firm": true,
   "legalBasis": "Ley del Impuesto al Valor Agregado, art. 1 fr. II (prestación de servicios), tasa general 16% · Ley del Impuesto al Hospedaje del Estado de Quintana Roo, art. 8 ¶1 (5%); art. 4 fr. I. Texto compilado, última reforma POE 16-dic-2025 (Decreto 189); el art. 8 fue reformado POE 23-dic-2022.",
   "netCents": 600000,
   "nightly": [
