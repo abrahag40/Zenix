@@ -1,5 +1,15 @@
 # 02 · Familia de Productos Zenix
 
+> 🔴 **SUS PRECIOS ESTÁN SUPERSEDIDOS — decisión del dueño, 2026-09-23.** El documento de precios
+> que manda es [`docs/prices-packages.md`](../prices-packages.md): **$149 / $299 / $499**
+> (Essentials / Professional / Enterprise), **flat, diferenciados por capacidad operativa y no por
+> encerrar funcionalidad**. Los tramos de $79 / $179 (Starter / Growth) de este documento **ya no
+> son contrato comercial** y no deben citarse en una propuesta.
+>
+> **Lo que de este documento SIGUE vigente** es la familia de producto y el reparto de módulos por
+> nivel, que es su aportación real. Sólo caen las cifras y los nombres de los tramos.
+
+
 > Naming framework, módulos del ecosistema, bundles, pricing tiers.
 > Este doc es contrato comercial — cambiar nombres requiere actualizar sales decks, partner docs, y código.
 

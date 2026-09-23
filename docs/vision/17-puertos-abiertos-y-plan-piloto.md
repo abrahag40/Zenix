@@ -86,28 +86,67 @@ una solución**, así que esa puerta también está cerrada.
 
 > Funciona para indexar. Es malo exactamente para el dato que nos importa.
 
-### Las cuatro vías reales
+### 🔑 La restricción que manda, decidida el 2026-09-23
 
-| Vía | Qué es | Coste | Cuándo |
+> **La mayoría de los hoteles tendrá su sitio en hosting compartido** —cPanel sobre Apache: tipo
+> HostGator, GoDaddy, Hostinger—, **no en una plataforma de despliegue moderna.** Decisión del
+> dueño, y no es un detalle de infraestructura: **cambia cuál es el mecanismo por defecto.**
+
+De esa restricción salen dos hechos que deciden el diseño, y los dos están comprobados en el
+piloto:
+
+| Hecho | Consecuencia |
+|---|---|
+| **En un jail de cPanel hay PHP y NO hay Node** | **El sitio no se puede reconstruir en su propio servidor.** Cualquier vía que dependa de un `build` exige una máquina externa (CI, o la del consultor) y un `rsync` después |
+| **No hay *deploy hooks*, ni funciones de borde, ni caché programable** | El disparador «Zenix cambió una tarifa» **no puede ser un webhook que dispare un build** en el 100 % de los casos |
+
+### Las cuatro vías, revaluadas contra esa restricción
+
+| Vía | Qué es | En hosting compartido | Veredicto |
 |---|---|---|---|
-| **(a) Fetch del cliente** | El navegador pide el precio | 🔴 descartada por lo anterior | nunca para el precio indexable |
-| **(b) Rebuild por webhook** | Zenix emite `rate.changed` → el sitio se reconstruye con el precio dentro del HTML | Bajo. Astro ya soporta *loaders* remotos en build | **por defecto** |
-| **(c) Renderizado bajo demanda** | *Live content collections* de Astro, en tiempo de petición | Exige adaptador y cambia el modelo de despliegue | cuando el precio deba ser casi instantáneo |
-| **(d) JSON en CDN** | Zenix publica un archivo por hotel; el sitio lo consume en build o en el borde | Muy bajo | **respaldo de (b)**, y para sitios que no pueden reconstruirse |
+| **(a) Fetch del cliente** | El navegador pide el precio | Funciona, pero Google degrada el rastreo del precio | 🔴 **descartada** para el precio indexable |
+| **(b) Rebuild por webhook** | Zenix emite `rate.changed` → el sitio se reconstruye | **Exige Node fuera del servidor.** Viable con CI, no dentro del jail | 🟡 **sólo donde haya CI o plataforma moderna** |
+| **(c) Renderizado bajo demanda** | *Live content collections* de Astro | **Imposible sin Node** | 🔴 descartada en el caso mayoritario |
+| **(d) Documento de tarifas + render en servidor** | Zenix publica un **sobre firmado** por propiedad; el sitio lo lee **con PHP** y lo imprime en el HTML | ✅ **Funciona en cualquier cPanel** | 🟢 **POR DEFECTO** |
 
-**Decisión: (b) por defecto, con (d) de respaldo. (c) sólo si el negocio lo exige.**
+### 🟢 Decisión: el «sobre de tarifas», y el render lo hace el servidor del hotel
 
-⚠️ **Tres límites que fijan el techo operativo y hay que diseñar con ellos delante:**
+**(d) pasa a ser la vía por defecto y (b) el refuerzo donde exista CI.** El diseño:
+
+1. **Zenix publica un documento de tarifas por propiedad** — JSON pequeño, **versionado**, con
+   fecha de emisión y **firmado con HMAC-SHA256 sobre `id.timestamp.cuerpo`**, siguiendo el
+   esquema del §6. Contiene el precio **ya resuelto por el `rate-resolver`** y **con impuestos
+   desglosados**, que es lo que el §1 dice que hoy falta.
+2. **Un receptor mínimo en PHP** en el servidor del hotel valida la firma y **escribe el documento
+   en disco**. No construye nada. Es el mismo patrón que el piloto ya usa para su formulario,
+   precisamente porque no hay Node en el jail.
+3. **El sitio imprime el precio desde ese archivo, en el servidor.** Va en el HTML que Google
+   recibe — sin JavaScript, sin cola de renderizado, sin la degradación que Google advierte.
+4. **Respaldo por tirón (*pull*)**: si el servidor del hotel no puede recibir —firewall, política
+   del proveedor—, un cron tira del endpoint público de Zenix con su llave. El mismo documento, al
+   revés.
+
+**Lo que esta decisión compra, y es lo que la justifica:**
+
+- **Funciona en el 100 % de los hoteles**, no sólo en los que estén en una plataforma moderna.
+- **El puerto no supone nada del consumidor.** Zenix publica un documento; cómo lo pinte cada
+  sitio es problema del sitio. Eso es literalmente «no casarse con un cliente».
+- **Sobrevive a que el sitio cambie de tecnología.** Un WordPress puede leer el mismo sobre.
+- **El precio queda indexable** sin depender de JavaScript.
+- **No consume presupuesto de builds.** Cambiar una tarifa cuesta una petición, no un despliegue.
+
+⚠️ **Y lo que cuesta, dicho antes de construirlo:** hay que escribir y mantener un receptor por
+pila de sitio (PHP primero; WordPress después si aparece), la firma tiene que validarse **bien**
+—una firma mal comprobada es peor que ninguna— y hay que decidir qué pasa cuando el sobre llega
+viejo o no llega: **el sitio debe poder decir «consultar disponibilidad» en vez de publicar un
+precio caducado.** Ese caso de degradación es requisito, no adorno.
+
+### Los límites de la vía (b), para cuando sí se use
 
 1. **Cloudflare Pages Free da 500 builds/mes y 1 build concurrente, con timeout de 20 min — y los
-   dos límites son POR CUENTA, no por proyecto.** En un ecosistema de varios hoteles, **el
-   presupuesto de builds se reparte entre todos**. Un hotel que cambie tarifas 20 veces al día se
-   come la cuota él solo.
-2. **No todo sitio consumidor está en Cloudflare.** El del piloto es un Astro **estático servido
-   por Apache**, así que el disparador no es un *deploy hook*: es su propio guion de publicación.
-   **El puerto no puede suponer la plataforma del consumidor** — eso es precisamente casarse con
-   un cliente.
-3. **La Cache API de Cloudflare Workers NO es un caché global**: el contenido no se replica fuera
+   dos límites son POR CUENTA, no por proyecto.** En un ecosistema de varios hoteles **el
+   presupuesto de builds se reparte entre todos**.
+2. **La Cache API de Cloudflare Workers NO es un caché global**: el contenido no se replica fuera
    del centro de datos de origen y `cache.delete` sólo purga ahí. La invalidación global dirigida
    se hace con **Cache-Tag**, con límites duros (16 KB de cabecera agregada, 1 024 caracteres por
    etiqueta, 100 etiquetas por purga).
@@ -319,6 +358,7 @@ De la auditoría, el gate de cada sombrero. **Seis de los nueve dicen NO hoy.**
 | **M3** | **Prueba e2e web-vs-recepción con dos conexiones reales a Postgres** | **Cero pruebas de concurrencia reales**: en los 105 specs el advisory lock está siempre mockeado y **no existe un solo archivo e2e**. Borrar la línea del lock deja 1 316 pruebas en verde |
 | **M4** | **`FolioLine` + `TaxLine`**: línea de cargo y línea de impuesto persistidas | **Una estadía sólo puede costar tarifa × noches.** Sin folio no se carga un consumo a la habitación, **y no se pueden separar las dos bases fiscales** |
 | **M5** | **Escritura de tarifa desde el producto** + **el puerto resuelve con el `rate-resolver`** + **publica el total con impuestos**, con las tasas en configuración y no en literales | Es el objetivo que manda |
+| **M5-bis** | **El «sobre de tarifas»**: documento por propiedad, versionado y firmado, + **receptor en PHP** para hosting compartido + **camino de degradación** cuando el sobre llega viejo o no llega | La mayoría de los hoteles está en cPanel, donde **hay PHP y no hay Node**. Sin esto, el objetivo del M5 sólo llega a los hoteles que estén en una plataforma moderna |
 | **M6** | **Cerrar las dos fugas cross-tenant confirmadas** y **el guard que falla abierto** | Un rol de menor privilegio escribe en otro hotel y recibe 200 |
 | **M7** | **`@@unique([key, propertyId])` en FeatureFlag**, `nulls: 'last'` en el orden, y filtro de inquilino en `list()` y `deleteFlag()` | El mecanismo de «a la medida» hoy **sobrescribe la configuración de un cliente con la de otro** |
 | **M8** | **Error boundaries en `apps/web`** y **el gate de contraste** | **Cero error boundaries**: una excepción de render deja **pantalla blanca en el mostrador**. Y **661 usos** de colores por debajo de AA (2,56:1) |
@@ -354,7 +394,7 @@ real y es deuda declarada, no bloquea al piloto)*.
 | `12-infrastructure-devops.md:327-332` | Promete `EntitlementService` **para v1.0.5 y no existe**. Se reetiqueta como pendiente con su costo |
 | `14-payment-currency-tax-architecture.md` | Contiene **dos definiciones incompatibles de la base fiscal** y nadie ha decidido cuál rige. Es decisión del contador, no del programador |
 | `13-consultant-setup-wizard.md` | Describe entitlements por contrato que **el DTO implementado no tiene** |
-| `docs/prices-packages.md` vs `02-product-family.md` | 🔴 **Dos documentos de precios que se contradicen** —$149/$299/$499 por capacidad contra $79/$179 por módulos— **y los dos se declaran contrato comercial.** Sigue sin decidirse |
+| `docs/prices-packages.md` vs `02-product-family.md` | ✅ **RESUELTO el 2026-09-23: manda `prices-packages.md`** ($149/$299/$499, flat, por capacidad). `02-product-family.md` conserva su familia de producto; sus cifras dejan de ser contrato comercial |
 | `docs/ops/capacity-planning-and-observability.md` · `zero-downtime-deployment.md` | Describen **Sentry, respaldos probados y health check contra la base**. **Ninguna de las tres existe.** El caso más nítido: la línea 230 manda comprobar que el health check «incluye DB ping», contra un controlador de **21 líneas sin constructor** |
 
 > **La regla del método aplicada aquí: 848 líneas de documentación de operación describen un

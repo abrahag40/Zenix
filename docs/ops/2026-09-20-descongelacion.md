@@ -54,9 +54,11 @@ Lo que el piloto aporta a Zenix, en el orden en que el propio Zenix lo escribió
    dos modelos de tenencia…): `Zentor/docs/03-decisiones/frontera-zenix-zentor.md` las lista y
    dice que *«no se arreglan con un API: se deciden»*. La regla de frontera ya está: *Zenix es
    dueño del HUÉSPED y del CUARTO; Zentor de la MERCANCÍA y del DINERO ante el SAT.*
-2. **Cuál documento de precios manda.** `docs/prices-packages.md` (2026-05-13) dice
-   **$149 / $299 / $499** (Essentials / Professional / Enterprise); `docs/vision/02-product-family.md`
-   dice **$79 / $179 / …** (Starter / Growth). Los dos se declaran contrato comercial.
+2. ~~**Cuál documento de precios manda.**~~ ✅ **RESUELTA el 2026-09-23 por decisión del dueño:
+   manda [`docs/prices-packages.md`](../prices-packages.md) — $149 / $299 / $499, flat, por
+   capacidad operativa.** Los tramos de $79 / $179 de `02-product-family.md` dejan de ser contrato
+   comercial; ese documento conserva su familia de producto y su reparto de módulos, que es lo
+   que aportaba. **Ya no hay dos contratos comerciales.**
 3. **PR #134**: mergear o no la remediación de Channex. Sin la respuesta del auditor, `main`
    podría absorber un contrato de ARI que vuelva a cambiar. Con ella delante, se decide en un
    minuto.
