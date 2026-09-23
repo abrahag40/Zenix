@@ -7,7 +7,7 @@ import {
   type ResolverSeason,
 } from '../pms/rates/rate-resolver'
 import { calculateTaxes, type TaxResult } from '../pms/fiscal/tax-calculator'
-import { resolveFiscalPolicy } from '../pms/fiscal/fiscal-policies'
+import { resolveFiscalPolicyForProfile, type LodgingKind } from '../pms/fiscal/fiscal-policies'
 
 /**
  * PublicPricingService — C2 del plan de conexión con el website
@@ -58,6 +58,20 @@ import { resolveFiscalPolicy } from '../pms/fiscal/fiscal-policies'
 
 export type PriceSource = 'RATE_PLAN' | 'BAR_FALLBACK'
 
+/**
+ * De dónde sale la tasa. `stateCode` viene de `Property.regionCode`, que ya es
+ * ISO 3166-2; `municipality` decide el estímulo fronterizo; `optIns` es lo que
+ * la propiedad DECLARA tener dado de alta ante la autoridad.
+ */
+export interface FiscalJurisdictionInput {
+  countryCode: string
+  stateCode: string | null
+  municipality: string | null
+  city: string | null
+  lodgingKind: LodgingKind
+  optIns: string[]
+}
+
 export interface NightlyBreakdown {
   date: string
   netCents: number
@@ -80,6 +94,10 @@ export interface PublicPricing {
   ratePlanCode: string | null
   /** false = la jurisdicción fiscal no está configurada; el total está incompleto. */
   taxesConfigured: boolean
+  /** false = el impuesto estatal de esa jurisdicción NO está verificado contra su ley. */
+  taxesVerified: boolean
+  /** true = el estado se dedujo del nombre de la ciudad. Configuración incompleta. */
+  taxesInferred: boolean
   /** Por qué el precio o el desglose son incompletos, si lo son. */
   notes: string[]
   /** Fundamento normativo del desglose fiscal. */
@@ -127,7 +145,7 @@ export class PublicPricingService {
     bar: number
     roomTypeId: string
     ratesIncludeTaxes: boolean
-    jurisdiction: { countryCode: string; city: string | null }
+    jurisdiction: FiscalJurisdictionInput
     ctx: PlanContext | null
     fallbackReason?: string
   }): PublicPricing {
@@ -168,10 +186,17 @@ export class PublicPricingService {
     }
 
     // ── 2. Impuestos, con la MISMA función que usa recepción ────────────────
-    const policy = resolveFiscalPolicy({
+    const policy = resolveFiscalPolicyForProfile({
       countryCode: args.jurisdiction.countryCode,
+      stateCode: args.jurisdiction.stateCode,
+      municipality: args.jurisdiction.municipality,
       city: args.jurisdiction.city,
-      lodgingKind: 'HOTEL',
+      lodgingKind: args.jurisdiction.lodgingKind,
+      optIns: args.jurisdiction.optIns,
+      // La tasa se fija con la fecha de LLEGADA. Una estancia a caballo de un
+      // cambio de tasa es un caso real —el estímulo fronterizo caduca el
+      // 31-dic— y se resuelve al facturar, no al publicar.
+      on: args.checkIn,
     })
 
     let fiscal: TaxResult
@@ -200,6 +225,8 @@ export class PublicPricingService {
         priceSource: args.ctx ? 'RATE_PLAN' : 'BAR_FALLBACK',
         ratePlanCode: args.ctx?.planCode ?? null,
         taxesConfigured: false,
+        taxesVerified: false,
+        taxesInferred: policy.inferred,
         notes: [...notes, 'El desglose fiscal no se pudo calcular; el total mostrado NO incluye impuestos.'],
       }
     }
@@ -224,6 +251,8 @@ export class PublicPricingService {
       priceSource: args.ctx ? 'RATE_PLAN' : 'BAR_FALLBACK',
       ratePlanCode: args.ctx?.planCode ?? null,
       taxesConfigured: fiscal.configured,
+      taxesVerified: policy.verified,
+      taxesInferred: policy.inferred,
       notes,
       legalBasis: fiscal.legalBasis,
     }

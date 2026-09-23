@@ -3,7 +3,7 @@
 exports[`PublicPricingService 🔒 SNAPSHOT DE CONTRATO — la forma que el website va a leer 1`] = `
 {
   "currency": "MXN",
-  "legalBasis": "LIVA art. 1 · Ley del Impuesto al Hospedaje de Quintana Roo art. 8 (POE 16-dic-2025)",
+  "legalBasis": "Ley del Impuesto al Valor Agregado, art. 1 fr. II (prestación de servicios), tasa general 16% · Ley del Impuesto al Hospedaje del Estado de Quintana Roo, art. 8 ¶1 (5%); art. 4 fr. I. Texto compilado, última reforma POE 16-dic-2025 (Decreto 189); el art. 8 fue reformado POE 23-dic-2022.",
   "netCents": 600000,
   "nightly": [
     {
@@ -24,7 +24,7 @@ exports[`PublicPricingService 🔒 SNAPSHOT DE CONTRATO — la forma que el webs
   ],
   "nights": 3,
   "notes": [
-    "No incluye el Derecho de Saneamiento Ambiental (DSA), municipal y por persona/noche: pendiente de confirmar contra la Ley de Hacienda municipal. Si el hotel lo cobra en recepción, el total publicado no es el total que paga el huésped.",
+    "No incluye el Derecho de Saneamiento Ambiental (DSA), municipal y por persona/noche: pendiente de confirmar contra la Ley de Hacienda municipal.",
   ],
   "priceSource": "RATE_PLAN",
   "ratePlanCode": "BAR-PUBLICA",
@@ -44,6 +44,8 @@ exports[`PublicPricingService 🔒 SNAPSHOT DE CONTRATO — la forma que el webs
   ],
   "taxesCents": 126000,
   "taxesConfigured": true,
+  "taxesInferred": false,
+  "taxesVerified": true,
   "totalCents": 726000,
 }
 `;

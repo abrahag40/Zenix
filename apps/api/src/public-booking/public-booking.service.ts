@@ -184,7 +184,12 @@ export class PublicBookingService {
           ratesIncludeTaxes: config.ratesIncludeTaxes,
           jurisdiction: {
             countryCode: config.property.legalEntity?.countryCode ?? 'MX',
+            // `regionCode` ya es ISO 3166-2 ("MX-ROO"): se le quita el país.
+            stateCode: config.property.regionCode?.split('-').pop() ?? null,
+            municipality: config.property.taxMunicipality ?? null,
             city: config.property.city ?? null,
+            lodgingKind: config.property.lodgingKind === 'PRIVATE_RENTAL' ? 'PRIVATE_RENTAL' : 'HOTEL',
+            optIns: config.property.taxOptIns ?? [],
           },
           ctx,
           fallbackReason: reason,

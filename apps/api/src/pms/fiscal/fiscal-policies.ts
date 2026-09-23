@@ -1,50 +1,68 @@
 /**
- * Catálogo de políticas fiscales. DATOS, no lógica.
+ * Resolución de la política fiscal aplicable — la capa que traduce
+ * «esta propiedad, esta fecha» en «estas reglas».
  *
- * Cada entrada cita su fuente. La regla de la casa: si no hay fuente primaria
- * verificada, la política se queda con `rules: []` y una nota — nunca con una
- * cifra plausible. Un total ausente se nota y se pregunta; un total inventado
- * se publica y nadie se entera hasta que un huésped lo revisa.
+ * Tres dimensiones que la versión anterior no tenía, y que son exactamente las
+ * que rompen un producto nacional:
+ *
+ *   1. **JURISDICCIÓN, no ciudad.** Antes se comparaba el nombre de la ciudad
+ *      contra un conjunto de cadenas. «Tulum» existe en Quintana Roo, pero
+ *      «Morelos» existe en nueve estados y el municipio manda para el estímulo
+ *      fronterizo. Ahora la entrada es el **código ISO 3166-2 del estado** más
+ *      el municipio.
+ *
+ *   2. **FECHA.** Una tasa es un número CON VIGENCIA. El estímulo de IVA al 8%
+ *      caduca el 31-dic-2026; las leyes de ingresos estatales se reforman cada
+ *      diciembre. Cotizar una estancia de enero con la tasa de hoy es publicar
+ *      un precio que no será el precio.
+ *
+ *   3. **RÉGIMEN DE LA PROPIEDAD.** El estímulo fronterizo exige aviso ante el
+ *      SAT: no lo da la geografía, lo da el contribuyente. Dos hoteles de la
+ *      misma calle pueden tener IVA distinto, y eso NO es un error de datos.
+ *
+ * ANTIPATRÓN EVITADO: *geocodificación como sustituto de la configuración
+ * fiscal.* La ubicación acota las opciones; no decide.
  */
 import type { FiscalPolicy, TaxRule } from './tax-calculator'
+import {
+  CATALOGO_POR_ESTADO,
+  type CatalogRule,
+  type JurisdictionEntry,
+  type LodgingKind,
+} from './tax-catalog'
 
-/** Tipo de establecimiento según el art. 4 de la Ley del ISH de Quintana Roo. */
-export type LodgingKind =
-  /** Art. 4 fr. I — hoteles, moteles, mesones, posadas, hosterías. */
-  | 'HOTEL'
-  /** Art. 4 fr. V — departamento, casas y villas particulares. */
-  | 'PRIVATE_RENTAL'
+export type { LodgingKind } from './tax-catalog'
 
-/** Ley del IVA, art. 1. Federal, aplica a hospedaje y a servicios. */
-const IVA_MX: TaxRule = {
-  code: 'IVA',
-  label: 'IVA (federal)',
-  kind: 'PERCENT_OF_BASE',
-  rateBp: 1600,
-  appliesTo: 'LODGING_AND_ANCILLARY',
+export interface FiscalProfile {
+  countryCode: string
+  /** ISO 3166-2 sin prefijo: 'ROO', 'CMX'… */
+  stateCode: string | null
+  /** Nombre del municipio según INEGI. Decide el estímulo fronterizo. */
+  municipality: string | null
+  /** Sólo para mostrar; ya no decide nada. */
+  city?: string | null
+  lodgingKind: LodgingKind
+  /** Regímenes que la propiedad declara tener dados de alta ante la autoridad. */
+  optIns?: string[]
+  /** Fecha en que se aplica la tarifa. Por defecto, hoy. */
+  on?: Date
 }
 
-/**
- * ISH Quintana Roo. Ley del Impuesto al Hospedaje del Estado de Quintana Roo,
- * art. 8, texto vigente tras la reforma POE 16-dic-2025 (Decreto 189).
- * Grava SÓLO el albergue: art. 4, «sin incluir a los alimentos y demás
- * servicios».
- */
-const ISH_QR = (kind: LodgingKind): TaxRule => ({
-  code: 'ISH',
-  label: 'Impuesto al Hospedaje (Quintana Roo)',
-  kind: 'PERCENT_OF_BASE',
-  // 🔴 5% para hoteles (art. 8 ¶1) · 6% SÓLO para los supuestos de la fr. V
-  // del art. 4, que son casas y villas particulares (art. 8 ¶2).
-  // El canal de venta NO mueve esta tasa.
-  rateBp: kind === 'PRIVATE_RENTAL' ? 600 : 500,
-  appliesTo: 'LODGING_ONLY',
-})
+export interface ResolvedPolicy extends FiscalPolicy {
+  /** true = la jurisdicción quedó verificada contra fuente primaria. */
+  verified: boolean
+  /** true = el estado se DEDUJO del nombre de la ciudad. Señal de configuración incompleta. */
+  inferred: boolean
+  /** Reglas que existen en el catálogo pero NO aplicaron, y por qué. */
+  descartadas: Array<{ code: string; motivo: string }>
+}
 
-const CIUDADES_QR = new Set([
-  'cancun', 'cancún', 'playa del carmen', 'tulum', 'cozumel', 'chetumal',
-  'bacalar', 'holbox', 'akumal', 'puerto morelos', 'isla mujeres',
-])
+const normaliza = (s: string | null | undefined): string =>
+  (s ?? '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
 
 const NOMBRE_PAIS: Record<string, string> = {
   MX: 'México', CO: 'Colombia', PE: 'Perú', CR: 'Costa Rica', PA: 'Panamá',
@@ -52,70 +70,167 @@ const NOMBRE_PAIS: Record<string, string> = {
   HN: 'Honduras',
 }
 
-const normaliza = (s: string | null | undefined): string => (s ?? '').trim().toLowerCase()
+/**
+ * Deducción de emergencia: de qué estado es una ciudad. Existe SÓLO para que
+ * las propiedades ya dadas de alta sigan funcionando mientras se les carga el
+ * `stateCode`. Marca el resultado como `inferred` para que se vea.
+ *
+ * 🔴 No se amplía esta tabla. Si hace falta otra ciudad, lo que hace falta es
+ * configurar la propiedad.
+ */
+const CIUDAD_A_ESTADO: Record<string, string> = {
+  cancun: 'ROO', 'playa del carmen': 'ROO', tulum: 'ROO', cozumel: 'ROO',
+  chetumal: 'ROO', bacalar: 'ROO', holbox: 'ROO', akumal: 'ROO',
+  'puerto morelos': 'ROO', 'isla mujeres': 'ROO',
+}
 
-export interface ResolvePolicyInput {
-  countryCode: string
-  city: string | null
-  lodgingKind: LodgingKind
+/** Municipio deducido de la ciudad, sólo donde cabecera y municipio difieren. */
+const CIUDAD_A_MUNICIPIO: Record<string, string> = {
+  chetumal: 'Othón P. Blanco',
+}
+
+const enVigencia = (r: CatalogRule, on: Date): boolean => {
+  const dia = on.toISOString().slice(0, 10)
+  if (dia < r.validFrom) return false
+  if (r.validUntil && dia > r.validUntil) return false
+  return true
 }
 
 /**
- * 🔴 DSA — Derecho de Saneamiento Ambiental (municipal, Quintana Roo).
- *
- * El motor SABE expresarlo: es `FIXED_PER_PERSON_NIGHT` sobre la UMA, y en
- * Tulum la prensa especializada reporta el patrón 30/20/15/10% de la UMA para
- * el 1.º, 2.º, 3.º y 4.º ocupante (UMA 2026 = MXN 117.31 → ≈ MXN 35 el
- * primero). **Pero eso es fuente secundaria.** La Ley de Hacienda del
- * municipio de Tulum no está verificada, y tampoco qué pasa a partir del
- * quinto ocupante.
- *
- * Mientras no haya fuente primaria, el DSA NO entra en el cálculo y se dice
- * en la nota. Cuando se confirme, esto se vuelve una constante y nada más:
- *
- *   { code: 'DSA', label: 'Derecho de Saneamiento Ambiental',
- *     kind: 'FIXED_PER_PERSON_NIGHT', unitCents: 11731,
- *     scaleBpByOccupant: [3000, 2000, 1500, 1000], beyondScale: 'UNSUPPORTED' }
+ * De entre varias reglas con el mismo `code`, gana la MÁS ESPECÍFICA.
+ * Especificidad = exige opción declarada (2) + está acotada a municipios (1).
+ * Así el estímulo fronterizo le gana al IVA general sin necesidad de ordenar el
+ * catálogo a mano — y si mañana entra otra excepción, el orden no importa.
  */
-const NOTA_DSA =
-  'No incluye el Derecho de Saneamiento Ambiental (DSA), municipal y por persona/noche: ' +
-  'pendiente de confirmar contra la Ley de Hacienda municipal. Si el hotel lo cobra en ' +
-  'recepción, el total publicado no es el total que paga el huésped.'
+const especificidad = (r: CatalogRule): number =>
+  (r.requiresOptIn ? 2 : 0) + (r.onlyInMunicipalities ? 1 : 0)
 
-export function resolveFiscalPolicy(input: ResolvePolicyInput): FiscalPolicy {
-  const country = (input.countryCode || 'MX').toUpperCase()
-  const city = input.city
-  const jurisdictionBase = {
+export function resolveFiscalPolicyForProfile(profile: FiscalProfile): ResolvedPolicy {
+  const country = (profile.countryCode || 'MX').toUpperCase()
+  const on = profile.on ?? new Date()
+  const optIns = new Set(profile.optIns ?? [])
+  const descartadas: Array<{ code: string; motivo: string }> = []
+
+  let inferred = false
+  let stateCode = profile.stateCode?.toUpperCase() ?? null
+  let municipality = profile.municipality
+
+  if (!stateCode && country === 'MX') {
+    const c = normaliza(profile.city)
+    if (CIUDAD_A_ESTADO[c]) {
+      stateCode = CIUDAD_A_ESTADO[c]
+      municipality = municipality ?? CIUDAD_A_MUNICIPIO[c] ?? profile.city ?? null
+      inferred = true
+    }
+  }
+
+  const jurisdiction = {
     country,
     countryName: NOMBRE_PAIS[country] ?? country,
-    city,
+    state: stateCode,
+    stateName: null as string | null,
+    city: profile.city ?? municipality ?? null,
   }
 
   if (country !== 'MX') {
     return {
-      jurisdiction: { ...jurisdictionBase, state: null, stateName: null },
+      jurisdiction,
       rules: [],
-      note: `Régimen fiscal de ${NOMBRE_PAIS[country] ?? country} sin configurar. No se publica un total con impuestos hasta cargarlo.`,
+      verified: false,
+      inferred,
+      descartadas,
+      note: `Régimen fiscal de ${NOMBRE_PAIS[country] ?? country} sin cargar. No se publica un total con impuestos hasta verificarlo contra la ley de ese país.`,
     }
   }
 
-  if (CIUDADES_QR.has(normaliza(city))) {
+  const entrada: JurisdictionEntry | undefined = stateCode
+    ? CATALOGO_POR_ESTADO.get(stateCode)
+    : undefined
+
+  if (!entrada) {
     return {
-      jurisdiction: { ...jurisdictionBase, state: 'QR', stateName: 'Quintana Roo' },
-      rules: [IVA_MX, ISH_QR(input.lodgingKind)],
-      legalBasis:
-        'LIVA art. 1 · Ley del Impuesto al Hospedaje de Quintana Roo art. 8 (POE 16-dic-2025)',
-      note: NOTA_DSA,
+      jurisdiction,
+      rules: [],
+      verified: false,
+      inferred,
+      descartadas,
+      note: stateCode
+        ? `El estado ${stateCode} no está en el catálogo fiscal.`
+        : 'La propiedad no tiene estado fiscal configurado y no se pudo deducir de la ciudad. Sin jurisdicción no hay total: configúralo antes de publicar precios.',
     }
   }
 
-  // Resto de México: el IVA es federal y no admite duda. El ISH existe en los
-  // 32 estados con tasas distintas, y ninguna está verificada aquí. Se publica
-  // el IVA y se DICE que falta el estatal, en lugar de callarlo.
-  return {
-    jurisdiction: { ...jurisdictionBase, state: null, stateName: null },
-    rules: [IVA_MX],
-    legalBasis: 'LIVA art. 1',
-    note: `Falta el Impuesto Sobre Hospedaje estatal de ${city ?? 'esta jurisdicción'}: sin verificar contra la ley local. El total mostrado está incompleto.`,
+  jurisdiction.stateName = entrada.stateName
+
+  // ── Filtrado: vigencia, tipo de establecimiento, municipio, opción declarada
+  const muni = normaliza(municipality)
+  const aplicables: CatalogRule[] = []
+  for (const r of entrada.rules) {
+    if (!enVigencia(r, on)) {
+      descartadas.push({ code: r.rule.code, motivo: `fuera de vigencia (${r.validFrom} → ${r.validUntil ?? 'sin término'})` })
+      continue
+    }
+    if (!r.lodgingKinds.includes(profile.lodgingKind)) continue
+    if (r.onlyInMunicipalities && !r.onlyInMunicipalities.map(normaliza).includes(muni)) continue
+    if (r.exceptInMunicipalities && r.exceptInMunicipalities.map(normaliza).includes(muni)) continue
+    if (r.requiresOptIn && !optIns.has(r.requiresOptIn)) {
+      descartadas.push({ code: r.rule.code, motivo: `la propiedad no declara «${r.requiresOptIn}»` })
+      continue
+    }
+    aplicables.push(r)
   }
+
+  // ── Una sola regla por código: gana la más específica ──────────────────────
+  const porCodigo = new Map<string, CatalogRule>()
+  for (const r of aplicables) {
+    const previa = porCodigo.get(r.rule.code)
+    if (!previa || especificidad(r) > especificidad(previa)) porCodigo.set(r.rule.code, r)
+  }
+
+  const elegidas = [...porCodigo.values()]
+  const rules: TaxRule[] = elegidas.map((r) => r.rule)
+
+  const notas: string[] = []
+  if (entrada.estado === 'SIN_VERIFICAR') {
+    notas.push(`🔴 ${entrada.stateName}: impuesto estatal de hospedaje SIN VERIFICAR. ${entrada.pendiente ?? ''}`.trim())
+  }
+  if (inferred) {
+    notas.push(
+      'El estado fiscal se dedujo del nombre de la ciudad porque la propiedad no lo tiene configurado. Cárgalo: la deducción no cubre todos los municipios.',
+    )
+  }
+  if (stateCode === 'ROO') {
+    notas.push(
+      'No incluye el Derecho de Saneamiento Ambiental (DSA), municipal y por persona/noche: pendiente de confirmar contra la Ley de Hacienda municipal.',
+    )
+  }
+
+  return {
+    jurisdiction,
+    rules,
+    verified: entrada.estado === 'VERIFICADO',
+    inferred,
+    descartadas,
+    legalBasis: elegidas.map((r) => r.provenance.legalBasis).join(' · ') || undefined,
+    note: notas.length ? notas.join(' ') : undefined,
+  }
+}
+
+/**
+ * Firma antigua, conservada para los llamadores que aún no pasan el perfil
+ * completo. Delega y marca `inferred`. *Patrón: strangler fig* — la ruta nueva
+ * existe, la vieja sigue viva, y el resultado dice cuál se usó.
+ */
+export function resolveFiscalPolicy(input: {
+  countryCode: string
+  city: string | null
+  lodgingKind: LodgingKind
+}): ResolvedPolicy {
+  return resolveFiscalPolicyForProfile({
+    countryCode: input.countryCode,
+    stateCode: null,
+    municipality: null,
+    city: input.city,
+    lodgingKind: input.lodgingKind,
+  })
 }
