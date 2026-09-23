@@ -1,5 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { EventEmitter2 } from '@nestjs/event-emitter'
+import { AuditLogService } from '../../nova/audit/audit-log.service'
+import { AuditLogStatus } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { TenantContextService } from '../../common/tenant-context.service'
 import {
@@ -30,7 +32,57 @@ export class RatesService {
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
     private readonly events: EventEmitter2,
+    private readonly audit: AuditLogService,
   ) {}
+
+  /**
+   * 🔴 C3 — deja rastro de un cambio de tarifa, CON EL VALOR ANTERIOR.
+   *
+   * `rate_overrides` se escribe con `upsert`: la tarifa nueva PISA a la vieja y
+   * el `created_by_id` queda apuntando al último que tocó. Eso contesta «quién
+   * la cambió» pero no «de cuánto a cuánto», que es justo lo que hace falta
+   * cuando un huésped reclama el precio que vio o cuando una OTA cobra
+   * comisión sobre una tarifa que el hotel dice no haber publicado.
+   *
+   * `audit_log` es append-only por trigger en Postgres, así que el historial
+   * vive ahí. No se crea tabla nueva: el estándar de la casa ya existía.
+   *
+   * `SystemRole` se LEE de la base y no se deduce del token: `JwtPayload.role`
+   * es un `StaffRole`, que es otro eje. Mapearlos a ojo sería inventar.
+   */
+  private async auditarTarifa(args: {
+    actorId: string
+    action: string
+    target: string
+    payload: Record<string, unknown>
+  }): Promise<void> {
+    // 🔴 Auditar NO puede tumbar la operación de negocio. `AuditLogService.write`
+    // ya atrapa sus propios fallos, pero la búsqueda del rol y cualquier otra
+    // cosa de aquí dentro también tienen que estar cubiertas: si `audit_log`
+    // está caído, el hotel debe poder seguir cambiando su tarifa.
+    //
+    // Lo cazó la prueba de mordida: el primer intento propagaba la excepción y
+    // un fallo del registro habría bloqueado la venta.
+    try {
+      const orgId = this.tenant.getOrganizationId()
+      const actor = await this.prisma.user.findUnique({
+        where: { id: args.actorId },
+        select: { systemRole: true },
+      })
+      if (!actor) return
+      await this.audit.write({
+        organizationId: orgId,
+        actorRealId: args.actorId,
+        actorRealRole: actor.systemRole,
+        action: args.action,
+        target: args.target,
+        payload: args.payload,
+        status: AuditLogStatus.SUCCESS,
+      })
+    } catch (e) {
+      this.logger.error(`No se pudo auditar ${args.action} sobre ${args.target}: ${(e as Error).message}`)
+    }
+  }
 
   /**
    * BUG #2 fix 2026-06-04 — push rate change a Channex outbound.
@@ -540,6 +592,15 @@ export class RatesService {
     await this.assertPropertyInOrg(propertyId, orgId)
     if (dto.overrideRate < 0) throw new BadRequestException('overrideRate debe ser ≥ 0')
     const date = startOfUtcDay(dto.date)
+    // Se lee ANTES del upsert: después ya no existe el valor viejo.
+    const previo = await this.prisma.rateOverride.findUnique({
+      where: {
+        propertyId_roomTypeId_ratePlanId_date: {
+          propertyId, roomTypeId: dto.roomTypeId, ratePlanId: dto.ratePlanId ?? '', date,
+        },
+      },
+      select: { overrideRate: true, createdById: true },
+    })
     const result = await this.prisma.rateOverride.upsert({
       where: {
         propertyId_roomTypeId_ratePlanId_date: {
@@ -552,6 +613,21 @@ export class RatesService {
       },
       update: { overrideRate: dto.overrideRate, reason: dto.reason ?? null, createdById: dto.createdById },
     })
+    await this.auditarTarifa({
+      actorId: dto.createdById,
+      action: 'RATE_OVERRIDE_UPSERT',
+      target: `${dto.roomTypeId}|${date.toISOString().slice(0, 10)}`,
+      payload: {
+        propertyId,
+        roomTypeId: dto.roomTypeId,
+        ratePlanId: dto.ratePlanId ?? null,
+        date: date.toISOString().slice(0, 10),
+        anterior: previo ? Number(previo.overrideRate) : null,
+        nueva: dto.overrideRate,
+        reason: dto.reason ?? null,
+      },
+    })
+
     // BUG #2 fix — push rate change a Channex outbound (fire-and-forget).
     void this.notifyChannexRateChange(propertyId, [{
       roomTypeId: dto.roomTypeId,
