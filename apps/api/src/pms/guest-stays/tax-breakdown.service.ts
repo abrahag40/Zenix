@@ -25,7 +25,7 @@ import { TenantContextService } from '../../common/tenant-context.service'
  * tienen ISH (con tasas que varían 2-6% según estado). Pero hardcodear los
  * 32 estados con tasas verificadas requiere el rol TAX_CURATOR de v1.0.2 y
  * fuentes oficiales (El Contribuyente / JA Del Río 2026). Para hoy nos
- * limitamos a QR (donde está el piloto Hotel Monica Tulum). Otros estados
+ * limitamos a QR (donde está el hotel piloto). Otros estados
  * MX devuelven `note: 'ISH estatal pendiente — configurar con v1.0.2'`.
  */
 
