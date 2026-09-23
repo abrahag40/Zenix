@@ -4,7 +4,7 @@ Estado: Plan propuesto — pendiente de aprobación
 Branch: sprint/rates-metrics-compset-core (planning solo; implementación en branch posterior)
 Última actualización: 2026-05-22
 Sprint anterior: BITACORA-UNIFICATION + plan SIGN-DLC (PR #38, merged 2026-05-22)
-Disparador: necesidad operativa real del piloto Hotel Monica Tulum — pricing manual sin tarifas dinámicas, sin métricas de performance, sin visibilidad de mercado competitivo. Bloqueante para escalar a más propiedades.
+Disparador: necesidad operativa real del piloto Hotel Boutique Tulum — pricing manual sin tarifas dinámicas, sin métricas de performance, sin visibilidad de mercado competitivo. Bloqueante para escalar a más propiedades.
 ---
 
 # Sprint RATES-METRICS-COMPSET-CORE — Pricing + Dashboard de métricas + Inteligencia de mercado
@@ -19,7 +19,7 @@ Disparador: necesidad operativa real del piloto Hotel Monica Tulum — pricing m
 
 | Dimensión | Estado v1.0.0 | Pain real |
 |---|---|---|
-| **Pricing** | Solo `RoomTypeGroup.baseRate` único por grupo. No hay seasons, no day-of-week, no rate plans, no restrictions. | Manager Monica Tulum: "Cabaña vale $130 USD todo el año, ¡eso no tiene sentido!". Fin de semana Año Nuevo perdiendo ~30% de revenue por no poder subir tarifa. |
+| **Pricing** | Solo `RoomTypeGroup.baseRate` único por grupo. No hay seasons, no day-of-week, no rate plans, no restrictions. | Manager Hotel Boutique Tulum: "Cabaña vale $130 USD todo el año, ¡eso no tiene sentido!". Fin de semana Año Nuevo perdiendo ~30% de revenue por no poder subir tarifa. |
 | **Métricas** | KPIs operativos parciales en DashboardPage (§43). Sin ADR, sin RevPAR, sin forecast, sin pickup, sin channel mix. | "¿Cómo voy esta semana?" requiere correr SQL ad-hoc. |
 | **Compset / Market Intel** | Cero visibilidad de competidores. Manager check Booking.com manualmente. | "Subí mi tarifa pero estoy 30% por debajo de Habitas y no lo sabía." |
 
@@ -642,7 +642,7 @@ Nueva sección `/settings/rates`:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ HOY · Hotel Monica Tulum                                     │
+│ HOY · Hotel Boutique Tulum                                     │
 │                                                              │
 │ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐            │
 │ │ Ocup.   │ │Llegadas │ │ Salidas │ │ Saldo   │            │
@@ -735,7 +735,7 @@ Nueva sección `/settings/rates`:
 - Tests `MetricsService` (snapshot + dashboard)
 - Tests `CompsetService` con adapter mock
 - Tests `LocalEventsService` con 4-niveles resolution
-- Smoke test fixture Monica Tulum
+- Smoke test fixture Hotel Boutique Tulum
 
 ### Día 20-23 — Polish + Docs
 
@@ -796,7 +796,7 @@ Nueva sección `/settings/rates`:
 - [ ] ADR-0002 creado (compset adapter pattern)
 - [ ] Runbook compset operations en `docs/zenix-compset-runbook.md`
 - [ ] zenix-sales-master.md actualizado con Módulo 9
-- [ ] Smoke test con fixture Monica Tulum: crear 2 rate plans + 1 season + 5 competitors + verificar dashboard
+- [ ] Smoke test con fixture Hotel Boutique Tulum: crear 2 rate plans + 1 season + 5 competitors + verificar dashboard
 
 ---
 
@@ -808,7 +808,7 @@ Nueva sección `/settings/rates`:
 | Adopción de seasons | 0 | ≥60% crea ≥1 season | Telemetría |
 | Dashboard daily active sessions | TBD | +200% vs baseline | Analytics |
 | Compset card opened daily | 0 | ≥1× por SUPERVISOR | Analytics |
-| Revenue uplift atribuible | Baseline | +5-10% Monica Tulum | Comparación pre/post |
+| Revenue uplift atribuible | Baseline | +5-10% Hotel Boutique Tulum | Comparación pre/post |
 | Time to "configurar rates" | N/A | <30min via wizard | UX test |
 | Reducción de queries SQL ad-hoc por owner | TBD | -70% | Logs PgHero |
 

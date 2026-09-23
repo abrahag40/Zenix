@@ -352,7 +352,7 @@ Total realista: **8-10 semanas calendar** con 1 dev secuencial.
 
 ---
 
-### C8. Hostel dorm full-sync correct counts ★ CRÍTICO para Monica Tulum
+### C8. Hostel dorm full-sync correct counts ★ CRÍTICO para Hotel Boutique Tulum
 **Cubre**: P2-9 (revenue lost en dorms)
 
 - **Archivo**: `apps/api/src/integrations/channex/outbound/channex-full-sync.orchestrator.ts:294-374` (`buildAvailabilityEntries`)
@@ -363,7 +363,7 @@ Total realista: **8-10 semanas calendar** con 1 dev secuencial.
 - **Reusar lógica**: `computeAndPushInventory` ya lo hace correctamente — extraer función pura compartida
 - **Estimado**: 1-2 días-dev
 - **Criterio de validación**:
-  - [ ] Hotel Monica Tulum sandbox: dorm 4 camas → availability=4 en full-sync (NO 1)
+  - [ ] Hotel Boutique Tulum sandbox: dorm 4 camas → availability=4 en full-sync (NO 1)
   - [ ] Después de 1 reserva en cama 2 → availability=3
 
 ---

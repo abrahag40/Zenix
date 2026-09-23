@@ -19,7 +19,7 @@
 
 | Bloque | Misión | Trigger comercial |
 |--------|--------|-------------------|
-| **v1.0.x — Foundation** | "Funciona en 1 hotel real sin perder dinero y cobra/factura sin sufrir" | Hotel Monica Tulum piloto |
+| **v1.0.x — Foundation** | "Funciona en 1 hotel real sin perder dinero y cobra/factura sin sufrir" | Hotel Boutique Tulum piloto |
 | **v1.1.x — Hotel Operation Excellence** | "Excelencia operativa: tareas que un hotel boutique hace 100 veces al día, automatizadas" | Hotel quiere reducir tiempo en recepción >40% |
 | **v1.2.x — Scale & Distribution** | "Crece a cadena multi-property + vende sin pagar 20% a OTAs" | Hotel quiere abrir 2da propiedad o reducir dependencia Booking |
 | **v1.3.x — Ancillary Modules** | "El hotel deja de pagar 5 softwares distintos" | Hotel tiene restaurante, spa, compras, nómina, contabilidad |
@@ -72,7 +72,7 @@ Producto operativo y estable para 1-3 hoteles piloto LATAM. Cierre fiscal mensua
 | **Multi-currency + `PaymentFxLock` inmutable §81** | `paidCurrency` en `PaymentLog`. Rate congelado al cobro. Reconciliación `realizedGainLoss` vs payout reports Stripe/Conekta (USALI 12ed Foreign Exchange line). | Tulum/Cancún 40-60% guests USD. Cumple Art. 20 CFF para CFDI 4.0. |
 | **Banxico SF43718 integration §83** | Cron diario 12:00 CST → fetch FIX (token gratuito, 40k consultas/día). Fallback Open Exchange Rates. | Mismo rate que el SAT acepta. CFDI 4.0 lo exige. |
 | **OTA-collect detection §87** | Channex `payment_collect` flag → `GuestStay.paymentModel: HOTEL_COLLECT \| OTA_COLLECT \| HYBRID_DEPOSIT`. `confirmCheckin` no exige balance pagado en OTA-collect. | Mews tiene gap aquí (feature request abierto desde hace años). Cloudbeds sí lo tiene. Evita doble cobro + chargeback Visa. |
-| **Cash drawer multi-divisa §85** | `CashierShift` con `openingFloat/expectedClose/actualClose/variance` `Json {MXN, USD, EUR}`. Toda transacción cash requiere shiftId activo. Variance > umbral exige razón + approval SUPERVISOR. | Caso real Hotel Monica Tulum: cobrar 100 USD, devolver 360 MXN, aceptar 50 EUR — todos en el mismo turno. Patrón AHLEI / USALI Section 12. |
+| **Cash drawer multi-divisa §85** | `CashierShift` con `openingFloat/expectedClose/actualClose/variance` `Json {MXN, USD, EUR}`. Toda transacción cash requiere shiftId activo. Variance > umbral exige razón + approval SUPERVISOR. | Caso real Hotel Boutique Tulum: cobrar 100 USD, devolver 360 MXN, aceptar 50 EUR — todos en el mismo turno. Patrón AHLEI / USALI Section 12. |
 | **`GuestCredit` § 86 / §90** | Entidad de primera clase. Origins: EARLY_CHECKOUT, CANCELLATION_GOODWILL, SERVICE_RECOVERY, OVERPAYMENT, RATE_ADJUSTMENT, MANUAL. Audit append-only. Default `applicableChannels=['DIRECT']`. Aplicable solo intra-LegalEntity. | Ningún PMS premium tiene esto core — diferenciador frente a Mews/Opera (que dependen de VoucherCart add-on que cobra extra al hotelero). |
 | **Aprobación gerencial para COMPs** | Cortesía (cargo $0) requiere `approvedById` + razón. Backend-enforced, no solo UI. | Anti-fraude — recepcionista no comp solo. CLAUDE.md §Sprint 8E. |
 
@@ -470,7 +470,7 @@ Algunos features de "Scale & Distribution" caben aquí porque son cobranza inter
 | Feature descartado | Razón |
 |--------------------|-------|
 | **A13 · Wake-up call & breakfast preferences** | No agrega valor diferenciador. Hoteles boutique tienen ≤30 hab — recepcionista lo lleva en libreta o WhatsApp. Volver a esto en v1.4.x si demanda real surge. |
-| **E1 · Spa / Wellness appointments** | Solo aplica a hoteles con spa. Hotel Monica Tulum no tiene. Va a v1.3.x Ancillary. |
+| **E1 · Spa / Wellness appointments** | Solo aplica a hoteles con spa. Hotel Boutique Tulum no tiene. Va a v1.3.x Ancillary. |
 | **E2 · Activities / Tours integration** | Mismo razonamiento — segmento específico, v1.3.x. |
 | **E3 · Laundry tracking** | Cabe en v1.3.x Ancillary o se outsource a TPV externo. Demanda baja según research. |
 | **D8 · API pública para developers del hotel** | El 99% de hoteles boutique no tienen developers internos. Va a v1.2.x cuando partners certificados lo necesiten. |
@@ -541,7 +541,7 @@ R1 PMS, R1+ PMS Pro, **R15 (Operation Excellence add-on tier)**.
 
 | Feature | Razón |
 |---------|-------|
-| **B2 · GDS/CRS connectivity (Amadeus, Sabre)** | Audiencia corporate travel — hoteles >100 hab. Hotel Monica Tulum (60 hab) no lo necesita. Posponer a v2.0+ o feature externa via marketplace. |
+| **B2 · GDS/CRS connectivity (Amadeus, Sabre)** | Audiencia corporate travel — hoteles >100 hab. Hotel Boutique Tulum (60 hab) no lo necesita. Posponer a v2.0+ o feature externa via marketplace. |
 | **D5 · Channel parity dashboard** | Función avanzada de revenue. Va a v1.4.x Data & AI Platform donde tiene contexto. |
 | **B8 · Multi-currency display refinado** | v1.0.1 ya tiene básico. Refinamiento avanzado (símbolo dinámico, tipo de cambio histórico) va a v1.4.x. |
 
@@ -646,7 +646,7 @@ R11 Marketplace commissions, R12 ABI Data Licensing.
 ## 8. Timeline visual
 
 ```
-2026 Q2 ─ v1.0.0 ─── SEC-α + HK-CFG + POLISH + QA ──────── 🚀 PILOTO Hotel Monica Tulum
+2026 Q2 ─ v1.0.0 ─── SEC-α + HK-CFG + POLISH + QA ──────── 🚀 PILOTO Hotel Boutique Tulum
 2026 Q3 ─ v1.0.1 ── PAY-CORE (Stripe + Conekta + folio + master billing)
 2026 Q4 ─ v1.0.2 ── CFDI-CORE (PAC + complementos + tax engine MX/CO/PE)
 2026 Q4 ─ v1.0.3 ── REPORTS-CORE (los 12 reportes operativos esenciales)

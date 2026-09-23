@@ -150,7 +150,7 @@ Zenix conecta estas dos realidades en un solo sistema con el calendario como fue
 - **IA tarifaria:** Zavia ya tiene módulo IA; Zenix llega heurístico en **v1.1.1 (Q2 2027)** y con ML real en **v1.4.0 (Q4 2029)**. Mensaje comercial: "revenue management heurístico nivel Cloudbeds PIE en v1.1.1; IA tarifaria comparable a Zavia + Cloudbeds en v1.4.0".
 - **Mensajería OTA centralizada (inbox unificado Booking/Airbnb/Expedia):** Zavia lo tiene; Zenix llega con **v1.1.0 (Booking) + v1.1.3 (Airbnb + Expedia)** en Q1-Q3 2027.
 - **Ecosistema de integraciones por marketplace:** Mews tiene >1,000 integraciones en su Marketplace; Zenix en v1.0.0 tiene Channex stub. Cierre: **v1.0.x Foundation completo (Channex real, pagos, CFDI, reportes) + v1.2.3 Marketplace + API pública (Q1 2028)**.
-- **Cuota de mercado / referencias en LATAM:** Zavia y Syncro tienen base instalada de cientos de hoteles en México; Zenix está en piloto (1 hotel). Riesgo conocido — mitigación: estudio de caso del piloto Hotel Monica Tulum al cierre de v1.0.x.
+- **Cuota de mercado / referencias en LATAM:** Zavia y Syncro tienen base instalada de cientos de hoteles en México; Zenix está en piloto (1 hotel). Riesgo conocido — mitigación: estudio de caso del piloto Hotel Boutique Tulum al cierre de v1.0.x.
 
 #### Precio — el diferenciador estructural
 
@@ -266,7 +266,7 @@ Datos públicos verificados:
 
 #### Honestidad sobre dónde Zenix aún no gana vs ResNexus
 
-- **Base instalada / social proof.** 4,200 properties vs 1 piloto. Mitigación: estudio de caso Hotel Monica Tulum al cierre v1.0.x + apuntar a 10 properties certificadas en primer año.
+- **Base instalada / social proof.** 4,200 properties vs 1 piloto. Mitigación: estudio de caso Hotel Boutique Tulum al cierre v1.0.x + apuntar a 10 properties certificadas en primer año.
 - **Profundidad de reports.** 100+ reports vs ~10 dashboard metrics. Mitigación: RATES-METRICS sprint v1.0.0 entregará 30-50 reports core.
 - **Marketing automation.** Email + SMS + cart abandonment ya. Mitigación: aprovechar Resend que ya está wired para wizard + extender en v1.0.x DLC.
 - **Customer support humano.** "Hospitality coaches" dedicados ResNexus son su moat real. Mitigación: Partner Network SAP-style + onboarding wizard 30min que reduce dependencia de soporte humano.
@@ -1351,7 +1351,7 @@ Una cuenta de Zenix gestiona múltiples propiedades. Cada propiedad tiene config
 > Para cadenas que operan en varios países (Selina-style) la realidad fiscal exige más que "todas mis propiedades en una cuenta". Zenix separa **comercial** (marca) de **fiscal** (entidad legal) de **operativo** (propiedad), exactamente como SAP S/4HANA y Salesforce hacen para grupos multinacionales.
 
 ```
-Brand  (Selina, Marriott AC, Monica Boutique Collection)  — opcional
+Brand  (Selina, Marriott AC, Boutique Collection)  — opcional
   │
   └─ Organization  (el customer de Zenix — cuenta de facturación)
         │
@@ -1372,7 +1372,7 @@ Brand  (Selina, Marriott AC, Monica Boutique Collection)  — opcional
 
 1. **Facturación correcta por país** — cada Property emite CFDI/DIAN/Tribu-CR con la razón social y régimen fiscal de su LegalEntity. Sin error humano, sin "ay se me olvidó qué RFC va".
 2. **Reporting cross-property con monedas distintas** — el CEO ve ocupación global; el GM de México ve solo sus 3 properties MX en MXN; el contador colombiano solo las CO en COP.
-3. **Crecer sin migrar** — Hotel Monica Tulum (1 property, 1 LegalEntity, sin brand) que decide abrir Hotel Monica Cancún → un click. Decide expandir a Costa Rica → crear LegalEntity nueva, sin tocar lo existente. Eventualmente formaliza marca → agregar Brand row, sin downtime.
+3. **Crecer sin migrar** — Hotel Boutique Tulum (1 property, 1 LegalEntity, sin brand) que decide abrir Hotel Boutique Cancún → un click. Decide expandir a Costa Rica → crear LegalEntity nueva, sin tocar lo existente. Eventualmente formaliza marca → agregar Brand row, sin downtime.
 
 ### Por qué esto importa comercialmente
 
@@ -1626,7 +1626,7 @@ En Tulum, Cancún, Cartagena, Cuzco: el 40-60% de huéspedes paga en USD a un ho
 
 ### Cash drawer multi-divisa con cierre de turno per-divisa
 
-Caso real Hotel Monica Tulum: cajero acepta 100 USD por cuenta de 80 USD, devuelve 360 MXN, recibe 50 EUR de huésped europeo, cierra turno. Zenix cuenta cada divisa por separado (MXN, USD, EUR), calcula variance por divisa, y bloquea cierre si el variance supera umbral configurable sin justificación + aprobación SUPERVISOR.
+Caso real Hotel Boutique Tulum: cajero acepta 100 USD por cuenta de 80 USD, devuelve 360 MXN, recibe 50 EUR de huésped europeo, cierra turno. Zenix cuenta cada divisa por separado (MXN, USD, EUR), calcula variance por divisa, y bloquea cierre si el variance supera umbral configurable sin justificación + aprobación SUPERVISOR.
 
 Patrón AHLEI Front Office Cashier's Shift Report. **Mews lo tiene limitado**, Cloudbeds lo tiene completo, Zenix lo entrega comparable a Cloudbeds.
 
@@ -1654,7 +1654,7 @@ El crédito vive en `GuestProfile`, no en el booking. La próxima vez que ese hu
 
 ### Tax engine multi-impuesto — Quintana Roo de ejemplo
 
-Para Hotel Monica Tulum 2026, tarifa base 1 000 MXN/noche:
+Para Hotel Boutique Tulum 2026, tarifa base 1 000 MXN/noche:
 
 | Concepto | Cálculo | Monto |
 |---|---|---|
@@ -1933,7 +1933,7 @@ Esta flexibilidad NO existe en la competencia. Mews y Cloudbeds solo soportan as
 
 ### Auto-bloqueo CRITICAL + sincronización Channel Manager (D-Mx2)
 
-El feature que resuelve el caso real Hotel Monica Tulum 2026-04-09 (Bongaloo B2 vendido en encerado):
+El feature que resuelve el caso real Hotel Boutique Tulum 2026-04-09 (la habitación B2 vendido en encerado):
 
 - Cuando se crea un ticket CRITICAL en habitación → **el sistema crea un `RoomBlock` automáticamente en la misma transacción** (atómico, no race condition)
 - El bloque hereda `endDate = estimatedEndAt` del ticket (capturado en el wizard, default por categoría: plomería 3d, pintura 2d, estructural 7d, etc.)

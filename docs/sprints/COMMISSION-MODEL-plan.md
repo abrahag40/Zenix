@@ -207,7 +207,7 @@ Hotel recibe CFDI y lo deduce. Limpio fiscalmente para ambos lados.
 - Onboarding flow para que cada hotel customer cree su Stripe Connect connected account (Standard o Express)
 - Hotel completa KYC en Stripe Dashboard (compliance)
 - Test mode: bookings via Tier 2 attribution → split 3% verificable en Stripe Test Dashboard
-- Live mode con piloto Hotel Monica Tulum
+- Live mode con piloto Hotel Boutique Tulum
 
 ### Sprint COMM-3: CommissionService backend (4-5 días)
 

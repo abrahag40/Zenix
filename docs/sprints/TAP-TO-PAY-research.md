@@ -386,7 +386,7 @@ Ver detalle en [`COMMISSION-MODEL-plan.md`](COMMISSION-MODEL-plan.md).
 6. Activar Tap to Pay en cuenta Stripe Zenix → asociar Stripe Location ID por property
 7. Implementar UX mobile (botón "Cobrar con tap", animation NFC, success state, receipt flow)
 8. Capacitación interna del equipo Zenix sobre el flow para soporte
-9. Beta cerrada con Hotel Monica Tulum como property piloto
+9. Beta cerrada con Hotel Boutique Tulum como property piloto
 
 ### Post-launch
 

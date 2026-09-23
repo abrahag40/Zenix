@@ -1,0 +1,51 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`PublicPricingService 🔒 SNAPSHOT DE CONTRATO — la forma que el website va a leer 1`] = `
+{
+  "currency": "MXN",
+  "legalBasis": "Ley del Impuesto al Valor Agregado, art. 1 fr. II (prestación de servicios), tasa general 16% · Ley del Impuesto al Hospedaje del Estado de Quintana Roo, art. 8 ¶1 (5%); art. 4 fr. I. Texto compilado, última reforma POE 16-dic-2025 (Decreto 189); el art. 8 fue reformado POE 23-dic-2022.",
+  "netCents": 600000,
+  "nightly": [
+    {
+      "date": "2026-12-24",
+      "netCents": 200000,
+      "source": "BASE",
+    },
+    {
+      "date": "2026-12-25",
+      "netCents": 200000,
+      "source": "BASE",
+    },
+    {
+      "date": "2026-12-26",
+      "netCents": 200000,
+      "source": "BASE",
+    },
+  ],
+  "nights": 3,
+  "notes": [
+    "No incluye el Derecho de Saneamiento Ambiental (DSA), municipal y por persona/noche: pendiente de confirmar contra la Ley de Hacienda municipal.",
+  ],
+  "priceSource": "RATE_PLAN",
+  "ratePlanCode": "BAR-PUBLICA",
+  "taxes": [
+    {
+      "amountCents": 96000,
+      "code": "IVA",
+      "label": "IVA (federal)",
+      "rateBp": 1600,
+    },
+    {
+      "amountCents": 30000,
+      "code": "ISH",
+      "label": "Impuesto al Hospedaje (Quintana Roo)",
+      "rateBp": 500,
+    },
+  ],
+  "taxesCents": 126000,
+  "taxesConfigured": true,
+  "taxesInferred": false,
+  "taxesVerified": true,
+  "totalCents": 726000,
+}
+`;

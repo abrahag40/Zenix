@@ -432,8 +432,8 @@ enum PropertyType {
 //
 // Sistema completo de tickets de mantenimiento que reemplaza al modelo legacy
 // `MaintenanceIssue` (lightweight, vinculado a CleaningTask). Caso de uso real
-// que motivó el módulo (Hotel Monica Tulum, 2026-04-09): el área de mantenimiento
-// inició encerado de Bongaloo B2 sin bloquear la habitación → la habitación se
+// que motivó el módulo (Hotel Boutique Tulum, 2026-04-09): el área de mantenimiento
+// inició encerado de la habitación B2 sin bloquear la habitación → la habitación se
 // vendió en Booking.com → el hotel asumió pérdidas reubicando al huésped.
 //
 // El módulo MaintenanceModule es MONOLÍTICO con el resto del PMS (mismo NestJS,
@@ -661,7 +661,7 @@ model UserPropertyRole {
 //
 // Modelo aprobado 2026-05-15. Ver docs/vision/11-multi-tenant-architecture.md
 // para análisis arquitectónico completo y casos de uso (Selina-like
-// multi-country, Hotel Monica Tulum independiente, "growing into a brand").
+// multi-country, Hotel Boutique Tulum independiente, "growing into a brand").
 //
 // Decisiones no-negociables §63-§72 CLAUDE.md:
 //  · Brand opcional (independent hotels = NULL)
@@ -834,6 +834,16 @@ model Property {
   // manualmente en Settings. regionCode ISO 3166-2 (e.g. "MX-ROO"); region
   // free-text se preserva para UX.
   regionCode     String?      @map("region_code")
+
+  // ── Perfil fiscal (catálogo nacional, docs/vision/20) ────────────────────
+  /// Municipio (nombre INEGI). DECIDE el estímulo de IVA en región fronteriza:
+  /// Othón P. Blanco tiene 8% y Tulum 16%, ambos en Quintana Roo.
+  taxMunicipality String?  @map("tax_municipality")
+  /// Regímenes que la propiedad DECLARA tener dados de alta ante la autoridad.
+  /// El estímulo fronterizo exige aviso ante el SAT: no lo da la geografía.
+  taxOptIns       String[] @default([]) @map("tax_opt_ins")
+  /// HOTEL | PRIVATE_RENTAL — en Quintana Roo, 5% contra 6% de ISH.
+  lodgingKind     String   @default("HOTEL") @map("lodging_kind")
   latitude       Float?
   longitude      Float?
   // Globally unique 3-digit code assigned sequentially at property creation.
@@ -948,6 +958,16 @@ model BookingEngineConfig {
 
   // ── Marketplace Tier 2 (§6 del plan) — opt-in comisión 3-5% ──────────────
   marketplaceListingEnabled Boolean @default(false) @map("marketplace_listing_enabled")
+
+  // ── C2: qué precio publica el sitio (docs/vision/18) ────────────────────
+  /// Plan de tarifa que publica el sitio. NULL = el puerto elige con una regla
+  /// determinista y DECLARA en la respuesta qué usó. Sin FK a propósito: un
+  /// plan borrado no debe tumbar la configuración del motor público.
+  publicRatePlanId  String?  @map("public_rate_plan_id")
+  /// true = la tarifa cargada YA incluye impuestos. Equivocar esto mueve el
+  /// precio publicado un 21% en Quintana Roo. El default replica el
+  /// comportamiento actual del PMS para no cambiarle el precio a nadie.
+  ratesIncludeTaxes Boolean  @default(true) @map("rates_include_taxes")
 
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
@@ -3686,8 +3706,8 @@ model ChannelProductionDaily {
 //                  ↓
 //   [CLOSED — readonly, archivo histórico]
 //
-// Caso de uso real (Hotel Monica Tulum, 2026-04-09):
-//   Mantenimiento inició encerado de Bongaloo B2 sin bloquear la habitación.
+// Caso de uso real (Hotel Boutique Tulum, 2026-04-09):
+//   Mantenimiento inició encerado de la habitación B2 sin bloquear la habitación.
 //   La habitación se vendió en Booking.com → pérdida + reubicación de huésped.
 //   Con este módulo: encerado se levanta como TicketCategory.DEEP_CLEANING +
 //   priority=CRITICAL → auto-bloqueo → Channex.io recibe pushInventory →

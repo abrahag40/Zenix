@@ -115,7 +115,7 @@ describe('Multi-tenant 4-level hierarchy invariants', () => {
 
   it('Brand sin organizations es permitido (no FK requirement reverse)', async () => {
     // Brand puede existir antes de tener organizations linkeados (caso:
-    // sales crea Brand "Selina" antes de configurar las orgs por país)
+    // sales crea la Brand de una cadena antes de configurar sus orgs por país)
     const orphanBrand = await prisma.brand.create({
       data: {
         name: 'Test Orphan Brand',

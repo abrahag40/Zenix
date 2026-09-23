@@ -197,7 +197,7 @@ Tech stack: React + Vite + Tailwind + Radix UI (idéntico a `apps/web`). 2FA obl
 
 **Por cada propiedad bajo una Legal Entity:**
 
-- Nombre (ej. "Selina Tulum", "Hotel Monica Tulum")
+- Nombre (ej. "Selina Tulum", "Hotel Boutique Tulum")
 - Tipo de propiedad (dropdown):
   - HOTEL — clásico
   - HOSTAL — dormitorios + privadas
@@ -525,7 +525,7 @@ Calendly link auto-generado con disponibilidad del consultor.
 ```
 🟢 2026-05-24 09:14 — Step 1 completed: Organization created
    por: María González (LEAD_CONSULTANT — TulumTech Consulting)
-   reason: "Configuración inicial Hotel Monica Tulum"
+   reason: "Configuración inicial Hotel Boutique Tulum"
 
 🟢 2026-05-24 09:32 — Step 3 completed: LegalEntity created + PAC test passed
    por: María González (LEAD_CONSULTANT — TulumTech Consulting)

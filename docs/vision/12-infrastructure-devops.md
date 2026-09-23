@@ -24,7 +24,7 @@ Cada fase es **migración aditiva**, no reescritura. Los servicios elegidos en F
 
 ## 2. Fase 1 — Piloto profesional (HOY)
 
-**Target:** Hotel Monica Tulum + 2-3 hoteles más como early adopters. 99.5% uptime. Recovery <1h. Costo: **$70-200/mes**.
+**Target:** Hotel Boutique Tulum + 2-3 hoteles más como early adopters. 99.5% uptime. Recovery <1h. Costo: **$70-200/mes**.
 
 ### Stack recomendado
 

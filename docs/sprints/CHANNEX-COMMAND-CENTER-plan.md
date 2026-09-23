@@ -15,7 +15,7 @@ Reemplaza el módulo actual `/settings/channex` (snapshot read-only de queues + 
 
 ### Pain real
 
-Quote piloto Monica Tulum (2026-05-23):
+Quote piloto Hotel Boutique Tulum (2026-05-23):
 > "Hay ocasiones que en Booking el hotel quiere poner un precio y en Hostelworld uno más barato, que todo eso se pueda controlar desde una pantalla que existe en Zenix."
 
 Quote competencia (Capterra/G2 recurrentes):

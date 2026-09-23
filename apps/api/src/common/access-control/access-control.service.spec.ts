@@ -16,7 +16,7 @@ describe('AccessControlService — UNION 3-level access check', () => {
   const prisma = new PrismaClient()
   const service = new AccessControlService(prisma as any)
 
-  // Setup escenario completo Selina-mini:
+  // Setup escenario completo de una cadena en miniatura:
   //   Brand "AccessTest Brand"
   //     └─ Org "AccessTest Org"
   //          ├─ LegalEntity "MX" → Property "tulum-test"

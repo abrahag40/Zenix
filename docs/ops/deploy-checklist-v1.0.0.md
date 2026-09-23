@@ -1,6 +1,6 @@
 # Checklist de Deploy a Producción — Zenix v1.0.0 (piloto)
 
-> Despliegue del **piloto single-property** (Hotel Monica Tulum). Alcance MVP:
+> Despliegue del **piloto single-property** (Hotel Boutique Tulum). Alcance MVP:
 > PMS core + housekeeping + booking engine (`PAY_AT_HOTEL`) + facturación manual.
 > Infra Fase 1 (§73): **Vercel (web) + Render (API) + Neon (Postgres) + R2 (storage)**.
 >
