@@ -22,6 +22,7 @@
 | [13-consultant-setup-wizard.md](13-consultant-setup-wizard.md) | Zenix Activate — 8 etapas + templates inventory + health checks | Producto, partners, comercial |
 | [14-payment-currency-tax-architecture.md](14-payment-currency-tax-architecture.md) | 9 sub-módulos de cobros, divisas, impuestos LATAM + GuestCredit + CFDI E | Ingeniería, producto, fiscal |
 | [15-subscription-billing.md](15-subscription-billing.md) | Modelo de cobro Zenix tipo Netflix (mensual) + Stripe Billing wiring + discount codes negociables por consultor + retention save offers (Liverpool pattern) + dunning multi-canal (email/WhatsApp) + dashboards consultor y cliente | Comercial, ingeniería, partners |
+| [**17-puertos-abiertos-y-plan-piloto.md**](17-puertos-abiertos-y-plan-piloto.md) | 🟢 **PLAN VIGENTE.** Arquitectura de apertura (cómo publica Zenix un precio a un sitio ajeno, bandera por cliente, aislamiento, contrato del puerto) y el corte mínimo que pone al primer hotel real en producción, sobre la auditoría de los nueve sombreros | Ingeniería, producto, owner |
 | [16-version-roadmap.md](16-version-roadmap.md) | Vista consolidada del roadmap por versión (v1.0.0 → v1.2) con énfasis en billing: qué entra en cada release, T&C scope, free trial, annual contracts, pricing admin UI | Owner, comercial, comunicación interna |
 
 ## Reglas de uso de esta carpeta

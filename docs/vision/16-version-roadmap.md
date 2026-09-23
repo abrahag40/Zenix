@@ -1,5 +1,14 @@
 # 16 · Roadmap por versiones — qué entra en cada release
 
+> 🔴 **PLAN SUPERSEDIDO — 2026-09-22.** Las fechas de este documento están caducadas: el último
+> commit de producto es del **2026-06-21** y el plan de trabajo vigente es
+> [**17 · Puertos abiertos y plan del primer hotel real**](17-puertos-abiertos-y-plan-piloto.md),
+> escrito sobre la auditoría multi-sombrero del código (148 hallazgos, 40 verificados
+> adversarialmente, 0 refutados).
+>
+> **Este documento NO se borra:** conserva el alcance comprometido por versión, que sigue siendo
+> la referencia de qué se prometió. Lo que deja de valer son sus fechas y su orden.
+
 > Vista consolidada del roadmap v1.0.0 → v1.2 con énfasis en **billing** y
 > qué módulos están comprometidos en cada release. Complementa
 > [docs/vision/03-roadmap-v1-v2.md](03-roadmap-v1-v2.md) (que cubre la
