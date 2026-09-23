@@ -351,6 +351,21 @@ De la auditoría, el gate de cada sombrero. **Seis de los nueve dicen NO hoy.**
 
 ### MUST — sin cualquiera de estos, el piloto no sale
 
+> 🔄 **REORDENADO el 2026-09-23**, y el motivo está en
+> [**18 · Conectar Zenix al sitio de un hotel**](18-conexion-website-hotel.md).
+>
+> **M1, M2 y M3 están hechos** (PR #142): el cerrojo unificado, la restricción `EXCLUDE` que hace
+> imposible la sobreventa, y el primer e2e del repositorio con dos conexiones reales.
+>
+> **Y M4 se parte en dos**, porque tal como estaba bloqueaba la prioridad sin necesidad: el
+> **cálculo** fiscal es una función pura que sólo necesita configuración y adelanta a M5; la
+> **persistencia** (`TaxLine`, `FolioLine`) sigue siendo M4 y va después. Publicar un precio
+> necesita el cálculo; cobrarlo y declararlo necesita la persistencia.
+>
+> **M6 baja** detrás de la conexión. Importa —son dos fugas cross-tenant confirmadas— pero no es
+> la prioridad declarada del negocio, y ordenarlo por riesgo en vez de por prioridad fue un error
+> de secuencia, no de criterio.
+
 | # | Qué | Por qué |
 |---|---|---|
 | **M1** | **Unificar la clave del advisory lock** del motor público con la de recepción y la de OTAs | 🔴 **El único camino abierto a internet es el que NO se serializa contra el mostrador.** La regla existía escrita —`OVERBOOKING-HARDENING-plan.md:11`, «misma key en TODOS los flujos»— y la auditoría que declaró cubrir «toda escritura de inventario» dejó fuera el único flujo público |
