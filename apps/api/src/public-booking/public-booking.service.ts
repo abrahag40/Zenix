@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException, Logger } from '@nes
 import { PrismaService } from '../prisma/prisma.service'
 import { AvailabilityService } from '../pms/availability/availability.service'
 import { AvailabilityQueryDto } from './dto/availability-query.dto'
+import { PublicPricingService } from './public-pricing.service'
 
 /**
  * PublicBookingService — BOOKING-ENGINE B1 (READ).
@@ -23,6 +24,7 @@ export class PublicBookingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly availability: AvailabilityService,
+    private readonly pricing: PublicPricingService,
   ) {}
 
   /**
@@ -115,9 +117,18 @@ export class PublicBookingService {
    * half-open, excluye no-shows/cancelled/zombies gratis). Filtra por capacidad
    * contra (adults + children).
    *
-   * B1 expone tarifa = `RoomType.baseRate` (BAR público). La resolución fina con
-   * RatePlan/temporadas/promociones (rate-resolver D-RATES2) se enchufa en B2/B5
-   * cuando el checkout la requiera — documentado, no asumido.
+   * 🔴 C2 (docs/vision/18): el precio ya NO es `RoomType.baseRate`.
+   *
+   * Antes esto publicaba la BAR con la nota «la resolución fina se enchufa en
+   * B2/B5». Esa deuda es la que hacía que una temporada alta cargada en Zenix
+   * no se viera en el sitio del hotel. Ahora `PublicPricingService` resuelve
+   * noche por noche con la precedencia D-RATES2 completa y le suma el desglose
+   * fiscal con la MISMA función pura que usa recepción.
+   *
+   * `nightlyRate` y `totalRate` se conservan —los consume `BookingPage.tsx`—
+   * pero pasan a ser DERIVADOS de `pricing`, que es la fuente de verdad. Dos
+   * campos, un solo cálculo: lo contrario es cómo se acaba con dos totales
+   * distintos para la misma noche.
    */
   async checkAvailability(slug: string, q: AvailabilityQueryDto) {
     const config = await this.resolvePublishedProperty(slug)
@@ -148,6 +159,14 @@ export class PublicBookingService {
       },
     })
 
+    // Contexto de tarifa UNA vez por petición, no una por tipo de habitación.
+    const { ctx, reason } = await this.pricing.loadPlanContext(
+      propertyId,
+      config.publicRatePlanId ?? null,
+      from,
+      to,
+    )
+
     const results = await Promise.all(
       roomTypes.map(async (rt) => {
         let availableRooms = 0
@@ -155,17 +174,35 @@ export class PublicBookingService {
           const res = await this.availability.check({ roomId: room.id, from, to })
           if (res.available) availableRooms++
         }
-        const nightly = Number(rt.baseRate)
+        const pricing = this.pricing.price({
+          checkIn: from,
+          checkOut: to,
+          occupants: pax,
+          currency: rt.currency ?? currency,
+          bar: Number(rt.baseRate),
+          roomTypeId: rt.id,
+          ratesIncludeTaxes: config.ratesIncludeTaxes,
+          jurisdiction: {
+            countryCode: config.property.legalEntity?.countryCode ?? 'MX',
+            city: config.property.city ?? null,
+          },
+          ctx,
+          fallbackReason: reason,
+        })
         return {
           roomTypeId: rt.id,
           name: rt.name,
           maxOccupancy: rt.maxOccupancy,
           availableRooms,
           available: availableRooms > 0,
-          nightlyRate: nightly,
+          // Derivados de `pricing`, por compatibilidad con BookingPage.tsx.
+          // El total legacy es el TOTAL CON IMPUESTOS: es el número que la
+          // regla del proyecto —y la LFPC art. 7 BIS— obliga a exhibir.
+          nightlyRate: pricing.totalCents / 100 / pricing.nights,
           nights,
-          totalRate: nightly * nights,
+          totalRate: pricing.totalCents / 100,
           currency: rt.currency ?? currency,
+          pricing,
         }
       }),
     )
@@ -200,6 +237,7 @@ export class PublicBookingService {
         nights: r.nights,
         totalRate: r.totalRate,
         currency: r.currency,
+        pricing: r.pricing,
       })),
     }
   }

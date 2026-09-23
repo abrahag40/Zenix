@@ -949,6 +949,16 @@ model BookingEngineConfig {
   // ── Marketplace Tier 2 (§6 del plan) — opt-in comisión 3-5% ──────────────
   marketplaceListingEnabled Boolean @default(false) @map("marketplace_listing_enabled")
 
+  // ── C2: qué precio publica el sitio (docs/vision/18) ────────────────────
+  /// Plan de tarifa que publica el sitio. NULL = el puerto elige con una regla
+  /// determinista y DECLARA en la respuesta qué usó. Sin FK a propósito: un
+  /// plan borrado no debe tumbar la configuración del motor público.
+  publicRatePlanId  String?  @map("public_rate_plan_id")
+  /// true = la tarifa cargada YA incluye impuestos. Equivocar esto mueve el
+  /// precio publicado un 21% en Quintana Roo. El default replica el
+  /// comportamiento actual del PMS para no cambiarle el precio a nadie.
+  ratesIncludeTaxes Boolean  @default(true) @map("rates_include_taxes")
+
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
   publishedAt DateTime? @map("published_at")

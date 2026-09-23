@@ -3,6 +3,7 @@ import { NotificationsModule } from '../notifications/notifications.module'
 import { PublicBookingController } from './public-booking.controller'
 import { BookingEngineManagementController } from './booking-engine-management.controller'
 import { PublicBookingService } from './public-booking.service'
+import { PublicPricingService } from './public-pricing.service'
 import { BookingEngineConfigService } from './booking-engine-config.service'
 import { PublicReservationsService } from './public-reservations.service'
 import { BookingApiKeyService } from './booking-api-key.service'
@@ -25,6 +26,7 @@ import { WebhookSubscriptionService } from './webhooks/webhook-subscription.serv
   controllers: [PublicBookingController, BookingEngineManagementController],
   providers: [
     PublicBookingService,
+    PublicPricingService,
     BookingEngineConfigService,
     PublicReservationsService,
     BookingApiKeyService,
