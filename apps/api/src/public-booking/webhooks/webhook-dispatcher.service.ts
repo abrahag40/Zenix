@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { createHmac } from 'crypto'
+import { cabeceraFirma, firmar } from '../rate-envelope/rate-envelope'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 
@@ -54,14 +55,33 @@ export class WebhookDispatcherService {
     if (!sub.active || sub.disabledAt) return
 
     const rawBody = JSON.stringify(delivery.payload)
+
+    // 🔴 FIRMA V1 — SIN MARCA DE TIEMPO, y por eso REPRODUCIBLE.
+    //
+    // `HMAC(cuerpo)` autentica el ORIGEN pero no la FRESCURA: quien capture una
+    // entrega puede reenviarla cuando quiera y su firma seguirá cuadrando.
+    // Contra un receptor que escribe el precio publicado de un hotel, eso
+    // significa REPONER UNA TARIFA VIEJA en el momento que al atacante le
+    // convenga — el día de mayor demanda, por ejemplo.
+    //
+    // Se conserva por compatibilidad con cualquier receptor ya conectado, y se
+    // marca como obsoleta. Los receptores nuevos verifican V2.
     const signature = createHmac('sha256', sub.secret).update(rawBody).digest('hex')
+
+    // FIRMA V2 — `HMAC(t.cuerpo)` con ventana de tolerancia. El esquema de
+    // Stripe y de Standard Webhooks. El receptor comprueba la ventana y la
+    // firma ANTES de parsear el JSON: nunca procesa un cuerpo no autenticado.
+    const t = Math.floor(Date.now() / 1000)
+    const signatureV2 = cabeceraFirma(t, firmar(sub.secret, t, rawBody))
 
     try {
       const res = await fetch(sub.url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          // Obsoleta: sin marca de tiempo. Ver el comentario de arriba.
           'X-Zenix-Signature': `sha256=${signature}`,
+          'X-Zenix-Signature-V2': signatureV2,
           'X-Zenix-Event': delivery.event,
           'X-Zenix-Delivery': delivery.id,
         },

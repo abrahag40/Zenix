@@ -4,6 +4,7 @@ import { PublicBookingController } from './public-booking.controller'
 import { BookingEngineManagementController } from './booking-engine-management.controller'
 import { PublicBookingService } from './public-booking.service'
 import { PublicPricingService } from './public-pricing.service'
+import { RateEnvelopeService } from './rate-envelope/rate-envelope.service'
 import { BookingEngineConfigService } from './booking-engine-config.service'
 import { PublicReservationsService } from './public-reservations.service'
 import { BookingApiKeyService } from './booking-api-key.service'
@@ -27,6 +28,7 @@ import { WebhookSubscriptionService } from './webhooks/webhook-subscription.serv
   providers: [
     PublicBookingService,
     PublicPricingService,
+    RateEnvelopeService,
     BookingEngineConfigService,
     PublicReservationsService,
     BookingApiKeyService,
@@ -37,6 +39,6 @@ import { WebhookSubscriptionService } from './webhooks/webhook-subscription.serv
     WebhookRetryScheduler,
     WebhookSubscriptionService,
   ],
-  exports: [PublicBookingService, BookingApiKeyService, WebhookSubscriptionService],
+  exports: [PublicBookingService, BookingApiKeyService, WebhookSubscriptionService, RateEnvelopeService],
 })
 export class PublicBookingModule {}
