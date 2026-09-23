@@ -1051,8 +1051,23 @@ async function main() {
     return r.id
   }
 
+  // 🔴 INVARIANTE DE LA SEMILLA: estas habitaciones NO pueden ser las mismas que
+  // ocupa `seed_hotel_tulum_v5.sql`, que corre antes (línea 552).
+  //
+  // Aquel SQL usa FECHAS FIJAS y este bloque usa fechas RELATIVAS a hoy, así que
+  // si comparten habitación el choque depende del DÍA en que se siembre: el
+  // viaje de la A1 de Tulum va del 2026-09-02 al 09-30, y cualquier siembra
+  // dentro de esa ventana vendía la misma cama dos veces. Estuvo así hasta que
+  // la restricción `stay_segments_sin_solape` lo rechazó — no era un dato mal
+  // puesto, era una bomba de tiempo con ventana de 26 días.
+  //
+  // Ocupadas por el SQL:  Tulum 205, 301, 305, A1  ·  Cancún 201, 204, 301, 302
+  // Por eso A1 → 101 y Cancún 301 → 402. La solución es que los conjuntos sean
+  // DISJUNTOS, no que las fechas casen: así ninguna fecha futura los vuelve a
+  // cruzar.
+  //
   // ── Tulum — checkout HOY ──────────────────────────────────────────────────
-  const tRoomA1 = await getRoomId(tulum.id, 'A1')
+  const tRoomA1 = await getRoomId(tulum.id, '101')
   const tRoomA2 = await getRoomId(tulum.id, 'A2')
   const tRoomB1 = await getRoomId(tulum.id, 'B1')
 
@@ -1130,7 +1145,7 @@ async function main() {
   })
 
   // ── Cancún — checkout MAÑANA ──────────────────────────────────────────────
-  const cRoom301 = await getRoomId(cancun.id, '301')
+  const cRoom301 = await getRoomId(cancun.id, '402')  // 301 la ocupa el SQL del 09-20 al 09-25
 
   await seedCheckoutStay({
     stayId: 'seed-co-cancun-301-tmrw', journeyId: 'seed-jn-cancun-301-tmrw', segmentId: 'seed-sg-cancun-301-tmrw',

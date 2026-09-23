@@ -1,8 +1,15 @@
 name: CI
 
 on:
+  # 🔴 Sin `branches`, a propósito: el CI corre en TODO pull request, apunte a
+  # donde apunte.
+  #
+  # Con `branches: [main]` un PR apilado sobre otra rama NO se verificaba NUNCA
+  # —medido el 2026-09-23: los PR #145, #146 y #147 llegaron a estar listos para
+  # fusionar sin una sola corrida de «Lint & Test»—. Y reapuntarlos a main
+  # tampoco lo dispara, porque el evento es `edited` y no está en los tipos por
+  # defecto. Es decir: apilar PRs equivalía a saltarse el CI en silencio.
   pull_request:
-    branches: [main]
   push:
     branches: [main]
 
@@ -119,6 +126,29 @@ jobs:
       # cubiertos cuando se ejecute Channex Stage 4 walkthrough (§148):
       #   - channex-crud-schema.spec.ts
       #   - channex-management/channex-management.spec.ts
+      # 🔴 El e2e de sobreventa. La auditoría del 2026-09-22 midió que en los 105
+      # specs el advisory lock está SIEMPRE mockeado y que no existía un solo
+      # archivo e2e: borrar la línea del lock dejaba 1316 pruebas en verde.
+      #
+      # Un lock no se puede probar con un cliente mockeado, porque lo que se prueba
+      # es que DOS transacciones distintas se excluyen. Hacen falta dos conexiones.
+      #
+      # Es BLOQUEANTE a propósito: el caso que cubre —la web y el mostrador
+      # vendiendo la misma cama— es el único fallo de este sistema que se cobra en
+      # un huésped de pie en la recepción, y no se puede deshacer.
+      - name: Test e2e — sobreventa (dos conexiones reales)
+        run: npx turbo test:e2e --filter=@zenix/api
+        env:
+          # 🔴 Literal, como los demás pasos. Estuvo como `${{ env.DATABASE_URL }}`
+          # y eso NO existe a nivel de job —cada paso define el suyo—, así que
+          # resolvía a cadena vacía, la suite se saltaba sola y el paso salía en
+          # VERDE habiendo probado cero. Medido: «Tests: 5 skipped, 5 total».
+          DATABASE_URL: postgresql://housekeeping:testpassword@localhost:5432/housekeeping_test
+          JWT_SECRET: test-secret-not-for-production
+          JWT_EXPIRES_IN: 1h
+          NODE_ENV: test
+          CI: 'true'
+
       - name: Test
         run: npx turbo test -- --runInBand --testPathIgnorePatterns="channex-crud-schema" --testPathIgnorePatterns="channex-management/channex-management"
         env:
