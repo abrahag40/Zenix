@@ -98,6 +98,19 @@ export interface PublicPricing {
   taxesVerified: boolean
   /** true = el estado se dedujo del nombre de la ciudad. Configuración incompleta. */
   taxesInferred: boolean
+  /**
+   * 🔴 `true` = este total se puede PUBLICAR como precio firme.
+   *
+   * Es la regla del proyecto —«el total cotizado incluye impuestos»— reducida a
+   * un booleano, y vive AQUÍ a propósito. La página alojada, el sitio del hotel
+   * y cualquier otro consumidor futuro tienen que tomar la MISMA decisión; si
+   * cada uno la reimplementa, tarde o temprano uno publica un precio que otro
+   * no publicaría, y el huésped ve dos números distintos del mismo hotel.
+   *
+   * Un consumidor puede seguir mostrando la habitación con `firm: false` — lo
+   * que no puede es poner una cifra y llamarla total.
+   */
+  firm: boolean
   /** Por qué el precio o el desglose son incompletos, si lo son. */
   notes: string[]
   /** Fundamento normativo del desglose fiscal. */
@@ -227,6 +240,7 @@ export class PublicPricingService {
         taxesConfigured: false,
         taxesVerified: false,
         taxesInferred: policy.inferred,
+        firm: false,
         notes: [...notes, 'El desglose fiscal no se pudo calcular; el total mostrado NO incluye impuestos.'],
       }
     }
@@ -253,6 +267,11 @@ export class PublicPricingService {
       taxesConfigured: fiscal.configured,
       taxesVerified: policy.verified,
       taxesInferred: policy.inferred,
+      // Firme sólo si el desglose se pudo calcular Y la jurisdicción está
+      // verificada contra su ley. Que falte cualquiera de las dos significa que
+      // no podemos garantizar el total, y un total que no se garantiza es la
+      // queja de «me cobraron más» esperando fecha.
+      firm: fiscal.configured && policy.verified,
       notes,
       legalBasis: fiscal.legalBasis,
     }

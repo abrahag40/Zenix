@@ -245,6 +245,33 @@ describe('PublicPricingService', () => {
     })
   })
 
+  describe('🔴 `firm` — la regla de publicar, en un solo sitio', () => {
+    it('jurisdicción verificada y desglose calculado → firme', () => {
+      const r = service.price({ ...base, ratesIncludeTaxes: false, ctx: ctxPlano })
+      expect(r.firm).toBe(true)
+    })
+
+    it('estado SIN VERIFICAR → no firme, aunque haya IVA calculado', () => {
+      const r = service.price({
+        ...base,
+        jurisdiction: { ...jurisdiccionTulum, stateCode: 'JAL', municipality: 'Puerto Vallarta', city: 'Puerto Vallarta' },
+        ratesIncludeTaxes: false, ctx: ctxPlano,
+      })
+      expect(r.taxesConfigured).toBe(true)
+      expect(r.taxesVerified).toBe(false)
+      expect(r.firm).toBe(false)
+    })
+
+    it('sin jurisdicción configurada → no firme', () => {
+      const r = service.price({
+        ...base,
+        jurisdiction: { countryCode: 'CR', stateCode: null, municipality: null, city: 'Tamarindo', lodgingKind: 'HOTEL' as const, optIns: [] },
+        ratesIncludeTaxes: false, ctx: ctxPlano,
+      })
+      expect(r.firm).toBe(false)
+    })
+  })
+
   it('lleva su fundamento legal para que el desglose sea auditable', () => {
     const r = service.price({ ...base, ratesIncludeTaxes: false, ctx: ctxPlano })
     expect(r.legalBasis).toContain('16-dic-2025')
