@@ -9,10 +9,21 @@
  *   4. Guarda en disco bajo `{root}/{organizationId}/{scope}/{uuid}.jpg`
  *   5. Devuelve URL pública relativa al global prefix (`/api/uploads/...`)
  *
- * Por qué disco local (no S3 todavía):
- *   - Sprint Mx-1C migrará a S3/CloudFront. La interfaz de retorno
- *     (`{ id, url }`) ya es compatible para mantener consumidores estables.
- *   - Piloto LATAM corre en single-instance; disco local es suficiente.
+ * 🔴 EL DISCO ES CACHÉ, LA BASE ES EL ALMACÉN (M9, 2026-09-23).
+ *
+ * Esta cabecera decía que «disco local es suficiente» para el piloto. No lo
+ * era: en un despliegue con contenedor ese disco se va con el contenedor, y la
+ * foto del documento de un huésped desaparece SIN ERROR y sin registro.
+ * Pérdida de datos personales, silenciosa y garantizada — y de datos que la
+ * LFPDPPP obliga a poder acreditar.
+ *
+ * Ahora cada archivo se escribe en los dos sitios. Se sirve del disco, que es
+ * rápido; cuando el disco no lo tiene —justo después de un despliegue— se
+ * repone desde la base. Que la caché desaparezca deja de tener consecuencias,
+ * que es exactamente la diferencia entre una caché y un almacén.
+ *
+ * S3/R2 sigue siendo el destino a medio plazo y la interfaz (`{ id, url }`) no
+ * cambia para llegar ahí.
  *
  * Seguridad:
  *   - UUID v4 criptográfico → URLs no adivinables (mismo principio que S3
@@ -31,6 +42,7 @@ import {
   Logger,
 } from '@nestjs/common'
 import { promises as fs } from 'fs'
+import { PrismaService } from '../prisma/prisma.service'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
 // ROOT CAUSE testing T-25 final: Sharp exporta vía `module.exports = Sharp`
@@ -71,7 +83,10 @@ export interface UploadedFileResult {
 export class UploadsService {
   private readonly logger = new Logger(UploadsService.name)
 
-  constructor(private readonly tenant: TenantContextService) {}
+  constructor(
+    private readonly tenant: TenantContextService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   /**
    * Procesa un buffer entrante (binario o base64). Path principal compartido
@@ -199,9 +214,30 @@ export class UploadsService {
       .jpeg({ quality: JPEG_QUALITY, progressive: true, mozjpeg: true })
       .toBuffer()
 
-    await fs.writeFile(fullPath, buffer)
-
     const finalMeta = await sharp(buffer).metadata()
+
+    // 🔴 LA BASE PRIMERO. Si el disco falla, el archivo ya está a salvo y la
+    // caché se repone sola en la primera lectura. Al revés —disco primero— un
+    // fallo de la base dejaría un archivo servible que no sobrevive al próximo
+    // despliegue, que es justo el defecto que esto cierra.
+    await this.prisma.uploadedFile.upsert({
+      where: { organizationId_scope_filename: { organizationId, scope, filename } },
+      create: {
+        id, organizationId, scope, filename,
+        mimeType: 'image/jpeg', sizeBytes: buffer.length,
+        width: finalMeta.width ?? null, height: finalMeta.height ?? null,
+        bytes: new Uint8Array(buffer),
+      },
+      update: { bytes: new Uint8Array(buffer), sizeBytes: buffer.length },
+    })
+
+    // El disco es mejor-esfuerzo: si no se puede escribir, se registra y se
+    // sigue. Cada lectura posterior lo repondrá.
+    try {
+      await fs.writeFile(fullPath, buffer)
+    } catch (err) {
+      this.logger.warn(`No se pudo escribir la caché en disco: ${(err as Error).message}`)
+    }
 
     return {
       id,
@@ -252,25 +288,97 @@ export class UploadsService {
    * Devuelve null si el archivo no existe o el URL no es un upload.
    */
   async readAsDataUri(publicUrl: string): Promise<string | null> {
+    const buf = await this.leerBytes(publicUrl)
+    return buf ? `data:image/jpeg;base64,${buf.toString('base64')}` : null
+  }
+
+  /**
+   * 🔑 Lee el archivo, de donde esté, y repone la caché si hacía falta.
+   *
+   * Éste es el método que hace que M9 esté realmente cerrado: sin él la base
+   * guardaría los bytes y nadie los leería nunca, porque todo lo demás sigue
+   * mirando al disco. La primera lectura después de un despliegue encuentra el
+   * disco vacío, baja de la base y lo repone — y a partir de ahí el disco
+   * vuelve a servir, que es para lo que está.
+   */
+  async leerBytes(publicUrl: string): Promise<Buffer | null> {
+    const partes = this.partesDeUrl(publicUrl)
+    if (!partes) return null
+
     const target = this.resolveStoredPath(publicUrl)
-    if (!target) return null
-    try {
-      const buf = await fs.readFile(target)
-      return `data:image/jpeg;base64,${buf.toString('base64')}`
-    } catch {
-      return null
+    if (target) {
+      try {
+        return await fs.readFile(target)
+      } catch {
+        // No está en disco. No es un error: es una caché fría.
+      }
     }
+
+    const fila = await this.prisma.uploadedFile.findUnique({
+      where: {
+        organizationId_scope_filename: {
+          organizationId: partes.org, scope: partes.scope, filename: partes.file,
+        },
+      },
+      select: { bytes: true },
+    })
+    if (!fila) return null
+
+    const buf = Buffer.from(fila.bytes)
+    // Reponer la caché en segundo plano. Que falle no cambia la respuesta.
+    if (target) {
+      void fs
+        .mkdir(join(UPLOAD_ROOT, partes.org, partes.scope), { recursive: true })
+        .then(() => fs.writeFile(target, buf))
+        .catch((err) => this.logger.warn(`No se pudo reponer la caché: ${(err as Error).message}`))
+    }
+    return buf
   }
 
   /** Borra un archivo almacenado por su public URL (retención §D-AC4). */
   async deleteByUrl(publicUrl: string): Promise<boolean> {
-    const target = this.resolveStoredPath(publicUrl)
-    if (!target) return false
+    const partes = this.partesDeUrl(publicUrl)
+    if (!partes) return false
+
+    // 🔴 La base primero, y el resultado depende de ELLA. Borrar sólo el disco
+    // dejaría el archivo vivo en el almacén: una retención que cree haber
+    // borrado y no borró es peor que no tener retención, porque nadie vuelve a
+    // mirar.
+    let borrado = false
     try {
-      await fs.unlink(target)
-      return true
+      await this.prisma.uploadedFile.delete({
+        where: {
+          organizationId_scope_filename: {
+            organizationId: partes.org, scope: partes.scope, filename: partes.file,
+          },
+        },
+      })
+      borrado = true
     } catch {
-      return false
+      // No estaba en la base: pudo subirse antes de M9. Se sigue al disco.
     }
+
+    const target = this.resolveStoredPath(publicUrl)
+    if (target) {
+      try {
+        await fs.unlink(target)
+        borrado = true
+      } catch {
+        // Ya no estaba en disco.
+      }
+    }
+    return borrado
+  }
+
+  /** Descompone `/api/uploads/{org}/{scope}/{file}` validando cada segmento. */
+  private partesDeUrl(publicUrl: string): { org: string; scope: string; file: string } | null {
+    const m = /^\/api\/uploads\/([^/]+)\/([^/]+)\/([^/]+)$/.exec(publicUrl || '')
+    if (!m) return null
+    const [, org, scope, file] = m
+    for (const seg of [org, scope, file]) {
+      if (!/^[a-zA-Z0-9._-]+$/.test(seg) || seg.includes('..') || seg.includes('\0')) return null
+    }
+    if (!file.endsWith('.jpg')) return null
+    return { org, scope, file }
   }
 }
