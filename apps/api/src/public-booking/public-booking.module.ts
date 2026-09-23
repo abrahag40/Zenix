@@ -5,6 +5,7 @@ import { BookingEngineManagementController } from './booking-engine-management.c
 import { PublicBookingService } from './public-booking.service'
 import { PublicPricingService } from './public-pricing.service'
 import { RateEnvelopeService } from './rate-envelope/rate-envelope.service'
+import { RateEnvelopeListener } from './rate-envelope/rate-envelope.listener'
 import { BookingEngineConfigService } from './booking-engine-config.service'
 import { PublicReservationsService } from './public-reservations.service'
 import { BookingApiKeyService } from './booking-api-key.service'
@@ -29,6 +30,7 @@ import { WebhookSubscriptionService } from './webhooks/webhook-subscription.serv
     PublicBookingService,
     PublicPricingService,
     RateEnvelopeService,
+    RateEnvelopeListener,
     BookingEngineConfigService,
     PublicReservationsService,
     BookingApiKeyService,
