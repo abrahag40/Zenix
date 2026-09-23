@@ -71,7 +71,9 @@ describe('Channex push — integración BD real (regresión bugs cert)', () => {
 
     availSvc = new AvailabilityService(prisma as any, channex, events)
     const tenantStub = { getOrganizationId: () => org.id } as any
-    ratesSvc = new RatesService(prisma as any, tenantStub, events)
+    // El 4.º argumento es AuditLogService (C3): la auditoría de tarifas no
+    // debe cambiar el comportamiento de este caso, así que va un doble inerte.
+    ratesSvc = new RatesService(prisma as any, tenantStub, events, { write: jest.fn() } as any)
   })
 
   beforeEach(() => {

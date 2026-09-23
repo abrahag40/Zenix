@@ -302,17 +302,39 @@ export class PublicPricingService {
       plan = candidatos[0]
     }
 
+    // 🔴 C3 — el override SIN plan también cuenta.
+    //
+    // `POST /v1/rates/overrides` recibe `ratePlanId` OPCIONAL, y la UI lo manda
+    // opcional: guardar un override sin plan es un caso real, no un borde. Con
+    // el filtro anterior (`ratePlanId: plan.id`) esos overrides eran
+    // INVISIBLES para el sitio del hotel — el gerente cambiaba la tarifa, el
+    // panel la mostraba, y la web seguía con la anterior. Es exactamente el
+    // fallo que este proyecto vino a cerrar: «el panel lo dice» no es
+    // «funciona».
     const overrideRows = await this.prisma.rateOverride.findMany({
       where: {
         propertyId,
-        ratePlanId: plan.id,
+        // `null` = override que aplica a cualquier plan. Se expresa con OR y no
+        // con `in: [id, null]` porque Prisma no admite `null` dentro de `in`.
+        OR: [{ ratePlanId: plan.id }, { ratePlanId: null }],
         date: { gte: new Date(utcMidnight(from)), lte: new Date(utcMidnight(to)) },
       },
-      select: { roomTypeId: true, date: true, overrideRate: true },
+      select: { roomTypeId: true, date: true, overrideRate: true, ratePlanId: true },
     })
+
+    // Precedencia explícita: el override DEL PLAN gana sobre el genérico. En
+    // memoria y no por el orden de la consulta — un precio no puede depender
+    // del ORDER BY que el motor decida hoy.
     const overrides = new Map<string, number>()
+    const especificos = new Set<string>()
     for (const o of overrideRows) {
-      overrides.set(`${o.roomTypeId}|${o.date.toISOString().slice(0, 10)}`, Number(o.overrideRate))
+      // Defensa en profundidad: si el WHERE se relaja por error, aquí no pasa.
+      if (o.ratePlanId != null && o.ratePlanId !== plan.id) continue
+      const clave = `${o.roomTypeId}|${o.date.toISOString().slice(0, 10)}`
+      const esDelPlan = o.ratePlanId === plan.id
+      if (especificos.has(clave) && !esDelPlan) continue
+      overrides.set(clave, Number(o.overrideRate))
+      if (esDelPlan) especificos.add(clave)
     }
 
     return {

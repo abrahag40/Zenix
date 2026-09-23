@@ -193,6 +193,58 @@ describe('PublicPricingService', () => {
     expect(r.notes.join(' ')).toMatch(/SIN VERIFICAR/)
   })
 
+  // ── C3: lo que se escribe en Zenix tiene que LLEGAR al sitio ──────────────
+  describe('🔴 el override sin plan — «cambié el precio y la web no cambia»', () => {
+    const planWeb = {
+      id: 'p1', code: 'WEB', baseStrategy: 'BAR', baseRate: null, baseMultiplier: null,
+      seasons: [], dayOfWeekRules: [],
+    }
+
+    it('un override guardado SIN plan lo ve el puerto público', async () => {
+      prisma.ratePlan.findFirst.mockResolvedValue(planWeb)
+      // La UI manda `ratePlanId` OPCIONAL: guardar sin plan es un caso real.
+      prisma.rateOverride.findMany.mockResolvedValue([
+        { roomTypeId: 'rt-1', date: new Date('2026-12-25T00:00:00Z'), overrideRate: 777, ratePlanId: null },
+      ])
+      const { ctx } = await service.loadPlanContext('prop-1', 'p1', base.checkIn, base.checkOut)
+      const r = service.price({ ...base, ratesIncludeTaxes: false, ctx })
+      expect(r.nightly[1]).toEqual({ date: '2026-12-25', netCents: 77_700, source: 'OVERRIDE' })
+    })
+
+    it('si hay override del plan Y sin plan para la misma noche, gana el del plan', async () => {
+      prisma.ratePlan.findFirst.mockResolvedValue(planWeb)
+      prisma.rateOverride.findMany.mockResolvedValue([
+        { roomTypeId: 'rt-1', date: new Date('2026-12-25T00:00:00Z'), overrideRate: 500, ratePlanId: null },
+        { roomTypeId: 'rt-1', date: new Date('2026-12-25T00:00:00Z'), overrideRate: 900, ratePlanId: 'p1' },
+      ])
+      const { ctx } = await service.loadPlanContext('prop-1', 'p1', base.checkIn, base.checkOut)
+      const r = service.price({ ...base, ratesIncludeTaxes: false, ctx })
+      expect(r.nightly[1].netCents).toBe(90_000)
+    })
+
+    it('🔒 la consulta pide los del plan Y los genéricos — el filtro vive en el WHERE', async () => {
+      prisma.ratePlan.findFirst.mockResolvedValue(planWeb)
+      await service.loadPlanContext('prop-1', 'p1', base.checkIn, base.checkOut)
+      expect(prisma.rateOverride.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            OR: [{ ratePlanId: 'p1' }, { ratePlanId: null }],
+          }),
+        }),
+      )
+    })
+
+    it('un override de OTRO plan no se cuela', async () => {
+      prisma.ratePlan.findFirst.mockResolvedValue(planWeb)
+      prisma.rateOverride.findMany.mockResolvedValue([
+        { roomTypeId: 'rt-1', date: new Date('2026-12-25T00:00:00Z'), overrideRate: 111, ratePlanId: 'OTRO' },
+      ])
+      const { ctx } = await service.loadPlanContext('prop-1', 'p1', base.checkIn, base.checkOut)
+      const r = service.price({ ...base, ratesIncludeTaxes: false, ctx })
+      expect(r.nightly[1].source).toBe('BASE')
+    })
+  })
+
   it('lleva su fundamento legal para que el desglose sea auditable', () => {
     const r = service.price({ ...base, ratesIncludeTaxes: false, ctx: ctxPlano })
     expect(r.legalBasis).toContain('16-dic-2025')
