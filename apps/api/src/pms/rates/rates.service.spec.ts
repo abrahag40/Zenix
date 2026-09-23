@@ -33,6 +33,10 @@ describe('RatesService — RATES-CORE Fase 1', () => {
         // CHANNEX_RESTRICTION_UPDATED. En unit tests basta un emit() stub.
         { provide: 'EventEmitter2', useValue: events },
         { provide: require('@nestjs/event-emitter').EventEmitter2, useValue: events },
+        // C3 — RatesService audita los cambios de tarifa. Estas pruebas no
+        // verifican la auditoría (eso vive en rates.audit.spec.ts), así que un
+        // doble inerte basta y mantiene el caso enfocado.
+        { provide: require('../../nova/audit/audit-log.service').AuditLogService, useValue: { write: jest.fn() } },
       ],
     }).compile()
     service = mod.get(RatesService)
