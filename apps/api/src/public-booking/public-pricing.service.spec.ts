@@ -15,7 +15,10 @@ describe('PublicPricingService', () => {
   let prisma: any
   let service: PublicPricingService
 
-  const jurisdiccionTulum = { countryCode: 'MX', city: 'Tulum' }
+  const jurisdiccionTulum = {
+    countryCode: 'MX', stateCode: 'ROO', municipality: 'Tulum', city: 'Tulum',
+    lodgingKind: 'HOTEL' as const, optIns: [] as string[],
+  }
   const base = {
     checkIn: new Date('2026-12-24T00:00:00Z'),
     checkOut: new Date('2026-12-27T00:00:00Z'), // 3 noches
@@ -146,13 +149,48 @@ describe('PublicPricingService', () => {
   it('fuera de una jurisdicción configurada avisa que el total está incompleto', () => {
     const r = service.price({
       ...base,
-      jurisdiction: { countryCode: 'CR', city: 'Tamarindo' },
+      jurisdiction: {
+        countryCode: 'CR', stateCode: null, municipality: null, city: 'Tamarindo',
+        lodgingKind: 'HOTEL' as const, optIns: [],
+      },
       ratesIncludeTaxes: false,
       ctx: ctxPlano,
     })
     expect(r.taxesConfigured).toBe(false)
     expect(r.totalCents).toBe(r.netCents)
-    expect(r.notes.join(' ')).toMatch(/sin configurar/i)
+    expect(r.notes.join(' ')).toMatch(/sin cargar/i)
+  })
+
+  it('🔴 el MISMO hotel en otro municipio del MISMO estado publica otro total', () => {
+    const tulum = service.price({ ...base, ratesIncludeTaxes: false, ctx: ctxPlano })
+    const chetumal = service.price({
+      ...base,
+      jurisdiction: {
+        ...jurisdiccionTulum,
+        municipality: 'Othón P. Blanco', city: 'Chetumal',
+        optIns: ['IVA_REGION_FRONTERIZA_SUR'],
+      },
+      ratesIncludeTaxes: false,
+      ctx: ctxPlano,
+    })
+    // Mismo neto, distinto IVA: 16% contra 8% del estímulo de región fronteriza.
+    expect(chetumal.netCents).toBe(tulum.netCents)
+    expect(tulum.totalCents).toBe(726_000)
+    expect(chetumal.totalCents).toBe(678_000)
+    expect(tulum.taxesVerified).toBe(true)
+    expect(tulum.taxesInferred).toBe(false)
+  })
+
+  it('un estado sin verificar lo DECLARA en la respuesta que lee el website', () => {
+    const r = service.price({
+      ...base,
+      jurisdiction: { ...jurisdiccionTulum, stateCode: 'JAL', municipality: 'Puerto Vallarta', city: 'Puerto Vallarta' },
+      ratesIncludeTaxes: false,
+      ctx: ctxPlano,
+    })
+    expect(r.taxesVerified).toBe(false)
+    expect(r.taxes.map((t) => t.code)).toEqual(['IVA'])
+    expect(r.notes.join(' ')).toMatch(/SIN VERIFICAR/)
   })
 
   it('lleva su fundamento legal para que el desglose sea auditable', () => {

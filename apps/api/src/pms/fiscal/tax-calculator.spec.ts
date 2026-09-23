@@ -114,14 +114,22 @@ describe('Lo que se niega a inventar', () => {
     expect(r.configured).toBe(false)
     expect(r.totalTaxesCents).toBe(0)
     expect(r.totalCents).toBe(100_000)
-    expect(r.note).toMatch(/sin configurar/i)
+    expect(r.note).toMatch(/sin cargar/i)
   })
 
-  it('en México fuera de QR publica el IVA y DICE que falta el ISH estatal', () => {
+  // 🔄 CAMBIO DE COMPORTAMIENTO DELIBERADO (catálogo nacional).
+  // Antes, una ciudad mexicana desconocida publicaba «IVA 16% y falta el ISH».
+  // Eso escondía un supuesto falso: sin saber el MUNICIPIO no se puede afirmar
+  // que el IVA sea 16% — en región fronteriza es 8%. Publicar 16% «porque es
+  // México» es el mismo error que aplicar las tasas de Quintana Roo fuera de
+  // Quintana Roo. Ahora se niega a calcular y pide configuración.
+  it('una ciudad mexicana sin jurisdicción configurada NO publica un IVA supuesto', () => {
     const policy = resolveFiscalPolicy({ countryCode: 'MX', city: 'Guadalajara', lodgingKind: 'HOTEL' })
     const r = calculateTaxes({ ...bases, lodgingCents: 100_000, mode: 'EXCLUSIVE', policy })
-    expect(r.lines.map((l) => l.code)).toEqual(['IVA'])
-    expect(r.note).toMatch(/falta el Impuesto Sobre Hospedaje estatal/i)
+    expect(r.configured).toBe(false)
+    expect(r.lines).toHaveLength(0)
+    expect(r.totalCents).toBe(100_000)
+    expect(r.note).toMatch(/no tiene estado fiscal configurado/i)
   })
 
   it('la política de QR advierte que el DSA no está incluido', () => {

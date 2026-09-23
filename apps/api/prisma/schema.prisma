@@ -834,6 +834,16 @@ model Property {
   // manualmente en Settings. regionCode ISO 3166-2 (e.g. "MX-ROO"); region
   // free-text se preserva para UX.
   regionCode     String?      @map("region_code")
+
+  // ── Perfil fiscal (catálogo nacional, docs/vision/20) ────────────────────
+  /// Municipio (nombre INEGI). DECIDE el estímulo de IVA en región fronteriza:
+  /// Othón P. Blanco tiene 8% y Tulum 16%, ambos en Quintana Roo.
+  taxMunicipality String?  @map("tax_municipality")
+  /// Regímenes que la propiedad DECLARA tener dados de alta ante la autoridad.
+  /// El estímulo fronterizo exige aviso ante el SAT: no lo da la geografía.
+  taxOptIns       String[] @default([]) @map("tax_opt_ins")
+  /// HOTEL | PRIVATE_RENTAL — en Quintana Roo, 5% contra 6% de ISH.
+  lodgingKind     String   @default("HOTEL") @map("lodging_kind")
   latitude       Float?
   longitude      Float?
   // Globally unique 3-digit code assigned sequentially at property creation.
