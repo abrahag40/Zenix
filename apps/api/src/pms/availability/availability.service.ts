@@ -524,11 +524,10 @@ export class AvailabilityService {
       }),
     ])
 
-    const entries = dates.map((date) => {
+    // 1) Disponibilidad absoluta por día (cuartos distintos ocupados, dedupe).
+    const perDay = dates.map((date) => {
       const dEnd = new Date(date)
       dEnd.setUTCDate(dEnd.getUTCDate() + 1)
-      // Set de cuartos NO disponibles ese día (dedupe: stay + su segmento ORIGINAL
-      // sobre el mismo cuarto cuentan UNA vez).
       const unavailable = new Set<string>()
       for (const s of stays) if (s.roomId && s.checkinAt < dEnd && s.scheduledCheckout > date) unavailable.add(s.roomId)
       for (const seg of segments) if (seg.roomId && seg.checkIn < dEnd && seg.checkOut > date) unavailable.add(seg.roomId)
@@ -539,9 +538,22 @@ export class AvailabilityService {
           if (rid) unavailable.add(rid)
         }
       }
-      const availability = Math.max(0, totalRooms - unavailable.size)
-      return { propertyId: channexPropertyId, roomTypeId: channexRoomTypeId, date: date.toISOString().slice(0, 10), availability }
+      return { iso: date.toISOString().slice(0, 10), availability: Math.max(0, totalRooms - unavailable.size) }
     })
+
+    // 2) Mergear días consecutivos con el MISMO valor en objetos date_from/date_to
+    // (Channex cert Test 10: "use date_range syntax with merged sequences"). `dates`
+    // ya es estrictamente consecutivo, así que basta comparar el valor previo.
+    type Entry = ChannexAvailabilityChangedEvent['entries'][number]
+    const entries: Entry[] = []
+    for (const d of perDay) {
+      const last = entries[entries.length - 1]
+      if (last && last.availability === d.availability) {
+        last.dateTo = d.iso
+      } else {
+        entries.push({ propertyId: channexPropertyId, roomTypeId: channexRoomTypeId, dateFrom: d.iso, dateTo: d.iso, availability: d.availability })
+      }
+    }
 
     const event: ChannexAvailabilityChangedEvent = { propertyId, entries }
     this.events.emit(CHANNEX_AVAILABILITY_CHANGED, event)

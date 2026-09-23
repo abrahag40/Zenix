@@ -85,14 +85,13 @@ describe('AvailabilityService.notifyReservation/Release (Day 3 event-driven)', (
 
     await svc.notifyReservation(baseNotif)
 
-    // CHANNEX-CERT-FIX: 3 cuartos del tipo, sin reservas mockeadas → avail=3
-    // (NO 0). Una entry por NOCHE del rango [01,04) = Jun 1, 2, 3.
+    // CHANNEX-CERT-FIX2: 3 cuartos, sin reservas → avail=3 (NO 0). Las 3 noches
+    // [01,04)=Jun 1,2,3 tienen el MISMO valor → se MERGEAN en UN objeto
+    // date_from/date_to (sintaxis date_range que pide Channex, Test 10).
     expect(emitSpy).toHaveBeenCalledWith(CHANNEX_AVAILABILITY_CHANGED, {
       propertyId: 'prop-1',
       entries: [
-        { propertyId: 'chx-prop-1', roomTypeId: 'chx-rt-1', date: '2026-06-01', availability: 3 },
-        { propertyId: 'chx-prop-1', roomTypeId: 'chx-rt-1', date: '2026-06-02', availability: 3 },
-        { propertyId: 'chx-prop-1', roomTypeId: 'chx-rt-1', date: '2026-06-03', availability: 3 },
+        { propertyId: 'chx-prop-1', roomTypeId: 'chx-rt-1', dateFrom: '2026-06-01', dateTo: '2026-06-03', availability: 3 },
       ],
     })
     // AP-2.2 mitigation: Gateway.pushInventory NUNCA se llama desde aquí

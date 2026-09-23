@@ -450,36 +450,67 @@ export class ChannexFullSyncOrchestrator {
       overrideMap.set(`${o.roomTypeId}|${o.ratePlanId}|${toIsoDate(o.date)}`, Number(o.overrideRate))
     }
 
+    // CHANNEX-CERT-FIX2 (2026-06-21). El revisor reprobó el full sync porque los
+    // objetos de restricción NO declaraban todos los campos. Un full sync envía
+    // el ESTADO COMPLETO: cada objeto declara los 7 campos con su valor resuelto
+    // o el DEFAULT abierto (min_stay_through=1, min_stay_arrival=1 [type="both"],
+    // max_stay=0=sin tope, closed_to_arrival/departure=false, stop_sell=false,
+    // rate=override??base). Además mergeamos días consecutivos idénticos en
+    // objetos date_from/date_to (sintaxis date_range, eficiente y limpia).
     const entries: ChannexRestrictionEntry[] = []
     for (const link of links) {
       const baseRate = planRate.get(link.ratePlanId) ?? rtRate.get(link.roomTypeId) ?? 0
       const planRestrictions = restrictions.filter(
         (r) => r.ratePlanId === link.ratePlanId && (r.roomTypeId == null || r.roomTypeId === link.roomTypeId),
       )
+      // 1) valores completos por día
+      const perDay: Array<{ iso: string; rate: number; minStayThrough: number; minStayArrival: number; maxStay: number; closedToArrival: boolean; closedToDeparture: boolean; stopSell: boolean }> = []
       for (let i = 0; i < days; i++) {
         const date = new Date(startDate.getTime() + i * 86_400_000)
         const dateStr = toIsoDate(date)
-        const entry: ChannexRestrictionEntry = {
-          propertyId: channexPropertyId,
-          ratePlanId: link.channexRatePlanId,
-          date: dateStr,
-          rate: overrideMap.get(`${link.roomTypeId}|${link.ratePlanId}|${dateStr}`) ?? baseRate,
-        }
         const rule = planRestrictions.find((r) => r.validFrom <= date && r.validTo >= date)
-        if (rule) {
-          // min_stay_through (no min_stay) — la propiedad no soporta el plano.
-          if (rule.mlos != null) entry.minStayThrough = rule.mlos
-          if (rule.maxLos != null) entry.maxStay = rule.maxLos
-          if (rule.cta) entry.closedToArrival = true
-          if (rule.ctd) entry.closedToDeparture = true
-          if (rule.stopSell) entry.stopSell = true
+        perDay.push({
+          iso: dateStr,
+          rate: overrideMap.get(`${link.roomTypeId}|${link.ratePlanId}|${dateStr}`) ?? baseRate,
+          minStayThrough: rule?.mlos ?? 1,
+          minStayArrival: rule?.mlos ?? 1,
+          maxStay: rule?.maxLos ?? 0,
+          closedToArrival: rule?.cta ?? false,
+          closedToDeparture: rule?.ctd ?? false,
+          stopSell: rule?.stopSell ?? false,
+        })
+      }
+      // 2) merge de días consecutivos idénticos → date_from/date_to
+      let cur: (typeof perDay)[number] | null = null
+      let curEntry: ChannexRestrictionEntry | null = null
+      const sameAs = (a: (typeof perDay)[number], b: (typeof perDay)[number]) =>
+        a.rate === b.rate && a.minStayThrough === b.minStayThrough && a.minStayArrival === b.minStayArrival &&
+        a.maxStay === b.maxStay && a.closedToArrival === b.closedToArrival && a.closedToDeparture === b.closedToDeparture && a.stopSell === b.stopSell
+      for (const d of perDay) {
+        if (cur && curEntry && sameAs(cur, d)) {
+          curEntry.dateTo = d.iso
+        } else {
+          curEntry = {
+            propertyId: channexPropertyId,
+            ratePlanId: link.channexRatePlanId,
+            dateFrom: d.iso,
+            dateTo: d.iso,
+            rate: d.rate,
+            minStayThrough: d.minStayThrough,
+            minStayArrival: d.minStayArrival,
+            maxStay: d.maxStay,
+            closedToArrival: d.closedToArrival,
+            closedToDeparture: d.closedToDeparture,
+            stopSell: d.stopSell,
+          }
+          entries.push(curEntry)
+          cur = d
         }
-        entries.push(entry)
       }
     }
     this.logger.log(
       `[Channex full-sync] buildRestrictionEntries property=${propertyId} ` +
-        `links=${links.length} days=${days} entries=${entries.length}`,
+        `links=${links.length} days=${days} entries=${entries.length} (merged date_range, all fields)`,
     )
     return entries
   }

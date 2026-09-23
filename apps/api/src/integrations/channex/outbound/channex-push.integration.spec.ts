@@ -139,7 +139,7 @@ describe('Channex push — integración BD real (regresión bugs cert)', () => {
 
     const ev = lastEvent(CHANNEX_AVAILABILITY_CHANGED)
     expect(ev).not.toBeNull()
-    const entry = ev.entries.find((e: any) => e.date === '2027-03-10')
+    const entry = ev.entries.find((e: any) => e.dateFrom === '2027-03-10')
     expect(entry).toBeDefined()
     expect(entry.propertyId).toBe(CHX_PROP)
     expect(entry.roomTypeId).toBe(CHX_RT)
@@ -155,7 +155,7 @@ describe('Channex push — integración BD real (regresión bugs cert)', () => {
     await availSvc.notifyReservation({ roomId: rooms[1].id, from: ci, to: co, reason: 'RESERVATION', traceId: 'it-2' })
 
     const ev = lastEvent(CHANNEX_AVAILABILITY_CHANGED)
-    const entry = ev.entries.find((e: any) => e.date === '2027-03-10')
+    const entry = ev.entries.find((e: any) => e.dateFrom === '2027-03-10')
     expect(entry.availability).toBe(3) // 5 − 2
   })
 
@@ -167,7 +167,7 @@ describe('Channex push — integración BD real (regresión bugs cert)', () => {
     await availSvc.notifyRelease({ roomId: rooms[0].id, from: ci, to: co, reason: 'CANCELLATION', traceId: 'it-3' })
 
     const ev = lastEvent(CHANNEX_AVAILABILITY_CHANGED)
-    const entry = ev.entries.find((e: any) => e.date === '2027-03-10')
+    const entry = ev.entries.find((e: any) => e.dateFrom === '2027-03-10')
     expect(entry.availability).toBe(5) // cancelada libera inventario
   })
 
@@ -190,14 +190,16 @@ describe('Channex push — integración BD real (regresión bugs cert)', () => {
     expect(bar.ratePlanId).not.toBe(bb.ratePlanId)
   })
 
-  it('min stay se envía como min_stay_through (no min_stay plano)', async () => {
+  it('min stay se envía como min_stay_through Y min_stay_arrival (cert fix, type="both")', async () => {
     await ratesSvc.applyRatesAndRestrictions(prop.id, 'itest', [
       { roomTypeId: roomType.id, ratePlanId: planBar.id, dateFrom: D(2026, 11, 23), dateTo: D(2026, 11, 23), minStay: 3 },
     ])
 
     const ev = lastEvent(CHANNEX_RESTRICTION_UPDATED)
     const entry = ev.entries.find((e: any) => e.ratePlanId === CHX_RP_BAR)
+    // La propiedad de cert tiene min_stay_type="both" → el revisor exige AMBOS.
     expect(entry.minStayThrough).toBe(3)
-    expect(entry.minStay).toBeUndefined() // NO se manda min_stay plano
+    expect(entry.minStayArrival).toBe(3)
+    expect(entry.minStay).toBeUndefined() // NO se manda el min_stay plano (ambiguo con type="both")
   })
 })
