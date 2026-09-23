@@ -23,6 +23,23 @@
 import { PrismaClient } from '@prisma/client'
 
 const URL_BD = process.env.DATABASE_URL
+
+// 🔴 EN CI, SALTARSE NO ES UN PASE.
+//
+// Esta suite se saltaba sola cuando faltaba DATABASE_URL y el paso salía en
+// VERDE — medido el 2026-09-23: «Tests: 5 skipped, 5 total» con conclusión
+// success. Es exactamente el modo de fallo que esta suite existe para impedir,
+// aplicado a sí misma: un guardián que nunca se ejecutó declarándose sano.
+//
+// En local, saltarse sigue siendo lo correcto: no todo el mundo tiene Postgres
+// levantado. En CI, no hay excusa y se rompe a gritos.
+if (!URL_BD && process.env.CI) {
+  throw new Error(
+    'e2e de sobreventa: falta DATABASE_URL en CI. Saltarse esta suite NO es un pase — ' +
+      'cubre el único fallo de este sistema que se cobra en un huésped de pie en la recepción.',
+  )
+}
+
 const describeSiHayBd = URL_BD ? describe : describe.skip
 
 if (!URL_BD) {

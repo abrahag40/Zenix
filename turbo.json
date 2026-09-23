@@ -51,7 +51,8 @@
         "DATABASE_URL",
         "JWT_SECRET",
         "JWT_EXPIRES_IN",
-        "NODE_ENV"
+        "NODE_ENV",
+        "CI"
       ]
     }
   }

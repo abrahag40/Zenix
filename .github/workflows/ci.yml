@@ -139,7 +139,15 @@ jobs:
       - name: Test e2e — sobreventa (dos conexiones reales)
         run: npx turbo test:e2e --filter=@zenix/api
         env:
-          DATABASE_URL: ${{ env.DATABASE_URL }}
+          # 🔴 Literal, como los demás pasos. Estuvo como `${{ env.DATABASE_URL }}`
+          # y eso NO existe a nivel de job —cada paso define el suyo—, así que
+          # resolvía a cadena vacía, la suite se saltaba sola y el paso salía en
+          # VERDE habiendo probado cero. Medido: «Tests: 5 skipped, 5 total».
+          DATABASE_URL: postgresql://housekeeping:testpassword@localhost:5432/housekeeping_test
+          JWT_SECRET: test-secret-not-for-production
+          JWT_EXPIRES_IN: 1h
+          NODE_ENV: test
+          CI: 'true'
 
       - name: Test
         run: npx turbo test -- --runInBand --testPathIgnorePatterns="channex-crud-schema" --testPathIgnorePatterns="channex-management/channex-management"
