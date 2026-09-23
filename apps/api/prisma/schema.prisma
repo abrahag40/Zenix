@@ -4958,3 +4958,29 @@ model LocalEventOverride {
   @@index([propertyId])
   @@map("local_event_overrides")
 }
+
+/// M9 — el almacén duradero de los archivos subidos.
+///
+/// 🔴 El disco es CACHÉ, esto es el almacén. Antes sólo existía el disco, y un
+/// despliegue se llevaba por delante las fotos del pre-check-in sin error y sin
+/// registro: pérdida de datos personales, silenciosa y garantizada.
+///
+/// S3/R2 es el destino a medio plazo. La base es lo que está disponible HOY sin
+/// credenciales nuevas ni una superficie de fallo nueva, y ya está respaldada.
+model UploadedFile {
+  id             String   @id
+  organizationId String   @map("organization_id")
+  scope          String
+  filename       String
+  mimeType       String   @default("image/jpeg") @map("mime_type")
+  sizeBytes      Int      @map("size_bytes")
+  width          Int?
+  height         Int?
+  /// El archivo. Recomprimido a 1920px y sin EXIF antes de llegar aquí.
+  bytes          Bytes
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([organizationId, scope, filename], map: "uploaded_files_ruta")
+  @@index([createdAt], map: "uploaded_files_created_at")
+  @@map("uploaded_files")
+}

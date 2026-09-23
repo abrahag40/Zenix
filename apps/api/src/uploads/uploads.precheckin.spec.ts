@@ -9,7 +9,18 @@ import { UploadsService } from './uploads.service'
  */
 describe('UploadsService precheckin helpers', () => {
   const tenant = { getOrganizationId: () => 'org-test' } as any
-  const svc = new UploadsService(tenant)
+  // M9 — el servicio escribe también en la base. Estas pruebas cubren el
+  // parseo de rutas y el disco, así que la base va doblada: lo que aquí se
+  // verifica es que un archivo QUE SÍ ESTÁ en disco se lee de disco y no se
+  // baja de la base. La reposición desde la base tiene sus propias pruebas.
+  const prisma = {
+    uploadedFile: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      delete: jest.fn().mockRejectedValue(new Error('no existe')),
+      upsert: jest.fn().mockResolvedValue({}),
+    },
+  } as any
+  const svc = new UploadsService(tenant, prisma)
   const root = UploadsService.rootDir()
   const dir = join(root, 'org-test', 'precheckin')
   const file = join(dir, 'unit-test.jpg')

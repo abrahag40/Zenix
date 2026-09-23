@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster as SonnerToaster } from 'sonner'
 import { useAuthStore } from './store/auth'
 import { Sidebar } from './components/Sidebar'
+import { LimiteDeError } from './components/LimiteDeError'
 import { PacStatusBanner } from './components/PacStatusBanner'
 import { LoginPage } from './pages/LoginPage'
 import { SetupPage } from './pages/SetupPage'
@@ -97,7 +98,12 @@ function ProtectedLayout({ children }: { children: React.ReactNode }) {
         */}
         <PacStatusBanner />
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-5 lg:py-6">
-          {children}
+          {/* 🔴 El límite va AQUÍ DENTRO y no envolviendo el layout: si
+              reventara el tablero, la barra lateral y el menú siguen en pie y
+              el recepcionista puede irse a otra sección y seguir atendiendo.
+              Envolviendo el layout entero, un fallo local se llevaría por
+              delante también la navegación — peor que el problema. */}
+          <LimiteDeError zona="pantalla">{children}</LimiteDeError>
         </div>
       </main>
     </div>
@@ -126,6 +132,7 @@ function ConditionalAlertsMount() {
 
 export default function App() {
   return (
+    <LimiteDeError zona="raíz">
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <ConditionalAlertsMount />
@@ -223,5 +230,6 @@ export default function App() {
           manteniendo el contexto (Apple HIG 2024 Modality). */}
       <GlobalMaintenanceDrawer />
     </QueryClientProvider>
+    </LimiteDeError>
   )
 }

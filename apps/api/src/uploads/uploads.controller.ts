@@ -153,11 +153,16 @@ export class UploadsController {
       throw new BadRequestException('Path fuera del root permitido')
     }
 
-    try {
-      await fs.access(target)
-    } catch {
+    // 🔴 M9 — se pide por el SERVICIO, no por el disco.
+    //
+    // Este bloque hacía `fs.access` y devolvía 404 si el archivo no estaba.
+    // Después de un despliegue no estaba NINGUNO: el disco es efímero y aquí
+    // acababa el rastro. El servicio busca en disco, y si falta lo baja del
+    // almacén y repone la caché — así una imagen deja de morirse por desplegar.
+    const bytes = await this.uploads.leerBytes(`/api/uploads/${organizationId}/${scope}/${filename}`)
+    if (!bytes) {
       this.logger.warn(
-        `serve 404: target=${target} (org=${organizationId} scope=${scope} file=${filename})`,
+        `serve 404: no está ni en disco ni en el almacén (org=${organizationId} scope=${scope} file=${filename})`,
       )
       throw new NotFoundException('Imagen no encontrada')
     }
@@ -165,6 +170,6 @@ export class UploadsController {
     this.logger.debug(`serve OK: ${target}`)
     res.setHeader('Content-Type', 'image/jpeg')
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
-    res.sendFile(target)
+    res.send(bytes)
   }
 }
