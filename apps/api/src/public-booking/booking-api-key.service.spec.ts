@@ -18,13 +18,14 @@ describe('BookingApiKeyService', () => {
     service = new BookingApiKeyService(prisma)
   })
 
-  it('genera una llave pk_{env}_ con keyId+secret y persiste bcrypt(secret), nunca el plaintext', async () => {
+  it('🔴 genera una llave sk_, no pk_: pk_ promete «seguro en el navegador» y ésta crea reservas', async () => {
     const r = await service.generate({ propertyId: 'prop-1', label: 'Sitio', environment: 'live' })
-    expect(r.plaintextKey).toMatch(/^pk_live_[0-9a-f]{48}$/)
+    expect(r.plaintextKey).toMatch(/^sk_live_[0-9a-f]{48}$/)
+    expect(r.keyPrefix.startsWith('sk_')).toBe(true)
     const data = prisma.bookingApiKey.create.mock.calls[0][0].data
     expect(data.keyHash).not.toContain(r.plaintextKey) // no se guarda en claro
     // El secret (últimos 32 hex) hashea contra keyHash.
-    const secret = r.plaintextKey.slice('pk_live_'.length + 16)
+    const secret = r.plaintextKey.slice('sk_live_'.length + 16)
     expect(await bcrypt.compare(secret, data.keyHash)).toBe(true)
   })
 
@@ -60,5 +61,58 @@ describe('BookingApiKeyService', () => {
     prisma.bookingApiKey.findFirst.mockResolvedValue(null) // la llave no es de esta property
     expect(await service.revoke('prop-otra', 'key-1')).toEqual({ id: 'key-1', revoked: false })
     expect(prisma.bookingApiKey.update).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * El cambio de prefijo es incompatible, así que lo que importa no es sólo que
+ * las llaves nuevas nazcan `sk_`, sino que **las viejas sigan funcionando**.
+ * Un hotel con su sitio conectado no puede quedarse sin reservas porque
+ * nosotros arreglemos un nombre.
+ */
+describe('BookingApiKeyService — compatibilidad del prefijo', () => {
+  const bcryptMod = jest.requireActual('bcrypt') as typeof import('bcrypt')
+  const keyId = 'a'.repeat(16)
+  const secret = 'b'.repeat(32)
+
+  const arma = async (environment = 'live') => {
+    const keyHash = await bcryptMod.hash(secret, 4)
+    const prisma: any = {
+      bookingApiKey: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'k1', propertyId: 'prop-1', environment, keyHash,
+          allowedOrigins: [], active: true, revokedAt: null,
+        }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+    }
+    const { BookingApiKeyService } = await import('./booking-api-key.service')
+    return { service: new BookingApiKeyService(prisma), prisma }
+  }
+
+  it('🔑 una llave pk_ ya emitida SIGUE funcionando', async () => {
+    const { service } = await arma()
+    const v = await service.verify(`pk_live_${keyId}${secret}`)
+    expect(v?.propertyId).toBe('prop-1')
+  })
+
+  it('y una sk_ con el mismo material también: el prefijo no es criptografía', async () => {
+    const { service } = await arma()
+    const v = await service.verify(`sk_live_${keyId}${secret}`)
+    expect(v?.propertyId).toBe('prop-1')
+  })
+
+  it('🔴 una llave _test_ NO abre una property live', async () => {
+    // La búsqueda es por `keyId`, que es el mismo, así que sin esta
+    // comprobación el prefijo de entorno no significaba nada — y es justo lo
+    // que separa una prueba de una reserva real.
+    const { service } = await arma('live')
+    expect(await service.verify(`sk_test_${keyId}${secret}`)).toBeNull()
+  })
+
+  it('un prefijo inventado no pasa', async () => {
+    const { service } = await arma()
+    expect(await service.verify(`xx_live_${keyId}${secret}`)).toBeNull()
+    expect(await service.verify(`${keyId}${secret}`)).toBeNull()
   })
 })

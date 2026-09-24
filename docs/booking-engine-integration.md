@@ -11,7 +11,8 @@
 ## 0. Conceptos
 
 - **Slug** — identificador público del hotel en la URL (`hotel-tulum`). Lo da el consultor.
-- **API key** (`pk_live_…` / `pk_test_…`) — sólo para integraciones **server-to-server** (Tier 3). La genera el consultor en el panel Nova. **Nunca la pongas en el frontend.**
+- **API key** (`sk_live_…` / `sk_test_…`) — un **secreto de servidor**, como el `sk_` de Stripe. Crea reservas a nombre del hotel, así que vive en tu backend y nunca en el navegador. La genera el consultor en el panel Nova.
+  > 🔴 **Antes se llamaban `pk_`, y era un error nuestro.** En el vocabulario de Stripe `pk_` significa *publishable*: seguro en el navegador. Esta llave es justo lo contrario. Las `pk_` ya emitidas **siguen funcionando**; pide una `sk_` y revoca la vieja cuando puedas. Y desde el 2026-09-24, una llave usada **desde un navegador** debe declarar sus dominios autorizados o recibe un 403 — antes, una lista vacía dejaba pasar a cualquier sitio.
 - **Hosted page** — si no quieres programar, usa `https://book.zenix.com/{slug}` (la renderiza Zenix). Esta guía es para integración custom.
 
 Base URL (dev): `http://localhost:3000` · (prod): `https://api.zenix.com`
@@ -39,7 +40,7 @@ Estos endpoints son cacheables (`Cache-Control: max-age=30`) y rate-limited per-
 
 ```bash
 curl -X POST "$BASE/api/v1/public/reservations" \
-  -H "X-API-Key: pk_live_xxxxx" \
+  -H "X-API-Key: sk_live_xxxxx" \
   -H "Idempotency-Key: $(uuidgen)" \
   -H "Content-Type: application/json" \
   -d '{
@@ -112,6 +113,6 @@ O simplemente enlaza a `https://book.zenix.com/{slug}` y listo.
 
 ## 5. Sandbox / testing
 
-- Pide al consultor una key de **test** (`pk_test_…`). Opera igual que `pk_live_` contra el entorno de pruebas.
+- Pide al consultor una key de **test** (`sk_test_…`). Opera igual que `sk_live_` contra el entorno de pruebas. 🔴 Una llave `_test_` **no** abre una property `live`, y al revés tampoco.
 - Las reservas de prueba aparecen en el calendario del hotel — el hotel las cancela tras probar.
 - Explora todo en la Swagger UI: `GET /api/docs` (botón "Authorize" para pegar tu `X-API-Key`).
