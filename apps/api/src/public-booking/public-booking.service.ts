@@ -312,7 +312,14 @@ export class PublicBookingService {
       this.prisma.staySegment.findMany({
         where: {
           roomId: { in: roomIds },
-          status: 'ACTIVE',
+          // 🔴 PENDING cuenta, y antes no contaba. Es el mismo criterio que
+          // usan `AvailabilityService.check` —la guardia dura del POST— y la
+          // restricción `stay_segments_sin_solape`. Este calendario contaba
+          // sólo ACTIVE, así que pintaba en verde noches que el POST iba a
+          // rechazar: el huésped elegía la fecha, llenaba sus datos y se
+          // estrellaba al final. Con retenciones ese desajuste deja de ser
+          // teórico — toda retención viva es un segmento PENDING.
+          status: { in: ['ACTIVE', 'PENDING'] },
           checkIn: { lt: toDate },
           checkOut: { gt: fromDate },
         },

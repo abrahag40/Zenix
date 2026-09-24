@@ -7,6 +7,7 @@ import { PublicPricingService } from './public-pricing.service'
 import { RateEnvelopeService } from './rate-envelope/rate-envelope.service'
 import { RateEnvelopeListener } from './rate-envelope/rate-envelope.listener'
 import { PoliticaDePublicacionService } from './politica-de-publicacion.service'
+import { LiberadorDeRetencionesService } from './holds/liberador-de-retenciones.service'
 import { BookingEngineConfigService } from './booking-engine-config.service'
 import { PublicReservationsService } from './public-reservations.service'
 import { BookingApiKeyService } from './booking-api-key.service'
@@ -33,6 +34,7 @@ import { WebhookSubscriptionService } from './webhooks/webhook-subscription.serv
     RateEnvelopeService,
     RateEnvelopeListener,
     PoliticaDePublicacionService,
+    LiberadorDeRetencionesService,
     BookingEngineConfigService,
     PublicReservationsService,
     BookingApiKeyService,
@@ -45,7 +47,7 @@ import { WebhookSubscriptionService } from './webhooks/webhook-subscription.serv
   ],
   exports: [
     PublicBookingService, BookingApiKeyService, WebhookSubscriptionService, RateEnvelopeService,
-    PoliticaDePublicacionService,
+    PoliticaDePublicacionService, LiberadorDeRetencionesService,
   ],
 })
 export class PublicBookingModule {}
