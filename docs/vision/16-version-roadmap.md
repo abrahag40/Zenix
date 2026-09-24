@@ -20,6 +20,32 @@
 
 ---
 
+## 🔴 Reconciliación con el trabajo del 2026-09-24
+
+Este roadmap **no nombraba** tres piezas que se construyeron los días 23 y 24 de septiembre, así
+que conviene enlazarlas antes de que el documento quede desfasado en silencio:
+
+| Lo construido | Dónde encaja aquí | Estado |
+|---|---|---|
+| Evento de dominio `inventory.changed` — el sitio del hotel se entera de un bloqueo **sin Channex** | Prerrequisito de **PAY-CORE**: sin él, cobrar produce devoluciones | ✅ [#155](https://github.com/abrahag40/Zenix/pull/155) |
+| Retención con caducidad por **medio de pago** | Cimiento de **PAY-CORE**. Corrige `holdTtlMinutes`, que estaba en el sitio equivocado | ✅ [#156](https://github.com/abrahag40/Zenix/pull/156) |
+| Llave `pk_` → `sk_` y orígenes obligatorios para el navegador | Deuda de **B2**, adelantada a propósito: es incompatible y hoy afecta a un cliente | ✅ [#157](https://github.com/abrahag40/Zenix/pull/157) |
+| Control de publicación fiscal | Habilita publicar precio firme; quita una dependencia del cliente piloto | ✅ [#153](https://github.com/abrahag40/Zenix/pull/153) |
+| **Módulo pegable de reserva** para el sitio de cualquier hotel | **No estaba en ninguna versión.** Es lo que se instala cuando un hotel llega de Cloudbeds | ⬜ siguiente |
+
+**Lo que esto cambia del plan, y lo que no.** `PAY-CORE` sigue siendo el trabajo grande y sigue
+donde estaba (v1.0.x). Lo que se movió es su **orden interno**: tres cosas que parecían parte del
+cobro resultaron ser requisitos suyos, y hacerlas antes abarata el cobro en vez de retrasarlo. El
+análisis que lo justifica está en
+[`21-disponibilidad-y-cobro-desde-el-sitio-del-hotel.md`](21-disponibilidad-y-cobro-desde-el-sitio-del-hotel.md).
+
+🔴 **Y una dependencia externa sin resolver:** `PAY-CORE` asume **Stripe Connect activo para el
+cliente** (fila v1.0.x de la tabla de abajo). Que Connect admita **entidades mexicanas** en la
+cuenta de ZaharDev **no está verificado**. Si no las admite, cambia quién custodia el dinero y
+quién emite el CFDI — o sea, el diseño, no el calendario.
+
+---
+
 ## Vista rápida — qué va en cada versión
 
 | Versión | Target date | Sprints incluidos | Billing scope |
