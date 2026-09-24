@@ -903,6 +903,7 @@ model Property {
   webhookSubscriptions    WebhookSubscription[]
   // ── Sprint REPORTS-REVAMP P4(a) (2026-06-15) — reportes programados por email
   scheduledReports        ScheduledReport[]
+  rateChangeLogs          RateChangeLog[]
 
   @@index([organizationId])
   @@index([legalEntityId])
@@ -1220,9 +1221,9 @@ model Staff {
   /// Se guarda SÓLO el hash: el token en claro se enseña una vez, al emitir
   /// la invitación, y no vuelve a existir en ninguna parte. Es el mismo
   /// mecanismo que ya usa `User` para el alta del propietario.
-  setupTokenHash       String?      @unique @map("setup_token_hash")
-  setupTokenExpiresAt  DateTime?    @map("setup_token_expires_at")
-  setupTokenConsumedAt DateTime?    @map("setup_token_consumed_at")
+  setupTokenHash       String?   @unique @map("setup_token_hash")
+  setupTokenExpiresAt  DateTime? @map("setup_token_expires_at")
+  setupTokenConsumedAt DateTime? @map("setup_token_consumed_at")
 
   organization            Organization?              @relation(fields: [organizationId], references: [id])
   user                    User?                      @relation(fields: [userId], references: [id])
@@ -1231,6 +1232,7 @@ model Staff {
   verifiedTasks           CleaningTask[]             @relation("VerifiedTasks")
   taskLogs                TaskLog[]
   cleaningNotes           CleaningNote[]
+  rateChangeLogs          RateChangeLog[]            @relation("RateChangeLogs")
   pushTokens              PushToken[]
   checkouts               Checkout[]                 @relation("ManualCheckouts")
   issues                  MaintenanceIssue[]
@@ -1694,11 +1696,12 @@ model RoomType {
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
-  organization Organization @relation(fields: [organizationId], references: [id])
-  property     Property     @relation(fields: [propertyId], references: [id])
-  rooms        Room[]
+  organization   Organization    @relation(fields: [organizationId], references: [id])
+  property       Property        @relation(fields: [propertyId], references: [id])
+  rooms          Room[]
   // ── Sprint RATES-METRICS-COMPSET-CORE (2026-06-03) ──────────────────────
-  rateSeasons  RateSeason[]
+  rateSeasons    RateSeason[]
+  rateChangeLogs RateChangeLog[]
 
   @@unique([propertyId, code])
   @@index([organizationId])
@@ -2872,6 +2875,43 @@ model RoomBlock {
  * BlockLog — bitácora inmutable de cambios de estado.
  * staffId es null para eventos del sistema (cron, auto-activación).
  */
+/// Quién cambió el precio de un tipo de habitación, de cuánto a cuánto y cuándo.
+///
+/// 🔴 EXISTE PORQUE `AuditLog` NO PODÍA REGISTRARLO, y eso no se vio hasta
+/// probarlo contra la base real. `AuditLog.actorRealId` es clave foránea a
+/// `User` —la identidad de organización, la del propietario—, y quien cambia
+/// un precio a diario es `Staff`, la identidad de propiedad. La escritura
+/// fallaba siempre, y como el servicio de auditoría se traga sus propios
+/// errores a propósito —perder un registro es mejor que rechazar al usuario—,
+/// fallaba EN SILENCIO. Cero filas, ninguna queja.
+///
+/// El campo `staffId` es opcional y con `onDelete: SetNull`: dar de baja a un
+/// empleado no puede borrar el historial de precios de un hotel. Se pierde
+/// quién, se conserva qué y cuándo — que es lo que hace falta cuando un
+/// huésped reclama una tarifa de hace tres meses.
+///
+/// Importes en CENTAVOS ENTEROS, como todo el dinero de este proyecto.
+model RateChangeLog {
+  id          String   @id @default(uuid())
+  propertyId  String   @map("property_id")
+  roomTypeId  String   @map("room_type_id")
+  staffId     String?  @map("staff_id")
+  beforeCents Int      @map("before_cents")
+  afterCents  Int      @map("after_cents")
+  currency    String
+  /// De dónde vino el cambio: la pantalla del hotel, un script, una migración.
+  source      String
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  roomType RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+  staff    Staff?   @relation("RateChangeLogs", fields: [staffId], references: [id], onDelete: SetNull)
+
+  @@index([propertyId, createdAt])
+  @@index([roomTypeId, createdAt])
+  @@map("rate_change_logs")
+}
+
 model BlockLog {
   id        String        @id @default(uuid())
   blockId   String        @map("block_id")

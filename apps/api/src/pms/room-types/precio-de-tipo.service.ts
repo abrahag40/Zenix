@@ -2,7 +2,6 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { EventEmitter2 } from '@nestjs/event-emitter'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
-import { AuditLogService } from '../../nova/audit/audit-log.service'
 import { TARIFA_CAMBIADA } from '../../public-booking/rate-envelope/rate-envelope.listener'
 
 /**
@@ -44,7 +43,6 @@ export class PrecioDeTipoService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly auditoria: AuditLogService,
     private readonly eventos: EventEmitter2,
   ) {}
 
@@ -96,28 +94,32 @@ export class PrecioDeTipoService {
       data: { baseRate: nueva },
     })
 
-    // El rastro se escribe DESPUÉS del cambio y sin bloquearlo: una auditoría
+    // El rastro se escribe DESPUÉS del cambio y sin bloquearlo: un registro
     // que falle no puede deshacer un precio que el hotel ya dio por guardado.
-    // A cambio, si falla, se grita en el registro.
+    // A cambio, si falla, se grita — porque un rastro que no está es peor que
+    // uno que falta ruidosamente.
+    //
+    // 🔴 NO se usa `AuditLogService`, y conviene saber por qué: su
+    // `actorRealId` es clave foránea a `User` —la identidad de organización—
+    // y quien cambia un precio a diario es `Staff`, la de propiedad. La
+    // escritura fallaba SIEMPRE, y como ese servicio se traga sus errores a
+    // propósito, fallaba en silencio: cero filas y ninguna queja. Se descubrió
+    // contando filas en la base después de una prueba real, no leyendo código.
     try {
-      await this.auditoria.write({
-        organizationId: args.organizationId,
-        actorRealId: args.actorId,
-        actorRealRole: 'ORG_STAFF' as never,
-        action: 'ROOM_TYPE_RATE_UPDATED',
-        target: tipo.id,
-        payload: {
-          nombre: tipo.name,
-          moneda: tipo.currency,
-          anteriorCentavos,
-          nuevaCentavos: args.tarifaCentavos,
+      await this.prisma.rateChangeLog.create({
+        data: {
           propertyId: args.propertyId,
+          roomTypeId: tipo.id,
+          staffId: args.actorId,
+          beforeCents: anteriorCentavos,
+          afterCents: args.tarifaCentavos,
+          currency: tipo.currency,
+          source: 'panel-del-hotel',
         },
-        status: 'SUCCESS' as never,
       })
     } catch (e) {
       this.logger.error(
-        `[precio] cambio de ${tipo.id} guardado pero SIN RASTRO de auditoría: ${String(e)}`,
+        `[precio] cambio de ${tipo.id} guardado pero SIN RASTRO: ${String(e)}`,
       )
     }
 
