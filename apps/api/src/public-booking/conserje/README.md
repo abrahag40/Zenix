@@ -25,8 +25,43 @@ otra superficie del mismo** —vender la habitación al huésped—. Igual que `
 | Archivo | Qué es |
 |---|---|
 | `herramientas.ts` | **Núcleo puro.** Contratos, sello de procedencia y traductores. Sin red, sin Prisma, sin modelo |
-| `herramientas.spec.ts` | Sus 23 pruebas. Corren sin base de datos |
 | `conserje-herramientas.service.ts` | El cableado a `PublicBookingService` y `PublicReservationsService` |
+| `guardarrailes.ts` | **El filtro que ve toda respuesta antes de salir.** Seis reglas puras, componibles, con severidad |
+| `casos-adversarios.ts` | El corpus de ataques **y de casos legítimos**, como datos |
+| `*.spec.ts` | 61 pruebas. Corren sin base de datos y **sin modelo** |
+
+## Los guardarraíles (H7.3)
+
+Escribir «nunca digas reserva confirmada» en las instrucciones del modelo **no es un guardián,
+porque nada lo falla**: el antipatrón es *prompt-only enforcement*. Aquí la regla es código
+determinista con pruebas.
+
+| Regla | Protege |
+|---|---|
+| `G1-confirmacion` | Nunca se promete una reserva confirmada |
+| `G2-conteo` | No se publica **cuántas** habitaciones quedan |
+| `G3-impuestos` | Todo importe incluye impuestos **y** lo respalda una procedencia firme |
+| `G4-tarjeta` | No se piden ni se repiten datos de tarjeta |
+| `G5-procedencia` | Toda afirmación de inventario cita la llamada que la respalda |
+| `G6-marca` | «Azucar» sin acento — la única que **transforma** en vez de bloquear |
+
+**Decisiones que sostienen el diseño:** una regla es una función pura · dos severidades, porque un
+filtro que sólo sabe bloquear acaba desactivado · las transformaciones van primero, así el bloqueo
+juzga el texto final · **fallar cerrado incluso ante un error nuestro**: si una regla lanza, se
+bloquea · cada regla lleva `id`, que es lo que citan la bitácora y cada caso adversario.
+
+🔴 **La mitad que casi siempre falta: los casos que DEBEN pasar.** Un guardarraíl que bloquea todo
+detiene el 100 % de los ataques y es inútil — alguien lo apaga y entonces protege cero. El corpus
+lleva tantos casos permitidos como bloqueados, y varios elegidos para parecerse a un ataque: «2
+adultos, 3 noches», «¿hay estacionamiento?», un número de vuelo de 16 cifras. Hay una prueba que
+**exige** esa proporción, y otra que exige que toda regla de bloqueo tenga un caso que la dispare.
+
+**El corpus es un archivo de datos, no una lista de `it`,** porque tiene dos consumidores: hoy la
+suite determinista; mañana, cuando exista el modelo, la suite que le pasa el `prompt` y comprueba
+que lo generado pasa el filtro. Los mismos ataques, sin posibilidad de divergir.
+
+⚠️ **Todavía no hay nada que llame a `revisar()`**: el bucle de conversación aún no existe. Está
+igual que las herramientas — construido y probado antes que su consumidor, a propósito.
 
 ## Las tres reglas que este directorio existe para cumplir
 
