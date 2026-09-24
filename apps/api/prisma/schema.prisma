@@ -1208,6 +1208,22 @@ model Staff {
   // sin AppNotificationRead. Permite "vi la lista" sin marcar cada item leído.
   notificationsAckedAt DateTime?    @map("notifications_acked_at")
 
+  /// Invitación de acceso — el personal del hotel pone SU PROPIA contraseña.
+  ///
+  /// 🔴 Existe para que nadie de ZaharDev tenga que inventar, teclear ni
+  /// transmitir la contraseña de un cliente. Hasta hoy `Staff` sólo tenía
+  /// `passwordHash`, así que dar de alta al gerente de un hotel obligaba a
+  /// ponerle una contraseña y hacérsela llegar — por correo, por chat, por
+  /// donde fuera. Eso es un secreto compartido desde el primer segundo, y el
+  /// hotel no puede demostrar que sólo él lo sabe.
+  ///
+  /// Se guarda SÓLO el hash: el token en claro se enseña una vez, al emitir
+  /// la invitación, y no vuelve a existir en ninguna parte. Es el mismo
+  /// mecanismo que ya usa `User` para el alta del propietario.
+  setupTokenHash       String?      @unique @map("setup_token_hash")
+  setupTokenExpiresAt  DateTime?    @map("setup_token_expires_at")
+  setupTokenConsumedAt DateTime?    @map("setup_token_consumed_at")
+
   organization            Organization?              @relation(fields: [organizationId], references: [id])
   user                    User?                      @relation(fields: [userId], references: [id])
   property                Property                   @relation(fields: [propertyId], references: [id])
