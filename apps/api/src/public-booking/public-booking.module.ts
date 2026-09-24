@@ -9,6 +9,8 @@ import { RateEnvelopeListener } from './rate-envelope/rate-envelope.listener'
 import { PoliticaDePublicacionService } from './politica-de-publicacion.service'
 import { LiberadorDeRetencionesService } from './holds/liberador-de-retenciones.service'
 import { PagoDeReservaService } from './pago/pago-de-reserva.service'
+import { StripePasarela } from './pago/pasarelas/stripe.pasarela'
+import { BanortePasarela } from './pago/pasarelas/banorte.pasarela'
 import { BillingModule } from '../billing/billing.module'
 import { BookingEngineConfigService } from './booking-engine-config.service'
 import { PublicReservationsService } from './public-reservations.service'
@@ -38,6 +40,8 @@ import { WebhookSubscriptionService } from './webhooks/webhook-subscription.serv
     PoliticaDePublicacionService,
     LiberadorDeRetencionesService,
     PagoDeReservaService,
+    StripePasarela,
+    BanortePasarela,
     BookingEngineConfigService,
     PublicReservationsService,
     BookingApiKeyService,
@@ -51,6 +55,7 @@ import { WebhookSubscriptionService } from './webhooks/webhook-subscription.serv
   exports: [
     PublicBookingService, BookingApiKeyService, WebhookSubscriptionService, RateEnvelopeService,
     PoliticaDePublicacionService, LiberadorDeRetencionesService, PagoDeReservaService,
+    StripePasarela, BanortePasarela,
   ],
 })
 export class PublicBookingModule {}

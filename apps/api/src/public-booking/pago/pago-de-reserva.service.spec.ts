@@ -37,10 +37,35 @@ describe('PagoDeReservaService', () => {
     }
     // `'stripe' in over` y no `??`: `null ?? x` devuelve `x`, así que el doble
     // nunca llegaba a simular «sin Stripe». La prueba estaba mal, no el código.
+    // 🔴 El doble es ahora la PASARELA, no Stripe. Y eso es el aprendizaje del
+    // cambio: estas pruebas afirmaban cosas sobre `paymentIntents.create`, o
+    // sea sobre el proveedor. Ahora afirman sobre el puerto, que es lo que el
+    // motor promete — y por eso seguirán valiendo cuando la pasarela sea otra.
     const billing: any = {
       getStripeClient: () => ('stripe' in over ? over.stripe : { paymentIntents: { create } }),
     }
-    return { service: new PagoDeReservaService(prisma, billing), create, update }
+    const pasarela: any = {
+      nombre: 'stripe',
+      confirmacion: 'webhook-firmado',
+      disponible: async () => ('stripe' in over ? !!over.stripe : true),
+      prepararCobro: async (d: any) => {
+        const pi = await create(
+          {
+            amount: d.importeCentavos,
+            currency: String(d.moneda).toLowerCase(),
+            capture_method: 'manual',
+            metadata: { bookingRef: d.bookingRef, propertyId: d.propertyId },
+          },
+          { idempotencyKey: `pi:${d.propertyId}:${d.bookingRef}` },
+        )
+        return {
+          referenciaExterna: pi.id,
+          instruccion: { tipo: 'elementos-incrustados', secretoDeCliente: pi.client_secret },
+        }
+      },
+      consultarEstado: async () => ({ autorizado: true, importeCentavos: 0, moneda: 'MXN' }),
+    }
+    return { service: new PagoDeReservaService(prisma, pasarela), create, update, pasarela }
   }
 
   it('🔴 el importe sale de la RESERVA, en centavos enteros', async () => {
@@ -51,12 +76,49 @@ describe('PagoDeReservaService', () => {
     expect(r.importeCentavos).toBe(240000)
   })
 
-  it('🔑 al navegador le llega SÓLO el client_secret', async () => {
+  it('🔑 al navegador NO le llega nada que pueda mover el dinero', async () => {
     const { service } = arma()
     const r = await service.crearIntento({ slug: 'hotel-tulum', bookingRef: reserva.bookingRef })
-    expect(Object.keys(r).sort()).toEqual(['clientSecret', 'expiraEn', 'importeCentavos', 'moneda'])
-    // Nada de cuentas destino, ni ids de Stripe, ni llaves.
+    // La lista se afirma entera —y no «que contenga»— para que añadir un campo
+    // obligue a pasar por aquí. Este mismo test cazó la llegada de
+    // `instruccion`, que es exactamente lo que se le pide.
+    expect(Object.keys(r).sort()).toEqual([
+      'clientSecret', 'expiraEn', 'importeCentavos', 'instruccion', 'moneda',
+    ])
+    // Y la garantía de fondo, que NO depende de la lista: ni cuentas destino,
+    // ni ids de Stripe, ni llaves — mire donde mire, incluida la instrucción.
     expect(JSON.stringify(r)).not.toMatch(/acct_|sk_|transfer_data|destination/)
+  })
+
+  it('🔴 la instrucción para el navegador no lleva importe editable ni destino', async () => {
+    const { service } = arma()
+    const r = await service.crearIntento({ slug: 'hotel-tulum', bookingRef: reserva.bookingRef })
+    // Con elementos incrustados sólo viaja la capacidad. Si algún día una
+    // pasarela devolviera un formulario, el motor exige `firmado: true` — y
+    // hay otra prueba para eso.
+    expect(r.instruccion.tipo).toBe('elementos-incrustados')
+    expect(Object.keys(r.instruccion).sort()).toEqual(['secretoDeCliente', 'tipo'])
+  })
+
+  it('🔴 se NIEGA a devolver un formulario sin firmar', async () => {
+    // El importe en un campo oculto sin firma es un importe que el navegador
+    // edita con dos clics. Es el escenario de Banorte Payworks sin la variante
+    // cifrada, y por eso la comprobación existe ANTES de que exista el
+    // adaptador.
+    const { service, pasarela } = arma()
+    pasarela.prepararCobro = async () => ({
+      referenciaExterna: 'ref-1',
+      instruccion: {
+        tipo: 'redirigir',
+        url: 'https://eps.ejemplo.com/recibo',
+        campos: { monto: '2400.00' },
+        firmado: false,
+        metodo: 'POST',
+      },
+    })
+    await expect(
+      service.crearIntento({ slug: 'hotel-tulum', bookingRef: reserva.bookingRef }),
+    ).rejects.toThrow(/sin firmar|editable/i)
   })
 
   it('🔴 autoriza sin cobrar: capture_method manual', async () => {

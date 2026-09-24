@@ -7,7 +7,8 @@ import {
   type PagoDeHuespedAutorizado,
   type PagoDeHuespedFallido,
 } from '../../common/events/pago-de-huesped'
-import { BillingService } from '../../billing/billing.service'
+import { StripePasarela } from './pasarelas/stripe.pasarela'
+import type { InstruccionDeCobro } from './pasarelas/pasarela'
 import { caducaEn, type MedioDePago } from '../holds/politica-de-retencion'
 
 /**
@@ -46,7 +47,7 @@ export class PagoDeReservaService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly billing: BillingService,
+    private readonly pasarela: StripePasarela,
   ) {}
 
   /**
@@ -66,9 +67,19 @@ export class PagoDeReservaService {
     moneda: string
     /** Cuándo caduca la retención, si la hay. */
     expiraEn: string | null
+    /**
+     * Cómo se cobra en la pasarela de esta propiedad.
+     *
+     * 🔴 Se añade SIN quitar `clientSecret`, que sigue ahí por compatibilidad
+     * con el sitio ya desplegado. El día que haya una segunda pasarela, el
+     * sitio leerá `instruccion` y `clientSecret` se podrá retirar — pero
+     * retirarlo hoy rompería un sitio en producción por una limpieza.
+     */
+    instruccion: InstruccionDeCobro
   }> {
-    const stripe = this.billing.getStripeClient()
-    if (!stripe) throw new BadRequestException('El cobro no está configurado en este entorno.')
+    if (!(await this.pasarela.disponible(args.slug))) {
+      throw new BadRequestException('El cobro no está configurado en este entorno.')
+    }
 
     const cfg = await this.prisma.bookingEngineConfig.findUnique({
       where: { slug: args.slug },
@@ -100,21 +111,28 @@ export class PagoDeReservaService {
     const medio: MedioDePago = args.medio ?? 'TARJETA'
     const expira = caducaEn(medio, new Date(), cfg.holdTtlMinutes)
 
-    const intento = await stripe.paymentIntents.create(
-      {
-        amount: importeCentavos,
-        currency: moneda,
-        capture_method: 'manual',
-        automatic_payment_methods: { enabled: true },
-        description: `Reserva ${reserva.bookingRef}`,
-        // La referencia viaja en los metadatos para que el webhook sepa qué
-        // reserva confirmar sin adivinarlo por importe y fecha.
-        metadata: { bookingRef: reserva.bookingRef, propertyId: cfg.propertyId },
-        ...(reserva.guestEmail ? { receipt_email: reserva.guestEmail } : {}),
-      },
-      // Un doble clic no debe crear dos intenciones. La clave es la reserva.
-      { idempotencyKey: `pi:${cfg.propertyId}:${reserva.bookingRef}` },
-    )
+    // 🔴 Se delega en la PASARELA, no en Stripe directamente. Lo que cambia
+    // al añadir Banorte es esta línea y nada más — que es justo el objetivo.
+    const cobro = await this.pasarela.prepararCobro({
+      propertyId: cfg.propertyId,
+      // `bookingRef` es opcional en el esquema; aquí no puede faltar, porque
+      // la reserva se buscó JUSTO por él. El `??` es para el compilador, no
+      // para un caso real — y si algún día lo fuera, se cobraría con la
+      // referencia que el huésped pidió, que es la correcta.
+      bookingRef: reserva.bookingRef ?? args.bookingRef,
+      importeCentavos,
+      moneda: moneda.toUpperCase(),
+      correoDelHuesped: reserva.guestEmail ?? undefined,
+    })
+
+    // 🔴 Una instrucción de redirección SIN firmar es un importe que el
+    // navegador puede editar. El motor se niega a devolverla, y lo dice.
+    if (cobro.instruccion.tipo === 'redirigir' && !cobro.instruccion.firmado) {
+      throw new BadRequestException(
+        'La pasarela devolvió un formulario sin firmar: el importe sería editable ' +
+          'desde el navegador. No se cobra así.',
+      )
+    }
 
     // La retención empieza cuando hay intención de pagar, no cuando alguien
     // mira fechas. El liberador la suelta si caduca.
@@ -131,10 +149,17 @@ export class PagoDeReservaService {
     )
 
     return {
-      clientSecret: intento.client_secret!,
+      // Vacío cuando la pasarela no usa elementos incrustados. El sitio ya
+      // desplegado lo comprueba antes de montar Stripe, así que una cadena
+      // vacía lo hace degradar en vez de reventar.
+      clientSecret:
+        cobro.instruccion.tipo === 'elementos-incrustados'
+          ? cobro.instruccion.secretoDeCliente
+          : '',
       importeCentavos,
       moneda: moneda.toUpperCase(),
       expiraEn: expira?.toISOString() ?? null,
+      instruccion: cobro.instruccion,
     }
   }
 
