@@ -17,13 +17,23 @@
  * ────────────────────────────────────────────────────────────────────────────
  * CÓMO SE USA
  *
+ * 🔴 **Desde la raíz de ESTE repositorio (Zenix), no desde el del sitio.**
+ * La primera vez que se corrió fue desde `azucarWebSite` y el error que da
+ * —«Cannot find module»— no dice en ningún momento que estés en el sitio
+ * equivocado. Por eso hay un `npm run` que sólo funciona aquí, y por eso el
+ * script comprueba dónde está antes de hacer nada.
+ *
+ *     cd ~/Documents/Projects/housekeeping3
+ *
  *     # 1. Ver qué haría, sin tocar nada  (por omisión)
- *     DATABASE_URL='postgresql://…' npx ts-node apps/api/scripts/publicar-propiedad.ts \
- *       --slug hotel-tulum
+ *     DATABASE_URL='postgresql://…' npm run publicar -w @zenix/api -- --slug hotel-tulum
  *
  *     # 2. Hacerlo de verdad
- *     DATABASE_URL='postgresql://…' npx ts-node apps/api/scripts/publicar-propiedad.ts \
- *       --slug hotel-tulum --aplicar
+ *     DATABASE_URL='postgresql://…' npm run publicar -w @zenix/api -- --slug hotel-tulum --aplicar
+ *
+ * El `…` de arriba es un HUECO: hay que pegar la cadena real de Neon. Si se
+ * deja tal cual, el script lo detecta y lo dice en vez de fallar con un error
+ * de conexión que no explica nada.
  *
  * 🔴 **Sin `--aplicar` no escribe nada.** El valor por omisión es el ensayo,
  * no la ejecución: quien corre esto lo hace contra una base de producción, y
@@ -53,7 +63,40 @@ const ok = (s: string) => console.log(`  ✓ ${s}`)
 const info = (s: string) => console.log(`    ${s}`)
 const mal = (s: string) => console.error(`  ✗ ${s}`)
 
+/**
+ * Comprobaciones de entorno ANTES de tocar la base.
+ *
+ * Las tres nacen de errores reales, no de imaginar lo que podría salir mal.
+ * Un mensaje que dice qué hacer vale más que diez que dicen qué pasó.
+ */
+function comprobarEntorno() {
+  const url = process.env.DATABASE_URL
+  if (!url) {
+    mal('Falta DATABASE_URL.')
+    info('Pégala delante del comando:')
+    info("  DATABASE_URL='postgresql://…' npm run publicar -w @zenix/api -- --slug hotel-tulum")
+    process.exit(10)
+  }
+  // El `…` de la documentación pegado tal cual. Sin esto, el fallo sería un
+  // error de conexión ilegible.
+  if (url.includes('…') || url.includes('...')) {
+    mal('DATABASE_URL todavía tiene el hueco «…» de la documentación.')
+    info('Sustitúyelo por la cadena real de Neon (console.neon.tech → Connection string).')
+    process.exit(11)
+  }
+  if (!/^postgres(ql)?:\/\//.test(url)) {
+    mal('DATABASE_URL no parece una cadena de Postgres.')
+    process.exit(12)
+  }
+  // Neon exige TLS; sin esto la conexión se rechaza con un error que tampoco
+  // menciona el motivo.
+  if (url.includes('neon.tech') && !url.includes('sslmode=require')) {
+    info('⚠ La cadena de Neon suele necesitar `?sslmode=require`. Si falla la conexión, es eso.')
+  }
+}
+
 async function main() {
+  comprobarEntorno()
   const slug = arg('slug')
   const propertyId = arg('property-id')
   if (!slug) {

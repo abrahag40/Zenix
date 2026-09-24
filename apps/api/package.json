@@ -14,7 +14,8 @@
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:seed": "ts-node prisma/seed.ts",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "publicar": "ts-node scripts/publicar-propiedad.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.15",
