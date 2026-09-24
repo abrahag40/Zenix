@@ -99,6 +99,31 @@ export interface DatosDelCobro {
   correoDelHuesped?: string
   /** A dónde vuelve el huésped, si la pasarela redirige. */
   urlDeRetorno?: string
+
+  /**
+   * La cuenta del HOTEL en la pasarela, cuando el dinero va directo a él.
+   *
+   * 🔴 Esto es lo que separa «ZaharDev cobra y luego le paga al hotel» de «el
+   * hotel cobra y ZaharDev retiene su parte». La diferencia no es de comodidad:
+   * en el primer modelo ZaharDev es **custodio de dinero ajeno**, con todo lo
+   * que eso arrastra —conciliación, devoluciones, y una discusión regulatoria
+   * que un estudio de software no quiere tener—.
+   *
+   * ⚠️ No todas las pasarelas lo admiten. Banorte Payworks deposita en la
+   * cuenta del comercio y punto: no hay forma documentada de retener una
+   * comisión de plataforma. Un adaptador que reciba esto y no pueda cumplirlo
+   * **debe fallar**, no ignorarlo en silencio.
+   */
+  cuentaDestino?: string
+
+  /**
+   * La comisión de ZaharDev, en centavos, ya calculada.
+   *
+   * Se pasa calculada y no en porcentaje a propósito: el redondeo del dinero
+   * se hace UNA vez, en el sitio que conoce el importe, y no una vez por
+   * adaptador.
+   */
+  comisionCentavos?: number
 }
 
 export interface ResultadoDeCobro {

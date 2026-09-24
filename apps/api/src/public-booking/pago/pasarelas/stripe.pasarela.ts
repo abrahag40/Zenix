@@ -51,6 +51,26 @@ export class StripePasarela implements PasarelaDePago {
         description: `Reserva ${datos.bookingRef}`,
         metadata: { bookingRef: datos.bookingRef, propertyId: datos.propertyId },
         ...(datos.correoDelHuesped ? { receipt_email: datos.correoDelHuesped } : {}),
+        // ── EL DINERO VA A LA CUENTA DEL HOTEL ────────────────────────────
+        // *Destination charge* de Stripe Connect: el cargo se hace en la
+        // plataforma y los fondos se transfieren a la cuenta conectada,
+        // reteniendo `application_fee_amount` para ZaharDev.
+        //
+        // 🔴 Verificado el 2026-09-24 contra el endpoint de datos de Stripe:
+        // México es país-plataforma VÁLIDO y también país de cuenta conectada,
+        // con las capacidades `card_payments`, `transfers` y `oxxo_payments`.
+        // `transfers` es justo la que permite que el dinero llegue al hotel.
+        //
+        // Sin `cuentaDestino`, el cargo se queda en la cuenta de ZaharDev — que
+        // es el modelo de hoy y el que conviene dejar atrás.
+        ...(datos.cuentaDestino
+          ? {
+              transfer_data: { destination: datos.cuentaDestino },
+              ...(datos.comisionCentavos
+                ? { application_fee_amount: datos.comisionCentavos }
+                : {}),
+            }
+          : {}),
       },
       // Un doble clic no debe crear dos intenciones. La clave es la reserva.
       { idempotencyKey: `pi:${datos.propertyId}:${datos.bookingRef}` },

@@ -970,6 +970,35 @@ model BookingEngineConfig {
   /// comportamiento actual del PMS para no cambiarle el precio a nadie.
   ratesIncludeTaxes Boolean @default(true) @map("rates_include_taxes")
 
+  /// Qué pasarela cobra en esta propiedad. Por omisión, Stripe.
+  ///
+  /// 🔴 Stripe es la prioridad de Zenix y el valor por defecto de TODO hotel
+  /// nuevo. Esta columna existe para el hotel que pide otra cosa —Azucar pide
+  /// Banorte— sin que eso cambie nada para los demás. Un producto que obliga a
+  /// elegir pasarela en el alta le traslada al cliente una decisión que no
+  /// tiene por qué tomar.
+  paymentGateway String @default("stripe") @map("payment_gateway")
+
+  /// La cuenta de Stripe del HOTEL, cuando cobra por Stripe Connect.
+  ///
+  /// 🔴 Con esto puesto, el cargo es un *destination charge*: el dinero entra
+  /// en la cuenta del hotel y ZaharDev retiene su comisión con
+  /// `application_fee_amount`. Sin esto, el cargo entra en la cuenta de
+  /// ZaharDev y hay que liquidarle al hotel por fuera — que es el modelo que
+  /// NO queremos, porque convierte a ZaharDev en custodio de dinero ajeno.
+  ///
+  /// Verificado el 2026-09-24 contra el endpoint de datos de Stripe: México es
+  /// país-plataforma válido Y país de cuenta conectada, con `card_payments`,
+  /// `transfers` y `oxxo_payments`.
+  stripeConnectedAccountId String? @map("stripe_connected_account_id")
+
+  /// Comisión de ZaharDev, en puntos base (100 = 1 %). Nula = sin comisión.
+  ///
+  /// En puntos base y no en porcentaje decimal por la misma razón por la que
+  /// el dinero va en centavos: un `0.035` invita a un error de coma flotante
+  /// en el sitio exacto donde más caro sale.
+  platformFeeBps Int? @map("platform_fee_bps")
+
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
   publishedAt DateTime? @map("published_at")

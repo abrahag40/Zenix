@@ -7,7 +7,7 @@ import {
   type PagoDeHuespedAutorizado,
   type PagoDeHuespedFallido,
 } from '../../common/events/pago-de-huesped'
-import { StripePasarela } from './pasarelas/stripe.pasarela'
+import { RegistroDePasarelas } from './pasarelas/registro-de-pasarelas.service'
 import type { InstruccionDeCobro } from './pasarelas/pasarela'
 import { caducaEn, type MedioDePago } from '../holds/politica-de-retencion'
 
@@ -47,7 +47,7 @@ export class PagoDeReservaService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly pasarela: StripePasarela,
+    private readonly registro: RegistroDePasarelas,
   ) {}
 
   /**
@@ -77,9 +77,6 @@ export class PagoDeReservaService {
      */
     instruccion: InstruccionDeCobro
   }> {
-    if (!(await this.pasarela.disponible(args.slug))) {
-      throw new BadRequestException('El cobro no está configurado en este entorno.')
-    }
 
     const cfg = await this.prisma.bookingEngineConfig.findUnique({
       where: { slug: args.slug },
@@ -111,9 +108,10 @@ export class PagoDeReservaService {
     const medio: MedioDePago = args.medio ?? 'TARJETA'
     const expira = caducaEn(medio, new Date(), cfg.holdTtlMinutes)
 
-    // 🔴 Se delega en la PASARELA, no en Stripe directamente. Lo que cambia
-    // al añadir Banorte es esta línea y nada más — que es justo el objetivo.
-    const cobro = await this.pasarela.prepararCobro({
+    // 🔴 Se delega en la PASARELA de ESTA propiedad. Lo que cambia al añadir
+    // Banorte es la columna de la base, no este archivo — que es el objetivo.
+    const { pasarela, cuentaDestino, comisionBps } = await this.registro.para(cfg.propertyId)
+    const cobro = await pasarela.prepararCobro({
       propertyId: cfg.propertyId,
       // `bookingRef` es opcional en el esquema; aquí no puede faltar, porque
       // la reserva se buscó JUSTO por él. El `??` es para el compilador, no
@@ -123,6 +121,11 @@ export class PagoDeReservaService {
       importeCentavos,
       moneda: moneda.toUpperCase(),
       correoDelHuesped: reserva.guestEmail ?? undefined,
+      // Con cuenta destino el dinero entra en la del HOTEL y ZaharDev retiene
+      // su parte. Sin ella, el cargo se queda en la de ZaharDev — el modelo de
+      // hoy, y el que conviene dejar atrás.
+      cuentaDestino,
+      comisionCentavos: this.registro.comisionEnCentavos(importeCentavos, comisionBps),
     })
 
     // 🔴 Una instrucción de redirección SIN firmar es un importe que el

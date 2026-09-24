@@ -90,7 +90,18 @@ export class BanortePasarela implements PasarelaDePago {
     return false
   }
 
-  async prepararCobro(_datos: DatosDelCobro): Promise<ResultadoDeCobro> {
+  async prepararCobro(datos: DatosDelCobro): Promise<ResultadoDeCobro> {
+    // 🔴 Falla RUIDOSO si le piden algo que esta pasarela no puede cumplir.
+    // Banorte deposita en la cuenta del comercio y no documenta ninguna forma
+    // de retener una comisión de plataforma. Aceptar el parámetro y no
+    // aplicarlo sería cobrarle al huésped y no cobrarle a nadie la comisión —
+    // un error que sólo se descubre al cuadrar el mes.
+    if (datos.cuentaDestino || datos.comisionCentavos) {
+      throw new ServiceUnavailableException(
+        'Banorte deposita íntegro en la cuenta del comercio: no admite comisión de ' +
+          'plataforma. La de ZaharDev tendría que facturarse aparte.',
+      )
+    }
     throw new ServiceUnavailableException(
       'El cobro por Banorte todavía no está implementado: falta el manual oficial ' +
         'de integración, la variante cifrada del formulario y la certificación del ' +

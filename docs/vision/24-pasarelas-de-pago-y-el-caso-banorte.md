@@ -6,6 +6,11 @@
 > siempre Stripe, pero Azucar probablemente pida Banorte.»*
 >
 > La primera tiene respuesta corta y comprobada. La segunda destapó un defecto de diseño.
+>
+> 🔴 **Y una tercera del 2026-09-25 obligó a corregir este documento:** *«la idea es usar la
+> plataforma de pago de Banorte pero con la finalidad de automatizar… sin la dependencia de un
+> humano»*. La primera versión se apoyaba demasiado en Liga de Pago, que es justo la que necesita
+> una persona. Ver §7.
 
 ---
 
@@ -119,3 +124,92 @@ el volumen lo justifique.
 - **Las comisiones.** Banorte dice «tasa de descuento por tipo de tarjeta… puede variar
   dependiendo por giro, ticket y facturación promedio mensual». No hay tarifa pública comparable
   con la de Stripe.
+
+
+---
+
+## 7 · 🔴 Corrección: sí se puede automatizar, y no era como lo conté
+
+La primera versión de este documento recomendaba **Liga de Pago** como camino rápido. Era una
+recomendación coherente con ADR-0003 pero **respondía a otra pregunta**: Abraham no quiere «cobrar
+pronto», quiere **cobrar sin que nadie teclee nada**. Y Liga de Pago es precisamente el producto
+que exige una persona.
+
+### Lo que sí automatiza, y lo que cuesta
+
+**Comercio Electrónico (Payworks) sí es automatizable.** Es una integración de software: el
+servidor arma el cobro y el huésped paga sin que nadie del hotel intervenga. Banorte lo describe
+como un motor donde las transacciones «son aceptadas o rechazadas inmediatamente».
+
+Lo que **no** es, y por eso no se puede tener «hoy mismo»:
+
+| | |
+|---|---|
+| Afiliación por hotel | contrato, RFC, acta constitutiva, **cuenta de cheques Banorte** |
+| **Certificación con el banco** antes de producción | lo exige el propio módulo abierto de Magento |
+| **Sin sandbox público** | el portal de desarrolladores sólo publica «API ATM» |
+
+Semanas o meses, y el reloj no lo controlamos nosotros: lo controla el banco.
+
+### 🔴 Y el problema de fondo: Banorte no sabe repartir
+
+Aquí está lo que de verdad decide. Payworks **deposita íntegro en la cuenta del comercio**. No hay
+ninguna forma documentada de que un tercero —ZaharDev— retenga una comisión dentro de la misma
+transacción.
+
+O sea: con Banorte, la comisión de ZaharDev **hay que facturarla aparte** y cobrarla por fuera.
+Eso no es un detalle contable: es la diferencia entre un producto que se cobra solo y uno que
+exige perseguir a cada hotel todos los meses.
+
+---
+
+## 8 · Lo que la investigación corrigió sobre Stripe — y cambia la recomendación
+
+Iba a escribir que Stripe Connect no sirve para pagar a hoteles mexicanos, porque eso es lo que
+afirma más de un artículo. **Lo comprobé contra el endpoint de datos de la propia documentación de
+Stripe y es falso.**
+
+```
+get-platform-countries                        → 57 países, MX incluido
+get-requirement-selections-for-platform-country?platformCountry=MX
+  → country_map.MX.capabilities:
+       card_payments · transfers · oxxo_payments · link_payments …
+```
+
+`transfers` es exactamente la capacidad que permite que el dinero llegue a la cuenta del hotel.
+
+**Con eso, el modelo que Abraham pide funciona hoy:**
+
+1. El huésped paga en el sitio del hotel.
+2. El cargo es un *destination charge*: los fondos van a la cuenta de Stripe **del hotel**.
+3. `application_fee_amount` retiene la comisión de ZaharDev **en la misma transacción**.
+4. La comisión del banco la descuenta Stripe.
+5. Nadie teclea nada.
+
+Y ZaharDev **no es custodio de dinero ajeno**, que es una propiedad que conviene no perder: el
+dinero del huésped nunca pasa por una cuenta nuestra.
+
+### Lo que NO está verificado, y hay que preguntar
+
+- **Las comisiones exactas** de Stripe en México para este modelo.
+- **Si el hotel puede abrir su cuenta conectada** con sus documentos (RFC, acta constitutiva). Es
+  muy probable, pero es una cuenta financiera y el alta la resuelve Stripe, no nosotros.
+- **Los plazos de depósito** al hotel.
+
+---
+
+## 9 · La recomendación, corregida
+
+**Para Azucar y para todo hotel nuevo: Stripe Connect.** Cumple las cuatro condiciones —automático,
+el dinero al hotel, comisión de ZaharDev retenida sola, sin humano— y funciona hoy.
+
+**Banorte sigue siendo un módulo aparte, pre-fabricado, para el hotel que lo pida.** La
+arquitectura ya lo permite: una columna en la base decide quién cobra, y Stripe es el valor por
+omisión. Pero conviene decirle al cliente lo que compra:
+
+> Con Banorte el cobro se automatiza igual, pero tarda semanas de trámite bancario, no tiene
+> entorno de pruebas, y **la comisión de ZaharDev hay que facturarla aparte** porque el banco
+> deposita íntegro. Con Stripe funciona hoy y se reparte solo.
+
+Si aun así el hotel prefiere su banco —por relación, por tasa negociada, o porque ya lo tiene
+contratado— el módulo está preparado para recibirlo sin tocar nada de lo demás.

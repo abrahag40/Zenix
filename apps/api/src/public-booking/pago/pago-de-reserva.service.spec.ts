@@ -1,4 +1,5 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common'
+import { ServiceUnavailableException } from '@nestjs/common'
 import { PagoDeReservaService } from './pago-de-reserva.service'
 
 /**
@@ -21,7 +22,7 @@ describe('PagoDeReservaService', () => {
     cancelledAt: null,
   }
 
-  const arma = (over: { reserva?: unknown; stripe?: unknown } = {}) => {
+  const arma = (over: { reserva?: unknown; stripe?: unknown; cuentaDestino?: string; comisionBps?: number } = {}) => {
     const create = jest.fn().mockResolvedValue({ id: 'pi_1', client_secret: 'pi_1_secret_abc' })
     const update = jest.fn().mockResolvedValue({})
     const prisma: any = {
@@ -65,7 +66,28 @@ describe('PagoDeReservaService', () => {
       },
       consultarEstado: async () => ({ autorizado: true, importeCentavos: 0, moneda: 'MXN' }),
     }
-    return { service: new PagoDeReservaService(prisma, pasarela), create, update, pasarela }
+    // El servicio habla con el REGISTRO, no con una pasarela concreta: es lo
+    // que le permite cobrar por Stripe en un hotel y por otra en el siguiente.
+    const registro: any = {
+      para: async () => {
+        // 🔴 El doble modela el comportamiento REAL del registro: si la
+        // pasarela no está configurada, lanza. Antes devolvía la pasarela
+        // igualmente y la prueba de «sin Stripe» pasaba por la razón
+        // equivocada — un doble más permisivo que el original convierte una
+        // prueba en un adorno.
+        if ('stripe' in over && !over.stripe) {
+          throw new ServiceUnavailableException('La pasarela no está configurada.')
+        }
+        return {
+        pasarela,
+          cuentaDestino: over.cuentaDestino,
+          comisionBps: over.comisionBps,
+        }
+      },
+      comisionEnCentavos: (imp: number, bps?: number) =>
+        bps ? Math.floor((imp * bps) / 10_000) : undefined,
+    }
+    return { service: new PagoDeReservaService(prisma, registro), create, update, pasarela, registro }
   }
 
   it('🔴 el importe sale de la RESERVA, en centavos enteros', async () => {
@@ -98,6 +120,30 @@ describe('PagoDeReservaService', () => {
     // hay otra prueba para eso.
     expect(r.instruccion.tipo).toBe('elementos-incrustados')
     expect(Object.keys(r.instruccion).sort()).toEqual(['secretoDeCliente', 'tipo'])
+  })
+
+  it('🔴 el dinero va a la cuenta del HOTEL y ZaharDev retiene su comisión', async () => {
+    // Es el modelo que se busca: el hotel cobra, ZaharDev no es custodio de
+    // dinero ajeno. Sin cuenta destino el cargo se queda en la de ZaharDev,
+    // que es lo que conviene dejar atrás.
+    const { service, pasarela } = arma({ cuentaDestino: 'acct_hotel', comisionBps: 350 })
+    let visto: any = null
+    const antes = pasarela.prepararCobro
+    pasarela.prepararCobro = async (d: any) => { visto = d; return antes(d) }
+    await service.crearIntento({ slug: 'hotel-tulum', bookingRef: reserva.bookingRef })
+    expect(visto.cuentaDestino).toBe('acct_hotel')
+    // 240 000 × 350 / 10 000 = 8 400 centavos = 84.00
+    expect(visto.comisionCentavos).toBe(8400)
+  })
+
+  it('sin cuenta destino, no se manda comisión a ninguna parte', async () => {
+    const { service, pasarela } = arma()
+    let visto: any = null
+    const antes = pasarela.prepararCobro
+    pasarela.prepararCobro = async (d: any) => { visto = d; return antes(d) }
+    await service.crearIntento({ slug: 'hotel-tulum', bookingRef: reserva.bookingRef })
+    expect(visto.cuentaDestino).toBeUndefined()
+    expect(visto.comisionCentavos).toBeUndefined()
   })
 
   it('🔴 se NIEGA a devolver un formulario sin firmar', async () => {
@@ -159,10 +205,14 @@ describe('PagoDeReservaService', () => {
     expect(update).not.toHaveBeenCalled()
   })
 
-  it('sin Stripe configurado se dice, no se revienta', async () => {
+  it('sin pasarela configurada se dice, no se revienta', async () => {
+    // Antes decía «sin Stripe». Ahora la comprobación vive en el registro, que
+    // es quien sabe qué pasarela le toca a cada propiedad — y lanza
+    // `ServiceUnavailable` en vez de `BadRequest`, que es el código correcto:
+    // no es que el huésped pidiera mal, es que el servidor no puede cobrar.
     const { service } = arma({ stripe: null })
     await expect(service.crearIntento({ slug: 'x', bookingRef: 'y' }))
-      .rejects.toBeInstanceOf(BadRequestException)
+      .rejects.toBeInstanceOf(ServiceUnavailableException)
   })
 
   it('una reserva que no existe no crea ninguna intención', async () => {
