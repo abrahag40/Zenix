@@ -1,4 +1,9 @@
-import { Controller, Get, Query } from '@nestjs/common'
+import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common'
+import { StaffRole } from '@zenix/shared'
+import { ApiOperation } from '@nestjs/swagger'
+import { Roles } from '../../common/decorators/roles.decorator'
+import { PrecioDeTipoDto } from './precio-de-tipo.dto'
+import { PrecioDeTipoService } from './precio-de-tipo.service'
 import { PrismaService } from '../../prisma/prisma.service'
 import { TenantContextService } from '../../common/tenant-context.service'
 
@@ -7,7 +12,32 @@ export class RoomTypesController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
+    private readonly precios: PrecioDeTipoService,
   ) {}
+
+  /**
+   * Cambiar el precio por noche de un tipo de habitación.
+   *
+   * 🔴 `SUPERVISOR`, el mismo rol que exige todo `rates.controller.ts`. El
+   * precio es dinero: quien lo cambia es quien responde por él, y recepción no
+   * tiene por qué poder hacerlo.
+   *
+   * La propiedad y la organización salen del CONTEXTO del que pide, nunca del
+   * cuerpo ni de la URL. Si vinieran de fuera, cambiar un número en la
+   * petición cambiaría el precio de otro hotel.
+   */
+  @ApiOperation({ summary: 'Cambiar la tarifa base de un tipo de habitación' })
+  @Patch(':id/precio')
+  @Roles(StaffRole.SUPERVISOR)
+  async cambiarPrecio(@Param('id') id: string, @Body() dto: PrecioDeTipoDto) {
+    return this.precios.cambiar({
+      roomTypeId: id,
+      tarifaCentavos: dto.tarifaCentavos,
+      organizationId: this.tenant.getOrganizationId(),
+      propertyId: this.tenant.getPropertyId(),
+      actorId: this.tenant.getUserId(),
+    })
+  }
 
   @Get()
   async findAll(@Query('propertyId') propertyId: string) {
