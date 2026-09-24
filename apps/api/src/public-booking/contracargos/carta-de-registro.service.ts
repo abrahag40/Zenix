@@ -76,7 +76,7 @@ export class CartaDeRegistroService {
    * huellas distintas y la verificación fallaría sin que nada esté mal. Es el
    * fallo clásico de firmar JSON, y se evita con seis líneas.
    */
-  static huellaDe(documento: unknown, firmaUrl: string | null): string {
+  static huellaDe(documento: unknown, firmaHash: string | null): string {
     const canon = (v: unknown): unknown => {
       if (Array.isArray(v)) return v.map(canon)
       if (v && typeof v === 'object') {
@@ -88,9 +88,11 @@ export class CartaDeRegistroService {
       }
       return v
     }
-    // La firma entra en la huella: sellar sólo el texto dejaría cambiar la
-    // imagen de la firma sin que la huella lo note.
-    const payload = JSON.stringify({ documento: canon(documento), firmaUrl: firmaUrl ?? null })
+    // 🔴 Entra el HASH DE LA IMAGEN, no su URL. Sellar la URL no sella nada:
+    // el archivo al que apunta se puede sustituir sin que la huella cambie, y
+    // `verificar()` diría «íntegra» con una firma distinta dentro. Lo encontré
+    // atacando esta misma implementación, y estaba mal desde el primer día.
+    const payload = JSON.stringify({ documento: canon(documento), firmaHash: firmaHash ?? null })
     return crypto.createHash('sha256').update(payload, 'utf8').digest('hex')
   }
 
@@ -100,6 +102,8 @@ export class CartaDeRegistroService {
     guestStayId: string
     documento: DocumentoDeRegistro
     firmaUrl: string | null
+    /** SHA-256 de los BYTES de la imagen. Lo calcula quien la sube. */
+    firmaHash?: string | null
     testigoStaffId?: string
     ip?: string
     userAgent?: string
@@ -127,7 +131,33 @@ export class CartaDeRegistroService {
       return ya
     }
 
-    const huella = CartaDeRegistroService.huellaDe(args.documento, args.firmaUrl)
+    // Si hay firma, tiene que venir con su hash. Aceptar una imagen sin
+    // sellarla sería volver al fallo de ayer con otra cara.
+    if (args.firmaUrl && !args.firmaHash) {
+      throw new BadRequestException(
+        'Falta el hash de la imagen de la firma: sin él, la firma se podría sustituir ' +
+          'después sin que la verificación lo notara.',
+      )
+    }
+
+    // 🔴 La MISMA firma en dos cartas es el otro fraude obvio: copiar el
+    // garabato de un huésped a la estancia de otro. No se bloquea —dos
+    // estancias del mismo huésped pueden firmar casi igual y un falso positivo
+    // en recepción es caro— pero se deja dicho en el registro.
+    if (args.firmaHash) {
+      const repetida = await this.prisma.registrationRecord.findFirst({
+        where: { firmaHash: args.firmaHash, guestStayId: { not: args.guestStayId } },
+        select: { guestStayId: true },
+      })
+      if (repetida) {
+        this.logger.warn(
+          `[carta] ⚠️ la firma de ${args.guestStayId} es IDÉNTICA a la de ` +
+            `${repetida.guestStayId}. Revisar antes de usarla como evidencia.`,
+        )
+      }
+    }
+
+    const huella = CartaDeRegistroService.huellaDe(args.documento, args.firmaHash ?? null)
     const r = await this.prisma.registrationRecord.create({
       data: {
         propertyId: args.propertyId,
@@ -135,6 +165,7 @@ export class CartaDeRegistroService {
         documento: args.documento as unknown as object,
         huella,
         firmaUrl: args.firmaUrl,
+        firmaHash: args.firmaHash ?? null,
         firmadoEn: new Date(),
         testigoStaffId: args.testigoStaffId,
         ip: args.ip,
@@ -160,10 +191,12 @@ export class CartaDeRegistroService {
     huellaGuardada: string
     huellaRecalculada: string
     conConstanciaNom151: boolean
+    /** `false` = la firma no está sellada y se podría sustituir. */
+    selloDeImagen: boolean
   }> {
     const r = await this.prisma.registrationRecord.findUnique({ where: { guestStayId } })
     if (!r) throw new NotFoundException('Esa estancia no tiene carta de registro.')
-    const recalculada = CartaDeRegistroService.huellaDe(r.documento, r.firmaUrl)
+    const recalculada = CartaDeRegistroService.huellaDe(r.documento, r.firmaHash)
     const integra = recalculada === r.huella
     if (!integra) {
       // Que esto pase significa que alguien tocó la fila. Merece un grito.
@@ -177,6 +210,9 @@ export class CartaDeRegistroService {
       huellaGuardada: r.huella,
       huellaRecalculada: recalculada,
       conConstanciaNom151: !!r.nom151Serial,
+      // Las cartas anteriores al arreglo no tienen hash de imagen. Se declara
+      // en vez de fingir que están selladas.
+      selloDeImagen: !!r.firmaHash,
     }
   }
 }

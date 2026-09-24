@@ -25,13 +25,20 @@ function hacer(existente: unknown = null) {
   const prisma: any = {
     registrationRecord: {
       findUnique: jest.fn().mockResolvedValue(existente),
+      // El doble tiene que ofrecer lo mismo que el real: sin `findFirst`, las
+      // pruebas fallaban por el doble y no por el código.
+      findFirst: jest.fn().mockResolvedValue(null),
       create,
     },
   }
   return { svc: new CartaDeRegistroService(prisma), create, prisma }
 }
 
-const base = { propertyId: 'p1', guestStayId: 'gs1', documento: doc, firmaUrl: 'https://f/1.png' }
+const HASH_FIRMA = 'a'.repeat(64)
+const base = {
+  propertyId: 'p1', guestStayId: 'gs1', documento: doc,
+  firmaUrl: 'https://f/1.png', firmaHash: HASH_FIRMA,
+}
 
 describe('la huella', () => {
   it('🔴 NO depende del orden de las claves', () => {
@@ -49,11 +56,15 @@ describe('la huella', () => {
       .not.toBe(CartaDeRegistroService.huellaDe(otro, null))
   })
 
-  it('🔴 cambia si cambia la FIRMA', () => {
-    // Sellar sólo el texto dejaría sustituir la imagen de la firma sin que la
-    // huella se entere. La firma entra en la huella.
-    expect(CartaDeRegistroService.huellaDe(doc, 'https://f/1.png'))
-      .not.toBe(CartaDeRegistroService.huellaDe(doc, 'https://f/2.png'))
+  it('🔴 cambia si cambian los BYTES de la firma, no su URL', () => {
+    // EL FALLO QUE ENCONTRÉ ATACANDO ESTO. Antes se sellaba `firmaUrl`, así
+    // que sustituir el PNG al que apunta no cambiaba la huella: `verificar()`
+    // decía «íntegra» con una firma distinta dentro. Ahora entra el hash de
+    // los bytes.
+    const h1 = 'a'.repeat(64)
+    const h2 = 'b'.repeat(64)
+    expect(CartaDeRegistroService.huellaDe(doc, h1))
+      .not.toBe(CartaDeRegistroService.huellaDe(doc, h2))
   })
 
   it('es SHA-256: 64 caracteres hexadecimales', () => {
@@ -72,8 +83,28 @@ describe('sellar', () => {
 
   it('🔴 sin firma NI código verificado se niega', async () => {
     const { svc, create } = hacer()
-    await expect(svc.sellar({ ...base, firmaUrl: null })).rejects.toBeInstanceOf(BadRequestException)
+    await expect(svc.sellar({ ...base, firmaUrl: null, firmaHash: null }))
+      .rejects.toBeInstanceOf(BadRequestException)
     expect(create).not.toHaveBeenCalled()
+  })
+
+  it('🔴 una firma SIN su hash se rechaza', async () => {
+    // Aceptar la imagen sin sellarla sería volver al fallo con otra cara.
+    const { svc, create } = hacer()
+    await expect(svc.sellar({ ...base, firmaHash: null }))
+      .rejects.toThrow(/hash de la imagen/i)
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('⚠️ avisa si la MISMA firma ya se usó en otra estancia', async () => {
+    // Copiar el garabato de un huésped a la estancia de otro. No se bloquea
+    // —dos estancias del mismo huésped firman casi igual— pero se deja dicho.
+    const { svc, prisma } = hacer()
+    prisma.registrationRecord.findUnique = jest.fn().mockResolvedValue(null)
+    prisma.registrationRecord.findFirst = jest.fn().mockResolvedValue({ guestStayId: 'gs-otra' })
+    const aviso = jest.spyOn((svc as never as { logger: { warn: () => void } }).logger, 'warn')
+    await svc.sellar(base)
+    expect(aviso).toHaveBeenCalledWith(expect.stringMatching(/IDÉNTICA a la de gs-otra/))
   })
 
   it('con código verificado y sin firma, sí vale', async () => {
@@ -109,7 +140,8 @@ describe('verificar', () => {
   const guardada = (over: Record<string, unknown> = {}) => ({
     documento: doc,
     firmaUrl: 'https://f/1.png',
-    huella: CartaDeRegistroService.huellaDe(doc, 'https://f/1.png'),
+    firmaHash: HASH_FIRMA,
+    huella: CartaDeRegistroService.huellaDe(doc, HASH_FIRMA),
     nom151Serial: null,
     ...over,
   })
@@ -119,6 +151,24 @@ describe('verificar', () => {
     const r = await svc.verificar('gs1')
     expect(r.integra).toBe(true)
     expect(r.conConstanciaNom151).toBe(false)
+    expect(r.selloDeImagen).toBe(true)
+  })
+
+  it('🔴 ATAQUE: sustituir la imagen de la firma rompe la verificación', async () => {
+    // El ataque concreto: alguien con acceso al almacén cambia el PNG. La URL
+    // sigue igual, pero el hash de los bytes no.
+    const { svc } = hacer(guardada({ firmaHash: 'c'.repeat(64) }))
+    expect((await svc.verificar('gs1')).integra).toBe(false)
+  })
+
+  it('una carta vieja sin sello de imagen lo DECLARA', async () => {
+    // No se finge que está bien: se dice que su firma no está sellada.
+    const { svc } = hacer(guardada({
+      firmaHash: null, huella: CartaDeRegistroService.huellaDe(doc, null),
+    }))
+    const r = await svc.verificar('gs1')
+    expect(r.integra).toBe(true)
+    expect(r.selloDeImagen).toBe(false)
   })
 
   it('🔴 si alguien tocó la fila, se nota', async () => {

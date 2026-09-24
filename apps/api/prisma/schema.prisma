@@ -2998,6 +2998,17 @@ model RegistrationRecord {
 
   /// Dónde vive la imagen de la firma. No se mete en la base.
   firmaUrl     String?  @map("firma_url")
+
+  /// 🔴 SHA-256 de los BYTES de la imagen, no de su URL.
+  ///
+  /// Sellar la URL no sella nada: el archivo al que apunta se puede sustituir
+  /// sin que la huella cambie, y `verificar()` diría «íntegra» con una firma
+  /// distinta dentro. Lo encontré atacando mi propia implementación.
+  ///
+  /// Con el hash de los bytes, cambiar el PNG rompe la verificación. Y de
+  /// paso permite detectar la MISMA firma reutilizada en dos cartas, que es el
+  /// otro fraude obvio: copiar el garabato de un huésped a la estancia de otro.
+  firmaHash    String?  @map("firma_hash")
   firmadoEn    DateTime @map("firmado_en")
 
   /// Quién del hotel presenció la firma. El equivalente a «lo firmó ante mí».
