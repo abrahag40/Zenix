@@ -1,4 +1,5 @@
 import { lazy, Suspense } from 'react'
+import InvitacionPage from './pages/InvitacionPage'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 // Sprint CHANNEX-UX-E2-E3 — single toast lib (Sonner bottom-right richColors).
@@ -123,7 +124,7 @@ function NotificationAlertsMount() {
 // notificaciones). Un huésped abriendo /precheckin en su móvil recibía un stream
 // de notificaciones de staff (y, en un navegador con token de staff persistido,
 // el SSE autenticado quedaba abierto). Gateamos por prefijo de ruta.
-const PUBLIC_ROUTE_PREFIXES = ['/login', '/setup', '/precheckin', '/onboarding', '/book']
+const PUBLIC_ROUTE_PREFIXES = ['/login', '/setup', '/invitacion', '/precheckin', '/onboarding', '/book']
 function ConditionalAlertsMount() {
   const { pathname } = useLocation()
   const isPublic = PUBLIC_ROUTE_PREFIXES.some((p) => pathname.startsWith(p))
@@ -142,6 +143,8 @@ export default function App() {
           {/* Day 17 — Org Owner activation. Public route. Token validation
               en backend (single-use, 72h TTL, SHA256 hashed at-rest). */}
           <Route path="/setup/:token" element={<SetupPage />} />
+          {/* El alta del PERSONAL del hotel. Hermana de /setup, otro endpoint. */}
+          <Route path="/invitacion/:token" element={<InvitacionPage />} />
           {/* AUTO-CHECKIN — mini web-app pública del huésped (pre-arrival) */}
           <Route path="/precheckin/:token" element={<PrecheckinPage />} />
           {/* BOOKING-ENGINE B5 — hosted page pública del huésped (book.zenix.com/{slug}) */}
