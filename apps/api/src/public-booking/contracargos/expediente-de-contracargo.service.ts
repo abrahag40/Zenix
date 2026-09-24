@@ -84,6 +84,11 @@ export class ExpedienteDeContracargoService {
         checkinSignatureUrl: true, checkinSignedAt: true, purchaseIp: true,
         totalAmount: true, amountPaid: true, currency: true,
         paymentStatus: true, source: true, cancelledAt: true, createdAt: true,
+        // La carta de registro sellada, si la hay. Es la versión digital del
+        // papel que el hotel guarda en cajas — y la que se puede encontrar.
+        registrationRecord: {
+          select: { huella: true, firmadoEn: true, nom151Serial: true, otpVerificado: true },
+        },
       },
     })
     if (!e) throw new NotFoundException('No existe esa reserva en esta propiedad.')
@@ -109,7 +114,26 @@ export class ExpedienteDeContracargoService {
     // Stripe acepta las dos cosas bajo esta evidencia. Zenix ya guardaba la
     // identificación; la firma es lo que faltaba.
     const partes: string[] = []
-    if (e.checkinSignatureUrl) {
+    const carta = e.registrationRecord
+    if (carta) {
+      // 🔴 Lo que se le dice al banco no es «tenemos una firma»: es que existe
+      // un documento firmado, sellado con una huella que se puede recalcular, y
+      // —si se contrató— con una constancia NOM-151 que fija la fecha. Eso es
+      // exactamente lo que el papel en la caja NO puede acreditar.
+      partes.push(
+        `Carta de registro firmada por el huésped el ` +
+          `${carta.firmadoEn.toISOString().slice(0, 16).replace('T', ' ')}, ` +
+          `sellada con huella SHA-256 ${carta.huella.slice(0, 16)}…`,
+      )
+      if (carta.otpVerificado) {
+        partes.push('El huésped confirmó además un código de un solo uso enviado a su contacto.')
+      }
+      if (carta.nom151Serial) {
+        partes.push(
+          `Conservación certificada conforme a la NOM-151-SCFI-2016, constancia ${carta.nom151Serial}.`,
+        )
+      }
+    } else if (e.checkinSignatureUrl) {
       partes.push(`Firma del huésped al registrarse (${e.checkinSignedAt?.toISOString() ?? 'sin fecha'}).`)
     } else {
       faltantes.push('🔴 FALTA LA FIRMA DEL REGISTRO. Es la evidencia más fuerte contra un contracargo por fraude.')
@@ -177,7 +201,7 @@ export class ExpedienteDeContracargoService {
     // peor que no tener marcador.
     const piezas = [
       !!ev.service_date,
-      !!e.checkinSignatureUrl,
+      !!(e.registrationRecord || e.checkinSignatureUrl),
       !!(e.documentType && e.documentNumber),
       !!ev.service_documentation,
       !!ev.customer_purchase_ip,

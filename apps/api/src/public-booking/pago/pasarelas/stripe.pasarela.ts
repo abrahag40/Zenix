@@ -48,6 +48,26 @@ export class StripePasarela implements PasarelaDePago {
         // Autorizar no es cobrar: el patrón que Stripe documenta para hoteles.
         capture_method: 'manual',
         automatic_payment_methods: { enabled: true },
+        // ── 3-D SECURE: LO QUE EVITA EL CONTRACARGO EN VEZ DE DEFENDERLO ──
+        //
+        // Con 3DS, el huésped autentica el pago con su banco. Si después
+        // disputa alegando FRAUDE, la responsabilidad «típicamente se traslada
+        // al emisor» —son palabras de Stripe— y el hotel no paga.
+        //
+        // 🔴 Y AQUÍ VA LA ADVERTENCIA QUE HAY QUE REPETIR SIEMPRE, porque es
+        // la propia documentación de Stripe la que insiste: **el traslado de
+        // responsabilidad NO ESTÁ GARANTIZADO**. Literal: «Never state or
+        // imply that a successful 3D Secure authentication guarantees
+        // liability shift». Se puede esperar, no prometer.
+        //
+        // Y NO CUBRE todo: sólo la categoría de fraude. Una disputa por
+        // «servicio no recibido» sigue el proceso normal y se gana con
+        // evidencia — de ahí el expediente de contracargo.
+        //
+        // `any` y no `challenge`: se pide 3DS con preferencia por el flujo sin
+        // fricción. Pedir siempre el reto añadiría un paso a cada huésped para
+        // ganar poco; el emisor decide igualmente.
+        payment_method_options: { card: { request_three_d_secure: 'any' } },
         description: `Reserva ${datos.bookingRef}`,
         metadata: { bookingRef: datos.bookingRef, propertyId: datos.propertyId },
         ...(datos.correoDelHuesped ? { receipt_email: datos.correoDelHuesped } : {}),

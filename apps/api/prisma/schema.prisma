@@ -908,6 +908,7 @@ model Property {
   @@index([organizationId])
   @@index([legalEntityId])
   @@map("properties")
+  registrationRecords RegistrationRecord[]
 }
 
 // ─── BOOKING-ENGINE B0 (2026-06-11) — "Zenix Booking" direct booking engine ──
@@ -2031,6 +2032,7 @@ model GuestStay {
   @@index([propertyId, checkinAt])
   @@index([propertyId, scheduledCheckout, actualCheckout])
   @@map("guest_stays")
+  registrationRecord  RegistrationRecord?
 }
 
 // ====== MIGRATION-CORE / Zenix Onboard (Sprint 0, 2026-06-13) ================
@@ -2941,6 +2943,91 @@ model RoomBlock {
 /// huésped reclama una tarifa de hace tres meses.
 ///
 /// Importes en CENTAVOS ENTEROS, como todo el dinero de este proyecto.
+/// La carta de registro firmada: el sustituto digital del papel en la caja.
+///
+/// ────────────────────────────────────────────────────────────────────────────
+/// 🔴 QUÉ SUSTITUYE, EXACTAMENTE
+///
+/// Hoy el hotel imprime el comprobante del pago, le escribe sus datos a mano,
+/// se lo hace firmar al huésped y lo guarda en una caja. Funciona —esa firma es
+/// lo que gana el contracargo— pero no escala, se pierde, y encontrar el papel
+/// de hace ocho meses cuando quedan siete días para responder es una lotería.
+///
+/// ────────────────────────────────────────────────────────────────────────────
+/// POR QUÉ LA VERSIÓN DIGITAL VALE LO MISMO ANTE LA LEY MEXICANA
+///
+/// El Código de Comercio, artículo 89, define la firma electrónica como los
+/// datos consignados o asociados lógicamente a un mensaje de datos que
+/// identifican al firmante y demuestran que aprueba la información. El 89 bis
+/// es aún más directo: «no se negarán efectos jurídicos, validez o fuerza
+/// obligatoria a cualquier tipo de información por la sola razón de que esté
+/// contenida en un Mensaje de Datos».
+///
+/// O sea: una firma en una tableta NO vale menos que una en papel. Lo que hay
+/// que poder demostrar es lo mismo que en el papel — **quién firmó, qué firmó,
+/// cuándo, y que no se ha tocado desde entonces**. Eso es lo que guardan estos
+/// campos.
+///
+/// ────────────────────────────────────────────────────────────────────────────
+/// Y LA PIEZA QUE EL PAPEL NO TIENE: EL SELLO
+///
+/// Un papel en una caja no prueba su fecha. Un documento digital sí, si se
+/// sella. La NOM-151-SCFI-2016 define la **constancia de conservación** como un
+/// mensaje de datos emitido por un **prestador de servicios de certificación
+/// acreditado**, con huella digital del mensaje, sello de tiempo RFC 3161 y
+/// número serial único, con vigencia **de al menos diez años** — que encaja con
+/// el plazo de conservación del artículo 49 del Código de Comercio.
+///
+/// Zenix calcula la huella SIEMPRE. La constancia es opcional y de pago: se
+/// contrata con un PSC. Sin ella el documento sigue valiendo; con ella, la
+/// fecha deja de ser discutible.
+model RegistrationRecord {
+  id           String   @id @default(uuid())
+  propertyId   String   @map("property_id")
+  guestStayId  String   @unique @map("guest_stay_id")
+
+  /// El documento COMPLETO tal como se le mostró al huésped, en JSON.
+  ///
+  /// 🔴 Se guarda el contenido, no una plantilla y unos datos. Si se guardara
+  /// «plantilla v3 + estos campos», cambiar la plantilla cambiaría lo que
+  /// parece que firmó. Lo que firmó es esto y no se regenera nunca.
+  documento    Json
+
+  /// SHA-256 del documento canonicalizado más la firma. La huella.
+  huella       String
+
+  /// Dónde vive la imagen de la firma. No se mete en la base.
+  firmaUrl     String?  @map("firma_url")
+  firmadoEn    DateTime @map("firmado_en")
+
+  /// Quién del hotel presenció la firma. El equivalente a «lo firmó ante mí».
+  testigoStaffId String? @map("testigo_staff_id")
+
+  /// Cómo se reforzó la atribución: el huésped confirmó un código de un solo
+  /// uso enviado a su correo o teléfono. Es lo que sube la firma de «simple» a
+  /// difícil de repudiar: prueba que quien firmó controlaba ese contacto.
+  otpVerificado  Boolean   @default(false) @map("otp_verificado")
+  otpCanal       String?   @map("otp_canal")
+  otpVerificadoEn DateTime? @map("otp_verificado_en")
+
+  /// Contexto del acto de firma. Sirve para acreditar circunstancias.
+  ip           String?
+  userAgent    String?  @map("user_agent")
+
+  /// La constancia NOM-151, si se contrató. Serial y sello del PSC.
+  nom151Serial String?   @map("nom151_serial")
+  nom151En     DateTime? @map("nom151_en")
+  nom151Psc    String?   @map("nom151_psc")
+
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  property  Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  guestStay GuestStay @relation(fields: [guestStayId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId, createdAt])
+  @@map("registration_records")
+}
+
 model RateChangeLog {
   id          String   @id @default(uuid())
   propertyId  String   @map("property_id")

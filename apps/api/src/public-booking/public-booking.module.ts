@@ -14,6 +14,7 @@ import { BanortePasarela } from './pago/pasarelas/banorte.pasarela'
 import { RegistroDePasarelas } from './pago/pasarelas/registro-de-pasarelas.service'
 import { ExpedienteDeContracargoService } from './contracargos/expediente-de-contracargo.service'
 import { ContracargoListener } from './contracargos/contracargo.listener'
+import { CartaDeRegistroService } from './contracargos/carta-de-registro.service'
 import { BillingModule } from '../billing/billing.module'
 import { BookingEngineConfigService } from './booking-engine-config.service'
 import { PublicReservationsService } from './public-reservations.service'
@@ -48,6 +49,7 @@ import { WebhookSubscriptionService } from './webhooks/webhook-subscription.serv
     RegistroDePasarelas,
     ExpedienteDeContracargoService,
     ContracargoListener,
+    CartaDeRegistroService,
     BookingEngineConfigService,
     PublicReservationsService,
     BookingApiKeyService,
@@ -62,7 +64,7 @@ import { WebhookSubscriptionService } from './webhooks/webhook-subscription.serv
     PublicBookingService, BookingApiKeyService, WebhookSubscriptionService, RateEnvelopeService,
     PoliticaDePublicacionService, LiberadorDeRetencionesService, PagoDeReservaService,
     StripePasarela, BanortePasarela, RegistroDePasarelas,
-    ExpedienteDeContracargoService,
+    ExpedienteDeContracargoService, CartaDeRegistroService,
   ],
 })
 export class PublicBookingModule {}
