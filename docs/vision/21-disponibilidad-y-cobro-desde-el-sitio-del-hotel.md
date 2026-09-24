@@ -90,12 +90,42 @@ semana. 24 h es el número correcto para **otro** medio de pago —el vale de OX
 SPEI, que tardan—, no para una tarjeta que responde en segundos. **La caducidad depende del medio
 de pago, no de la propiedad.**
 
-### 2.3 · ⚠️ El aviso de «cambió la disponibilidad» sólo lo dispara una reserva web
+### 2.3 · ⚠️ El aviso de «cambió la disponibilidad» depende de que el hotel pague Channex
 
-Comprobado en el código: `booking.availability.changed` se emite **en un único sitio**,
-`public-reservations.service.ts:425`, cuando el motor público crea una reserva. El oyente
-(`webhook-events.listener.ts:49-50`) también espera `channex.availability.changed`, y **nadie lo
-emite**.
+> 🔴 **Corrección del 2026-09-24, dentro de este mismo documento.** La primera versión de este
+> párrafo decía que `channex.availability.changed` **«nadie lo emite»**. Era falso: se emite en
+> `availability.service.ts:686`, a través de la constante `CHANNEX_AVAILABILITY_CHANGED` — y mi
+> búsqueda sólo miraba la cadena literal, así que no lo vi. **El hallazgo no desaparece; cambia, y
+> resulta ser peor.**
+
+Lo que ocurre de verdad. `channex.availability.changed` se emite dentro de
+`computeAndPushInventory`, **después de cuatro guardas de integración**:
+
+```ts
+async computeAndPushInventory(roomId: string, dates: Date[]): Promise<void> {
+  if (!this.channex.enabled) return          // ← el hotel piloto sale por aquí
+  if (!room?.channexRoomTypeId) return
+  if (!settings?.channexPropertyId) return
+  if (totalUnits === 0) return
+  …
+  this.events.emit(CHANNEX_AVAILABILITY_CHANGED, event)
+```
+
+Es decir: **el sitio del hotel sólo se entera de que cambió su propio inventario si el hotel paga
+un channel manager.** Y hay un segundo agujero: los manejadores de entrada de Channex
+—`booking-new`, `booking-cancel`, `booking-modify`— **no avisan a nadie**, y con razón: llamar a
+`notifyReservation` reempujaría a Channex una reserva que vino de Channex, un eco.
+
+Los dos síntomas tienen la misma causa: **el hecho de dominio y la acción de integración son el
+mismo método**, así que no se puede tener uno sin el otro.
+
+El comentario del oyente lo dice con todas sus letras, y es la raíz del defecto:
+
+> *«Reusa el evento `channex.availability.changed` que **YA se emite** cuando el inventario cambia
+> (reserva/cancelación/no-show de **CUALQUIER** fuente)»*
+
+No era de cualquier fuente. Alguien construyó encima de una garantía que no existía, y como un
+oyente que no recibe nada **no falla**, nada se puso en rojo.
 
 Conviene ser exacto sobre la consecuencia, porque es fácil exagerarla:
 
@@ -180,7 +210,7 @@ ese caso hay que decirle al hotel que esas noches están retenidas y por qué.
 |---|---|---|
 | **A1** | Estado `HOLD` con `expiresAt`, que cuenta en `AvailabilityService` y en el empuje a OTAs | Sin esto no hay forma segura de cobrar |
 | **A2** | Liberador de retenciones caducadas (tarea periódica) | Un hold que no caduca es inventario perdido |
-| **A3** | Emitir `availability.changed` **también** al bloquear, cancelar, mover y al entrar una reserva de OTA | §2.3 — evita la devolución |
+| **A3** | Separar el hecho de dominio (`inventory.changed`, siempre) de la acción de integración (el empuje a Channex, condicionado) | §2.3 — evita la devolución, y quita la dependencia de Channex |
 | **A4** | `paymentPolicy` de verdad: `DEPOSIT_30`, `DEPOSIT_50`, `FULL_PREPAY` | Es el objetivo: cobrar el adelanto |
 | **A5** | Cobro por **Stripe Connect**, con la cuenta destino en `LegalEntity` | El dinero es del hotel, no de ZaharDev; y el CFDI lo emite la entidad legal |
 | **A6** | Confirmación por webhook firmado, idempotente | §3.1 a) |
@@ -234,7 +264,7 @@ que el cobro*.
 
 | Orden | Qué | Por qué ahí |
 |---|---|---|
-| **1** | **A3** · emitir `availability.changed` en bloqueo, cancelación y OTA | Barato, y sin él cobrar produce devoluciones. Es el único que **empeora** si se pospone |
+| **1** | **A3** · el hecho de dominio, sin guardas de integración | Barato, y sin él cobrar produce devoluciones. Es el único que **empeora** si se pospone |
 | **2** | **A1 + A2** · retención con caducidad y su liberador | Es el cimiento del cobro. Se prueba sin pasarela |
 | **3** | **A7** · renombrar la llave y exigir orígenes | Cambio incompatible: cuanto antes, menos hoteles afectados |
 | **4** | **A4 + A5 + A6** · cobro real con Stripe Connect | Sobre cimiento firme, no antes |
