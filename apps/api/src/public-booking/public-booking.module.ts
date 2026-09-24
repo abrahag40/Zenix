@@ -8,6 +8,8 @@ import { RateEnvelopeService } from './rate-envelope/rate-envelope.service'
 import { RateEnvelopeListener } from './rate-envelope/rate-envelope.listener'
 import { PoliticaDePublicacionService } from './politica-de-publicacion.service'
 import { LiberadorDeRetencionesService } from './holds/liberador-de-retenciones.service'
+import { PagoDeReservaService } from './pago/pago-de-reserva.service'
+import { BillingModule } from '../billing/billing.module'
 import { BookingEngineConfigService } from './booking-engine-config.service'
 import { PublicReservationsService } from './public-reservations.service'
 import { BookingApiKeyService } from './booking-api-key.service'
@@ -26,7 +28,7 @@ import { WebhookSubscriptionService } from './webhooks/webhook-subscription.serv
  * B3: webhooks outbound (dispatcher + listener de eventos de dominio + retry cron).
  */
 @Module({
-  imports: [NotificationsModule],
+  imports: [NotificationsModule, BillingModule],
   controllers: [PublicBookingController, BookingEngineManagementController],
   providers: [
     PublicBookingService,
@@ -35,6 +37,7 @@ import { WebhookSubscriptionService } from './webhooks/webhook-subscription.serv
     RateEnvelopeListener,
     PoliticaDePublicacionService,
     LiberadorDeRetencionesService,
+    PagoDeReservaService,
     BookingEngineConfigService,
     PublicReservationsService,
     BookingApiKeyService,
@@ -47,7 +50,7 @@ import { WebhookSubscriptionService } from './webhooks/webhook-subscription.serv
   ],
   exports: [
     PublicBookingService, BookingApiKeyService, WebhookSubscriptionService, RateEnvelopeService,
-    PoliticaDePublicacionService, LiberadorDeRetencionesService,
+    PoliticaDePublicacionService, LiberadorDeRetencionesService, PagoDeReservaService,
   ],
 })
 export class PublicBookingModule {}

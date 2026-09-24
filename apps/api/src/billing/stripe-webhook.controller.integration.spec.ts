@@ -132,7 +132,7 @@ describe('Stripe webhook HTTP integration', () => {
             email: BillingEmailService,
             sub: SubscriptionService,
             prisma: PrismaService,
-          ) => new WebhookHandlerService(prisma, email, sub),
+          ) => new WebhookHandlerService(prisma, email, sub, { emitAsync: jest.fn().mockResolvedValue([]) } as never),
           inject: [BillingEmailService, SubscriptionService, PrismaService],
         },
         { provide: SubscriptionService, useValue: subscriptionMock },
