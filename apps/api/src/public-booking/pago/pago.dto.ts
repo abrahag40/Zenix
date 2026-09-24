@@ -1,4 +1,4 @@
-import { IsIn, IsOptional, IsString } from 'class-validator'
+import { IsIn, IsOptional } from 'class-validator'
 
 /**
  * Lo que el sitio manda para preparar un pago.
@@ -9,6 +9,13 @@ import { IsIn, IsOptional, IsString } from 'class-validator'
  *
  * El `bookingRef` va en la ruta y no aquí; esto sólo lleva CÓMO va a pagar,
  * que es lo único que el cliente legítimamente decide.
+ *
+ * 🔴 Y aquí NO se dejan campos «reservados para más adelante». Hubo uno,
+ * `nada?: never`, puesto por si algún día hacía falta. `never` no es un tipo
+ * que Swagger sepa convertir en esquema, así que al construir la
+ * documentación lanzaba «A circular dependency has been detected (property
+ * key: nada)» y **la API no arrancaba**. Tumbó un despliegue entero un campo
+ * que no hacía nada. El coste de un hueco especulativo no es cero.
  */
 export class PrepararPagoDto {
   /**
@@ -18,9 +25,4 @@ export class PrepararPagoDto {
   @IsOptional()
   @IsIn(['TARJETA', 'VALE_EFECTIVO', 'TRANSFERENCIA', 'EN_EL_HOTEL'])
   medio?: 'TARJETA' | 'VALE_EFECTIVO' | 'TRANSFERENCIA' | 'EN_EL_HOTEL'
-
-  /** Reservado para la clave pública de Stripe si algún día se pide aquí. */
-  @IsOptional()
-  @IsString()
-  nada?: never
 }
