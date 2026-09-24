@@ -127,9 +127,31 @@ async function main() {
   }
   const prop = await prisma.property.findUniqueOrThrow({
     where: { id: cfg.propertyId },
-    select: { id: true, name: true, organizationId: true },
+    select: {
+      id: true, name: true, organizationId: true,
+      legalEntity: { select: { baseCurrency: true, countryCode: true } },
+    },
   })
   ok(`Propiedad: ${prop.name}`)
+
+  // 🔴 LA MONEDA SE HEREDA DE LA ENTIDAD LEGAL, NO DEL VALOR POR OMISIÓN.
+  //
+  // `RoomType.currency` tiene `@default("USD")` en el esquema, y la primera
+  // versión de este script no la fijaba: un hotel de Tulum acabó con sus diez
+  // tipos en DÓLARES. Nadie lo nota leyendo el código —el campo existe y
+  // tiene un valor— pero el sitio publica el precio equivocado y la pasarela
+  // cobraría en la divisa equivocada.
+  //
+  // Un valor por omisión razonable para el país de quien escribió el esquema
+  // es un valor EQUIVOCADO para todos los demás. La moneda correcta ya está
+  // declarada en la entidad legal del hotel, que es quien factura.
+  const moneda = arg('moneda') ?? prop.legalEntity?.baseCurrency
+  if (!moneda) {
+    mal('La propiedad no tiene entidad legal con moneda, y no se pasó --moneda.')
+    info('Sin moneda declarada, los tipos nacerían en USD por omisión del esquema.')
+    process.exit(8)
+  }
+  ok(`Moneda: ${moneda}${arg('moneda') ? ' (indicada)' : ' (heredada de la entidad legal)'}`)
 
   // 🔴 La procedencia del dato se muestra ANTES de escribir. Dos tipos de
   // Azucar llevan capacidad estimada por nosotros y no confirmada por el
@@ -186,6 +208,7 @@ async function main() {
           code: t.codigo,
           maxOccupancy: t.capacidadMaxima,
           baseRate: Number(arg('tarifa-base') ?? 1200),
+          currency: moneda,
           amenities: [],
         },
         select: { id: true, _count: { select: { rooms: true } } },
@@ -209,6 +232,14 @@ async function main() {
       creadasHab++
     }
   }
+  // Los tipos que YA existían pueden llevar la moneda equivocada de una carga
+  // anterior. Se corrige: es un dato del hotel, no una decisión por tipo.
+  const arreglados = await prisma.roomType.updateMany({
+    where: { propertyId: prop.id, code: { in: tipos.map((t) => t.codigo) }, currency: { not: moneda } },
+    data: { currency: moneda },
+  })
+  if (arreglados.count > 0) ok(`${arreglados.count} tipo(s) corregidos a ${moneda}`)
+
   ok(`${creadosTipos} tipo(s) nuevos · ${creadasHab} habitación(es) nuevas`)
   const total = await prisma.room.count({ where: { propertyId: prop.id, deletedAt: null } })
   ok(`La propiedad tiene ahora ${total} habitaciones`)
