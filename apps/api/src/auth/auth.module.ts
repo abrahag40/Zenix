@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common'
+import { InvitacionDeStaffService } from './invitacion/invitacion-de-staff.service'
+import { InvitacionDeStaffController } from './invitacion/invitacion-de-staff.controller'
 import { ConfigService } from '@nestjs/config'
 import { JwtModule } from '@nestjs/jwt'
 import { PassportModule } from '@nestjs/passport'
@@ -19,8 +21,8 @@ import { JwtStrategy } from './strategies/jwt.strategy'
       }),
     }),
   ],
-  controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
-  exports: [JwtModule],
+  controllers: [InvitacionDeStaffController, AuthController],
+  providers: [InvitacionDeStaffService, AuthService, JwtStrategy],
+  exports: [InvitacionDeStaffService, JwtModule],
 })
 export class AuthModule {}

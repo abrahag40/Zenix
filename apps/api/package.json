@@ -16,7 +16,8 @@
     "db:seed": "ts-node prisma/seed.ts",
     "db:studio": "prisma studio",
     "publicar": "ts-node scripts/publicar-propiedad.ts",
-    "cargar-tipos": "ts-node scripts/cargar-tipos.ts"
+    "cargar-tipos": "ts-node scripts/cargar-tipos.ts",
+    "invitar": "ts-node scripts/invitar-al-hotel.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.15",
