@@ -203,7 +203,19 @@ export class PublicBookingService {
           // Derivados de `pricing`, por compatibilidad con BookingPage.tsx.
           // El total legacy es el TOTAL CON IMPUESTOS: es el número que la
           // regla del proyecto —y la LFPC art. 7 BIS— obliga a exhibir.
-          nightlyRate: pricing.totalCents / 100 / pricing.nights,
+          //
+          // 🔴 `nightlyRate` es un PROMEDIO PARA MOSTRAR, no un precio que
+          // nadie pague, y por eso se redondea a centavos. Sin redondear
+          // salía `4161.795` —dos noches de 8 323.59— y el consumidor que lo
+          // imprimiera tal cual enseñaría milésimas de peso. Visto en el
+          // sitio de Azucar el 2026-09-24.
+          //
+          // ⚠️ Y por ser promedio redondeado, `nightlyRate * nights` puede
+          // diferir de `totalRate` en hasta un centavo por noche. **No se usa
+          // para recalcular el total**: el total es `pricing.totalCents`, que
+          // es entero y es el único que se cobra. Recalcularlo desde aquí es
+          // el camino directo a que la pantalla y el cargo no coincidan.
+          nightlyRate: Math.round(pricing.totalCents / pricing.nights) / 100,
           nights,
           totalRate: pricing.totalCents / 100,
           currency: rt.currency ?? currency,
