@@ -130,7 +130,10 @@ async function main() {
   // en v1.1 cuando todos los onboardings nuevos pasen por Zenix Activate.
   const tulum = await prisma.property.upsert({
     where: { id: 'prop-hotel-tulum-001' },
-    update: { name: 'Hotel Tulum', region: 'Riviera Maya', city: 'Tulum', legalEntityId: legalEntityMX.id },
+    update: {
+      name: 'Hotel Tulum', region: 'Riviera Maya', city: 'Tulum', legalEntityId: legalEntityMX.id,
+      regionCode: 'MX-ROO', taxMunicipality: 'Tulum', lodgingKind: 'HOTEL',
+    },
     create: {
       id: 'prop-hotel-tulum-001',
       organizationId: org.id,
@@ -139,11 +142,21 @@ async function main() {
       type: 'HOTEL',
       region: 'Riviera Maya',
       city: 'Tulum',
+      // 🔴 El perfil fiscal, sin el cual el control de publicación no puede
+      // resolver un impuesto y la web del hotel publica «Consultar». La
+      // semilla nacía sin él: un Zenix recién sembrado no podía publicar
+      // precio y nada lo decía.
+      regionCode: 'MX-ROO',
+      taxMunicipality: 'Tulum',
+      lodgingKind: 'HOTEL',
     },
   })
   const cancun = await prisma.property.upsert({
     where: { id: 'prop-hotel-cancun-001' },
-    update: { name: 'Hotel Cancún', region: 'Zona Hotelera Cancún', city: 'Cancún', legalEntityId: legalEntityMX.id },
+    update: {
+      name: 'Hotel Cancún', region: 'Zona Hotelera Cancún', city: 'Cancún', legalEntityId: legalEntityMX.id,
+      regionCode: 'MX-ROO', taxMunicipality: 'Benito Juárez', lodgingKind: 'HOTEL',
+    },
     create: {
       id: 'prop-hotel-cancun-001',
       organizationId: org.id,
@@ -152,6 +165,13 @@ async function main() {
       type: 'HOTEL',
       region: 'Zona Hotelera Cancún',
       city: 'Cancún',
+      // 🔴 El perfil fiscal, sin el cual el control de publicación no puede
+      // resolver un impuesto y la web del hotel publica «Consultar». La
+      // semilla nacía sin él: un Zenix recién sembrado no podía publicar
+      // precio y nada lo decía.
+      regionCode: 'MX-ROO',
+      taxMunicipality: 'Benito Juárez',
+      lodgingKind: 'HOTEL',
     },
   })
   console.log(`✅ Properties: ${tulum.name}, ${cancun.name} (ambos bajo LegalEntity MX)`)

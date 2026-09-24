@@ -1,19 +1,60 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query } from '@nestjs/common'
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, Query } from '@nestjs/common'
 import { StaffRole, type JwtPayload } from '@zenix/shared'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { RatesService } from './rates.service'
+import { PoliticaDePublicacionService } from '../../public-booking/politica-de-publicacion.service'
 import {
   CreateRatePlanDto, UpdateRatePlanDto, CreateSeasonDto, UpdateSeasonDto,
   CreateRestrictionDto, UpsertOverrideDto, BulkOverrideDto, SetDayOfWeekDto,
   ApplyAriDto,
 } from './dto/rate-plan.dto'
 import { RateQuoteDto, ResolvePriceDto, PropertyIdQueryDto } from './dto/rate-query.dto'
+import { GuardarPoliticaFiscalDto, VistaPreviaFiscalDto } from './dto/politica-fiscal.dto'
 import { PropertyDateRangeDto } from '../../common/dto/date-range.dto'
 
 @Controller('v1/rates')
 export class RatesController {
-  constructor(private readonly service: RatesService) {}
+  constructor(
+    private readonly service: RatesService,
+    private readonly politica: PoliticaDePublicacionService,
+  ) {}
+
+  // ── Control de publicación: qué impuestos lleva la tarifa ──────────────────
+  //
+  // 🔴 Vive AQUÍ, junto a los precios, y no en el panel del consultor, por una
+  // razón operativa: la decisión «¿esta tarifa ya lleva impuestos?» se toma en
+  // el momento de escribir el precio, no en una pantalla de configuración que
+  // se visita una vez al año. Separarlas es lo que hasta hoy nos obligaba a
+  // preguntarlo por correo.
+
+  /** Estado fiscal + TODAS las líneas que la jurisdicción permite, activas o no. */
+  @Get('politica-fiscal')
+  leerPoliticaFiscal(@Query() dto: PropertyIdQueryDto) {
+    return this.politica.leer(dto.propertyId)
+  }
+
+  /**
+   * 🔑 Qué vería el huésped con una configuración HIPOTÉTICA. No escribe nada.
+   *
+   * Es el corazón de la pantalla: marcar una casilla y ver el total cambiar
+   * ANTES de guardar. «¿Sus tarifas incluyen impuestos?» es abstracto; ver el
+   * propio precio final no lo es.
+   */
+  @Post('politica-fiscal/vista-previa')
+  // 200, no 201: es un POST porque la configuración tentativa viaja en el
+  // cuerpo, pero no crea nada. Un 201 le miente a cachés y proxies.
+  @HttpCode(200)
+  async previsualizarPoliticaFiscal(@Body() dto: VistaPreviaFiscalDto) {
+    return { previas: await this.politica.previsualizarVarios(dto.propertyId, dto.importesCentavos, dto) }
+  }
+
+  /** Guarda la política. Lo que se elige aquí decide lo que publica la web. */
+  @Patch('politica-fiscal')
+  @Roles(StaffRole.SUPERVISOR)
+  guardarPoliticaFiscal(@Body() dto: GuardarPoliticaFiscalDto) {
+    return this.politica.guardar(dto.propertyId, dto)
+  }
 
   /**
    * GET /v1/rates/daily-bar?propertyId=X&from=ISO&to=ISO

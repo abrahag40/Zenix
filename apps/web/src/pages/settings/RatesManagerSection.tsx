@@ -9,8 +9,9 @@
  * Reusa los hooks de `modules/rooms/hooks/useRates` (extendidos, no duplicados).
  */
 import { useMemo, useState } from 'react'
-import { Plus, Trash2, Pencil, Calendar, Tag, Check, AlertTriangle, Lock } from 'lucide-react'
+import { Plus, Trash2, Pencil, Calendar, Tag, Check, AlertTriangle, Lock, Receipt } from 'lucide-react'
 import { usePropertyStore } from '../../store/property'
+import { ControlDePublicacionTab } from './ControlDePublicacionTab'
 import {
   useRatePlans, useSaveRatePlan, useDeactivateRatePlan, useSeasonMutations, useSetDayOfWeek,
   useRateQuoteGrid, useBulkOverride, useApplyAri, type RatePlan, type BulkOverridePreviewRow,
@@ -19,7 +20,7 @@ import {
 
 const DOW_LABELS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
 
-type Tab = 'plans' | 'calendar' | 'restrictions'
+type Tab = 'plans' | 'calendar' | 'restrictions' | 'publicacion'
 
 export function RatesManagerSection({ isSupervisor }: { isSupervisor: boolean }) {
   const propertyId = usePropertyStore((s) => s.activePropertyId) ?? ''
@@ -37,7 +38,7 @@ export function RatesManagerSection({ isSupervisor }: { isSupervisor: boolean })
       </div>
 
       <div className="flex gap-1 border-b border-slate-200">
-        {([['plans', 'Planes', Tag], ['calendar', 'Calendario de tarifas', Calendar], ['restrictions', 'Restricciones', Lock]] as const).map(([k, label, Icon]) => (
+        {([['plans', 'Planes', Tag], ['calendar', 'Calendario de tarifas', Calendar], ['restrictions', 'Restricciones', Lock], ['publicacion', 'Control de publicación', Receipt]] as const).map(([k, label, Icon]) => (
           <button
             key={k}
             onClick={() => setTab(k)}
@@ -54,8 +55,10 @@ export function RatesManagerSection({ isSupervisor }: { isSupervisor: boolean })
         <PlansTab propertyId={propertyId} isSupervisor={isSupervisor} />
       ) : tab === 'calendar' ? (
         <CalendarTab propertyId={propertyId} isSupervisor={isSupervisor} />
-      ) : (
+      ) : tab === 'restrictions' ? (
         <RestrictionsTab propertyId={propertyId} isSupervisor={isSupervisor} />
+      ) : (
+        <ControlDePublicacionTab propertyId={propertyId} isSupervisor={isSupervisor} />
       )}
     </div>
   )
