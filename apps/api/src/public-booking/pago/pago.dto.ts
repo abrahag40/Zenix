@@ -25,4 +25,8 @@ export class PrepararPagoDto {
   @IsOptional()
   @IsIn(['TARJETA', 'VALE_EFECTIVO', 'TRANSFERENCIA', 'EN_EL_HOTEL'])
   medio?: 'TARJETA' | 'VALE_EFECTIVO' | 'TRANSFERENCIA' | 'EN_EL_HOTEL'
+
+  // MORDIDA TEMPORAL — se replanta el defecto exacto del 2026-09-24 para
+  // comprobar que el paso de arranque del CI se pone ROJO. Esta rama se borra.
+  nada?: never
 }
