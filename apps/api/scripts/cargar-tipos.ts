@@ -53,6 +53,15 @@ interface TipoDeArchivo {
   unidades: number
   capacidadMaxima: number
   verificado?: { capacidad?: boolean; unidades?: boolean }
+  /** Opcional. Si viene, se fija como tarifa base del tipo. */
+  tarifa?: {
+    nocheMxn: number
+    impuestosIncluidos: boolean
+    origen?: string
+    observado?: string
+    de?: string
+    verificado?: boolean
+  }
 }
 
 function pedirCadena(): Promise<string> {
@@ -165,6 +174,26 @@ async function main() {
     info('  Se cargan igual, pero queda dicho: son estimaciones nuestras.')
   }
 
+  // 🔴 Las tarifas que NO están confirmadas por el hotel se cantan enteras
+  // antes de escribir nada. Un precio de referencia que entra en silencio se
+  // convierte en «el precio del sistema» y nadie vuelve a preguntar de dónde
+  // salió — que es exactamente cómo un número de prueba acaba cobrándose.
+  const conTarifa = tipos.filter((t) => t.tarifa)
+  if (conTarifa.length > 0) {
+    const sinConfirmar = conTarifa.filter((t) => t.tarifa!.verificado !== true)
+    console.log('')
+    if (sinConfirmar.length > 0) {
+      info(`⚠ ${sinConfirmar.length} tarifa(s) SIN CONFIRMAR por el hotel — son de referencia:`)
+      const t0 = sinConfirmar[0].tarifa!
+      if (t0.origen) info(`    origen: ${t0.origen}${t0.observado ? ` · ${t0.observado}` : ''}`)
+      info('    Sirven para PROBAR el cobro. No son el tarifario del hotel.')
+    }
+    const incl = conTarifa[0].tarifa!.impuestosIncluidos
+    info(`  Los importes ${incl ? 'YA INCLUYEN' : 'NO incluyen'} impuestos.`)
+    info(`  Se ajustará \`ratesIncludeTaxes = ${incl}\` en el motor para que el`)
+    info('  total publicado sea el correcto. Equivocar esto mueve el precio un 21 %.')
+  }
+
   console.log('\n  Plan:')
   let totalUnidades = 0
   for (const t of tipos) {
@@ -175,13 +204,14 @@ async function main() {
     const tiene = existente?._count.rooms ?? 0
     const faltan = t.unidades - tiene
     totalUnidades += t.unidades
+    const precio = t.tarifa ? ` · ${t.tarifa.nocheMxn.toLocaleString('es-MX')} /noche` : ''
     const accion = !existente
-      ? `+ crear tipo · ${t.unidades} habitación(es)`
+      ? `+ crear tipo · ${t.unidades} habitación(es)${precio}`
       : faltan > 0
-        ? `~ tipo ya existe · faltan ${faltan} habitación(es)`
+        ? `~ tipo ya existe · faltan ${faltan} habitación(es)${precio}`
         : faltan < 0
           ? `⚠ tipo ya existe · tiene ${tiene}, el archivo pide ${t.unidades} — NO se quita ninguna`
-          : '= sin cambios'
+          : t.tarifa ? `~ sólo tarifa${precio}` : '= sin cambios'
     info(`${accion.padEnd(52)} ${t.codigo}`)
   }
   info(`${''.padEnd(52)} ── ${totalUnidades} unidades en total`)
@@ -232,6 +262,29 @@ async function main() {
       creadasHab++
     }
   }
+  // Las tarifas, si el archivo las trae.
+  let conPrecio = 0
+  for (const t of tipos) {
+    if (!t.tarifa) continue
+    const r = await prisma.roomType.updateMany({
+      where: { propertyId: prop.id, code: t.codigo },
+      data: { baseRate: t.tarifa.nocheMxn },
+    })
+    conPrecio += r.count
+  }
+  if (conPrecio > 0) {
+    ok(`${conPrecio} tarifa(s) fijadas`)
+    // 🔑 El modo fiscal va con la tarifa, no aparte. Booking publica sus
+    // precios SIN impuestos —«+ MXN 1,049 de impuestos y cargos»— y cargarlos
+    // como si los llevaran dentro mostraría un 21 % menos de lo que se cobra.
+    const incl = tipos.find((t) => t.tarifa)!.tarifa!.impuestosIncluidos
+    await prisma.bookingEngineConfig.updateMany({
+      where: { propertyId: prop.id },
+      data: { ratesIncludeTaxes: incl },
+    })
+    ok(`Modo fiscal: la tarifa ${incl ? 'YA incluye' : 'NO incluye'} impuestos`)
+  }
+
   // Los tipos que YA existían pueden llevar la moneda equivocada de una carga
   // anterior. Se corrige: es un dato del hotel, no una decisión por tipo.
   const arreglados = await prisma.roomType.updateMany({
