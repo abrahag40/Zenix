@@ -26,14 +26,25 @@
  *     cd ~/Documents/Projects/housekeeping3
  *
  *     # 1. Ver qué haría, sin tocar nada  (por omisión)
- *     DATABASE_URL='postgresql://…' npm run publicar -w @zenix/api -- --slug hotel-tulum
+ *     npm run publicar -w @zenix/api -- --slug hotel-tulum
  *
  *     # 2. Hacerlo de verdad
- *     DATABASE_URL='postgresql://…' npm run publicar -w @zenix/api -- --slug hotel-tulum --aplicar
+ *     npm run publicar -w @zenix/api -- --slug hotel-tulum --aplicar
  *
- * El `…` de arriba es un HUECO: hay que pegar la cadena real de Neon. Si se
- * deja tal cual, el script lo detecta y lo dice en vez de fallar con un error
- * de conexión que no explica nada.
+ * 🔴 **La cadena de conexión NO va en el comando.** El script la pide al
+ * arrancar y la lee SIN ECO, como una contraseña. Tres razones, y la primera
+ * es la que más duele:
+ *
+ *   1. Un secreto escrito en la línea de comandos queda en el **historial del
+ *      intérprete** —`~/.zsh_history`— en claro y para siempre. Es una de las
+ *      formas más comunes de filtrar credenciales, y la más fácil de olvidar.
+ *   2. Mientras el proceso corre, cualquiera con `ps` en esa máquina ve los
+ *      argumentos completos.
+ *   3. Pegar un comando con un hueco `…` dentro invita a ejecutarlo tal cual.
+ *      Ya pasó dos veces con este mismo script.
+ *
+ * Si `DATABASE_URL` ya viene del entorno —por ejemplo en un despliegue— se
+ * respeta y no se pregunta nada.
  *
  * 🔴 **Sin `--aplicar` no escribe nada.** El valor por omisión es el ensayo,
  * no la ejecución: quien corre esto lo hace contra una base de producción, y
@@ -50,8 +61,21 @@
  * · **No toca precios ni inventario.**
  */
 import { PrismaClient } from '@prisma/client'
+import * as readline from 'node:readline'
 
-const prisma = new PrismaClient()
+/**
+ * 🔴 SE CREA TARDE, Y ES OBLIGATORIO QUE SEA ASÍ.
+ *
+ * `new PrismaClient()` lee `DATABASE_URL` EN SU CONSTRUCTOR. Si el cliente se
+ * creara a nivel de módulo —como estaba—, se construiría ANTES de que el
+ * script pida la cadena por teclado, y se quedaría con la de antes: ninguna.
+ * El síntoma habría sido un error de conexión incomprensible justo después de
+ * teclear la cadena correcta.
+ *
+ * Lo encontré al ir a probarlo, no leyéndolo. El orden de construcción de los
+ * módulos es de esas cosas que sólo se ven ejecutando.
+ */
+let prisma!: PrismaClient
 
 function arg(nombre: string): string | undefined {
   const i = process.argv.indexOf(`--${nombre}`)
@@ -69,17 +93,63 @@ const mal = (s: string) => console.error(`  ✗ ${s}`)
  * Las tres nacen de errores reales, no de imaginar lo que podría salir mal.
  * Un mensaje que dice qué hacer vale más que diez que dicen qué pasó.
  */
-function comprobarEntorno() {
-  const url = process.env.DATABASE_URL
+/**
+ * Pide la cadena por teclado, sin eco. No se guarda en ningún sitio: vive en
+ * memoria mientras dura el proceso.
+ */
+function pedirCadena(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!process.stdin.isTTY) {
+      reject(new Error(
+        'No hay terminal interactiva para pedir la cadena. Pásala por entorno:\n' +
+        "      DATABASE_URL='…' npm run publicar -w @zenix/api -- --slug <slug>",
+      ))
+      return
+    }
+    // Silencia el eco: lo que se teclea no aparece en pantalla, igual que una
+    // contraseña. Se envuelve `process.stdout` ANTES de dárselo a readline,
+    // porque `rl.output` no está tipado en la interfaz pública — intentarlo
+    // por ahí fue un error de compilación, no una limitación real.
+    const real = process.stdout
+    let mudo = false
+    const salida = new Proxy(real, {
+      get(obj, prop, recv) {
+        if (prop === 'write') {
+          return (trozo: string | Uint8Array, ...resto: unknown[]) =>
+            mudo ? true : (obj.write as (...a: unknown[]) => boolean)(trozo, ...resto)
+        }
+        return Reflect.get(obj, prop, recv)
+      },
+    })
+
+    const rl = readline.createInterface({ input: process.stdin, output: salida, terminal: true })
+    rl.question('  Cadena de conexión de Neon (no se verá al teclear): ', (v) => {
+      mudo = false
+      real.write('\n')
+      rl.close()
+      resolve(v.trim())
+    })
+    mudo = true
+  })
+}
+
+async function comprobarEntorno() {
+  let url = process.env.DATABASE_URL
   if (!url) {
-    mal('Falta DATABASE_URL.')
-    info('Pégala delante del comando:')
-    info("  DATABASE_URL='postgresql://…' npm run publicar -w @zenix/api -- --slug hotel-tulum")
+    info('No hay DATABASE_URL en el entorno; te la pido aquí para que NO quede')
+    info('en el historial del intérprete ni sea visible con `ps`.')
+    info('Está en console.neon.tech → tu proyecto → Connection string.')
+    console.log('')
+    url = await pedirCadena()
+    process.env.DATABASE_URL = url
+  }
+  if (!url) {
+    mal('No se recibió ninguna cadena de conexión.')
     process.exit(10)
   }
   // El `…` de la documentación pegado tal cual. Sin esto, el fallo sería un
   // error de conexión ilegible.
-  if (url.includes('…') || url.includes('...')) {
+  if (url.includes('…') || url.includes('...') || url.includes('PEGA_AQUI')) {
     mal('DATABASE_URL todavía tiene el hueco «…» de la documentación.')
     info('Sustitúyelo por la cadena real de Neon (console.neon.tech → Connection string).')
     process.exit(11)
@@ -96,7 +166,8 @@ function comprobarEntorno() {
 }
 
 async function main() {
-  comprobarEntorno()
+  await comprobarEntorno()
+  prisma = new PrismaClient()
   const slug = arg('slug')
   const propertyId = arg('property-id')
   if (!slug) {
@@ -192,4 +263,4 @@ main()
     mal(e instanceof Error ? e.message : String(e))
     process.exit(1)
   })
-  .finally(() => prisma.$disconnect())
+  .finally(() => prisma?.$disconnect())
