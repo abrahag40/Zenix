@@ -17,6 +17,7 @@ function hacer(over: { tipo?: any } = {}) {
   const escribir = jest.fn().mockResolvedValue({ id: 'a1' })
   const emit = jest.fn()
   const prisma: any = {
+    rateChangeLog: { create: escribir },
     roomType: {
       findFirst: jest.fn().mockResolvedValue(
         'tipo' in over
@@ -26,7 +27,7 @@ function hacer(over: { tipo?: any } = {}) {
       update,
     },
   }
-  const svc = new PrecioDeTipoService(prisma, { write: escribir } as never, { emit } as never)
+  const svc = new PrecioDeTipoService(prisma, { emit } as never)
   return { svc, prisma, update, escribir, emit }
 }
 
@@ -71,12 +72,17 @@ describe('cambiar', () => {
     expect(String(update.mock.calls[0][0].data.baseRate)).toBe('4500')
     expect(r).toMatchObject({ anteriorCentavos: 400000, nuevaCentavos: 450000, moneda: 'MXN' })
 
-    const rastro = escribir.mock.calls[0][0]
-    expect(rastro.action).toBe('ROOM_TYPE_RATE_UPDATED')
-    expect(rastro.target).toBe('rt1')
-    // De cuánto a cuánto: sin eso, el rastro no responde a la pregunta que se
-    // hace cuando un huésped reclama.
-    expect(rastro.payload).toMatchObject({ anteriorCentavos: 400000, nuevaCentavos: 450000 })
+    // De cuánto a cuánto y quién: sin eso, el rastro no responde a la pregunta
+    // que se hace cuando un huésped reclama.
+    const rastro = escribir.mock.calls[0][0].data
+    expect(rastro).toMatchObject({
+      roomTypeId: 'rt1',
+      propertyId: 'p1',
+      staffId: 'st1',
+      beforeCents: 400000,
+      afterCents: 450000,
+      currency: 'MXN',
+    })
 
     // 🔴 Sin este aviso el hotel cambia el precio y la web sigue con el viejo.
     expect(emit).toHaveBeenCalledWith(TARIFA_CAMBIADA, expect.objectContaining({ propertyId: 'p1' }))
@@ -101,7 +107,7 @@ describe('cambiar', () => {
     expect(emit).not.toHaveBeenCalled()
   })
 
-  it('guardar el MISMO precio no escribe, no audita y no avisa', async () => {
+  it('guardar el MISMO precio no escribe, no deja rastro y no avisa', async () => {
     const { svc, update, escribir, emit } = hacer()
     const r = await svc.cambiar({ ...base, tarifaCentavos: 400000 })
     expect(r.nuevaCentavos).toBe(400000)
@@ -110,14 +116,10 @@ describe('cambiar', () => {
     expect(emit).not.toHaveBeenCalled()
   })
 
-  it('🔴 si la auditoría falla, el precio NO se deshace — pero se grita', async () => {
-    const { svc, update, emit } = hacer()
-    const svc2 = new PrecioDeTipoService(
-      (svc as never as { prisma: unknown }).prisma as never,
-      { write: jest.fn().mockRejectedValue(new Error('auditoría caída')) } as never,
-      { emit } as never,
-    )
-    await expect(svc2.cambiar({ ...base, tarifaCentavos: 450000 })).resolves.toMatchObject({
+  it('🔴 si el rastro falla, el precio NO se deshace — pero se grita', async () => {
+    const { svc, prisma, update, emit } = hacer()
+    prisma.rateChangeLog.create = jest.fn().mockRejectedValue(new Error('tabla caída'))
+    await expect(svc.cambiar({ ...base, tarifaCentavos: 450000 })).resolves.toMatchObject({
       nuevaCentavos: 450000,
     })
     expect(update).toHaveBeenCalled()
