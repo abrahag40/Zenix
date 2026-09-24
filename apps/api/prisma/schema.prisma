@@ -838,21 +838,21 @@ model Property {
   // ── Perfil fiscal (catálogo nacional, docs/vision/20) ────────────────────
   /// Municipio (nombre INEGI). DECIDE el estímulo de IVA en región fronteriza:
   /// Othón P. Blanco tiene 8% y Tulum 16%, ambos en Quintana Roo.
-  taxMunicipality String?  @map("tax_municipality")
+  taxMunicipality String?   @map("tax_municipality")
   /// Regímenes que la propiedad DECLARA tener dados de alta ante la autoridad.
   /// El estímulo fronterizo exige aviso ante el SAT: no lo da la geografía.
-  taxOptIns       String[] @default([]) @map("tax_opt_ins")
+  taxOptIns       String[]  @default([]) @map("tax_opt_ins")
   /// HOTEL | PRIVATE_RENTAL — en Quintana Roo, 5% contra 6% de ISH.
-  lodgingKind     String   @default("HOTEL") @map("lodging_kind")
-  latitude       Float?
-  longitude      Float?
+  lodgingKind     String    @default("HOTEL") @map("lodging_kind")
+  latitude        Float?
+  longitude       Float?
   // Globally unique 3-digit code assigned sequentially at property creation.
   // Used as segment in bookingRef: MX-D-001-2604-0134
-  propCode       String?      @unique @map("prop_code")
-  isActive       Boolean      @default(true) @map("is_active")
-  deletedAt      DateTime?    @map("deleted_at")
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt @map("updated_at")
+  propCode        String?   @unique @map("prop_code")
+  isActive        Boolean   @default(true) @map("is_active")
+  deletedAt       DateTime? @map("deleted_at")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
   // v1.0.5 — relación a Organization ahora NOT NULL.
   organization            Organization             @relation(fields: [organizationId], references: [id])
@@ -945,9 +945,9 @@ model BookingEngineConfig {
   fontFamily   String? @map("font_family")
 
   // ── Copy & políticas ──────────────────────────────────────────────────────
-  heroTitle    String? @map("hero_title")
-  heroSubtitle String? @map("hero_subtitle")
-  termsUrl     String? @map("terms_url")
+  heroTitle            String? @map("hero_title")
+  heroSubtitle         String? @map("hero_subtitle")
+  termsUrl             String? @map("terms_url")
   // Hook a la política de cancelación (GROUP-BILLING Fase C). String suelto
   // (patrón "espiral" §95) para evitar migration cuando se formalice el FK.
   cancellationPolicyId String? @map("cancellation_policy_id")
@@ -963,14 +963,14 @@ model BookingEngineConfig {
   /// Plan de tarifa que publica el sitio. NULL = el puerto elige con una regla
   /// determinista y DECLARA en la respuesta qué usó. Sin FK a propósito: un
   /// plan borrado no debe tumbar la configuración del motor público.
-  publicRatePlanId  String?  @map("public_rate_plan_id")
+  publicRatePlanId  String? @map("public_rate_plan_id")
   /// true = la tarifa cargada YA incluye impuestos. Equivocar esto mueve el
   /// precio publicado un 21% en Quintana Roo. El default replica el
   /// comportamiento actual del PMS para no cambiarle el precio a nadie.
-  ratesIncludeTaxes Boolean  @default(true) @map("rates_include_taxes")
+  ratesIncludeTaxes Boolean @default(true) @map("rates_include_taxes")
 
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
   publishedAt DateTime? @map("published_at")
 
   property Property @relation(fields: [propertyId], references: [id])
@@ -986,20 +986,20 @@ model BookingEngineConfig {
 // guarda en claro; el plaintext sólo existe en el momento de generarla). CORS
 // dinámico: cada llave declara `allowedOrigins[]` — origen no listado → 403.
 model BookingApiKey {
-  id          String   @id @default(uuid())
-  propertyId  String   @map("property_id")
-  environment String   @default("live") // 'live' | 'test'
-  keyId       String   @unique @map("key_id") // 16 hex — lookup público
-  keyHash     String   @map("key_hash") // bcrypt(secret)
-  keyPrefix   String   @map("key_prefix") // display: "pk_live_a1b2c3…"
-  label       String
+  id             String    @id @default(uuid())
+  propertyId     String    @map("property_id")
+  environment    String    @default("live") // 'live' | 'test'
+  keyId          String    @unique @map("key_id") // 16 hex — lookup público
+  keyHash        String    @map("key_hash") // bcrypt(secret)
+  keyPrefix      String    @map("key_prefix") // display: "pk_live_a1b2c3…"
+  label          String
   // Dominios autorizados a llamar con esta llave (CORS). Vacío = sin restricción
   // de origen (uso server-to-server donde no hay header Origin).
-  allowedOrigins String[] @default([]) @map("allowed_origins")
-  active      Boolean  @default(true)
-  lastUsedAt  DateTime? @map("last_used_at")
-  revokedAt   DateTime? @map("revoked_at")
-  createdAt   DateTime @default(now()) @map("created_at")
+  allowedOrigins String[]  @default([]) @map("allowed_origins")
+  active         Boolean   @default(true)
+  lastUsedAt     DateTime? @map("last_used_at")
+  revokedAt      DateTime? @map("revoked_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
 
   property Property @relation(fields: [propertyId], references: [id])
 
@@ -1031,19 +1031,19 @@ model BookingIdempotencyRecord {
 // ocurren → el sitio mantiene su calendario en sync sin polling. Patrón idéntico
 // al outbound de Channex (§144): cola + backoff + dead-letter.
 model WebhookSubscription {
-  id           String   @id @default(uuid())
-  propertyId   String   @map("property_id")
-  url          String
+  id             String    @id @default(uuid())
+  propertyId     String    @map("property_id")
+  url            String
   // Eventos suscritos: 'reservation.created' | 'availability.changed' | ...
-  events       String[]
-  secret       String // HMAC signing key (el cliente verifica X-Zenix-Signature)
-  active       Boolean  @default(true)
-  failureCount Int      @default(0) @map("failure_count")
+  events         String[]
+  secret         String // HMAC signing key (el cliente verifica X-Zenix-Signature)
+  active         Boolean   @default(true)
+  failureCount   Int       @default(0) @map("failure_count")
   lastDeliveryAt DateTime? @map("last_delivery_at")
-  disabledAt   DateTime? @map("disabled_at")
-  createdAt    DateTime @default(now()) @map("created_at")
+  disabledAt     DateTime? @map("disabled_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
 
-  property  Property          @relation(fields: [propertyId], references: [id])
+  property   Property          @relation(fields: [propertyId], references: [id])
   deliveries WebhookDelivery[]
 
   @@index([propertyId], map: "idx_webhook_sub_property")
@@ -1053,16 +1053,16 @@ model WebhookSubscription {
 // Una entrega individual. Append-only-ish: status avanza PENDING → DELIVERED |
 // FAILED → (retry) → DELIVERED | DEAD_LETTER. Forense + retry state.
 model WebhookDelivery {
-  id             String   @id @default(uuid())
-  subscriptionId String   @map("subscription_id")
+  id             String    @id @default(uuid())
+  subscriptionId String    @map("subscription_id")
   event          String
   payload        Json
-  status         String   @default("PENDING") // PENDING | DELIVERED | FAILED | DEAD_LETTER
-  attempts       Int      @default(0)
+  status         String    @default("PENDING") // PENDING | DELIVERED | FAILED | DEAD_LETTER
+  attempts       Int       @default(0)
   nextAttemptAt  DateTime? @map("next_attempt_at")
-  lastError      String?  @map("last_error")
-  statusCode     Int?     @map("status_code")
-  createdAt      DateTime @default(now()) @map("created_at")
+  lastError      String?   @map("last_error")
+  statusCode     Int?      @map("status_code")
+  createdAt      DateTime  @default(now()) @map("created_at")
   deliveredAt    DateTime? @map("delivered_at")
 
   subscription WebhookSubscription @relation(fields: [subscriptionId], references: [id])
@@ -1181,32 +1181,32 @@ model Unit {
  * apps/api/src/common/permissions/staff-permissions.ts.
  */
 model Staff {
-  id             String       @id @default(uuid())
-  organizationId String?      @map("organization_id")
-  userId         String?      @map("user_id")
-  propertyId     String
-  name           String
-  email          String       @unique
-  passwordHash   String
-  role           StaffRole
-  department     Department   @default(HOUSEKEEPING) @map("department")
+  id                   String       @id @default(uuid())
+  organizationId       String?      @map("organization_id")
+  userId               String?      @map("user_id")
+  propertyId           String
+  name                 String
+  email                String       @unique
+  passwordHash         String
+  role                 StaffRole
+  department           Department   @default(HOUSEKEEPING) @map("department")
   // Sprint 9 — eje jerárquico ortogonal a role/department.
   // Default COLLABORATOR — el seed/migración promueve a LEAD a quienes
   // tenían role=SUPERVISOR en HOUSEKEEPING (mapeo legacy).
-  level          StaffLevel   @default(COLLABORATOR) @map("level")
+  level                StaffLevel   @default(COLLABORATOR) @map("level")
   // Self-referential FK para árbol jerárquico (futuro org-tree visual).
   // Null = no reporta a nadie (top of department o solo-staff property).
-  reportsToId    String?      @map("reports_to_id")
-  reportsTo      Staff?       @relation("StaffReports", fields: [reportsToId], references: [id])
-  reports        Staff[]      @relation("StaffReports")
-  active         Boolean      @default(true)
-  capabilities   Capability[]
-  deletedAt      DateTime?    @map("deleted_at")
-  createdAt      DateTime     @default(now())
+  reportsToId          String?      @map("reports_to_id")
+  reportsTo            Staff?       @relation("StaffReports", fields: [reportsToId], references: [id])
+  reports              Staff[]      @relation("StaffReports")
+  active               Boolean      @default(true)
+  capabilities         Capability[]
+  deletedAt            DateTime?    @map("deleted_at")
+  createdAt            DateTime     @default(now())
   // Notifications hybrid pattern (FB+LinkedIn, NN/g 2023) — timestamp del último
   // "acknowledge" del panel. Bell counter = notifs creadas DESPUÉS de este ts y
   // sin AppNotificationRead. Permite "vi la lista" sin marcar cada item leído.
-  notificationsAckedAt DateTime? @map("notifications_acked_at")
+  notificationsAckedAt DateTime?    @map("notifications_acked_at")
 
   organization            Organization?              @relation(fields: [organizationId], references: [id])
   user                    User?                      @relation(fields: [userId], references: [id])
@@ -1833,7 +1833,13 @@ model GuestStay {
   // change. Soporta hotel boutique / hostal / STR (Airbnb-style) con el
   // mismo modelo: STR persiste `cancelMetadata.airbnbCancelCode` sin
   // afectar el flujo principal.
-  cancelledAt           DateTime? @map("cancelled_at")
+  cancelledAt DateTime? @map("cancelled_at")
+
+  /// Si no es NULL, la reserva RETIENE inventario y caduca en esta fecha.
+  /// Se pone a NULL al confirmarse el pago: una reserva firme no caduca.
+  /// 🔴 La caducidad la fija el MEDIO DE PAGO, no la propiedad — 15 min para
+  /// una tarjeta, 72 h para un vale de OXXO. Ver `politica-de-retencion.ts`.
+  holdExpiresAt         DateTime? @map("hold_expires_at")
   cancelledById         String?   @map("cancelled_by_id")
   // 'GUEST' | 'HOTEL' | 'OTA' | 'ADMIN_ERROR' | 'SYSTEM' (string, no enum)
   cancelInitiator       String?   @map("cancel_initiator")
@@ -1909,8 +1915,8 @@ model GuestStay {
   // se persiste — solo su SHA256 (patrón setupTokenHash §179, anti-IDOR).
   precheckinTokenHash      String?   @unique @map("precheckin_token_hash")
   precheckinTokenExpiresAt DateTime? @map("precheckin_token_expires_at")
-  precheckinSentAt         DateTime? @map("precheckin_sent_at")       // email enviado
-  precheckinSubmittedAt    DateTime? @map("precheckin_submitted_at")  // huésped completó
+  precheckinSentAt         DateTime? @map("precheckin_sent_at") // email enviado
+  precheckinSubmittedAt    DateTime? @map("precheckin_submitted_at") // huésped completó
   precheckinReminderSentAt DateTime? @map("precheckin_reminder_sent_at") // recordatorio 24h
   // Campos que el huésped confirmó/corrigió en el pre-checkin. El BookingModify
   // de Channex (§136) NO debe sobrescribir estos (la corrección del huésped gana).
@@ -1934,10 +1940,11 @@ model GuestStay {
   // MIGRATION-CORE (Zenix Onboard) — trazabilidad + idempotencia de migración.
   // source='MIGRATED' marca reservas importadas desde otro PMS; migrationSourceId
   // = id en el PMS origen; UNIQUE (job, source) evita duplicar en re-run del load.
-  migrationSourceId  String?       @map("migration_source_id")
-  migrationJobId     String?       @map("migration_job_id")
-  migrationJob       MigrationJob? @relation(fields: [migrationJobId], references: [id], onDelete: SetNull)
+  migrationSourceId  String?             @map("migration_source_id")
+  migrationJobId     String?             @map("migration_job_id")
+  migrationJob       MigrationJob?       @relation(fields: [migrationJobId], references: [id], onDelete: SetNull)
 
+  @@unique([migrationJobId, migrationSourceId])
   @@index([organizationId])
   @@index([organizationId, propertyId])
   @@index([roomId])
@@ -1947,7 +1954,6 @@ model GuestStay {
   @@index([channexConflict])
   @@index([otaReservationCode])
   @@index([reservationGroupId])
-  @@unique([migrationJobId, migrationSourceId])
   @@index([migrationJobId])
   // Sprint testing BUG #21 — calendar timeline + overstayed widget rendering
   // hacían SEQ SCAN sobre guest_stays. A 78 rows = 0.16 ms; proyección 100k
@@ -1967,29 +1973,41 @@ model GuestStay {
 // filosofía "espiral" (§95): evita migration churn mientras el módulo evoluciona.
 
 model MigrationJob {
-  id             String   @id @default(uuid())
-  organizationId String   @map("organization_id")
-  propertyId     String   @map("property_id")
-  /** MigrationSource: GENERIC_CSV | CLOUDBEDS | MEWS | … */
-  sourceSystem   String   @map("source_system")
-  /** MigrationJobStatus: DRAFT | PARSING | VALIDATING | PREVIEW_READY | LOADING | COMPLETED | PARTIAL | FAILED */
-  status         String   @default("DRAFT")
-  fileName       String?  @map("file_name")
-  /** sha256 del archivo subido — idempotencia de re-subida. */
-  fileHash       String?  @map("file_hash")
-  uploadedById   String   @map("uploaded_by_id")
-  /** Mapeo de columnas usado (GenericCsvAdapter / pre-map del adapter). */
-  columnMapping  Json?    @map("column_mapping")
-  /** Conteos: { parsed, ok, warn, error, loaded, skipped, failed }. */
+  id             String    @id @default(uuid())
+  organizationId String    @map("organization_id")
+  propertyId     String    @map("property_id")
+  /**
+   * MigrationSource: GENERIC_CSV | CLOUDBEDS | MEWS | …
+   */
+  sourceSystem   String    @map("source_system")
+  /**
+   * MigrationJobStatus: DRAFT | PARSING | VALIDATING | PREVIEW_READY | LOADING | COMPLETED | PARTIAL | FAILED
+   */
+  status         String    @default("DRAFT")
+  fileName       String?   @map("file_name")
+  /**
+   * sha256 del archivo subido — idempotencia de re-subida.
+   */
+  fileHash       String?   @map("file_hash")
+  uploadedById   String    @map("uploaded_by_id")
+  /**
+   * Mapeo de columnas usado (GenericCsvAdapter / pre-map del adapter).
+   */
+  columnMapping  Json?     @map("column_mapping")
+  /**
+   * Conteos: { parsed, ok, warn, error, loaded, skipped, failed }.
+   */
   counts         Json?
-  errorMessage   String?  @map("error_message")
-  createdAt      DateTime @default(now()) @map("created_at")
+  errorMessage   String?   @map("error_message")
+  createdAt      DateTime  @default(now()) @map("created_at")
   completedAt    DateTime? @map("completed_at")
 
   stagingReservations MigrationStagingReservation[]
   stagingGuests       MigrationStagingGuest[]
   conflicts           MigrationConflict[]
-  /** Reservas productivas creadas por este job (trazabilidad + idempotencia). */
+  /**
+   * Reservas productivas creadas por este job (trazabilidad + idempotencia).
+   */
   migratedStays       GuestStay[]
 
   @@index([organizationId, propertyId])
@@ -1999,23 +2017,35 @@ model MigrationJob {
 }
 
 model MigrationStagingReservation {
-  id         String       @id @default(uuid())
-  jobId      String       @map("job_id")
-  job        MigrationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  rowIndex   Int          @map("row_index")
-  /** Fila cruda original del archivo (auditoría del mapeo). */
-  rawJson    Json         @map("raw_json")
-  /** MigrationReservationDto normalizado (post-adapter + normalizer). */
-  mapped     Json?
-  /** MigrationRowStatus: OK | WARN | ERROR */
-  validationStatus String  @default("OK") @map("validation_status")
-  /** Issues tipados de validación: [{type, message}]. */
-  issues     Json?
-  /** MigrationResolution: PENDING | SKIP | ACCEPT | REASSIGN */
-  resolution String       @default("PENDING")
-  /** Habitación destino al resolver REASSIGN. */
-  targetRoomId String?    @map("target_room_id")
-  resolutionReason String? @map("resolution_reason")
+  id               String       @id @default(uuid())
+  jobId            String       @map("job_id")
+  job              MigrationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  rowIndex         Int          @map("row_index")
+  /**
+   * Fila cruda original del archivo (auditoría del mapeo).
+   */
+  rawJson          Json         @map("raw_json")
+  /**
+   * MigrationReservationDto normalizado (post-adapter + normalizer).
+   */
+  mapped           Json?
+  /**
+   * MigrationRowStatus: OK | WARN | ERROR
+   */
+  validationStatus String       @default("OK") @map("validation_status")
+  /**
+   * Issues tipados de validación: [{type, message}].
+   */
+  issues           Json?
+  /**
+   * MigrationResolution: PENDING | SKIP | ACCEPT | REASSIGN
+   */
+  resolution       String       @default("PENDING")
+  /**
+   * Habitación destino al resolver REASSIGN.
+   */
+  targetRoomId     String?      @map("target_room_id")
+  resolutionReason String?      @map("resolution_reason")
 
   @@index([jobId])
   @@index([jobId, validationStatus])
@@ -2023,32 +2053,42 @@ model MigrationStagingReservation {
 }
 
 model MigrationStagingGuest {
-  id        String       @id @default(uuid())
-  jobId     String       @map("job_id")
-  job       MigrationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  rawJson   Json         @map("raw_json")
-  mapped    Json?
-  /** Si es duplicado, id del huésped Zenix con el que se fusiona. */
-  mergeIntoGuestId String? @map("merge_into_guest_id")
+  id               String       @id @default(uuid())
+  jobId            String       @map("job_id")
+  job              MigrationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  rawJson          Json         @map("raw_json")
+  mapped           Json?
+  /**
+   * Si es duplicado, id del huésped Zenix con el que se fusiona.
+   */
+  mergeIntoGuestId String?      @map("merge_into_guest_id")
 
   @@index([jobId])
   @@map("migration_staging_guests")
 }
 
 model MigrationConflict {
-  id        String       @id @default(uuid())
-  jobId     String       @map("job_id")
-  job       MigrationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  /** MigrationConflictType: ROOM_OVERLAP | BED_OVERLAP | DUP_GUEST | NO_ROOM_MATCH | UNMAPPED_RATE | BAD_DATE | NEGATIVE_AMOUNT */
-  type      String
-  /** MigrationConflictSeverity: WARN | ERROR */
-  severity  String       @default("WARN")
-  /** Referencias a las filas staging involucradas (ej. los 2 lados de un empalme). */
-  rowRefs   Json         @map("row_refs")
-  message   String?
-  /** Sugerencia de resolución (ej. habitación libre alternativa). */
+  id         String       @id @default(uuid())
+  jobId      String       @map("job_id")
+  job        MigrationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  /**
+   * MigrationConflictType: ROOM_OVERLAP | BED_OVERLAP | DUP_GUEST | NO_ROOM_MATCH | UNMAPPED_RATE | BAD_DATE | NEGATIVE_AMOUNT
+   */
+  type       String
+  /**
+   * MigrationConflictSeverity: WARN | ERROR
+   */
+  severity   String       @default("WARN")
+  /**
+   * Referencias a las filas staging involucradas (ej. los 2 lados de un empalme).
+   */
+  rowRefs    Json         @map("row_refs")
+  message    String?
+  /**
+   * Sugerencia de resolución (ej. habitación libre alternativa).
+   */
   suggestion Json?
-  resolvedAt DateTime?   @map("resolved_at")
+  resolvedAt DateTime?    @map("resolved_at")
 
   @@index([jobId])
   @@index([jobId, type])
@@ -2125,8 +2165,8 @@ model ReservationGroup {
 
   // Channex OTA reference. UNIQUE garantiza idempotency (webhook replay no
   // crea group duplicado). Null si el grupo nace de un flow manual futuro.
-  channexBookingId String? @unique @map("channex_booking_id")
-  channexOtaName   String? @map("channex_ota_name")
+  channexBookingId   String? @unique @map("channex_booking_id")
+  channexOtaName     String? @map("channex_ota_name")
   // Código de reserva de la OTA visible al personal (Booking/Expedia confirmation).
   otaReservationCode String? @map("ota_reservation_code")
 
@@ -3032,33 +3072,33 @@ enum CashMovementType {
  * entrante (D-CASH14); openingAcceptedById marca la transferencia de responsabilidad.
  */
 model CashierShift {
-  id                  String             @id @default(uuid())
-  organizationId      String             @map("organization_id")
-  propertyId          String             @map("property_id")
-  staffId             String             @map("staff_id") // cajero responsable
-  status              CashierShiftStatus @default(OPEN)
+  id             String             @id @default(uuid())
+  organizationId String             @map("organization_id")
+  propertyId     String             @map("property_id")
+  staffId        String             @map("staff_id") // cajero responsable
+  status         CashierShiftStatus @default(OPEN)
 
-  openedAt            DateTime           @default(now()) @map("opened_at")
-  closedAt            DateTime?          @map("closed_at")
+  openedAt DateTime  @default(now()) @map("opened_at")
+  closedAt DateTime? @map("closed_at")
 
   // Handover / fuente del fondo (D-CASH14/15)
-  openingSource       String             @default("FRESH_BANK") @map("opening_source") // HANDOVER | SAFE | FRESH_BANK
-  handoverFromShiftId String?            @map("handover_from_shift_id")
-  openingAcceptedById String?            @map("opening_accepted_by_id") // quien cuenta + acepta el fondo (recibe)
-  closingWitnessId    String?            @map("closing_witness_id") // testigo del drop (opcional)
+  openingSource       String  @default("FRESH_BANK") @map("opening_source") // HANDOVER | SAFE | FRESH_BANK
+  handoverFromShiftId String? @map("handover_from_shift_id")
+  openingAcceptedById String? @map("opening_accepted_by_id") // quien cuenta + acepta el fondo (recibe)
+  closingWitnessId    String? @map("closing_witness_id") // testigo del drop (opcional)
 
   // Multi-divisa per-divisa (D-CASH3). Json { MXN: 2000, USD: 0 }
-  openingFloat        Json               @map("opening_float")
-  expectedClose       Json?              @map("expected_close") // calculado al cerrar (S2)
-  actualClose         Json?              @map("actual_close") // conteo físico del cajero (S2)
-  variance            Json? // { MXN: -5, USD: +20 } (S2)
-  varianceReason      String?            @map("variance_reason")
+  openingFloat   Json    @map("opening_float")
+  expectedClose  Json?   @map("expected_close") // calculado al cerrar (S2)
+  actualClose    Json?   @map("actual_close") // conteo físico del cajero (S2)
+  variance       Json? // { MXN: -5, USD: +20 } (S2)
+  varianceReason String? @map("variance_reason")
 
-  reconciledById      String?            @map("reconciled_by_id")
-  reconciledAt        DateTime?          @map("reconciled_at")
+  reconciledById String?   @map("reconciled_by_id")
+  reconciledAt   DateTime? @map("reconciled_at")
 
-  createdAt           DateTime           @default(now()) @map("created_at")
-  updatedAt           DateTime           @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@index([propertyId, status])
   @@index([propertyId, staffId, openedAt])
@@ -4802,36 +4842,36 @@ model MetricsForwardSnapshot {
 /// (§12 patrón night-audit) y genera el MISMO reporte de la biblioteca (reusa
 /// build*ReportRows + buildReportXlsx) adjunto al email vía Resend.
 model ScheduledReport {
-  id             String   @id @default(uuid())
-  propertyId     String   @map("property_id")
-  organizationId String   @map("organization_id")
+  id             String @id @default(uuid())
+  propertyId     String @map("property_id")
+  organizationId String @map("organization_id")
 
   /// Clave del reporte en el catálogo (cash-shifts, no-shows, metrics, overstayed, …).
   reportKey String @map("report_key")
   /// DAILY | WEEKLY | MONTHLY.
   frequency String
   /// Hora local (0-23) a la que se envía, en la timezone de la propiedad.
-  sendHour Int @default(7) @map("send_hour")
+  sendHour  Int    @default(7) @map("send_hour")
   /// Para WEEKLY: día de la semana 1-7 (1=lunes). Null en DAILY/MONTHLY.
-  weekday Int?
+  weekday   Int?
   /// Para MONTHLY: día del mes 1-28. Null en DAILY/WEEKLY.
-  monthday Int?
+  monthday  Int?
   /// Ventana de datos del reporte en días hacia atrás (ej. 1=ayer, 7=última semana).
-  rangeDays Int @default(1) @map("range_days")
+  rangeDays Int    @default(1) @map("range_days")
 
   /// Destinatarios (emails). Append-only conceptual; editable por SUPERVISOR.
   recipients String[]
   /// xlsx | csv.
-  format String @default("xlsx")
+  format     String   @default("xlsx")
   /// Filtros congelados del reporte (ej. { currency: 'MXN' }). Opcional.
-  filters Json?
+  filters    Json?
 
-  active      Boolean @default(true)
+  active        Boolean   @default(true)
   /// Última fecha local (YYYY-MM-DD) en que se envió — idempotencia del cron.
-  lastRunDate String? @map("last_run_date")
-  lastRunAt   DateTime? @map("last_run_at")
+  lastRunDate   String?   @map("last_run_date")
+  lastRunAt     DateTime? @map("last_run_at")
   /// Resultado del último envío: sent | no-key | api-error | network | no-data.
-  lastRunStatus String? @map("last_run_status")
+  lastRunStatus String?   @map("last_run_status")
 
   createdById String?  @map("created_by_id")
   createdAt   DateTime @default(now()) @map("created_at")
