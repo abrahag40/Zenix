@@ -118,6 +118,107 @@ jobs:
       - name: Lint
         run: npx turbo lint
 
+      # ── 🔴 EL HUECO QUE COSTÓ DOS DESPLIEGUES EN UN DÍA ────────────────────
+      #
+      # El 2026-09-24 llegaron a `main` dos cambios que rompían el ARRANQUE de
+      # la API. Los dos pasaron este CI entero en verde:
+      #
+      #   · `nada?: never` en un DTO → Swagger no sabe convertirlo en esquema y
+      #     lanzaba «A circular dependency has been detected» al construir el
+      #     documento OpenAPI. Render marcó el deploy en rojo y siguió sirviendo
+      #     la versión anterior: la funcionalidad simplemente nunca llegó.
+      #
+      # Y este CI no podía verlo por una razón concreta: **no construía la
+      # aplicación y no la arrancaba nunca**. `lint` mira el estilo, `test`
+      # instancia servicios con dobles, y `test:e2e` abre dos conexiones a la
+      # base — ninguno ejecuta `nest build` ni `main.ts`.
+      #
+      # Compilar, pasar pruebas y arrancar son TRES cosas distintas, y hasta hoy
+      # sólo se comprobaban dos. Este paso hace la tercera: construye como
+      # construye Render y arranca como arranca Render.
+      #
+      # Es BLOQUEANTE a propósito. Un fallo de arranque no degrada nada: deja el
+      # servicio entero fuera, o —peor, porque no se nota— deja en producción
+      # una versión vieja mientras todos creen que se desplegó lo nuevo.
+      - name: Build (lo que el CI no hacía)
+        run: npx turbo build --filter=@zenix/api
+        env:
+          DATABASE_URL: postgresql://housekeeping:testpassword@localhost:5432/housekeeping_test
+
+      - name: Arranque real — la app tiene que levantar y responder
+        run: |
+          set -euo pipefail
+          # Se arranca EXACTAMENTE como en producción: el mismo script que
+          # Render ejecuta. Arrancarlo de otra forma probaría otra cosa.
+          npm run start:prod --workspace=@zenix/api > /tmp/arranque.log 2>&1 &
+          pid=$!
+
+          # Hasta 90 s. La app levanta en ~2 s, pero un runner cargado tarda
+          # más y un timeout justo produce rojos intermitentes — que es la
+          # forma más rápida de que alguien acabe borrando el paso.
+          ok=0
+          for i in $(seq 1 90); do
+            # Si el proceso ya murió, no hay que esperar los 90 s: se falla ya
+            # y se enseña el log, que es donde está el motivo.
+            if ! kill -0 "$pid" 2>/dev/null; then
+              echo "::error::La API murió durante el arranque."
+              tail -40 /tmp/arranque.log
+              exit 1
+            fi
+            # Un 404 también significa «está viva y enrutando»: lo que se
+            # comprueba es que RESPONDA, no que encuentre la propiedad. Sólo
+            # `000` —el código que curl inventa cuando no hubo respuesta—
+            # significa que todavía no está.
+            #
+            # 🔴 Sin `|| true` y con `|| echo 000`, curl imprime su `000` Y el
+            # echo añade otro: sale `000000`, que no es `000`, y el bucle da
+            # por arrancada una app que no lo está. Me pasó escribiendo esto.
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:${PORT}/api/v1/public/properties/no-existe") || true
+            if [ "$code" != "000" ] && [ -n "$code" ]; then ok=1; echo "responde en ${i}s (http=$code)"; break; fi
+            sleep 1
+          done
+
+          if [ "$ok" != "1" ]; then
+            echo "::error::La API no respondió en 90 s."
+            tail -40 /tmp/arranque.log
+            kill "$pid" 2>/dev/null || true
+            exit 1
+          fi
+
+          # 🔴 Y el documento OpenAPI, que es lo que reventó. Servirlo obliga a
+          # recorrer TODOS los DTO del proyecto: es la comprobación que habría
+          # cazado el `never` sin que nadie supiera que había que buscarlo.
+          if ! curl -fsS "http://localhost:${PORT}/api/docs-json" -o /tmp/openapi.json; then
+            echo "::error::La app arrancó pero no sirve el documento OpenAPI."
+            tail -40 /tmp/arranque.log
+            kill "$pid" 2>/dev/null || true
+            exit 1
+          fi
+          rutas=$(node -e "console.log(Object.keys(require('/tmp/openapi.json').paths).length)")
+          echo "✓ arrancó, responde y documenta $rutas rutas"
+          # El documento está acotado a PublicBookingModule a propósito
+          # (`include:` en main.ts): es la API pública del motor, no el PMS
+          # entero. Hoy son 9 rutas — medido arrancando la app en local.
+          #
+          # El mínimo es 5 y no 9: exigir el número exacto convertiría este
+          # paso en un test de regresión de la superficie pública, que se
+          # pondría rojo cada vez que alguien añada una ruta legítima. Lo que
+          # aquí se vigila es que el documento NO esté vacío, porque vacío
+          # significaría que el explorador se rindió sin construir nada y el
+          # paso pasaría sin haber probado lo que dice probar.
+          if [ "$rutas" -lt 5 ]; then
+            echo "::error::Sólo $rutas rutas en el OpenAPI. El documento no se construyó."
+            exit 1
+          fi
+
+          kill "$pid" 2>/dev/null || true
+        env:
+          PORT: '3001'
+          DATABASE_URL: postgresql://housekeeping:testpassword@localhost:5432/housekeeping_test
+          JWT_SECRET: test-secret-not-for-production
+          JWT_EXPIRES_IN: 1h
+          NODE_ENV: production
+
       # --testPathIgnorePatterns excluye 2 specs Channex que requieren
       # Channex sandbox infrastructure (UUIDs en env vars + sandbox property
       # con room types Twin/Double + 5 rate plans pre-creados). Análogos a
