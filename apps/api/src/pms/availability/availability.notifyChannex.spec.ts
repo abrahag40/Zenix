@@ -98,6 +98,19 @@ describe('AvailabilityService.notifyReservation/Release (Day 3 event-driven)', (
     expect(channex.pushInventory).not.toHaveBeenCalled()
   })
 
+  /**
+   * 🔴 2026-09-24 — Estas pruebas se actualizan porque el comportamiento
+   * CAMBIÓ a propósito, no porque estorbaran.
+   *
+   * Antes, `emitSpy.mock.calls[0]` era siempre el evento de Channex, porque
+   * era el único que se emitía. Ahora el primero es `inventory.changed` —el
+   * hecho de dominio, que se publica SIEMPRE— y el de Channex viene después,
+   * sólo si el channel manager está configurado. Se filtra por nombre en vez
+   * de por posición: depender del orden de emisión era frágil de todos modos.
+   */
+  const llamadasChannex = () =>
+    emitSpy.mock.calls.filter((c: unknown[]) => c[0] === CHANNEX_AVAILABILITY_CHANGED)
+
   it('notifyRelease: recalcula absoluto (mismo path idempotente, no delta)', async () => {
     const prisma = makePrismaMock({
       channexRoomTypeId: 'chx-rt-1',
@@ -108,13 +121,18 @@ describe('AvailabilityService.notifyReservation/Release (Day 3 event-driven)', (
 
     await svc.notifyRelease(baseNotif)
 
-    const call = emitSpy.mock.calls[0]
-    expect(call[0]).toBe(CHANNEX_AVAILABILITY_CHANGED)
+    const call = llamadasChannex()[0]
+    expect(call).toBeDefined()
     // 3 cuartos, sin ocupación → 3 disponibles (absoluto correcto, no "1")
     expect(call[1].entries[0].availability).toBe(3)
   })
 
-  it('skip silencioso si Channex disabled (sin api-key)', async () => {
+  it('🔴 Channex apagado: NO se empuja al canal, pero SÍ se anuncia el hecho', async () => {
+    // Esta prueba afirmaba `expect(emitSpy).not.toHaveBeenCalled()`, es decir:
+    // «sin channel manager no se emite NADA». Codificaba el defecto: el sitio
+    // del hotel sólo se enteraba de un cambio de inventario si el hotel pagaba
+    // Channex. Ahora afirma la distinción correcta — la integración calla, el
+    // dominio habla.
     const prisma = makePrismaMock({
       channexRoomTypeId: 'chx-rt-1',
       channexPropertyId: 'chx-prop-1',
@@ -124,7 +142,8 @@ describe('AvailabilityService.notifyReservation/Release (Day 3 event-driven)', (
 
     await svc.notifyReservation(baseNotif)
 
-    expect(emitSpy).not.toHaveBeenCalled()
+    expect(llamadasChannex()).toHaveLength(0)
+    expect(emitSpy.mock.calls.map((c: unknown[]) => c[0])).toContain('inventory.changed')
   })
 
   it('skip si room sin channexRoomTypeId (no mapeado)', async () => {
@@ -137,7 +156,7 @@ describe('AvailabilityService.notifyReservation/Release (Day 3 event-driven)', (
 
     await svc.notifyReservation(baseNotif)
 
-    expect(emitSpy).not.toHaveBeenCalled()
+    expect(llamadasChannex()).toHaveLength(0)
   })
 
   it('skip si property sin channexPropertyId (no integrada con Channex)', async () => {
@@ -150,7 +169,7 @@ describe('AvailabilityService.notifyReservation/Release (Day 3 event-driven)', (
 
     await svc.notifyReservation(baseNotif)
 
-    expect(emitSpy).not.toHaveBeenCalled()
+    expect(llamadasChannex()).toHaveLength(0)
   })
 
   it('error en DB lookup → log + no emit (resilient, no throw)', async () => {
@@ -165,6 +184,12 @@ describe('AvailabilityService.notifyReservation/Release (Day 3 event-driven)', (
 
     // No throw — el save handler NO se bloquea
     await expect(svc.notifyReservation(baseNotif)).resolves.toBeUndefined()
-    expect(emitSpy).not.toHaveBeenCalled()
+
+    // El que falla es el lookup de los IDs de Channex, así que no hay empuje.
+    // El hecho de dominio SÍ se anuncia, y debe: la reserva ya está commiteada
+    // —el inventario cambió de verdad— y que no podamos resolver un id de
+    // Channex no lo vuelve mentira. Quien no pueda hacer nada con el aviso lo
+    // descartará; callarlo sería perder un hecho cierto por un fallo ajeno.
+    expect(llamadasChannex()).toHaveLength(0)
   })
 })

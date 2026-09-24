@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { ChannexBookingRevision } from '../../channex.gateway'
 import { NotificationsService } from '../../../../notifications/notifications.service'
+import { AvailabilityService } from '../../../../pms/availability/availability.service'
 import { PrismaService } from '../../../../prisma/prisma.service'
 import { ChannexSystemStaffService } from '../channex-system-staff.service'
 
@@ -55,6 +56,7 @@ export class BookingCancelHandler {
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
     private readonly systemStaff: ChannexSystemStaffService,
+    private readonly availability: AvailabilityService,
   ) {}
 
   async handle(revision: ChannexBookingRevision): Promise<BookingCancelResult> {
@@ -218,6 +220,17 @@ export class BookingCancelHandler {
       })
     })
 
+    // 🔴 Una cancelación LIBERA inventario: lo que el sitio del hotel pintaba
+    // en gris vuelve a estar a la venta. Si no se avisa, el hotel pierde esas
+    // noches hasta que caduque una caché — el mismo defecto que el bloqueo,
+    // con el signo cambiado y peor, porque cuesta dinero en vez de molestia.
+    this.availability.anunciarCambioDeInventario(
+      existing.roomId,
+      existing.checkinAt,
+      existing.scheduledCheckout,
+      'channex_booking_cancel',
+    )
+
     this.notifications.emit(existing.propertyId, 'channex:stay:cancelled', {
       stayId: existing.id,
       bookingId: revision.booking_id,
@@ -251,6 +264,8 @@ export class BookingCancelHandler {
         organizationId: string
         propertyId: string
         roomId: string
+        checkinAt: Date
+        scheduledCheckout: Date
         amountPaid: Prisma.Decimal
         cancelledAt: Date | null
         actualCheckin: Date | null
@@ -386,6 +401,16 @@ export class BookingCancelHandler {
         data: { cancelledAt: now },
       })
     })
+
+    // Igual que el individual, una habitación por estancia liberada.
+    for (const stay of activeStays) {
+      this.availability.anunciarCambioDeInventario(
+        stay.roomId,
+        stay.checkinAt,
+        stay.scheduledCheckout,
+        'channex_booking_cancel_group',
+      )
+    }
 
     this.notifications.emit(group.propertyId, 'channex:group:cancelled', {
       groupId: group.id,
