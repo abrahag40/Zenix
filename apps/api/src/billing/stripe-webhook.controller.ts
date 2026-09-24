@@ -17,6 +17,7 @@
  * a la env var STRIPE_WEBHOOK_SECRET.
  */
 import { Body, Controller, Headers, HttpCode, HttpException, HttpStatus, Logger, Post, Req } from '@nestjs/common'
+import { secretoDeEntorno } from '../common/secreto-de-entorno'
 import type { Request } from 'express'
 import { Public } from '../common/decorators/public.decorator'
 import { BillingService } from './billing.service'
@@ -54,7 +55,10 @@ export class StripeWebhookController {
       return { received: false }
     }
 
-    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
+    // 🔴 `secretoDeEntorno` y no `process.env` directo: un `\n` invisible al
+    // final tumbó todos los webhooks y el error acusaba al cuerpo de la
+    // petición, no al secreto. Ver `common/secreto-de-entorno.ts`.
+    const webhookSecret = secretoDeEntorno('STRIPE_WEBHOOK_SECRET')
     if (!webhookSecret) {
       this.logger.error(
         '[StripeWebhook] STRIPE_WEBHOOK_SECRET no configurado — REJECT webhook por seguridad.',

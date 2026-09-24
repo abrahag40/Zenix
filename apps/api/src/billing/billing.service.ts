@@ -18,6 +18,7 @@
  *   - isStripeConfigured() — sanity check
  */
 import { Injectable, Logger } from '@nestjs/common'
+import { secretoDeEntorno } from '../common/secreto-de-entorno'
 import Stripe = require('stripe')
 import { PrismaService } from '../prisma/prisma.service'
 
@@ -29,7 +30,9 @@ export class BillingService {
   private stripe: StripeInstance | null = null
 
   constructor(private readonly prisma: PrismaService) {
-    const apiKey = process.env.STRIPE_SECRET_KEY
+    // Mismo motivo que el secreto del webhook: un espacio invisible aquí
+    // daría «Invalid API Key», que al menos sí acusa al sitio correcto.
+    const apiKey = secretoDeEntorno('STRIPE_SECRET_KEY')
     if (apiKey) {
       this.stripe = new Stripe(apiKey, { apiVersion: '2026-04-22.dahlia' })
       this.logger.log('[BillingService] Stripe SDK initialized (live mode if STRIPE_SECRET_KEY is sk_live_, test mode if sk_test_).')
