@@ -62,6 +62,8 @@
  */
 import { PrismaClient } from '@prisma/client'
 import * as readline from 'node:readline'
+import { spawnSync } from 'node:child_process'
+import { join } from 'node:path'
 
 /**
  * 🔴 SE CREA TARDE, Y ES OBLIGATORIO QUE SEA ASÍ.
@@ -82,6 +84,7 @@ function arg(nombre: string): string | undefined {
   return i >= 0 ? process.argv[i + 1] : undefined
 }
 const APLICAR = process.argv.includes('--aplicar')
+const ALTA = process.argv.includes('--alta')
 
 const ok = (s: string) => console.log(`  ✓ ${s}`)
 const info = (s: string) => console.log(`    ${s}`)
@@ -178,20 +181,70 @@ async function main() {
   console.log(`\n${APLICAR ? '▶ APLICANDO' : '◇ ENSAYO (no escribe nada)'} · slug «${slug}»\n`)
 
   // ── 1. La propiedad ────────────────────────────────────────────────────
-  const propiedad = propertyId
+  let propiedad = propertyId
     ? await prisma.property.findUnique({ where: { id: propertyId } })
     : await elegirPropiedad()
 
   if (!propiedad) {
-    mal('No hay ninguna propiedad que publicar. El script NO la crea: eso pasa por el alta del cliente.')
-    process.exit(3)
+    // 🔴 Sigue sin crear hoteles por accidente — hay que pedirlo con `--alta`.
+    // La diferencia entre «lo creó porque se lo pidieron» y «apareció solo» es
+    // toda la diferencia: así es como nacen propiedades fantasma sin
+    // organización, sin entidad legal y sin nadie que las recuerde.
+    if (!ALTA) {
+      mal('La base no tiene ninguna propiedad todavía.')
+      info('')
+      info('No es un error tuyo: es que este Zenix está recién desplegado y vacío.')
+      info('Para dar de alta el hotel Y publicarlo en una sola pasada, añade --alta:')
+      info('')
+      info('  npm run publicar -w @zenix/api -- --slug hotel-tulum --alta \\')
+      info("    --hotel 'Azucar Hotel Tulum' --ciudad Tulum \\")
+      info("    --dueno-email 'abrahag40@gmail.com' --habitaciones 24 \\")
+      info('    --estado ROO --municipio Tulum --aplicar')
+      info('')
+      info('Te volverá a pedir la cadena sólo si no la tienes en el entorno.')
+      process.exit(3)
+    }
+    if (!APLICAR) {
+      console.log('\n  Cambios:')
+      info('+ dar de alta el hotel (organización, entidad legal, propiedad, habitaciones)')
+      info(`+ publicar su motor con slug=${slug}`)
+      console.log('\n◇ Ensayo terminado. Repite con --aplicar para escribirlo.\n')
+      return
+    }
+    propiedad = await darDeAlta()
+    if (!propiedad) {
+      mal('El alta no dejó ninguna propiedad. Revisa la salida de arriba.')
+      process.exit(6)
+    }
   }
   ok(`Propiedad: ${propiedad.name} (${propiedad.id})`)
 
   // ── 2. El perfil fiscal, que decide si habrá precio o «Consultar» ──────
+  // El perfil fiscal se puede fijar aquí mismo. Sin él el sitio publica
+  // «Consultar» en vez de precio —ADR-0010 §3, fallar cerrado— así que dejarlo
+  // para «luego» es dejar el hotel sin precio publicado sin que nadie lo note.
+  const estado = arg('estado')
+  const municipio = arg('municipio')
+  if (estado && !propiedad.regionCode) {
+    if (APLICAR) {
+      propiedad = await prisma.property.update({
+        where: { id: propiedad.id },
+        data: {
+          regionCode: estado.startsWith('MX-') ? estado : `MX-${estado.toUpperCase()}`,
+          ...(municipio ? { taxMunicipality: municipio } : {}),
+          lodgingKind: 'HOTEL',
+        },
+      })
+      ok(`Perfil fiscal fijado: ${propiedad.regionCode}${municipio ? ` · ${municipio}` : ''}`)
+    } else {
+      info(`+ fijar perfil fiscal: ${estado}${municipio ? ` · ${municipio}` : ''}`)
+    }
+  }
+
   if (!propiedad.regionCode) {
     info('⚠ Sin `regionCode`: el sitio mostrará «Consultar» en vez de precio.')
-    info('  No es un error de este script — es que falta el perfil fiscal de la propiedad.')
+    info('  Se arregla añadiendo  --estado ROO --municipio Tulum  a este mismo comando,')
+    info('  o desde Zenix → Tarifas → Control de publicación.')
   } else {
     ok(`Jurisdicción: ${propiedad.regionCode}${propiedad.taxMunicipality ? ` · ${propiedad.taxMunicipality}` : ''}`)
   }
@@ -239,6 +292,51 @@ async function main() {
   ok(`Publicada. slug=${r.slug} · enabled=${r.enabled}`)
   info(`Compruébalo: GET /api/v1/public/properties/${r.slug}`)
   console.log('')
+}
+
+/**
+ * Da de alta el hotel llamando a `seed.prod.ts`, que ya existe y es idempotente.
+ *
+ * 🔴 Se INVOCA en vez de copiarse. Duplicar aquí la creación de organización,
+ * entidad legal, propiedad, tipos y habitaciones sería tener dos verdades sobre
+ * cómo nace un hotel — y la segunda envejecería en silencio.
+ *
+ * La cadena de conexión viaja por el ENTORNO del proceso hijo, nunca por sus
+ * argumentos: los argumentos son visibles con `ps`, el entorno de un hijo no
+ * aparece en el historial de nadie.
+ */
+async function darDeAlta() {
+  const params: Record<string, string> = {
+    HOTEL_NAME: arg('hotel') ?? 'Mi Hotel',
+    CITY: arg('ciudad') ?? 'Tulum',
+    COUNTRY: arg('pais') ?? 'MX',
+    CURRENCY: arg('moneda') ?? 'MXN',
+    OWNER_EMAIL: arg('dueno-email') ?? 'owner@hotel.com',
+    OWNER_NAME: arg('dueno') ?? 'Propietario',
+    ROOM_COUNT: arg('habitaciones') ?? '12',
+  }
+  console.log('')
+  ok('Dando de alta el hotel:')
+  for (const [k, v] of Object.entries(params)) info(`  ${k} = ${v}`)
+  info('  (la contraseña del dueño la genera el seed y la imprime abajo)')
+  console.log('')
+
+  const r = spawnSync(
+    'npx',
+    ['ts-node', '-r', 'tsconfig-paths/register', join(__dirname, '..', 'prisma', 'seed.prod.ts')],
+    {
+      cwd: join(__dirname, '..'),
+      stdio: 'inherit',
+      env: { ...process.env, ...params },
+    },
+  )
+  if (r.status !== 0) {
+    mal('El alta falló. No se publica nada.')
+    process.exit(7)
+  }
+  await prisma.$disconnect()
+  prisma = new PrismaClient()
+  return elegirPropiedad()
 }
 
 /** Si no se pasó `--property-id`, sólo se elige sola cuando NO hay ambigüedad. */
