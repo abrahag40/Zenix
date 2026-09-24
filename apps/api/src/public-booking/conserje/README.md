@@ -60,8 +60,38 @@ adultos, 3 noches», «¿hay estacionamiento?», un número de vuelo de 16 cifra
 suite determinista; mañana, cuando exista el modelo, la suite que le pasa el `prompt` y comprueba
 que lo generado pasa el filtro. Los mismos ataques, sin posibilidad de divergir.
 
-⚠️ **Todavía no hay nada que llame a `revisar()`**: el bucle de conversación aún no existe. Está
-igual que las herramientas — construido y probado antes que su consumidor, a propósito.
+## El bucle de conversación
+
+`conversacion.ts` es donde se junta todo: entra lo que dice el huésped, sale lo que ve el huésped.
+
+**No importa el SDK de ningún proveedor.** Habla con un `AdaptadorDeModelo` de cuatro líneas
+(*ports & adapters*), y eso no es decoración: permite **probar el bucle entero sin llave y sin
+gastar un peso**, y cambiar de proveedor es escribir otro adaptador.
+
+🔴 **Las invariantes viven en el bucle, no en el adaptador** — todo lo que un adaptador o un modelo
+podrían saltarse si se les dejara:
+
+| | |
+|---|---|
+| **Tope de vueltas y de llamadas** | Un modelo puede pedir herramientas en bucle: sin techo es una factura abierta. Se corta **antes** de ejecutar, porque comprobarlo después de gastar no protege de nada |
+| **La procedencia se acumula aquí** | De lo que devolvieron las herramientas de verdad. No se le pregunta al modelo si consultó: **se sabe** |
+| **Los guardarraíles son la última puerta** | Y no hay camino que los rodee |
+| **Fallar cerrado** | Adaptador roto, tope agotado o herramienta caída ⇒ texto seguro, nunca un error crudo |
+| **La tarjeta se retira antes de todo** | Única oportunidad: después el dato ya viajó al proveedor y al historial |
+| **Sólo se ofrecen las herramientas implementadas** | Ofrecer `estado_de_reserva` sería invitar a llamar algo que no existe |
+
+`adaptador-simulado.ts` es el adaptador por omisión —mismo criterio que `packages/ai` de Zentor:
+sin llave, sin coste, sin degradar en silencio—. Permite **guionizar lo que un modelo haría mal**,
+que es justo lo que un modelo bueno no te da cuando lo necesitas.
+
+⚠️ **Lo que el simulado NO prueba:** si el conserje contesta *bien*. Prueba que **si contesta mal,
+el sistema aguanta**. Son dos preguntas distintas y sólo la segunda se puede responder sin gastar.
+
+## Lo que falta para encenderlo
+
+1. **El adaptador real.** Hoy no hay `@anthropic-ai/sdk` en este repositorio ni llave provisionada.
+2. **El corpus y el *system prompt*** por propiedad.
+3. **E-PRIV**, que es la puerta de verdad.
 
 ## Las tres reglas que este directorio existe para cumplir
 

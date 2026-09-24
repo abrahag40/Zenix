@@ -20,6 +20,7 @@ import { WebhookEventsListener } from './webhooks/webhook-events.listener'
 import { WebhookRetryScheduler } from './webhooks/webhook-retry.scheduler'
 import { WebhookSubscriptionService } from './webhooks/webhook-subscription.service'
 import { ConserjeHerramientasService } from './conserje/conserje-herramientas.service'
+import { ConversacionService } from './conserje/conversacion'
 
 /**
  * BOOKING-ENGINE B1+B2+B3 — "Zenix Booking" API pública headless.
@@ -55,6 +56,7 @@ import { ConserjeHerramientasService } from './conserje/conserje-herramientas.se
     WebhookRetryScheduler,
     WebhookSubscriptionService,
     ConserjeHerramientasService,
+    ConversacionService,
   ],
   exports: [
     PublicBookingService,
@@ -65,6 +67,7 @@ import { ConserjeHerramientasService } from './conserje/conserje-herramientas.se
     LiberadorDeRetencionesService,
     PagoDeReservaService,
     ConserjeHerramientasService,
+    ConversacionService,
   ],
 })
 export class PublicBookingModule {}
