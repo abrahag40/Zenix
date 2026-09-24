@@ -85,7 +85,7 @@ function makePrismaMock() {
 describe('BookingNewHandler', () => {
   let handler: BookingNewHandler
   let prisma: ReturnType<typeof makePrismaMock>
-  let availability: { check: jest.Mock }
+  let availability: { check: jest.Mock; anunciarCambioDeInventario: jest.Mock }
   let notifications: { emit: jest.Mock }
   let systemStaff: { getOrCreate: jest.Mock }
   let channexNotif: { raiseConflict: jest.Mock }
@@ -93,7 +93,10 @@ describe('BookingNewHandler', () => {
 
   beforeEach(async () => {
     prisma = makePrismaMock()
-    availability = { check: jest.fn().mockResolvedValue({ available: true, conflicts: [], checkedChannex: false }) }
+    availability = {
+      check: jest.fn().mockResolvedValue({ available: true, conflicts: [], checkedChannex: false }),
+      anunciarCambioDeInventario: jest.fn(),
+    }
     notifications = { emit: jest.fn() }
     systemStaff = { getOrCreate: jest.fn().mockResolvedValue('staff-system-1') }
     channexNotif = { raiseConflict: jest.fn().mockResolvedValue({ notificationId: 'notif-1' }) }

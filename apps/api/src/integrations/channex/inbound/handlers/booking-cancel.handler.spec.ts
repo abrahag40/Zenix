@@ -20,6 +20,7 @@ import { ChannexBookingRevision } from '../../channex.gateway'
 import { NotificationsService } from '../../../../notifications/notifications.service'
 import { PrismaService } from '../../../../prisma/prisma.service'
 import { ChannexSystemStaffService } from '../channex-system-staff.service'
+import { AvailabilityService } from '../../../../pms/availability/availability.service'
 import { BookingCancelHandler } from './booking-cancel.handler'
 
 function makeRevision(overrides: Partial<ChannexBookingRevision> = {}): ChannexBookingRevision {
@@ -96,11 +97,13 @@ describe('BookingCancelHandler', () => {
   let prisma: ReturnType<typeof makePrismaMock>
   let notifications: { emit: jest.Mock }
   let systemStaff: { getOrCreate: jest.Mock }
+  let availability: { anunciarCambioDeInventario: jest.Mock }
 
   beforeEach(async () => {
     prisma = makePrismaMock()
     notifications = { emit: jest.fn() }
     systemStaff = { getOrCreate: jest.fn().mockResolvedValue('staff-system-1') }
+    availability = { anunciarCambioDeInventario: jest.fn() }
 
     const mod = await Test.createTestingModule({
       providers: [
@@ -108,6 +111,8 @@ describe('BookingCancelHandler', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: NotificationsService, useValue: notifications },
         { provide: ChannexSystemStaffService, useValue: systemStaff },
+        // Cancelar LIBERA inventario: el sitio del hotel tiene que enterarse.
+        { provide: AvailabilityService, useValue: availability },
       ],
     }).compile()
     handler = mod.get(BookingCancelHandler)

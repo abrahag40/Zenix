@@ -348,6 +348,25 @@ export class BookingModifyHandler {
       await this.prisma.guestStay.update({ where: { id: existing.id }, data: updateData })
     }
 
+    // 🔴 Un cambio de fechas mueve inventario en DOS sitios: libera el rango
+    // viejo y ocupa el nuevo. Se anuncia la UNIÓN de ambos en un solo aviso —
+    // el consumidor sólo necesita saber «relee este tramo», no qué pasó dentro.
+    // Anunciar sólo el rango nuevo dejaría las noches liberadas pintadas en
+    // gris, que es perder ventas en silencio.
+    {
+      // `desired` viene del payload de Channex, donde las fechas pueden llegar
+      // como cadena. Se normaliza aquí en vez de confiar en la coerción.
+      const ms = (d: string | Date): number => (d instanceof Date ? d : new Date(d)).getTime()
+      const desde = new Date(Math.min(ms(existing.checkinAt), ms(desired.checkinAt)))
+      const hasta = new Date(Math.max(ms(existing.scheduledCheckout), ms(desired.scheduledCheckout)))
+      this.availability.anunciarCambioDeInventario(
+        existing.roomId,
+        desde,
+        hasta,
+        'channex_booking_modify',
+      )
+    }
+
     this.notifications.emit(existing.propertyId, 'channex:stay:modified', {
       stayId: existing.id,
       bookingId: revision.booking_id,

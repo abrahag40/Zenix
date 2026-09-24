@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { EventEmitter2 } from '@nestjs/event-emitter'
 import { PrismaService } from '../../prisma/prisma.service'
+import { INVENTORY_CHANGED, type InventoryChangedEvent } from './inventory-events'
 
 // UTC day boundary helper — independiente de la TZ del runtime del server.
 // date-fns startOfDay() usa TZ local y rompe day-level overlap cuando el
@@ -388,6 +389,7 @@ export class AvailabilityService {
    * this so a Channex outage cannot block the business operation.
    */
   async notifyReservation(n: ReservationNotification): Promise<void> {
+    this.anunciarCambioDeInventario(n.roomId, n.from, n.to, n.reason)
     await this.notifyChannex(n, -1)
   }
 
@@ -395,7 +397,35 @@ export class AvailabilityService {
    * Notify Channex that a room is freed (opposite of notifyReservation).
    */
   async notifyRelease(n: ReservationNotification): Promise<void> {
+    this.anunciarCambioDeInventario(n.roomId, n.from, n.to, n.reason)
     await this.notifyChannex(n, +1)
+  }
+
+  /**
+   * Publica el hecho de dominio «cambió el inventario de esta habitación».
+   *
+   * Es **síncrono y sin `await`** a propósito: `EventEmitter2` entrega a los
+   * oyentes marcados `async` fuera del hilo de la operación, así que un
+   * suscriptor lento no puede retrasar —ni tumbar— la reserva, el bloqueo o el
+   * check-in que lo originó. La operación local ya está commiteada cuando esto
+   * corre; el aviso es una consecuencia, nunca un requisito (§31 fail-soft).
+   *
+   * 🔴 No lleva guardas de integración. Ese fue el defecto: el hecho estaba
+   * condicionado a que existiera Channex.
+   *
+   * Lo llaman también los manejadores de entrada de Channex, que NO pueden
+   * llamar a `notifyReservation` —reempujar a Channex una reserva que vino de
+   * Channex es un eco—, pero sí deben avisarle al sitio del hotel.
+   */
+  anunciarCambioDeInventario(roomId: string, from: Date, to: Date, reason: string): void {
+    try {
+      const evento: InventoryChangedEvent = { roomId, from, to, reason }
+      this.events.emit(INVENTORY_CHANGED, evento)
+    } catch (err: unknown) {
+      // Que el aviso falle no puede tumbar la operación que ya se guardó.
+      const msg = err instanceof Error ? err.message : String(err)
+      this.logger.warn(`[inventory.changed] no se pudo anunciar roomId=${roomId}: ${msg}`)
+    }
   }
 
   /**
@@ -574,8 +604,18 @@ export class AvailabilityService {
    * Best-effort (CLAUDE.md §31): never throws, logs on failure.
    */
   async computeAndPushInventory(roomId: string, dates: Date[]): Promise<void> {
-    if (!this.channex.enabled) return
     if (dates.length === 0) return
+
+    // 🔴 El anuncio va ANTES de la guarda de Channex, y por eso está aquí
+    // arriba y no abajo con el push. Debajo de `if (!this.channex.enabled)`
+    // el sitio del hotel sólo se enteraba de un bloqueo si el hotel pagaba un
+    // channel manager. Ver `inventory-events.ts`.
+    const ordenadas = [...dates].sort((a, b) => a.getTime() - b.getTime())
+    const desde = ordenadas[0]
+    const hasta = new Date(ordenadas[ordenadas.length - 1].getTime() + 86_400_000)
+    this.anunciarCambioDeInventario(roomId, desde, hasta, 'inventory_recompute')
+
+    if (!this.channex.enabled) return
 
     try {
       const room = await this.prisma.room.findUnique({

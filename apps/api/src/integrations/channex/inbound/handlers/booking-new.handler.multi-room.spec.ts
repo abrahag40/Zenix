@@ -88,14 +88,14 @@ function makePrismaMock() {
 describe('BookingNewHandler — multi-room (CHECK-IN C2.2)', () => {
   let handler: BookingNewHandler
   let prisma: ReturnType<typeof makePrismaMock>
-  let availability: { check: jest.Mock }
+  let availability: { check: jest.Mock; anunciarCambioDeInventario: jest.Mock }
   let notifications: { emit: jest.Mock }
   let systemStaff: { getOrCreate: jest.Mock }
   let channexNotif: { raiseConflict: jest.Mock; raiseGroupBookingReceived: jest.Mock }
 
   beforeEach(async () => {
     prisma = makePrismaMock()
-    availability = { check: jest.fn() }
+    availability = { check: jest.fn(), anunciarCambioDeInventario: jest.fn() }
     notifications = { emit: jest.fn() }
     systemStaff = { getOrCreate: jest.fn().mockResolvedValue('staff-system-1') }
     channexNotif = {

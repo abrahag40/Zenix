@@ -327,6 +327,17 @@ export class BookingNewHandler {
       throw e
     }
 
+    // 🔴 Avisarle al SITIO DEL HOTEL que su calendario caducó. No se llama a
+    // `notifyReservation` a propósito: esta reserva VINO de Channex y
+    // reempujarla sería un eco. Lo que hay que publicar es el hecho de
+    // dominio, no la acción de integración — ver `inventory-events.ts`.
+    this.availability.anunciarCambioDeInventario(
+      stay.roomId,
+      stay.checkinAt,
+      stay.scheduledCheckout,
+      'channex_booking_new',
+    )
+
     // 7. SSE — calendar listener (useRoomSSE) refresca al recibir esto
     this.notifications.emit(property.id, 'channex:stay:created', {
       stayId: stay.id,
@@ -512,7 +523,7 @@ export class BookingNewHandler {
     // `channex.booking.same-day-arrival` por cada uno (en lugar de solo
     // single-stay path). Sin esto, una reserva multi-room que cae HOY
     // no escala las CleaningTasks de las rooms hijas.
-    let createdChildren: Array<{ id: string; roomId: string; checkinAt: Date; isConflict: boolean }> = []
+    let createdChildren: Array<{ id: string; roomId: string; checkinAt: Date; checkOut: Date; isConflict: boolean }> = []
     let hasConflicts = false
     try {
       const txResult = await this.prisma.$transaction(async (tx) => {
@@ -558,7 +569,7 @@ export class BookingNewHandler {
         })
 
         const createdStayIds: string[] = []
-        const childrenMeta: Array<{ id: string; roomId: string; checkinAt: Date; isConflict: boolean }> = []
+        const childrenMeta: Array<{ id: string; roomId: string; checkinAt: Date; checkOut: Date; isConflict: boolean }> = []
         for (let i = 0; i < resolutions.length; i++) {
           const res = resolutions[i]
           const isConflict = res.conflict !== null
@@ -620,6 +631,7 @@ export class BookingNewHandler {
             id: created.id,
             roomId: created.roomId,
             checkinAt: created.checkinAt,
+            checkOut: created.scheduledCheckout,
             isConflict,
           })
         }
@@ -645,6 +657,18 @@ export class BookingNewHandler {
         }
       }
       throw err
+    }
+
+    // 🔴 Una habitación por reserva de grupo: el sitio del hotel tiene que
+    // invalidar el calendario de todas. Mismo motivo que en el caso
+    // individual — el hecho de dominio sí, el reempuje a Channex no.
+    for (const child of createdChildren) {
+      this.availability.anunciarCambioDeInventario(
+        child.roomId,
+        child.checkinAt,
+        child.checkOut,
+        'channex_booking_new_group',
+      )
     }
 
     // 4. SSE para que el calendar refresque la bracket visual del grupo
