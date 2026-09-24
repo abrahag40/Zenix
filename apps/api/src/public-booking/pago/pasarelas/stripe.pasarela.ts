@@ -66,6 +66,27 @@ export class StripePasarela implements PasarelaDePago {
         ...(datos.cuentaDestino
           ? {
               transfer_data: { destination: datos.cuentaDestino },
+              // 🔴 `on_behalf_of` NO ES OPCIONAL, Y NO ES COSMÉTICO.
+              //
+              // Sin él, en el estado de cuenta del huésped aparece el nombre de
+              // ZaharDev. Con él, aparece el del HOTEL. Stripe lo documenta
+              // literalmente: el descriptor de la cuenta conectada se usa en
+              // «cargos a un destino CON on_behalf_of».
+              //
+              // Importa porque el motivo número uno de contracargo es que el
+              // titular NO RECONOCE el cargo. La propia guía de prevención de
+              // Stripe abre con: «verifica que la descripción del cargo sea
+              // fácilmente reconocible para tus clientes y refleje el nombre de
+              // la empresa que ellos asociarían con su compra».
+              //
+              // Un huésped que se hospedó en «Azucar Hotel Tulum» y ve
+              // «ZAHARDEV» en su estado de cuenta llama al banco. Y una disputa
+              // por fraude es de las más difíciles de ganar.
+              //
+              // Además fija al hotel como comercio de registro para la
+              // transacción, que es lo que corresponde: el servicio lo presta
+              // él.
+              on_behalf_of: datos.cuentaDestino,
               ...(datos.comisionCentavos
                 ? { application_fee_amount: datos.comisionCentavos }
                 : {}),

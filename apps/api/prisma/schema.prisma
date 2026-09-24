@@ -1794,6 +1794,27 @@ model GuestStay {
   noShowAt              DateTime?           @map("no_show_at")
   noShowById            String?             @map("no_show_by_id")
   noShowReason          String?             @map("no_show_reason")
+  /// La IP desde la que se hizo la reserva. Evidencia `customer_purchase_ip`.
+  ///
+  /// 🔴 Se guarda para GANAR CONTRACARGOS, no para perfilar a nadie. Stripe la
+  /// pide como evidencia convincente en las disputas por fraude: demuestra que
+  /// la compra salió de un dispositivo real y no de una tarjeta robada usada a
+  /// ciegas. Es un dato personal, así que vive con la reserva y muere con ella.
+  purchaseIp            String?             @map("purchase_ip")
+
+  /// Firma del huésped al registrarse. Evidencia `customer_signature`.
+  ///
+  /// 🔴 ES LA PIEZA QUE GANA EL CASO DEL «FRAUDE AMISTOSO»: el huésped se
+  /// hospeda, todo bien, y al volver disputa el cargo diciendo que no lo
+  /// reconoce. Contra eso, Stripe pide «la firma del titular de la tarjeta» y
+  /// «una copia o los detalles de la identificación presentada».
+  ///
+  /// Zenix ya guarda `documentType` y `documentNumber` — los detalles de la
+  /// identificación—. Faltaba la firma. Se guarda como referencia al archivo,
+  /// no como imagen en la base.
+  checkinSignatureUrl   String?             @map("checkin_signature_url")
+  checkinSignedAt       DateTime?           @map("checkin_signed_at")
+
   noShowFeeAmount       Decimal?            @map("no_show_fee_amount") @db.Decimal(10, 2)
   noShowFeeCurrency     String?             @map("no_show_fee_currency")
   noShowChargeStatus    NoShowChargeStatus? @map("no_show_charge_status")

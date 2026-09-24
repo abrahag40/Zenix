@@ -37,6 +37,12 @@ import {
   type PagoDeHuespedAutorizado,
   type PagoDeHuespedFallido,
 } from '../common/events/pago-de-huesped'
+import {
+  CONTRACARGO_ABIERTO,
+  CONTRACARGO_CERRADO,
+  type ContracargoAbierto,
+  type ContracargoCerrado,
+} from '../common/events/contracargo'
 import { BillingEmailService } from './billing-email.service'
 import { SubscriptionService } from './subscription.service'
 
@@ -188,6 +194,15 @@ export class WebhookHandlerService {
         case 'payment_intent.payment_failed':
         case 'payment_intent.canceled':
           return this.handlePagoDeHuespedFallido(event)
+        // ── CONTRACARGOS ──────────────────────────────────────────────────
+        // `dispute.created` llega TAMBIEN para las solicitudes de informacion,
+        // que en Mexico son la fase previa habitual. Se distinguen por el
+        // estado, no por el tipo de evento.
+        case 'charge.dispute.created':
+        case 'charge.dispute.updated':
+          return this.handleContracargo(event)
+        case 'charge.dispute.closed':
+          return this.handleContracargoCerrado(event)
         default:
           // Event tipo no manejado — log + return sin acción.
           // Importante: NO bloqueamos el webhook (Stripe espera 2xx).
@@ -263,6 +278,63 @@ export class WebhookHandlerService {
     }
     this.logger.warn(`[WebhookHandler] pago de huésped FALLIDO ref=${bookingRef}: ${carga.motivo}`)
     await this.eventos.emitAsync(PAGO_DE_HUESPED_FALLIDO, carga)
+    return { handled: true, idempotent: false }
+  }
+
+  // ─── Contracargos ─────────────────────────────────────────────────────
+
+  /**
+   * Publica que llego un contracargo (o una solicitud de informacion).
+   *
+   * 🔴 El reloj empieza AQUI. Segun Stripe, el plazo para responder es de 7 a
+   * 21 dias segun la red, y solo hay UNA oportunidad de responder. Un aviso
+   * que llega tarde vale lo mismo que no avisar.
+   */
+  private async handleContracargo(event: StripeEvent) {
+    const d = event.data.object
+    const meta = d?.payment_intent_details?.metadata ?? d?.metadata ?? {}
+    const bookingRef = meta.bookingRef
+    const propertyId = meta.propertyId
+    if (!bookingRef || !propertyId) {
+      // Sin marca no es del motor publico: puede ser una disputa de la
+      // suscripcion del hotel, que la maneja otro sitio.
+      this.logger.debug(`[WebhookHandler] ${event.type} sin bookingRef — no es del motor publico.`)
+      return { handled: false, idempotent: false }
+    }
+
+    const carga: ContracargoAbierto = {
+      bookingRef,
+      propertyId,
+      disputaId: String(d.id),
+      importeCentavos: Number(d.amount ?? 0),
+      moneda: String(d.currency ?? '').toUpperCase(),
+      motivo: String(d.reason ?? 'desconocido'),
+      estado: String(d.status ?? ''),
+      respondeAntesDe: d?.evidence_details?.due_by
+        ? new Date(Number(d.evidence_details.due_by) * 1000).toISOString()
+        : null,
+    }
+
+    this.logger.warn(
+      `[WebhookHandler] CONTRACARGO ref=${bookingRef} ${carga.importeCentavos} ${carga.moneda} ` +
+        `motivo=${carga.motivo} estado=${carga.estado} responder antes de ${carga.respondeAntesDe ?? '?'}`,
+    )
+    await this.eventos.emitAsync(CONTRACARGO_ABIERTO, carga)
+    return { handled: true, idempotent: false }
+  }
+
+  private async handleContracargoCerrado(event: StripeEvent) {
+    const d = event.data.object
+    const meta = d?.payment_intent_details?.metadata ?? d?.metadata ?? {}
+    if (!meta.bookingRef || !meta.propertyId) return { handled: false, idempotent: false }
+    const carga: ContracargoCerrado = {
+      bookingRef: meta.bookingRef,
+      propertyId: meta.propertyId,
+      disputaId: String(d.id),
+      resultado: String(d.status ?? ''),
+    }
+    this.logger.log(`[WebhookHandler] contracargo ${carga.disputaId} cerrado: ${carga.resultado}`)
+    await this.eventos.emitAsync(CONTRACARGO_CERRADO, carga)
     return { handled: true, idempotent: false }
   }
 

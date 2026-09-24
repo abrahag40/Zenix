@@ -213,3 +213,117 @@ omisión. Pero conviene decirle al cliente lo que compra:
 
 Si aun así el hotel prefiere su banco —por relación, por tasa negociada, o porque ya lo tiene
 contratado— el módulo está preparado para recibirlo sin tocar nada de lo demás.
+
+
+---
+
+## 10 · Contracargos: el argumento del cliente, analizado
+
+> *«Si un huésped mete un contracargo, en Stripe no aparece el nombre del hotel, aparece Stripe.»*
+
+**Tenía razón sobre mi código, y se arregla con un parámetro.**
+
+### Qué es un contracargo, en una línea
+
+El huésped llama a su banco y dice que ese cargo no debería estar. El banco **le devuelve el dinero
+de inmediato**, se lo quita al hotel, **y encima le cobra una comisión por disputa**. El hotel se
+entera cuando ya se lo sacaron.
+
+### El caso que el cliente describe tiene nombre
+
+Se llama **fraude amistoso** (*friendly fraud*, o *first-party misuse* en las reglas de las redes):
+el huésped se hospeda, todo va bien, y semanas después disputa alegando que no reconoce el cargo.
+Es el más común en hotelería, precisamente porque el servicio ya se prestó y no queda un paquete
+que rastrear.
+
+### El descriptor: el cliente tiene razón, y es un parámetro
+
+Stripe lo documenta literalmente:
+
+> «En el extracto del cliente se utiliza el componente estático de **la cuenta conectada**» para
+> *cargos Direct* y *cargos a un destino **con `on_behalf_of`***.
+
+Mi implementación hacía cargo a destino **sin** `on_behalf_of` → habría salido ZaharDev. Corregido:
+ahora sale **el nombre del hotel**, y el hotel queda como comercio de registro.
+
+No es cosmético. La propia guía de prevención de Stripe abre con: «verifica que la descripción del
+cargo sea **fácilmente reconocible** para tus clientes y refleje el nombre de la empresa que ellos
+asociarían con su compra».
+
+### Los plazos, que son lo que de verdad pierde casos
+
+| Hecho | Consecuencia |
+|---|---|
+| El huésped tiene ~120 días… | …**y en servicios futuros el plazo empieza en la FECHA DE LA ESTANCIA, no en la del pago** |
+| El hotel tiene **7 a 21 días** para responder | quien empieza a buscar papeles cuando llega el aviso, ya perdió |
+| **Sólo hay UNA oportunidad** de responder | no se puede corregir ni añadir después |
+| El emisor tarda 60–75 días en decidir | el ciclo completo son dos o tres meses |
+
+### 🔴 Tres cosas que favorecen a México, y que nadie suele saber
+
+De la documentación de Stripe, literales:
+
+1. «Los cargos nacionales de México que se disputan entre marcas de tarjetas usan **las solicitudes
+   de información** antes de crear una disputa formal. Si no se responden, algunas disputas pueden
+   convertirse en **contracargos imposibles de ganar**.» → Hay una fase previa donde el caso se
+   resuelve **sin comisión**.
+2. «Para las empresas en México, **es posible que se devuelva la comisión por disputa** si esta se
+   resuelve a tu favor o si el titular de la tarjeta retira la disputa.»
+3. «La **comisión de impugnación** de disputas **no se aplica** a las empresas de México y Japón.»
+
+O sea: en México, defenderse sale más barato que en casi cualquier otro sitio.
+
+---
+
+## 11 · Lo que se construyó en Zenix
+
+### El expediente de contracargo
+
+Zenix ya guardaba casi toda la evidencia que Stripe pide para un **servicio fuera de línea** —que
+es lo que es una estancia—: nombre, correo, **tipo y número de identificación**, check-in y
+check-out reales, y quién los confirmó. Faltaban dos, y se añadieron:
+
+- **`purchase_ip`** — la IP desde la que se reservó (`customer_purchase_ip`).
+- **`checkin_signature_url`** — 🔴 **la pieza que gana el caso del fraude amistoso.** Stripe pide
+  «la firma del titular de la tarjeta» y «los detalles de la identificación presentada». La
+  identificación ya estaba; la firma no.
+
+`ExpedienteDeContracargoService` arma la evidencia con **los nombres exactos de la API de Stripe**
+—traducirlos al español haría que Stripe los ignorara en silencio— y, sobre todo, **declara lo que
+falta**. Un expediente que sólo enseña lo que hay es un informe; lo que le sirve al hotel es saber
+que no tiene la firma, y saberlo cuando aún puede pedirla.
+
+> Una prueba encontró un defecto propio: el marcador daba **100 % sin la firma**, porque los datos
+> del documento rellenaban el mismo campo. Stripe las lista como dos evidencias distintas y la
+> firma es la fuerte. Un marcador que dice 100 % cuando falta la pieza que gana el caso es peor que
+> no tener marcador.
+
+### El aviso automático
+
+El webhook atiende `charge.dispute.created`, `updated` y `closed`, y publica el hecho. Un oyente
+arma el expediente **en el acto** y grita en el registro con el plazo. Si es una **solicitud de
+información**, lo dice explícitamente — porque en México es la fase previa habitual y responderla
+evita la comisión y que escale a un caso imposible de ganar.
+
+---
+
+## 12 · Y el argumento de la comisión más barata
+
+Es el argumento fuerte del cliente y **no se lo puede rebatir sin datos**: Banorte negocia tasa por
+giro, ticket y facturación, y un hotel con volumen puede conseguir mejor precio que la tarifa de
+lista de Stripe.
+
+Lo que sí se puede poner al lado, para que la decisión sea informada:
+
+| | Stripe Connect | Banorte Payworks |
+|---|---|---|
+| Nombre en el estado de cuenta | el del hotel (con `on_behalf_of`) | el del hotel |
+| Comisión de ZaharDev | **retenida sola** | **se factura aparte** |
+| Puesta en marcha | días | semanas o meses, con certificación |
+| Entorno de pruebas | sí | **no publicado** |
+| Expediente de contracargo | **automático, ya construido** | habría que rehacerlo contra su proceso |
+| Defensa de disputas | API y plazos documentados | por el portal del banco |
+
+🔴 **Lo que NO está medido:** la tasa concreta que Banorte le ofrecería a este hotel. Sin ese número
+la comparación de comisiones es una opinión. Pedirlo por escrito es el siguiente paso, y hasta
+tenerlo esta tabla no decide nada por sí sola.
