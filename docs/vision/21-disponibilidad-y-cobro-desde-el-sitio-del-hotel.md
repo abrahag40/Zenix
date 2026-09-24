@@ -193,6 +193,13 @@ tendrá que cambiar de regla **en el mismo commit que el ADR**, nunca antes.
 
 **Tres decisiones que sostienen todo esto:**
 
+> 🔴 **Corregido el 2026-09-24 por el [documento 22](22-agotamiento-de-retenciones-y-cuenta-destino.md).**
+> El orden de arriba —retener y *después* cobrar— es correcto contra la carrera entre dos
+> compradores honestos, y **malo contra el agotamiento de inventario**: regala retenciones
+> gratis, y bastan 24 peticiones para dejar sin nada que vender al hotel piloto. El orden bueno
+> pone la **autorización de la tarjeta antes de la retención**, de modo que retener cueste una
+> tarjeta válida. Los tres puntos de abajo siguen siendo correctos tal cual.
+
 **a) La confirmación la dispara el webhook de la pasarela, nunca el navegador.** Si se confirma
 cuando el navegador vuelve a la página de «gracias», basta que el huésped cierre la pestaña para
 que un pago cobrado no tenga reserva. El redirect es una cortesía visual; **el webhook es el
