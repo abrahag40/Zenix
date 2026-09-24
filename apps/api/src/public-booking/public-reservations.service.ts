@@ -58,7 +58,7 @@ export class PublicReservationsService {
     private readonly events: EventEmitter2,
   ) {}
 
-  /** Crea una reserva por API key (Tier 3 — website externo con pk_live_). */
+  /** Crea una reserva por API key (Tier 3 — website externo con sk_live_). */
   async createReservation(
     apiKey: VerifiedApiKey,
     dto: CreateReservationDto,
@@ -69,7 +69,7 @@ export class PublicReservationsService {
 
   /**
    * Crea una reserva por SLUG (hosted page first-party — sin API key). La hosted
-   * page `book.zenix.com/{slug}` la sirve Zenix, así que no expone pk_live_ en el
+   * page `book.zenix.com/{slug}` la sirve Zenix, así que no expone sk_live_ en el
    * cliente; reserva por slug + Idempotency-Key, protegida por rate-limit per-IP.
    * Patrón Cloudbeds/Mews: reservar en la hosted page no requiere key.
    */

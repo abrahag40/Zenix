@@ -137,7 +137,7 @@ async function bootstrap() {
     .setDescription(
       'API pública headless de reservas directas. Un website externo consume estos ' +
         'endpoints por HTTP para mostrar disponibilidad y crear reservas (source=DIRECT_WEB, ' +
-        'cero comisión OTA). READ es abierto; WRITE requiere `X-API-Key` (pk_live_/pk_test_) ' +
+        'cero comisión OTA). READ es abierto; WRITE requiere `X-API-Key` (sk_live_/sk_test_, secreto de servidor) ' +
         '+ `Idempotency-Key`. Guía: docs/booking-engine-integration.md.',
     )
     .setVersion('1.0')
