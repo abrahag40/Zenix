@@ -19,6 +19,8 @@ import { PublicReservationsService } from './public-reservations.service'
 import { ApiKeyGuard } from './guards/api-key.guard'
 import { AvailabilityQueryDto } from './dto/availability-query.dto'
 import { CreateReservationDto } from './dto/create-reservation.dto'
+import { PrepararPagoDto } from './pago/pago.dto'
+import { PagoDeReservaService } from './pago/pago-de-reserva.service'
 import { VerifiedApiKey } from './booking-api-key.service'
 
 /**
@@ -48,6 +50,7 @@ export class PublicBookingController {
   constructor(
     private readonly publicBooking: PublicBookingService,
     private readonly reservations: PublicReservationsService,
+    private readonly pagos: PagoDeReservaService,
   ) {}
 
   /** Info pública del hotel (branding, currency, languages, payment policy). */
@@ -113,6 +116,27 @@ export class PublicBookingController {
     @Headers('idempotency-key') idempotencyKey: string,
   ) {
     return this.reservations.createReservationBySlug(slug, dto, idempotencyKey)
+  }
+
+  /**
+   * Prepara el pago de una reserva ya creada.
+   *
+   * 🔴 Devuelve **sólo** el `client_secret`. Ni la cuenta destino, ni llaves,
+   * ni un importe que el cliente pueda cambiar: ese secreto ya lleva dentro
+   * el importe, la moneda y el destino, fijados aquí.
+   *
+   * Sin API key, como el resto de la ruta por slug: el `bookingRef` sólo lo
+   * conoce quien acaba de reservar, y el límite por IP protege el resto.
+   */
+  @ApiOperation({ summary: 'Preparar el pago de una reserva (devuelve sólo el client_secret)' })
+  @Post('properties/:slug/reservations/:ref/pago')
+  @HttpCode(200)
+  prepararPago(
+    @Param('slug') slug: string,
+    @Param('ref') ref: string,
+    @Body() dto: PrepararPagoDto,
+  ) {
+    return this.pagos.crearIntento({ slug, bookingRef: ref, medio: dto.medio })
   }
 
   // ── WRITE (require X-API-Key + Idempotency-Key) — BOOKING-ENGINE B2 ─────────

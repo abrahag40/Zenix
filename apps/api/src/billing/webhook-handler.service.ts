@@ -29,7 +29,14 @@
  * en <30 segundos).
  */
 import { Injectable, Logger } from '@nestjs/common'
+import { EventEmitter2 } from '@nestjs/event-emitter'
 import { PrismaService } from '../prisma/prisma.service'
+import {
+  PAGO_DE_HUESPED_AUTORIZADO,
+  PAGO_DE_HUESPED_FALLIDO,
+  type PagoDeHuespedAutorizado,
+  type PagoDeHuespedFallido,
+} from '../common/events/pago-de-huesped'
 import { BillingEmailService } from './billing-email.service'
 import { SubscriptionService } from './subscription.service'
 
@@ -99,6 +106,7 @@ export class WebhookHandlerService {
     private readonly prisma: PrismaService,
     private readonly billingEmail: BillingEmailService,
     private readonly subscriptionService: SubscriptionService,
+    private readonly eventos: EventEmitter2,
   ) {}
 
   /**
@@ -165,6 +173,21 @@ export class WebhookHandlerService {
         // para no procesar otras checkout sessions (e.g. Customer Portal addCard).
         case 'checkout.session.completed':
           return this.handleCheckoutSessionCompleted(event)
+        // ── Cobro del HUÉSPED (motor público de reservas) ─────────────────
+        // Nada que ver con la suscripción del hotel: esto es el dinero que
+        // paga quien reserva. Se distingue por `metadata.bookingRef`, que
+        // pone `PagoDeReservaService` al crear la intención — un intent sin
+        // esa marca no es nuestro y se ignora.
+        //
+        // `amount_capturable_updated` es el evento que importa con
+        // `capture_method: 'manual'`: significa **autorizado, no cobrado**.
+        // Es ahí donde la reserva pasa a firme; capturar viene después.
+        case 'payment_intent.amount_capturable_updated':
+        case 'payment_intent.succeeded':
+          return this.handlePagoDeHuesped(event)
+        case 'payment_intent.payment_failed':
+        case 'payment_intent.canceled':
+          return this.handlePagoDeHuespedFallido(event)
         default:
           // Event tipo no manejado — log + return sin acción.
           // Importante: NO bloqueamos el webhook (Stripe espera 2xx).
@@ -178,6 +201,69 @@ export class WebhookHandlerService {
       // Re-throw para que el controller responda 500 y Stripe reintente.
       throw err
     }
+  }
+
+  // ─── Cobro del huésped — motor público ────────────────────────────────
+
+  /**
+   * Publica el hecho de que un pago de huésped quedó autorizado.
+   *
+   * 🔑 Este método **no confirma la reserva**: publica el hecho. Quien lo
+   * escucha es `PagoDeReservaService`, en el otro contexto. Ver
+   * `common/events/pago-de-huesped.ts` para el porqué.
+   *
+   * Idempotencia: aquí NO se escribe la tabla `subscription_events` —es de
+   * suscripciones, no de huéspedes—, así que un reintento de Stripe vuelve a
+   * emitir. Es correcto porque **el oyente es idempotente**: una reserva ya
+   * pagada devuelve «confirmada» sin tocar nada.
+   */
+  private async handlePagoDeHuesped(event: StripeEvent) {
+    const pi = event.data.object
+    const bookingRef = pi?.metadata?.bookingRef
+    const propertyId = pi?.metadata?.propertyId
+    if (!bookingRef || !propertyId) {
+      this.logger.debug(`[WebhookHandler] ${event.type} sin bookingRef — no es del motor público.`)
+      return { handled: false, idempotent: false }
+    }
+
+    const carga: PagoDeHuespedAutorizado = {
+      bookingRef,
+      propertyId,
+      // 🔴 `amount_received` es 0 mientras sólo está autorizado. El importe
+      // que vale para comparar con la reserva es el autorizado.
+      importeCentavos: Number(pi.amount_capturable || pi.amount_received || pi.amount || 0),
+      moneda: String(pi.currency ?? '').toUpperCase(),
+      paymentIntentId: String(pi.id),
+      capturado: event.type === 'payment_intent.succeeded',
+    }
+
+    this.logger.log(
+      `[WebhookHandler] pago de huésped ref=${bookingRef} ${carga.importeCentavos} ${carga.moneda} ` +
+        `capturado=${carga.capturado}`,
+    )
+    // `emitAsync` espera a los oyentes: así el 2xx a Stripe sólo sale cuando
+    // la reserva ya quedó confirmada, y si el oyente revienta, Stripe
+    // reintenta en vez de dar el pago por procesado.
+    await this.eventos.emitAsync(PAGO_DE_HUESPED_AUTORIZADO, carga)
+    return { handled: true, idempotent: false }
+  }
+
+  /** El pago no salió: se avisa para que la retención deje de ocupar sitio. */
+  private async handlePagoDeHuespedFallido(event: StripeEvent) {
+    const pi = event.data.object
+    const bookingRef = pi?.metadata?.bookingRef
+    const propertyId = pi?.metadata?.propertyId
+    if (!bookingRef || !propertyId) return { handled: false, idempotent: false }
+
+    const carga: PagoDeHuespedFallido = {
+      bookingRef,
+      propertyId,
+      paymentIntentId: String(pi.id),
+      motivo: String(pi?.last_payment_error?.message ?? event.type),
+    }
+    this.logger.warn(`[WebhookHandler] pago de huésped FALLIDO ref=${bookingRef}: ${carga.motivo}`)
+    await this.eventos.emitAsync(PAGO_DE_HUESPED_FALLIDO, carga)
+    return { handled: true, idempotent: false }
   }
 
   // ─── Handlers — skeleton (lógica real Day 3+) ─────────────────────────

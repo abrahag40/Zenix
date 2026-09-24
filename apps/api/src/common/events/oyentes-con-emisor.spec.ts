@@ -81,17 +81,21 @@ describe('arquitectura · todo oyente tiene emisor', () => {
 
     const emitidos = new Set<string>()
     let hayEmisionDinamica = false
-    for (const linea of buscar("\\.emit\\(").split('\n')) {
+    // 🔴 `emitAsync` tambien emite. El escaner solo miraba `.emit(` y por eso
+    // declaro huerfano a `huesped.pago.autorizado`, que si tiene emisor —
+    // falso positivo propio, el segundo de este archivo. Un guardian que
+    // acusa en falso se acaba silenciando, y entonces ya no guarda nada.
+    for (const linea of buscar("\\.emit(Async)?\\(").split('\n')) {
       if (!linea.trim() || linea.includes('.spec.ts') || esComentario(linea)) continue
-      const literal = linea.match(/\.emit\(\s*'([^']+)'/)
+      const literal = linea.match(/\.emit(?:Async)?\(\s*'([^']+)'/)
       if (literal) { emitidos.add(literal[1]); continue }
       // Admite el prefijo de espacio de nombres: `Events.STAY_CHECKIN_CONFIRMED`.
-      const porConst = linea.match(/\.emit\(\s*(?:[A-Za-z_$][\w$]*\.)?([A-Z_0-9]+)\s*[,)]/)
+      const porConst = linea.match(/\.emit(?:Async)?\(\s*(?:[A-Za-z_$][\w$]*\.)?([A-Z_0-9]+)\s*[,)]/)
       const resuelto = porConst ? consts.get(porConst[1]) : undefined
       if (resuelto) { emitidos.add(resuelto); continue }
       // `emit(nombreVariable, …)`: el nombre se decide en ejecucion y el
       // analisis estatico no puede resolverlo.
-      if (/\.emit\(\s*[a-z_$][\w$]*\s*[,)]/.test(linea)) hayEmisionDinamica = true
+      if (/\.emit(?:Async)?\(\s*[a-z_$][\w$]*\s*[,)]/.test(linea)) hayEmisionDinamica = true
     }
 
     // Un comodin (`audit.**`) casa con familias enteras: basta un emisor con

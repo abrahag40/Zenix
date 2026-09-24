@@ -1,5 +1,12 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common'
+import { OnEvent } from '@nestjs/event-emitter'
 import { PrismaService } from '../../prisma/prisma.service'
+import {
+  PAGO_DE_HUESPED_AUTORIZADO,
+  PAGO_DE_HUESPED_FALLIDO,
+  type PagoDeHuespedAutorizado,
+  type PagoDeHuespedFallido,
+} from '../../common/events/pago-de-huesped'
 import { BillingService } from '../../billing/billing.service'
 import { caducaEn, type MedioDePago } from '../holds/politica-de-retencion'
 
@@ -145,10 +152,13 @@ export class PagoDeReservaService {
     bookingRef: string
     propertyId: string
     importeCentavos: number
+    moneda?: string
   }): Promise<{ confirmada: boolean; motivo?: string }> {
     const reserva = await this.prisma.guestStay.findFirst({
       where: { bookingRef: args.bookingRef, propertyId: args.propertyId },
-      select: { id: true, totalAmount: true, cancelledAt: true, paymentStatus: true },
+      select: {
+        id: true, totalAmount: true, currency: true, cancelledAt: true, paymentStatus: true,
+      },
     })
     if (!reserva) return { confirmada: false, motivo: 'La reserva no existe' }
 
@@ -173,6 +183,14 @@ export class PagoDeReservaService {
       return { confirmada: false, motivo: 'El importe autorizado no coincide con la reserva' }
     }
 
+    // 8 323 MXN y 8 323 USD son el mismo número y cobros muy distintos.
+    if (args.moneda && reserva.currency && args.moneda !== reserva.currency.toUpperCase()) {
+      this.logger.error(
+        `[pago] ref=${args.bookingRef} moneda ${args.moneda} ≠ ${reserva.currency}. NO se confirma.`,
+      )
+      return { confirmada: false, motivo: 'La moneda autorizada no coincide con la reserva' }
+    }
+
     await this.prisma.guestStay.update({
       where: { id: reserva.id },
       data: {
@@ -184,5 +202,60 @@ export class PagoDeReservaService {
     })
     this.logger.log(`[pago] ✓ ref=${args.bookingRef} confirmada por pago`)
     return { confirmada: true }
+  }
+
+  /**
+   * Oyente del hecho que publica el webhook de Stripe.
+   *
+   * 🔴 **Ésta es la única puerta por la que una reserva pasa a pagada.** No
+   * hay ninguna ruta HTTP que marque `PAID`: el navegador no puede llamarla
+   * porque no existe.
+   *
+   * La comprobación de moneda no es paranoia de más: un importe correcto en
+   * la moneda equivocada es un cobro de otra magnitud.
+   */
+  @OnEvent(PAGO_DE_HUESPED_AUTORIZADO)
+  async alAutorizarsePago(carga: PagoDeHuespedAutorizado): Promise<void> {
+    const r = await this.confirmarPorPago({
+      bookingRef: carga.bookingRef,
+      propertyId: carga.propertyId,
+      importeCentavos: carga.importeCentavos,
+      moneda: carga.moneda,
+    })
+    if (!r.confirmada) {
+      this.logger.error(
+        `[pago] ref=${carga.bookingRef} intent=${carga.paymentIntentId} NO confirmada: ${r.motivo}`,
+      )
+    }
+  }
+
+  /**
+   * El pago falló: la retención deja de estar justificada.
+   *
+   * 🔑 Se suelta **adelantando la caducidad**, no cancelando la reserva. El
+   * liberador ya sabe cancelar y anunciar el cambio de inventario; duplicar
+   * esa lógica aquí sería tener dos sitios que cancelan de formas distintas.
+   * La franja de gracia del liberador da margen a un reintento inmediato.
+   */
+  @OnEvent(PAGO_DE_HUESPED_FALLIDO)
+  async alFallarPago(carga: PagoDeHuespedFallido): Promise<void> {
+    const reserva = await this.prisma.guestStay.findFirst({
+      where: {
+        bookingRef: carga.bookingRef,
+        propertyId: carga.propertyId,
+        cancelledAt: null,
+        paymentStatus: { not: 'PAID' },
+      },
+      select: { id: true, holdExpiresAt: true },
+    })
+    // Sin retención que soltar no hay nada que hacer: o ya se liberó, o esta
+    // reserva nunca caducaba (pago en el hotel).
+    if (!reserva?.holdExpiresAt) return
+
+    await this.prisma.guestStay.update({
+      where: { id: reserva.id },
+      data: { holdExpiresAt: new Date() },
+    })
+    this.logger.warn(`[pago] ref=${carga.bookingRef} retención soltada tras fallo: ${carga.motivo}`)
   }
 }
