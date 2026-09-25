@@ -9,6 +9,17 @@ import { RateEnvelopeListener } from './rate-envelope/rate-envelope.listener'
 import { PoliticaDePublicacionService } from './politica-de-publicacion.service'
 import { LiberadorDeRetencionesService } from './holds/liberador-de-retenciones.service'
 import { PagoDeReservaService } from './pago/pago-de-reserva.service'
+import { StripePasarela } from './pago/pasarelas/stripe.pasarela'
+import { BanortePasarela } from './pago/pasarelas/banorte.pasarela'
+import { RegistroDePasarelas } from './pago/pasarelas/registro-de-pasarelas.service'
+import { ExpedienteDeContracargoService } from './contracargos/expediente-de-contracargo.service'
+import { ContracargoListener } from './contracargos/contracargo.listener'
+import { CartaDeRegistroService } from './contracargos/carta-de-registro.service'
+import { RecepcionService } from './recepcion/recepcion.service'
+import { RecepcionController } from './recepcion/recepcion.controller'
+import { FirmarCartaService } from './recepcion/firmar-carta.service'
+import { UploadsModule } from '../uploads/uploads.module'
+import { TenantContextService } from '../common/tenant-context.service'
 import { BillingModule } from '../billing/billing.module'
 import { BookingEngineConfigService } from './booking-engine-config.service'
 import { PublicReservationsService } from './public-reservations.service'
@@ -28,8 +39,8 @@ import { WebhookSubscriptionService } from './webhooks/webhook-subscription.serv
  * B3: webhooks outbound (dispatcher + listener de eventos de dominio + retry cron).
  */
 @Module({
-  imports: [NotificationsModule, BillingModule],
-  controllers: [PublicBookingController, BookingEngineManagementController],
+  imports: [NotificationsModule, BillingModule, UploadsModule],
+  controllers: [RecepcionController, PublicBookingController, BookingEngineManagementController],
   providers: [
     PublicBookingService,
     PublicPricingService,
@@ -38,6 +49,15 @@ import { WebhookSubscriptionService } from './webhooks/webhook-subscription.serv
     PoliticaDePublicacionService,
     LiberadorDeRetencionesService,
     PagoDeReservaService,
+    StripePasarela,
+    BanortePasarela,
+    RegistroDePasarelas,
+    ExpedienteDeContracargoService,
+    ContracargoListener,
+    CartaDeRegistroService,
+    RecepcionService,
+    FirmarCartaService,
+    TenantContextService,
     BookingEngineConfigService,
     PublicReservationsService,
     BookingApiKeyService,
@@ -51,6 +71,8 @@ import { WebhookSubscriptionService } from './webhooks/webhook-subscription.serv
   exports: [
     PublicBookingService, BookingApiKeyService, WebhookSubscriptionService, RateEnvelopeService,
     PoliticaDePublicacionService, LiberadorDeRetencionesService, PagoDeReservaService,
+    StripePasarela, BanortePasarela, RegistroDePasarelas,
+    ExpedienteDeContracargoService, CartaDeRegistroService,
   ],
 })
 export class PublicBookingModule {}
