@@ -1795,6 +1795,17 @@ model GuestStay {
   noShowAt              DateTime?           @map("no_show_at")
   noShowById            String?             @map("no_show_by_id")
   noShowReason          String?             @map("no_show_reason")
+  /// El código que el recepcionista teclea en la tableta. Seis caracteres.
+  ///
+  /// 🔴 Único POR PROPIEDAD, no globalmente. Dos hoteles pueden tener el mismo
+  /// código sin estorbarse porque la búsqueda va acotada a la propiedad de
+  /// quien pregunta — y esa acotación es, además, lo que impide leer reservas
+  /// de otro hotel probando códigos.
+  ///
+  /// Nullable: las estancias anteriores no lo tienen y no deben romperse. Se
+  /// les asigna cuando haga falta.
+  shortCode             String?             @map("short_code")
+
   /// La IP desde la que se hizo la reserva. Evidencia `customer_purchase_ip`.
   ///
   /// 🔴 Se guarda para GANAR CONTRACARGOS, no para perfilar a nadie. Stripe la
@@ -2033,6 +2044,7 @@ model GuestStay {
   @@index([propertyId, scheduledCheckout, actualCheckout])
   @@map("guest_stays")
   registrationRecord  RegistrationRecord?
+  @@unique([propertyId, shortCode])
 }
 
 // ====== MIGRATION-CORE / Zenix Onboard (Sprint 0, 2026-06-13) ================

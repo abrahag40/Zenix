@@ -15,6 +15,11 @@ import { RegistroDePasarelas } from './pago/pasarelas/registro-de-pasarelas.serv
 import { ExpedienteDeContracargoService } from './contracargos/expediente-de-contracargo.service'
 import { ContracargoListener } from './contracargos/contracargo.listener'
 import { CartaDeRegistroService } from './contracargos/carta-de-registro.service'
+import { RecepcionService } from './recepcion/recepcion.service'
+import { RecepcionController } from './recepcion/recepcion.controller'
+import { FirmarCartaService } from './recepcion/firmar-carta.service'
+import { UploadsModule } from '../uploads/uploads.module'
+import { TenantContextService } from '../common/tenant-context.service'
 import { BillingModule } from '../billing/billing.module'
 import { BookingEngineConfigService } from './booking-engine-config.service'
 import { PublicReservationsService } from './public-reservations.service'
@@ -34,8 +39,8 @@ import { WebhookSubscriptionService } from './webhooks/webhook-subscription.serv
  * B3: webhooks outbound (dispatcher + listener de eventos de dominio + retry cron).
  */
 @Module({
-  imports: [NotificationsModule, BillingModule],
-  controllers: [PublicBookingController, BookingEngineManagementController],
+  imports: [NotificationsModule, BillingModule, UploadsModule],
+  controllers: [RecepcionController, PublicBookingController, BookingEngineManagementController],
   providers: [
     PublicBookingService,
     PublicPricingService,
@@ -50,6 +55,9 @@ import { WebhookSubscriptionService } from './webhooks/webhook-subscription.serv
     ExpedienteDeContracargoService,
     ContracargoListener,
     CartaDeRegistroService,
+    RecepcionService,
+    FirmarCartaService,
+    TenantContextService,
     BookingEngineConfigService,
     PublicReservationsService,
     BookingApiKeyService,

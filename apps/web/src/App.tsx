@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react'
 import InvitacionPage from './pages/InvitacionPage'
+import RecepcionRegistroPage from './pages/RecepcionRegistroPage'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 // Sprint CHANNEX-UX-E2-E3 — single toast lib (Sonner bottom-right richColors).
@@ -145,6 +146,8 @@ export default function App() {
           <Route path="/setup/:token" element={<SetupPage />} />
           {/* El alta del PERSONAL del hotel. Hermana de /setup, otro endpoint. */}
           <Route path="/invitacion/:token" element={<InvitacionPage />} />
+          {/* La tableta de recepcion. Requiere sesion de personal. */}
+          <Route path="/recepcion/registro" element={<RecepcionRegistroPage />} />
           {/* AUTO-CHECKIN — mini web-app pública del huésped (pre-arrival) */}
           <Route path="/precheckin/:token" element={<PrecheckinPage />} />
           {/* BOOKING-ENGINE B5 — hosted page pública del huésped (book.zenix.com/{slug}) */}
